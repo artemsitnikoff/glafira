@@ -776,7 +776,6 @@
           "applications"
         ],
         "summary": "Get Applications For Vacancy Funnel",
-        "description": "Get applications for vacancy with filters and pagination",
         "operationId": "get_applications_for_vacancy_funnel_api_v1_vacancies__vacancy_id__applications_get",
         "security": [
           {
@@ -965,14 +964,101 @@
         }
       }
     },
+    "/api/v1/applications/bulk/move": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Bulk Move Applications Endpoint",
+        "operationId": "bulk_move_applications_endpoint_api_v1_applications_bulk_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/applications/bulk/reject": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Bulk Reject Applications Endpoint",
+        "operationId": "bulk_reject_applications_endpoint_api_v1_applications_bulk_reject_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkRejectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/applications/{application_id}/move": {
       "post": {
         "tags": [
           "applications"
         ],
-        "summary": "Move Application To Stage",
-        "description": "Move application to another stage",
-        "operationId": "move_application_to_stage_api_v1_applications__application_id__move_post",
+        "summary": "Move Application Endpoint",
+        "operationId": "move_application_endpoint_api_v1_applications__application_id__move_post",
         "security": [
           {
             "HTTPBearer": []
@@ -1005,11 +1091,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Move Application To Stage Api V1 Applications  Application Id  Move Post"
-                }
+                "schema": {}
               }
             }
           },
@@ -1031,9 +1113,8 @@
         "tags": [
           "applications"
         ],
-        "summary": "Reject Application By Id",
-        "description": "Reject application",
-        "operationId": "reject_application_by_id_api_v1_applications__application_id__reject_post",
+        "summary": "Reject Application Endpoint",
+        "operationId": "reject_application_endpoint_api_v1_applications__application_id__reject_post",
         "security": [
           {
             "HTTPBearer": []
@@ -1066,11 +1147,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Reject Application By Id Api V1 Applications  Application Id  Reject Post"
-                }
+                "schema": {}
               }
             }
           },
@@ -1092,9 +1169,8 @@
         "tags": [
           "applications"
         ],
-        "summary": "Restore Application By Id",
-        "description": "Restore application from rejected state",
-        "operationId": "restore_application_by_id_api_v1_applications__application_id__restore_post",
+        "summary": "Restore Application Endpoint",
+        "operationId": "restore_application_endpoint_api_v1_applications__application_id__restore_post",
         "security": [
           {
             "HTTPBearer": []
@@ -1117,11 +1193,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Restore Application By Id Api V1 Applications  Application Id  Restore Post"
-                }
+                "schema": {}
               }
             }
           },
@@ -1138,111 +1210,12 @@
         }
       }
     },
-    "/api/v1/applications/bulk/move": {
-      "post": {
-        "tags": [
-          "applications"
-        ],
-        "summary": "Bulk Move Applications To Stage",
-        "description": "Move multiple applications to a stage",
-        "operationId": "bulk_move_applications_to_stage_api_v1_applications_bulk_move_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkMoveRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Bulk Move Applications To Stage Api V1 Applications Bulk Move Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/applications/bulk/reject": {
-      "post": {
-        "tags": [
-          "applications"
-        ],
-        "summary": "Bulk Reject Applications By Ids",
-        "description": "Reject multiple applications",
-        "operationId": "bulk_reject_applications_by_ids_api_v1_applications_bulk_reject_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkRejectRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Bulk Reject Applications By Ids Api V1 Applications Bulk Reject Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
     "/api/v1/applications/{application_id}/history": {
       "get": {
         "tags": [
           "applications"
         ],
         "summary": "Get Application Stage History",
-        "description": "Get stage history for application",
         "operationId": "get_application_stage_history_api_v1_applications__application_id__history_get",
         "security": [
           {
@@ -2371,25 +2344,11 @@
           "id",
           "name",
           "sort_order",
-          "client_id",
-          "client_name",
-          "city",
-          "deadline",
           "positions_count",
-          "department",
-          "employment_type",
           "is_confidential",
-          "salary_from",
-          "salary_to",
           "currency",
-          "description",
           "status",
           "glafira_mode",
-          "responsible_user_id",
-          "responsible_user",
-          "team",
-          "external_source",
-          "external_url",
           "created_at"
         ],
         "title": "VacancyDetail"
