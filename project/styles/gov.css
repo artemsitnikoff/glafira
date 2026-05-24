@@ -1,0 +1,926 @@
+/* ==========================================================================
+   GOV-ветка — кадровый резерв (минимальные стилевые добавки)
+   ========================================================================== */
+
+/* ---- Readiness badge (индекс готовности) ---- */
+.gov-ready {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+.gov-ready-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex: none;
+}
+.gov-ready-md { padding: 4px 9px; font-size: 12px; }
+.gov-ready-sm { padding: 2px 7px; font-size: 11px; gap: 4px; }
+.gov-ready-sm .gov-ready-dot { width: 6px; height: 6px; }
+.gov-ready-lg {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+}
+.gov-ready-lg .gov-ready-dot { width: 10px; height: 10px; }
+
+/* ---- Clearance pill (допуск к гос. тайне) ---- */
+.gov-clear {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #ECEFF2;
+  color: var(--fg-2);
+}
+.gov-clear-on {
+  background: #EAF3FE;
+  color: #1865BE;
+}
+.gov-clear-none {
+  background: #F4F6F8;
+  color: var(--fg-3);
+}
+
+/* ---- Gov org chip ---- */
+.gov-org-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #F4F6F8;
+  color: var(--fg-1);
+}
+.gov-org-chip .gov-org-icon {
+  display: inline-flex;
+  color: #1865BE;
+  flex: none;
+}
+.gov-org-md {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+/* ---- Mini doc status (карточка списка) ---- */
+.gov-mini {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.gov-mini.on  { color: #128640; }
+.gov-mini.off { color: #B5821A; }
+
+/* ---- Generic gov-pill ---- */
+.gov-pill {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+.gov-pill-ok   { background: #DEF5E5; color: #128640; }
+.gov-pill-warn { background: #FFF1C8; color: #8C6710; }
+.gov-pill-red  { background: #FCE3E3; color: #9C2424; }
+
+/* ==========================================================================
+   Карточка резервиста в сетке
+   ========================================================================== */
+.gov-card .pc-name-wrap { min-width: 0; }
+.gov-card-row {
+  display: flex; align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg-2);
+  margin-top: 8px;
+}
+.gov-card-row .sep { color: var(--fg-3); }
+.gov-card-row b { color: var(--fg-1); font-weight: 600; }
+.gov-card-row-muted {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.gov-card-bottom {
+  display: flex; flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.gov-card-mini-row {
+  display: flex; align-items: center; gap: 12px;
+}
+.gov-status-flag {
+  position: absolute;
+  top: 12px; right: 12px;
+  font-size: 10px;
+  background: #FFF1C8;
+  color: #8C6710;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pool-card.gov-card { position: relative; }
+
+/* ==========================================================================
+   Карточка резервиста (full page)
+   ========================================================================== */
+.gov-cfp .cfp-back-row { padding: 12px 24px 0; }
+
+.gov-rh {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 32px;
+  padding: 20px 24px 16px;
+  background: #FFFFFF;
+  border-bottom: 1px solid var(--border-1);
+}
+.gov-rh-left {
+  display: flex; gap: 16px; min-width: 0;
+}
+.gov-rh-id { min-width: 0; }
+.gov-rh-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg-1);
+  letter-spacing: -0.01em;
+}
+.gov-rh-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+.gov-rh-position {
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--fg-1);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  min-width: 0;
+}
+.gov-rh-position .sep { color: var(--fg-3); }
+.gov-rh-position .t-clip { color: var(--fg-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gov-rh-org-row {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.gov-rh-decree {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.gov-rh-right {
+  display: flex; flex-direction: column;
+  gap: 12px;
+}
+.gov-rh-stat {
+  background: #F8F9FB;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.gov-rh-stat-row {
+  display: flex; justify-content: space-between;
+  padding: 5px 0;
+  gap: 12px;
+  border-bottom: 1px dashed var(--border-1);
+  align-items: center;
+}
+.gov-rh-stat-row:last-child { border-bottom: 0; }
+.gov-rh-stat-row .lbl { color: var(--fg-3); flex: none; }
+.gov-rh-stat-row .val {
+  color: var(--fg-1);
+  text-align: right;
+  display: flex; align-items: center; gap: 4px; justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.gov-rh-left {
+  color: var(--fg-3);
+  font-size: 11px;
+}
+.gov-rh-note {
+  color: var(--fg-3);
+  font-size: 11px;
+}
+
+.gov-rh-contacts {
+  display: flex; align-items: center; gap: 18px;
+  padding: 12px 24px;
+  background: #FFFFFF;
+  border-bottom: 1px solid var(--border-1);
+  font-size: 13px;
+  color: var(--fg-2);
+  flex-wrap: wrap;
+}
+.gov-rc-item {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.gov-rc-mess {
+  display: inline-flex; gap: 6px;
+}
+
+/* ==========================================================================
+   Табы
+   ========================================================================== */
+.gov-tabs {
+  padding: 0 24px;
+  background: #FFFFFF;
+  border-bottom: 1px solid var(--border-1);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.gov-tabs .cc-tab {
+  position: relative;
+}
+.gov-tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  height: 16px;
+  line-height: 16px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #ECEFF2;
+  color: var(--fg-2);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+.cc-tab.active .gov-tab-count { background: #EAF3FE; color: #1865BE; }
+
+.gov-tab-content {
+  padding: 20px 24px 40px;
+  background: #F8F9FB;
+  min-height: calc(100vh - 360px);
+}
+
+/* ==========================================================================
+   Блоки (Анкета, Соответствие, и т. п.)
+   ========================================================================== */
+.gov-anketa,
+.gov-match,
+.gov-docs,
+.gov-history,
+.gov-reuse {
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex; flex-direction: column;
+  gap: 16px;
+}
+
+.gov-block {
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gov-block-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-1);
+  display: flex; align-items: baseline; gap: 12px;
+  background: #FBFCFD;
+}
+.gov-block-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0;
+}
+.gov-block-sub {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.gov-block-body { padding: 14px 16px; }
+
+.gov-kv {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  padding: 6px 0;
+  font-size: 13px;
+  align-items: baseline;
+}
+.gov-kv-k {
+  color: var(--fg-3);
+  font-size: 12px;
+}
+.gov-kv-v {
+  color: var(--fg-1);
+}
+
+/* Образование */
+.gov-edu-item { padding: 6px 0; }
+.gov-edu-line { font-size: 13px; color: var(--fg-1); }
+.gov-edu-extra { color: var(--fg-2); }
+.gov-edu-sub { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
+
+/* Опыт гос. службы */
+.gov-svc { display: flex; flex-direction: column; gap: 14px; position: relative; }
+.gov-svc::before {
+  content: '';
+  position: absolute;
+  left: 5px; top: 6px; bottom: 6px;
+  width: 1px;
+  background: var(--border-1);
+}
+.gov-svc-row {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 14px;
+  position: relative;
+}
+.gov-svc-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--ark-gray-400);
+  border: 2px solid #fff;
+  outline: 1px solid var(--border-1);
+  margin-top: 4px;
+  z-index: 1;
+}
+.gov-svc-dot[data-level="f"] { background: #2A8AF0; outline-color: #2A8AF0; }
+.gov-svc-dot[data-level="r"] { background: #16A34A; outline-color: #16A34A; }
+.gov-svc-dot[data-level="m"] { background: #E0A21A; outline-color: #E0A21A; }
+.gov-svc-top { display: flex; align-items: center; gap: 10px; }
+.gov-svc-years { font-size: 12px; color: var(--fg-3); }
+.gov-svc-level {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px; border-radius: 3px;
+}
+.gov-svc-level[data-level="f"] { background: #EAF3FE; color: #1865BE; }
+.gov-svc-level[data-level="r"] { background: #DEF5E5; color: #128640; }
+.gov-svc-level[data-level="m"] { background: #FFF1C8; color: #8C6710; }
+.gov-svc-org { font-size: 13px; font-weight: 600; color: var(--fg-1); margin-top: 2px; }
+.gov-svc-pos { font-size: 12px; color: var(--fg-2); }
+
+/* Классные чины */
+.gov-rank-current {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+  padding: 4px 10px;
+  background: #FFF8E1;
+  border-radius: 6px;
+  color: #8C6710;
+}
+.gov-rank-current svg { color: #E0A21A; }
+.gov-rank-meta { font-size: 11px; color: var(--fg-3); margin-top: 6px; }
+
+/* ==========================================================================
+   Соответствие требованиям
+   ========================================================================== */
+.gov-match-head { padding: 0 4px; }
+.gov-match-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.gov-match-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.gov-match-grid {
+  display: flex; flex-direction: column;
+  gap: 1px;
+  background: var(--border-1);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gov-match-row {
+  background: #fff;
+  display: grid;
+  grid-template-columns: 220px 220px 1fr;
+  gap: 16px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.gov-match-row.current { background: #FBFCFD; }
+.gov-match-grp {
+  font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.gov-match-current {
+  font-size: 10px;
+  background: #EAF3FE;
+  color: #1865BE;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.gov-match-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.gov-match-row.on  .gov-match-status { color: #128640; }
+.gov-match-row.off .gov-match-status { color: #9AA3AE; }
+.gov-match-meta { font-size: 12px; color: var(--fg-3); }
+
+.gov-match-foot { padding: 4px; margin-top: 4px; }
+.gov-match-foot-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-2);
+  margin-bottom: 10px;
+}
+.gov-match-cats { display: flex; flex-wrap: wrap; gap: 8px; }
+.gov-match-cat {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #F4F6F8;
+  color: var(--fg-3);
+  border: 1px solid var(--border-1);
+}
+.gov-match-cat.on {
+  background: #DEF5E5;
+  color: #128640;
+  border-color: #B8E0C5;
+}
+
+/* ==========================================================================
+   Документы
+   ========================================================================== */
+.gov-docs-controls {
+  display: flex; align-items: center; gap: 8px;
+}
+.gov-docs-list {
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gov-doc-row {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-1);
+  align-items: center;
+}
+.gov-doc-row:last-child { border-bottom: 0; }
+.gov-doc-icon {
+  width: 40px; height: 40px;
+  border-radius: 6px;
+  background: #EAF3FE;
+  color: #1865BE;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex: none;
+}
+.gov-doc-icon[data-kind="declaration"] { background: #FFF1C8; color: #8C6710; }
+.gov-doc-icon[data-kind="criminal"]    { background: #FCE3E3; color: #9C2424; }
+.gov-doc-icon[data-kind="clearance"]   { background: #ECE7FE; color: #5A3FDD; }
+.gov-doc-icon[data-kind="qual"]        { background: #DEF5E5; color: #128640; }
+.gov-doc-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-1);
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.gov-doc-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--fg-3);
+  display: flex; gap: 6px; align-items: center;
+}
+.gov-doc-meta .sep { color: var(--border-1); }
+.gov-doc-actions { display: flex; gap: 4px; }
+
+/* ==========================================================================
+   История назначений
+   ========================================================================== */
+.gov-h-head { padding: 0 4px; }
+.gov-h-title { font-size: 16px; font-weight: 600; }
+.gov-h-sub { margin-top: 4px; font-size: 12px; color: var(--fg-3); }
+.gov-h-list {
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gov-h-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 140px;
+  gap: 14px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-1);
+  align-items: start;
+}
+.gov-h-row:last-child { border-bottom: 0; }
+.gov-h-date { font-size: 12px; color: var(--fg-3); padding-top: 2px; }
+.gov-h-vac {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.gov-h-meta {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+}
+.gov-h-note { font-size: 12px; color: var(--fg-3); }
+.gov-h-pill {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.gov-h-pill.gov-h-prog  { background: #EAF3FE; color: #1865BE; }
+.gov-h-pill.gov-h-agree { background: #DEF5E5; color: #128640; }
+.gov-h-pill.gov-h-app   { background: #DEF5E5; color: #128640; font-weight: 600; }
+.gov-h-pill.gov-h-decl  { background: #FCE3E3; color: #9C2424; }
+.gov-h-pill.gov-h-not   { background: #F4F6F8; color: var(--fg-3); }
+.gov-h-status { display: flex; justify-content: flex-end; }
+
+.gov-h-empty {
+  padding: 48px 24px;
+  text-align: center;
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+}
+.gov-h-empty h3 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  color: var(--fg-1);
+  font-weight: 600;
+}
+.gov-h-empty p {
+  font-size: 12px;
+  color: var(--fg-3);
+  margin: 0;
+}
+
+/* ==========================================================================
+   Host frame для переиспользуемых модулей (verify / chat / comments / actions)
+   ========================================================================== */
+.gov-host-frame {
+  max-width: none;
+  margin: 0;
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gov-host-bar {
+  display: flex; align-items: start; gap: 12px;
+  padding: 12px 16px;
+  background: #EAF3FE;
+  border-bottom: 1px solid #B6D7F7;
+}
+.gov-host-bar-ico {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  background: #FFFFFF;
+  color: #1865BE;
+  display: flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.gov-host-bar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1865BE;
+}
+.gov-host-bar-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #1865BE;
+  opacity: .8;
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   Reuse module stubs
+   ========================================================================== */
+.gov-reuse {
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 48px 24px;
+  text-align: center;
+  max-width: 600px;
+  align-items: center;
+}
+.gov-reuse-icon {
+  width: 56px; height: 56px;
+  border-radius: 12px;
+  background: #EAF3FE;
+  color: #1865BE;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto;
+}
+.gov-reuse-title {
+  margin: 8px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.gov-reuse-desc, .gov-reuse-extra {
+  font-size: 13px;
+  color: var(--fg-2);
+  max-width: 480px;
+  margin: 4px 0;
+  line-height: 1.5;
+}
+.gov-reuse-extra { color: var(--fg-3); font-size: 12px; }
+
+/* ==========================================================================
+   Кнопка «Подобрать из кадрового резерва» в шапке вакансии
+   ========================================================================== */
+.gov-reserve-btn-host { display: inline-flex; }
+.btn-gov {
+  background: #FFFFFF;
+  color: #1865BE;
+  border: 1px solid #B6D7F7;
+  display: inline-flex; align-items: center; gap: 7px;
+  font-weight: 500;
+}
+.btn-gov:hover {
+  background: #EAF3FE;
+  border-color: #7AB4F5;
+}
+.btn-gov .gov-btn-ico { display: inline-flex; }
+
+/* ==========================================================================
+   Modal: подбор из резерва
+   ========================================================================== */
+.gov-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15, 22, 32, .4);
+  z-index: 200;
+  animation: govFade 160ms ease-out;
+}
+.gov-modal {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 820px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  background: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 22, 32, .12);
+  z-index: 201;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: govSlide 200ms cubic-bezier(.2,.8,.2,1);
+}
+@keyframes govFade  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes govSlide { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+
+.gov-modal-head {
+  padding: 18px 20px;
+  display: flex; align-items: start; justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border-1);
+}
+.gov-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-1);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.gov-modal-ico {
+  width: 28px; height: 28px;
+  background: #EAF3FE;
+  color: #1865BE;
+  border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.gov-modal-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* ---- Loading ---- */
+.gov-modal-loading {
+  padding: 36px 32px 32px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px;
+}
+.gov-loader-orb {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: #EAF3FE;
+  border: 2px solid #7AB4F5;
+  color: #2A8AF0;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.gov-loader-pulse {
+  position: absolute; inset: -2px;
+  border-radius: 50%;
+  border: 2px solid #2A8AF0;
+  animation: govPulse 1.6s ease-out infinite;
+  opacity: 0;
+}
+@keyframes govPulse {
+  0% { transform: scale(1); opacity: .6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.gov-loader-text { text-align: center; }
+.gov-loader-title { font-size: 14px; font-weight: 600; color: var(--fg-1); }
+.gov-loader-sub { margin-top: 4px; font-size: 12px; color: var(--fg-3); }
+.gov-loader-bar {
+  width: 360px; max-width: 100%;
+  height: 4px;
+  background: #ECEFF2;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.gov-loader-bar-fill {
+  height: 100%;
+  background: #2A8AF0;
+  transition: width 60ms linear;
+}
+.gov-loader-criteria {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+}
+.gov-loader-crit-item { transition: color 200ms; }
+
+/* ---- Results ---- */
+.gov-modal-glaf {
+  background: #FBFCFD;
+  border-bottom: 1px solid var(--border-1);
+  padding: 12px 20px;
+  display: flex; gap: 12px;
+  align-items: start;
+}
+.gov-modal-glaf-ico {
+  width: 28px; height: 28px;
+  background: #FFFFFF;
+  border: 1px solid var(--border-1);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.gov-modal-glaf-text {
+  font-size: 13px;
+  color: var(--fg-1);
+  line-height: 1.45;
+}
+
+.gov-modal-filter {
+  display: flex; align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-1);
+  flex-wrap: wrap;
+}
+.gov-modal-filter-lbl {
+  font-size: 12px;
+  color: var(--fg-3);
+  margin-right: 4px;
+}
+
+.gov-modal-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.gov-match-card {
+  display: grid;
+  grid-template-columns: 32px 34px 1fr auto;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-1);
+  background: #FFFFFF;
+  cursor: pointer;
+  transition: background 120ms;
+  align-items: start;
+  position: relative;
+}
+.gov-match-card:hover { background: #F8F9FB; }
+.gov-match-card.sel {
+  background: #EAF3FE;
+  border-color: #7AB4F5;
+}
+.gov-match-card.added {
+  opacity: .65;
+  cursor: not-allowed;
+}
+.gov-mc-check {
+  display: flex; align-items: center; justify-content: center;
+  padding-top: 4px;
+}
+.gov-mc-check input { width: 16px; height: 16px; cursor: pointer; }
+.gov-mc-main { min-width: 0; }
+.gov-mc-top {
+  display: flex; align-items: center;
+  gap: 10px;
+}
+.gov-mc-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.gov-mc-score {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #128640;
+  font-family: var(--font-mono);
+  background: #DEF5E5;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.gov-mc-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.gov-mc-sub b { color: var(--fg-1); }
+.gov-mc-org {
+  margin-top: 6px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.gov-mc-pos {
+  font-size: 12px;
+  color: var(--fg-3);
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gov-mc-reasons {
+  margin-top: 8px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.gov-mc-reason {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.gov-mc-reason.plus { background: #DEF5E5; color: #128640; }
+.gov-mc-reason.warn { background: #FFF1C8; color: #8C6710; }
+
+.gov-mc-added {
+  position: absolute;
+  top: 12px; right: 12px;
+  font-size: 11px;
+  background: #DEF5E5;
+  color: #128640;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.gov-modal-foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-1);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  background: #FBFCFD;
+}
+.gov-modal-foot-info {
+  font-size: 12px;
+  color: var(--fg-2);
+  flex: 1;
+  min-width: 0;
+}
+.gov-modal-foot-info b { color: var(--fg-1); }
+.gov-modal-foot-actions {
+  display: flex; gap: 8px;
+}
+
+/* ==========================================================================
+   Утилиты
+   ========================================================================== */
+.t-muted { color: var(--fg-3); }
+.t-clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Grid override — компактнее карточки в гос-сетке */
+.cp-grid.gov-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}

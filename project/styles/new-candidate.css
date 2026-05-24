@@ -1,0 +1,182 @@
+/* New Candidate form — переиспользует .nv-* стили */
+
+.nc-head {
+  display: flex; align-items: stretch; gap: 14px;
+  margin-bottom: 4px;
+}
+.nc-avatar {
+  position: relative;
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: var(--ark-blue-50);
+  color: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.nc-avatar-cam {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 22px; height: 22px;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.nc-drop {
+  flex: 1;
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  border: 1.5px dashed var(--ark-blue-200, #B7D4FB);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #F4F9FF 0%, #EAF2FE 100%);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.nc-drop:hover { background: #E5EFFE; border-color: var(--accent); }
+.nc-drop-icon { color: var(--accent); flex: none; }
+.nc-drop-text {
+  display: inline-flex; flex-wrap: wrap; align-items: baseline;
+  column-gap: 8px; row-gap: 2px;
+  font-size: 13px;
+  color: var(--fg-1);
+  line-height: 1.4;
+}
+.nc-drop-title { font-weight: 500; }
+.nc-drop-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+}
+.nc-drop-fmt {
+  font-size: 11px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Импорт Excel — компактный сайд-чип справа от дроп-зоны */
+.nc-xls {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  cursor: pointer;
+  flex: none;
+  min-width: 180px;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.nc-xls:hover {
+  border-color: var(--ark-green-500, #22A06B);
+  background: var(--ark-green-50, #EAF7EF);
+}
+.nc-xls-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--ark-green-50, #EAF7EF);
+  color: var(--ark-green-600, #1F8A5B);
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.nc-xls-text { display: flex; flex-direction: column; gap: 1px; }
+.nc-xls-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-1);
+  letter-spacing: -0.005em;
+}
+.nc-xls-sub {
+  font-size: 11px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+}
+
+/* Phone with flag */
+.nc-phone {
+  display: flex; align-items: stretch; gap: 6px;
+}
+.nc-phone-flag {
+  width: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  font-size: 18px;
+  flex: none;
+}
+.nc-phone .nv-input { flex: 1; }
+
+/* Salary group */
+.nc-salary {
+  display: grid; grid-template-columns: 1fr 100px;
+  gap: 6px;
+}
+
+/* Social select */
+.nc-social {
+  display: grid; grid-template-columns: 200px 1fr;
+  gap: 6px;
+}
+
+/* Generic dropdown — крупная версия (для full-form) */
+.nv-dd { position: relative; }
+.nv-dd-trigger {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.nv-dd-trigger:hover { border-color: var(--border-strong); }
+.nv-dd.open .nv-dd-trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(42,138,240,.18);
+}
+.nv-dd-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-dd-name.ph { color: var(--fg-3); }
+
+.nv-dd-backdrop {
+  position: fixed; inset: 0;
+  z-index: 40;
+}
+.nv-dd-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  z-index: 41;
+  min-width: 100%;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px -8px rgba(15,23,42,.18), 0 2px 6px rgba(15,23,42,.08);
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: 280px; overflow-y: auto;
+}
+.nv-dd-opt {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-1);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.nv-dd-opt:hover { background: var(--ark-gray-100, #F4F5F7); }
+.nv-dd-opt.sel { background: var(--ark-blue-50); color: var(--accent); }
+.nv-dd-check { margin-left: auto; color: var(--accent); }
+
+.btn.is-disabled,
+.btn:disabled { opacity: .5; pointer-events: none; }

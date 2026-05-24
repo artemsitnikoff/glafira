@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<title>Глафира — Рекрутинг CRM</title>
+<link rel="stylesheet" href="styles/tokens.css"/>
+<link rel="stylesheet" href="styles/app.css"/>
+<link rel="stylesheet" href="styles/analytics.css"/>
+<link rel="stylesheet" href="styles/settings.css"/>
+<link rel="stylesheet" href="styles/pulse.css"/>
+<link rel="stylesheet" href="styles/new-vacancy.css"/>
+<link rel="stylesheet" href="styles/new-candidate.css"/>
+</head>
+<body>
+<template id="__bundler_thumbnail">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <rect width="200" height="200" fill="#EAF3FE"/>
+  <rect x="55" y="55" width="90" height="90" rx="20" fill="#2A8AF0"/>
+  <text x="100" y="125" text-anchor="middle" font-family="Inter,sans-serif" font-weight="700" font-size="60" fill="#fff">А</text>
+</svg>
+</template>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="components/primitives.jsx"></script>
+<script type="text/babel" src="components/Sidebar.jsx"></script>
+<script type="text/babel" src="components/Home.jsx"></script>
+<script type="text/babel" src="components/Vacancies.jsx"></script>
+<script type="text/babel" src="components/Candidates.jsx"></script>
+<script type="text/babel" src="components/CandidatesPool.jsx"></script>
+<script type="text/babel" src="components/AnalyticsCharts.jsx"></script>
+<script type="text/babel" src="components/AnalyticsReports.jsx"></script>
+<script type="text/babel" src="components/Analytics.jsx"></script>
+<script type="text/babel" src="components/Settings.jsx"></script>
+<script type="text/babel" src="components/NewVacancy.jsx"></script>
+<script type="text/babel" src="components/NewCandidate.jsx"></script>
+<script type="text/babel" src="components/PulseData.jsx"></script>
+<script type="text/babel" src="components/PulseMain.jsx"></script>
+<script type="text/babel" src="components/PulseDetail.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "greeting": false,
+  "kpiExtended": false,
+  "showSources": true,
+  "defaultSelected": "vacancy",
+  "compactSidebar": true,
+  "hasBitrix": true
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [active, setActive] = useState('home');                    // sidebar selection
+  const [vacancyId, setVacancyId] = useState(null);                // selected vacancy
+  const [archiveActive, setArchiveActive] = useState(false);
+  const [creatingVacancy, setCreatingVacancy] = useState(false);   // new vacancy flow
+  const [editingVacancy, setEditingVacancy] = useState(null);      // editing existing vacancy (id)
+  const [creatingCandidate, setCreatingCandidate] = useState(false); // new candidate flow
+  const [candidateId, setCandidateId] = useState(null);             // open candidate inside vacancy
+  const [poolCandidateId, setPoolCandidateId] = useState(null);    // open candidate inside pool
+
+  // Settings state
+  const [settingsSection, setSettingsSection] = useState('profile');
+
+  // Analytics state
+  const [analyticsReportId, setAnalyticsReportId] = useState('overview');
+  const [analyticsPeriod, setAnalyticsPeriod] = useState('month');
+  const [analyticsScope, setAnalyticsScope] = useState('all');
+  const [analyticsOpen, setAnalyticsOpen] = useState(true);
+
+  // Pulse-Onboarding state
+  const [pulseTab, setPulseTab] = useState('overview'); // overview | employees | alerts | surveys
+  const [pulseEmpId, setPulseEmpId] = useState(null);
+  const [pulsePeriod, setPulsePeriod] = useState('month');
+  const [pulseSegment, setPulseSegment] = useState('all');
+
+  // When user enters Vacancies, restore last selection (or pick default per tweak)
+  useEffect(() => {
+    if (active === 'vacancies' && !vacancyId && !archiveActive) {
+      if (tweaks.defaultSelected === 'vacancy') {
+        setVacancyId('fe');
+      } else if (tweaks.defaultSelected === 'archive') {
+        setArchiveActive(true);
+      }
+    }
+  }, [active]); // eslint-disable-line
+
+  const navTitle = {
+    home: 'Главная', vacancies: 'Вакансии', candidates: 'Кандидаты',
+    analytics: 'Аналитика', pulse: 'Пульс-Онбординг', settings: 'Настройки',
+  }[active];
+
+  const [vacanciesOpen, setVacanciesOpen] = useState(true);
+
+  const onNavigate = (id) => {
+    setActive(id);
+  };
+  const onToggleVacancies = () => {
+    if (active !== 'vacancies') {
+      setActive('vacancies');
+      setVacanciesOpen(true);
+    } else {
+      setVacanciesOpen(o => !o);
+    }
+  };
+
+  const onToggleAnalytics = () => {
+    if (active !== 'analytics') {
+      setActive('analytics');
+      setAnalyticsOpen(true);
+    } else {
+      setAnalyticsOpen(o => !o);
+    }
+  };
+
+  const onSelectAnalyticsReport = (id) => {
+    setActive('analytics');
+    setAnalyticsOpen(true);
+    setAnalyticsReportId(id);
+  };
+
+  const onSelectVacancy = (id) => {
+    setActive('vacancies');
+    setVacanciesOpen(true);
+    setVacancyId(id);
+    setArchiveActive(false);
+    setCandidateId(null);
+    setCreatingVacancy(false);
+  };
+  const onArchive = () => {
+    setActive('vacancies');
+    setVacanciesOpen(true);
+    setArchiveActive(true);
+    setCreatingVacancy(false);
+  };
+
+  let content;
+  if (active === 'home') {
+    content = <Home tweaks={tweaks}/>;
+  } else if (active === 'vacancies') {
+    if (creatingCandidate) content = (
+      <NewCandidate
+        vacancyId={vacancyId || 'rm'}
+        onClose={() => setCreatingCandidate(false)}
+        onCreated={() => setCreatingCandidate(false)}
+      />
+    );
+    else if (creatingVacancy) content = (
+      <NewVacancy
+        onClose={() => setCreatingVacancy(false)}
+        onCreated={() => { setCreatingVacancy(false); setVacancyId('fe'); }}
+      />
+    );
+    else if (editingVacancy) content = (
+      <NewVacancy
+        editMode
+        initial={{
+          desc: {
+            title: 'Frontend-разработчик (Senior)',
+            city: 'Москва',
+            deadline: '2026-05-30',
+            positions: 2,
+            dept: 'Engineering',
+            empType: 'full',
+            confidential: false,
+            salaryFrom: '280000',
+            salaryTo: '380000',
+            body: 'Разработка и развитие клиентской части продукта на React/TypeScript. Работа с командой дизайнеров и бэкенд-разработчиков. Покрытие критичных сценариев тестами, ревью кода коллег.',
+          },
+          team: ['u1','u3','u7'],
+          auto: {
+            autoMove: true, autoMoveStage: 3, autoMoveThreshold: 85,
+            autoQA: true, autoQAFromStage: 1, autoQAToStage: 2,
+            autoReject: false,
+          },
+        }}
+        onClose={() => setEditingVacancy(null)}
+        onCreated={() => setEditingVacancy(null)}
+      />
+    );
+    else if (archiveActive) content = <Archive/>;
+    else if (vacancyId) content = (
+      <CandidatesList
+        vacancyId={vacancyId}
+        candidateId={candidateId}
+        onOpenCandidate={setCandidateId}
+        onCloseCandidate={() => setCandidateId(null)}
+        onBack={() => { setCandidateId(null); setVacancyId(null); }}
+        onAddCandidate={() => setCreatingCandidate(true)}
+        onEditVacancy={() => setEditingVacancy(vacancyId)}
+      />
+    );
+    else content = <EmptyVacancyPane/>;
+  } else if (active === 'candidates') {
+    if (poolCandidateId) {
+      content = (
+        <CandidateFullPage
+          candidateId={poolCandidateId}
+          onBack={() => setPoolCandidateId(null)}
+        />
+      );
+    } else {
+      content = <CandidatesPool onOpen={setPoolCandidateId} onAddCandidate={() => { setCreatingCandidate(true); setActive('vacancies'); setVacanciesOpen(true); }}/>;
+    }
+  } else if (active === 'settings') {
+    content = (
+      <Settings
+        section={settingsSection}
+        onSectionChange={setSettingsSection}
+        isAdmin={true}
+        hasBitrix={tweaks.hasBitrix !== false}
+      />
+    );
+  } else if (active === 'analytics') {
+    content = (
+      <Analytics
+        reportId={analyticsReportId}
+        period={analyticsPeriod}
+        scope={analyticsScope}
+        onPeriodChange={setAnalyticsPeriod}
+        onScopeChange={setAnalyticsScope}
+        onReportChange={onSelectAnalyticsReport}
+        hasBitrix={tweaks.hasBitrix !== false}
+      />
+    );
+  } else if (active === 'pulse') {
+    const alertCount = window.PULSE_ALERTS.filter(a => a.status !== 'closed').length;
+    const onOpenEmp = (id) => { setPulseEmpId(id); };
+    let pulseContent;
+    if (pulseEmpId) {
+      pulseContent = <PulseEmployeeCard empId={pulseEmpId} onBack={() => setPulseEmpId(null)}/>;
+    } else if (pulseTab === 'overview') {
+      pulseContent = (
+        <PulseOverview
+          period={pulsePeriod} onPeriod={setPulsePeriod}
+          segment={pulseSegment} onSegment={setPulseSegment}
+          onOpenEmp={onOpenEmp}
+          onOpenAlerts={() => setPulseTab('alerts')}
+        />
+      );
+    } else if (pulseTab === 'employees') {
+      pulseContent = (
+        <PulseEmployees
+          segment={pulseSegment} onSegment={setPulseSegment}
+          onOpenEmp={onOpenEmp}
+        />
+      );
+    } else if (pulseTab === 'alerts') {
+      pulseContent = <PulseAlerts onOpenEmp={onOpenEmp}/>;
+    } else if (pulseTab === 'surveys') {
+      pulseContent = <PulseSurveys/>;
+    }
+    content = (
+      <div className="pulse-wrap">
+        {!pulseEmpId && (
+          <PulseChips active={pulseTab} onChange={(t) => { setPulseTab(t); setPulseEmpId(null); }} alertCount={alertCount}/>
+        )}
+        {pulseContent}
+      </div>
+    );
+  } else {
+    content = (
+      <div className="empty-pane" style={{height:'100%'}}>
+        <div className="empty-illust"><Icon name="sparkle" size={42}/></div>
+        <h3>{navTitle}</h3>
+        <p>Этот раздел спроектируем отдельным ТЗ. Пока что — Главная, Вакансии и Кандидаты.</p>
+      </div>
+    );
+  }
+
+  // Vacancies routing display
+  let crumb = '';
+  if (active === 'vacancies') {
+    if (archiveActive) crumb = ' / Архив';
+    else if (vacancyId) {
+      const v = VACANCIES.find(x => x.id === vacancyId);
+      crumb = v ? ` / ${v.name}` : '';
+      if (candidateId) {
+        const c = CANDIDATES.find(x => x.id === candidateId);
+        if (c) crumb += ` / ${c.name}`;
+      }
+    }
+  }
+
+  return (
+    <div className="app">
+      <div data-screen-label="Sidebar">
+        <Sidebar
+          active={active}
+          onNavigate={onNavigate}
+          vacanciesOpen={vacanciesOpen && active === 'vacancies'}
+          onToggleVacancies={onToggleVacancies}
+          vacancyId={vacancyId}
+          onSelectVacancy={onSelectVacancy}
+          archiveActive={archiveActive}
+          onArchive={onArchive}
+          analyticsOpen={analyticsOpen && active === 'analytics'}
+          onToggleAnalytics={onToggleAnalytics}
+          analyticsReportId={analyticsReportId}
+          onSelectAnalyticsReport={onSelectAnalyticsReport}
+          onCreateVacancy={() => { setActive('vacancies'); setVacanciesOpen(true); setCreatingVacancy(true); setVacancyId(null); setArchiveActive(false); }}
+        />
+      </div>
+      <div className="main">
+        <div className="content" data-screen-label={
+          active === 'home' ? 'Home' :
+          (active === 'vacancies' && creatingCandidate) ? 'Vacancies / Add Candidate' :
+          (active === 'vacancies' && creatingVacancy) ? 'Vacancies / New' :
+          archiveActive ? 'Vacancies / Archive' :
+          (vacancyId && candidateId) ? 'Vacancies / Candidate Card' :
+          vacancyId ? 'Vacancies / Candidates List' :
+          active === 'vacancies' ? 'Vacancies / Empty' :
+          (active === 'candidates' && poolCandidateId) ? 'Candidates / Full Page' :
+          active === 'candidates' ? 'Candidates / Pool list' :
+          active === 'analytics' ? `Analytics / ${analyticsReportId}` :
+          active === 'pulse' ? (pulseEmpId ? `Pulse / Employee` : `Pulse / ${pulseTab}`) :
+          active === 'settings' ? `Settings / ${settingsSection}` : active
+        } style={{padding: 0}}>
+          {content}
+        </div>
+      </div>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Главный экран">
+          <TweakToggle label="Приветствие («Привет, Анна»)"
+            value={tweaks.greeting} onChange={v => setTweak('greeting', v)}/>
+          <TweakToggle label="Расширенный набор KPI (CPH + скорость отклика)"
+            value={tweaks.kpiExtended} onChange={v => setTweak('kpiExtended', v)}/>
+          <TweakToggle label="Блок «Топ-источники кандидатов»"
+            value={tweaks.showSources} onChange={v => setTweak('showSources', v)}/>
+        </TweakSection>
+        <TweakSection title="Раздел «Вакансии»">
+          <TweakRadio label="При входе показывать"
+            value={tweaks.defaultSelected}
+            onChange={v => setTweak('defaultSelected', v)}
+            options={[
+              {value:'empty', label:'Пусто'},
+              {value:'vacancy', label:'Первую вакансию'},
+              {value:'archive', label:'Архив'},
+            ]}/>
+        </TweakSection>
+        <TweakSection title="Раздел «Аналитика»">
+          <TweakToggle label="Битрикс·24 подключён (текучка)"
+            value={tweaks.hasBitrix !== false} onChange={v => setTweak('hasBitrix', v)}/>
+          <TweakSelect label="Открыть отчёт"
+            value={analyticsReportId}
+            onChange={v => onSelectAnalyticsReport(v)}
+            options={[
+              { value: 'overview',   label: 'Обзор' },
+              { value: 'speed',      label: 'Скорость найма' },
+              { value: 'funnel',     label: 'Воронка конверсий' },
+              { value: 'sources',    label: 'Источники' },
+              { value: 'rejections', label: 'Причины отказов' },
+              { value: 'turnover',   label: 'Текучка после найма' },
+              { value: 'recruiters', label: 'Рекрутеры' },
+            ]}/>
+        </TweakSection>
+        <TweakSection title="Раздел «Настройки»">
+          <TweakSelect label="Открыть подраздел"
+            value={settingsSection}
+            onChange={v => { setActive('settings'); setSettingsSection(v); }}
+            options={[
+              { value: 'profile',      label: 'Профиль' },
+              { value: 'general',     label: 'Общие' },
+              { value: 'funnel',      label: 'Воронка по умолчанию' },
+              { value: 'access',      label: 'Права доступа' },
+              { value: 'tags',        label: 'Теги' },
+              { value: 'integrations',label: 'Интеграции' },
+            ]}/>
+        </TweakSection>
+        <TweakSection title="Раздел «Пульс-Онбординг»">
+          <TweakRadio label="Открыть вкладку"
+            value={pulseTab}
+            onChange={v => { setActive('pulse'); setPulseTab(v); setPulseEmpId(null); }}
+            options={[
+              {value:'overview',  label:'Обзор'},
+              {value:'employees', label:'Сотрудники'},
+              {value:'alerts',    label:'Алерты'},
+              {value:'surveys',   label:'Опросы'},
+            ]}/>
+          <TweakSelect label="Открыть карточку сотрудника"
+            value={pulseEmpId || ''}
+            onChange={v => { setActive('pulse'); setPulseEmpId(v || null); }}
+            options={[
+              { value:'', label:'— не открывать —' },
+              ...window.PULSE_EMPLOYEES.map(e => ({
+                value: e.id,
+                label: `${e.name} · day ${e.day} · risk ${e.risk}`
+              }))
+            ]}/>
+          <TweakRadio label="Сегмент"
+            value={pulseSegment}
+            onChange={v => setPulseSegment(v)}
+            options={[
+              {value:'all',    label:'Все'},
+              {value:'mass',   label:'🏗 Массовый'},
+              {value:'office', label:'💼 Офис'},
+            ]}/>
+        </TweakSection>
+        <TweakSection title="Навигация">
+          <TweakButton label="Перейти на Главную" onClick={() => setActive('home')}/>
+          <TweakButton label="Открыть Вакансии (пусто)" onClick={() => { setActive('vacancies'); setVacancyId(null); setArchiveActive(false); }}/>
+          <TweakButton label="Открыть конкретную вакансию" onClick={() => { setActive('vacancies'); setVacancyId('fe'); setArchiveActive(false); }}/>
+          <TweakButton label="Открыть Архив" onClick={() => { setActive('vacancies'); setArchiveActive(true); setCreatingVacancy(false); }}/>
+          <TweakButton label="Создание вакансии" onClick={() => { setActive('vacancies'); setVacanciesOpen(true); setCreatingVacancy(true); setVacancyId(null); setArchiveActive(false); }}/>
+          <TweakButton label="Добавить кандидата" onClick={() => { setActive('vacancies'); setVacanciesOpen(true); setCreatingCandidate(true); }}/>
+          <TweakButton label="Открыть Аналитику" onClick={() => { setActive('analytics'); setAnalyticsOpen(true); }}/>
+          <TweakButton label="Открыть Пульс-Онбординг" onClick={() => { setActive('pulse'); setPulseTab('overview'); setPulseEmpId(null); }}/>
+          <TweakButton label="Открыть Настройки" onClick={() => { setActive('settings'); }}/>
+        </TweakSection>
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -1,0 +1,252 @@
+/* ==========================================================================
+   Аркадий CRM — Design Tokens
+   Базовые и семантические переменные для типографики, цвета, спейсинга,
+   скруглений, теней и моушна.
+   ========================================================================== */
+
+/* -------- Fonts -------- */
+/* Inter (UI) and JetBrains Mono (numeric) loaded via Google Fonts.
+   For offline use, see /fonts and uncomment the @font-face block below. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* offline @font-face block intentionally removed — fonts come from Google Fonts via @import above */
+
+:root {
+  /* ============================================================
+     COLORS — base palette
+     ============================================================ */
+
+  /* Neutrals (cool gray, slight blue tint) */
+  --ark-white: #FFFFFF;
+  --ark-gray-50:  #F8F9FB;
+  --ark-gray-100: #F4F6F8;
+  --ark-gray-200: #ECEFF2;
+  --ark-gray-300: #E6E9EC;
+  --ark-gray-400: #C9CFD6;
+  --ark-gray-500: #9AA3AE;
+  --ark-gray-600: #5B6573;
+  --ark-gray-700: #3A4452;
+  --ark-gray-800: #1F2733;
+  --ark-gray-900: #0F1620;
+
+  /* Brand accent (calm blue, telegram-ish but slightly more saturated) */
+  --ark-blue-50:  #EAF3FE;
+  --ark-blue-100: #CFE2FB;
+  --ark-blue-300: #7AB4F5;
+  --ark-blue-500: #2A8AF0;   /* primary */
+  --ark-blue-600: #1F7AE0;   /* primary hover */
+  --ark-blue-700: #1865BE;   /* primary active */
+
+  /* Semantic accents (kanban statuses + system colors) */
+  --ark-green-100: #DEF5E5;
+  --ark-green-500: #16A34A;
+  --ark-green-600: #128640;
+
+  --ark-yellow-100: #FFF1C8;
+  --ark-yellow-500: #E0A21A;
+  --ark-yellow-600: #B5821A;
+
+  --ark-red-100: #FCE3E3;
+  --ark-red-500: #DC4646;
+  --ark-red-600: #B83030;
+
+  --ark-violet-100: #ECE7FE;
+  --ark-violet-500: #7E5CF0;
+
+  /* Avatar palette — 8 muted hues for placeholder avatars */
+  --ark-av-1: #E26B7E;  /* rose   */
+  --ark-av-2: #E08A3C;  /* orange */
+  --ark-av-3: #C9A227;  /* gold   */
+  --ark-av-4: #59A861;  /* green  */
+  --ark-av-5: #3FA3B3;  /* teal   */
+  --ark-av-6: #4F86E0;  /* blue   */
+  --ark-av-7: #8865D8;  /* violet */
+  --ark-av-8: #B85F9E;  /* magenta*/
+
+  /* ============================================================
+     COLORS — semantic
+     ============================================================ */
+
+  /* Surfaces */
+  --bg-app:        var(--ark-white);
+  --bg-panel:      var(--ark-gray-100);   /* sidebar, secondary panel */
+  --bg-panel-2:    var(--ark-gray-50);    /* deeper inset */
+  --bg-elevated:   var(--ark-white);      /* cards, dropdowns */
+  --bg-hover:      var(--ark-gray-100);
+  --bg-press:      var(--ark-gray-200);
+  --bg-selected:   var(--ark-blue-50);
+
+  /* Foreground (text) */
+  --fg-1:          var(--ark-gray-900);   /* primary text */
+  --fg-2:          var(--ark-gray-600);   /* secondary text */
+  --fg-3:          var(--ark-gray-500);   /* tertiary, captions */
+  --fg-disabled:   var(--ark-gray-400);
+  --fg-on-accent:  var(--ark-white);
+  --fg-link:       var(--ark-blue-600);
+
+  /* Borders */
+  --border-1:      var(--ark-gray-300);   /* default border */
+  --border-2:      var(--ark-gray-200);   /* subtler */
+  --border-strong: var(--ark-gray-400);
+  --border-focus:  var(--ark-blue-500);
+
+  /* Accent */
+  --accent:        var(--ark-blue-500);
+  --accent-hover:  var(--ark-blue-600);
+  --accent-press:  var(--ark-blue-700);
+  --accent-soft:   var(--ark-blue-50);
+
+  /* Kanban / lead status */
+  --status-new-bg:        var(--ark-gray-200);
+  --status-new-fg:        var(--ark-gray-700);
+  --status-contact-bg:    var(--ark-blue-100);
+  --status-contact-fg:    var(--ark-blue-700);
+  --status-qualified-bg:  var(--ark-yellow-100);
+  --status-qualified-fg:  var(--ark-yellow-600);
+  --status-won-bg:        var(--ark-green-100);
+  --status-won-fg:        var(--ark-green-600);
+  --status-lost-bg:       var(--ark-red-100);
+  --status-lost-fg:       var(--ark-red-600);
+
+  /* System */
+  --success:       var(--ark-green-500);
+  --warning:       var(--ark-yellow-500);
+  --danger:        var(--ark-red-500);
+  --info:          var(--ark-blue-500);
+
+  /* ============================================================
+     TYPOGRAPHY
+     ============================================================ */
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Font sizes */
+  --fs-11: 11px;   /* micro caption */
+  --fs-12: 12px;   /* caption, label */
+  --fs-13: 13px;   /* dense table/list text */
+  --fs-14: 14px;   /* body, default UI */
+  --fs-15: 15px;   /* slightly emphasized body */
+  --fs-16: 16px;   /* section headline */
+  --fs-18: 18px;   /* small page title */
+  --fs-20: 20px;   /* page title */
+  --fs-24: 24px;   /* large page title / KPI value */
+  --fs-32: 32px;   /* hero number on dashboard */
+
+  /* Line heights */
+  --lh-tight:   1.2;
+  --lh-snug:    1.35;
+  --lh-normal:  1.5;
+  --lh-relaxed: 1.65;
+
+  /* Weights */
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* Letter spacing */
+  --ls-tight:  -0.01em;
+  --ls-normal: 0;
+  --ls-wide:   0.04em;   /* for ALL-CAPS labels (used sparingly) */
+
+  /* ============================================================
+     SPACING — 4px scale
+     ============================================================ */
+  --sp-0:  0;
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* ============================================================
+     RADII
+     ============================================================ */
+  --rad-xs:   3px;
+  --rad-sm:   4px;
+  --rad-md:   6px;   /* buttons, inputs */
+  --rad-lg:   8px;   /* cards */
+  --rad-xl:   12px;  /* modals, large cards */
+  --rad-2xl:  16px;
+  --rad-pill: 999px;
+  --rad-full: 50%;
+
+  /* ============================================================
+     SHADOWS
+     ============================================================ */
+  --shadow-0: none;
+  --shadow-1: 0 1px 2px rgba(15, 22, 32, .06);
+  --shadow-2: 0 4px 12px rgba(15, 22, 32, .08);
+  --shadow-3: 0 12px 32px rgba(15, 22, 32, .12);
+  --shadow-focus: 0 0 0 2px rgba(42, 138, 240, .35);
+
+  /* ============================================================
+     LAYOUT
+     ============================================================ */
+  --layout-sidebar-w-collapsed: 64px;
+  --layout-sidebar-w-expanded: 240px;
+  --layout-topbar-h: 52px;
+  --layout-min-w: 1180px;
+
+  /* ============================================================
+     MOTION
+     ============================================================ */
+  --ease-out:    cubic-bezier(.2, .8, .2, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --dur-fast:    120ms;
+  --dur-base:    180ms;
+  --dur-slow:    240ms;
+}
+
+/* ==========================================================================
+   SEMANTIC ELEMENT STYLES
+   Apply these by adding classes (or use as reference for component CSS).
+   ========================================================================== */
+
+html, body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  line-height: var(--lh-normal);
+  color: var(--fg-1);
+  background: var(--bg-app);
+  font-feature-settings: 'cv11', 'ss01', 'tnum';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings */
+.h-page    { font-size: var(--fs-20); font-weight: var(--fw-semibold); line-height: var(--lh-tight);  letter-spacing: var(--ls-tight); color: var(--fg-1); }
+.h-section { font-size: var(--fs-16); font-weight: var(--fw-semibold); line-height: var(--lh-snug);   color: var(--fg-1); }
+.h-card    { font-size: var(--fs-14); font-weight: var(--fw-semibold); line-height: var(--lh-snug);   color: var(--fg-1); }
+.h-kpi     { font-size: var(--fs-32); font-weight: var(--fw-semibold); line-height: var(--lh-tight);  letter-spacing: var(--ls-tight); color: var(--fg-1); font-feature-settings: 'tnum'; }
+
+/* Body */
+.t-body       { font-size: var(--fs-14); color: var(--fg-1);  line-height: var(--lh-normal); }
+.t-body-sm    { font-size: var(--fs-13); color: var(--fg-1);  line-height: var(--lh-snug); }
+.t-secondary  { font-size: var(--fs-13); color: var(--fg-2);  line-height: var(--lh-snug); }
+.t-caption    { font-size: var(--fs-12); color: var(--fg-3);  line-height: var(--lh-snug); }
+.t-overline   { font-size: var(--fs-11); color: var(--fg-3);  letter-spacing: var(--ls-wide); text-transform: uppercase; font-weight: var(--fw-medium); }
+
+/* Mono */
+.t-mono       { font-family: var(--font-mono); font-size: var(--fs-13); }
+.t-num        { font-feature-settings: 'tnum'; font-variant-numeric: tabular-nums; }
+
+/* Link */
+.t-link       { color: var(--fg-link); text-decoration: none; }
+.t-link:hover { text-decoration: underline; }
+
+/* Code */
+code, .t-code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--ark-gray-100);
+  padding: 1px 5px;
+  border-radius: var(--rad-sm);
+  color: var(--fg-1);
+}
