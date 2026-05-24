@@ -14,13 +14,13 @@ from ...schemas.application import (
 )
 from ...schemas.base import Paginated
 from ...services.application import (
-    get_applications_for_vacancy,
+    get_applications_for_vacancy_paginated,
     move_application,
     reject_application,
     restore_application,
     bulk_move_applications,
     bulk_reject_applications,
-    get_application_history
+    get_application_history,
 )
 from ...models import User
 
@@ -43,8 +43,6 @@ async def get_applications_for_vacancy_funnel(
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id)
 ):
-    """Get applications for vacancy with filters and pagination"""
-    from ...services.application import get_applications_for_vacancy_paginated
     return await get_applications_for_vacancy_paginated(
         session,
         vacancy_id,

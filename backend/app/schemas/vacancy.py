@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date, datetime
 from uuid import UUID
 
@@ -31,25 +31,25 @@ class VacancyDetail(ORMBase):
     id: UUID
     name: str
     sort_order: int
-    client_id: UUID | None
-    client_name: str | None
-    city: str | None
-    deadline: date | None
+    client_id: UUID | None = None
+    client_name: str | None = None
+    city: str | None = None
+    deadline: date | None = None
     positions_count: int
-    department: str | None
-    employment_type: str | None
+    department: str | None = None
+    employment_type: str | None = None
     is_confidential: bool
-    salary_from: int | None
-    salary_to: int | None
+    salary_from: int | None = None
+    salary_to: int | None = None
     currency: str
-    description: str | None
+    description: str | None = None
     status: str
     glafira_mode: str
-    responsible_user_id: UUID | None
-    responsible_user: UserShort | None
-    team: list[UserShort]
-    external_source: str | None
-    external_url: str | None
+    responsible_user_id: UUID | None = None
+    responsible_user: UserShort | None = None
+    team: list[UserShort] = Field(default_factory=list)
+    external_source: str | None = None
+    external_url: str | None = None
     created_at: datetime
 
 
