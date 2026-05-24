@@ -66,7 +66,8 @@ async def get_applications_for_vacancy_paginated(
         like = f"%{search}%"
         base_filters.append(
             or_(
-                Candidate.full_name.ilike(like),
+                Candidate.last_name.ilike(like),
+                Candidate.first_name.ilike(like),
                 Candidate.phone.ilike(like),
                 Candidate.email.ilike(like),
             )
@@ -101,8 +102,9 @@ async def get_applications_for_vacancy_paginated(
             Application.ai_score,
             Application.selected_at,
             Candidate.display_number,
-            Candidate.full_name,
-            Candidate.avatar_url,
+            Candidate.last_name,
+            Candidate.first_name,
+            Candidate.middle_name,
             Candidate.phone,
             Candidate.salary_expectation,
             Candidate.currency,
@@ -121,7 +123,7 @@ async def get_applications_for_vacancy_paginated(
     if sort == "score":
         sort_column = Application.ai_score
     elif sort == "name":
-        sort_column = Candidate.full_name
+        sort_column = Candidate.last_name
     elif sort == "salary":
         sort_column = Candidate.salary_expectation
     elif sort == "city":
@@ -139,8 +141,8 @@ async def get_applications_for_vacancy_paginated(
             id=row.id,
             candidate_id=row.candidate_id,
             display_number=row.display_number,
-            full_name=row.full_name,
-            avatar_url=row.avatar_url,
+            full_name=" ".join(p for p in (row.last_name, row.first_name, row.middle_name) if p),
+            avatar_url=None,
             age=_compute_age(row.birth_date),
             last_position=row.last_position,
             ai_score=row.ai_score,
@@ -223,8 +225,9 @@ async def move_application(
     if from_stage == to_stage:
         raise ValidationError("Заявка уже на этом этапе")
 
+    now = datetime.now(timezone.utc)
     application.stage = to_stage
-    application.stage_changed_at = datetime.now(timezone.utc)
+    application.stage_changed_at = now
 
     session.add(
         StageHistory(
@@ -233,6 +236,7 @@ async def move_application(
             to_stage=to_stage,
             actor_type="human",
             actor_user_id=actor_user_id,
+            created_at=now,
         )
     )
 
@@ -275,10 +279,11 @@ async def reject_application(
     if from_stage == "rejected":
         raise ValidationError("Заявка уже отклонена")
 
+    now = datetime.now(timezone.utc)
     application.stage = "rejected"
     application.reject_reason = reject_data.reason
     application.reject_side = reject_data.side
-    application.stage_changed_at = datetime.now(timezone.utc)
+    application.stage_changed_at = now
 
     session.add(
         StageHistory(
@@ -288,6 +293,7 @@ async def reject_application(
             actor_type="human",
             actor_user_id=actor_user_id,
             reason=reject_data.reason,
+            created_at=now,
         )
     )
 
@@ -345,10 +351,11 @@ async def restore_application(
 
     restore_to_stage = previous or "response"
 
+    now = datetime.now(timezone.utc)
     application.stage = restore_to_stage
     application.reject_reason = None
     application.reject_side = None
-    application.stage_changed_at = datetime.now(timezone.utc)
+    application.stage_changed_at = now
 
     session.add(
         StageHistory(
@@ -358,6 +365,7 @@ async def restore_application(
             actor_type="human",
             actor_user_id=actor_user_id,
             reason="Восстановлено",
+            created_at=now,
         )
     )
 

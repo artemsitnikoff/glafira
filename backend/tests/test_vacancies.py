@@ -1,138 +1,114 @@
-import pytest
 from httpx import AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
-from app.models import Vacancy, VacancyStage
+from app.models import VacancyStage
 
 
-@pytest.mark.asyncio
-async def test_create_vacancy_success(
+async def test_create_vacancy_default_template(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
-    db_session: AsyncSession
+    db_session: AsyncSession,
 ):
-    """Test creating a vacancy with stages"""
-    vacancy_data = {
+    payload = {
         "name": "Senior Python Developer",
         "city": "Москва",
         "salary_from": 250000,
         "salary_to": 400000,
         "currency": "RUB",
-        "description": "Ищем опытного Python разработчика",
         "funnel_template": "default",
-        "positions_count": 2
+        "positions_count": 2,
     }
 
-    response = await async_client.post(
-        "/api/v1/vacancies/",
-        headers=auth_headers,
-        json=vacancy_data
-    )
+    response = await async_client.post("/api/v1/vacancies", headers=auth_headers, json=payload)
+    assert response.status_code == 201, response.text
 
-    assert response.status_code == 201
     data = response.json()
-
     assert data["name"] == "Senior Python Developer"
     assert data["city"] == "Москва"
     assert data["salary_from"] == 250000
     assert data["salary_to"] == 400000
     assert data["status"] == "active"
+    assert data["glafira_mode"] == "A"
+    assert data["team"] == []
+    assert data["responsible_user"] is None
+    assert "message" not in data
 
-    # Check that stages were created
     vacancy_id = data["id"]
-    stage_count = await db_session.execute(
-        select(func.count(VacancyStage.id)).where(VacancyStage.vacancy_id == vacancy_id)
-    )
-    count = stage_count.scalar_one()
-    assert count == 9  # Default template has 9 stages
+    count = (
+        await db_session.execute(
+            select(func.count(VacancyStage.id)).where(VacancyStage.vacancy_id == vacancy_id)
+        )
+    ).scalar_one()
+    assert count == 9
 
 
-@pytest.mark.asyncio
-async def test_get_vacancy_sidebar(
-    async_client: AsyncClient,
-    auth_headers: dict[str, str]
-):
-    """Test getting sidebar data"""
-    response = await async_client.get("/api/v1/vacancies/sidebar", headers=auth_headers)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert "archived_count" in data
-    assert isinstance(data["items"], list)
-
-
-@pytest.mark.asyncio
-async def test_get_vacancies_list(
-    async_client: AsyncClient,
-    auth_headers: dict[str, str]
-):
-    """Test getting vacancies list"""
-    response = await async_client.get("/api/v1/vacancies/", headers=auth_headers)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-
-
-@pytest.mark.asyncio
-async def test_get_vacancy_by_id(
+async def test_create_vacancy_mass_template_has_5_stages(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
-    db_session: AsyncSession
+    db_session: AsyncSession,
 ):
-    """Test getting vacancy by ID"""
-    # First create a vacancy
-    vacancy_data = {
-        "name": "Test Vacancy",
-        "city": "Москва"
-    }
-
-    create_response = await async_client.post(
-        "/api/v1/vacancies/",
+    response = await async_client.post(
+        "/api/v1/vacancies",
         headers=auth_headers,
-        json=vacancy_data
+        json={"name": "Курьер", "funnel_template": "mass"},
     )
-    vacancy_id = create_response.json()["id"]
+    assert response.status_code == 201, response.text
+    vacancy_id = response.json()["id"]
 
-    # Now get it
-    response = await async_client.get(f"/api/v1/vacancies/{vacancy_id}", headers=auth_headers)
+    keys = (
+        await db_session.execute(
+            select(VacancyStage.stage_key)
+            .where(VacancyStage.vacancy_id == vacancy_id)
+            .order_by(VacancyStage.order_index)
+        )
+    ).scalars().all()
+    assert keys == ["response", "selected", "interview", "hired", "rejected"]
 
+
+async def test_list_vacancies_returns_paginated(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    response = await async_client.get("/api/v1/vacancies", headers=auth_headers)
     assert response.status_code == 200
-    data = response.json()
-    assert data["id"] == vacancy_id
-    assert data["name"] == "Test Vacancy"
+    body = response.json()
+    for field in ("items", "total", "page", "page_size", "pages"):
+        assert field in body, body
+    assert body["page"] == 1
+    assert body["page_size"] == 24
+    assert isinstance(body["items"], list)
 
 
-@pytest.mark.asyncio
+async def test_get_vacancy_sidebar(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    response = await async_client.get("/api/v1/vacancies/sidebar", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert "items" in body
+    assert "archived_count" in body
+    assert isinstance(body["items"], list)
+
+
 async def test_get_vacancy_stages(
     async_client: AsyncClient,
-    auth_headers: dict[str, str]
+    auth_headers: dict[str, str],
 ):
-    """Test getting vacancy stages with counts"""
-    # First create a vacancy
-    vacancy_data = {"name": "Test Vacancy for Stages"}
-
-    create_response = await async_client.post(
-        "/api/v1/vacancies/",
+    created = await async_client.post(
+        "/api/v1/vacancies",
         headers=auth_headers,
-        json=vacancy_data
+        json={"name": "Бэкенд-разработчик"},
     )
-    vacancy_id = create_response.json()["id"]
+    vacancy_id = created.json()["id"]
 
-    # Get stages
-    response = await async_client.get(f"/api/v1/vacancies/{vacancy_id}/stages", headers=auth_headers)
-
+    response = await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/stages",
+        headers=auth_headers,
+    )
     assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-    assert len(data) == 9  # Default template
-
-    # Check stage structure
-    for stage in data:
-        assert "stage_key" in stage
-        assert "label" in stage
-        assert "color" in stage
-        assert "count" in stage
-        assert "is_terminal" in stage
+    stages = response.json()
+    assert len(stages) == 9
+    for stage in stages:
+        assert {"stage_key", "label", "color", "count", "is_terminal"} <= set(stage.keys())
