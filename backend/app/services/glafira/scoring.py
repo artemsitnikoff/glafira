@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from .client import call_json
 from .prompts import SCORING_SYSTEM_PROMPT, SCORING_USER_TEMPLATE
+from ...config import settings
 from ...core.errors import NotFoundError
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill
 from ...services.audit import audit
@@ -157,7 +158,7 @@ async def score_candidate(
         risks=response_data['risks'] or [],
         requirements_match=response_data['requirements_match'] or {},
         forecast=response_data.get('forecast'),
-        model=f"claude-sonnet-4-{now.strftime('%Y%m%d')}",
+        model=settings.GLAFIRA_MODEL,
         created_at=now
     )
 

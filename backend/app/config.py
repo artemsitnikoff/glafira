@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DEFAULT_COMPANY_ID: str = "00000000-0000-0000-0000-000000000001"
 
     ANTHROPIC_API_KEY: str
-    GLAFIRA_MODEL: str = "claude-sonnet-4-20250514"
+    GLAFIRA_MODEL: str = "claude-sonnet-4-6"
     GLAFIRA_VERIFY_MODE: str = "mock"
 
     HH_CLIENT_ID: str = ""

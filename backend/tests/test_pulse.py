@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,75 +12,87 @@ from app.models import Application, Candidate, Employee, PulsePlanItem, PulseSur
 async def test_hired_creates_employee_and_plan_idempotent(
     async_client: AsyncClient, auth_headers, admin_user, db_session: AsyncSession,
 ):
-    # 1. Создать вакансию через API
-    vac = (await async_client.post(
-        "/api/v1/vacancies", headers=auth_headers,
-        json={
-            "name": "Backend Dev",
-            "funnel_template": "default",
-            "positions_count": 1,
-        },
-    )).json()
-    vacancy_id = vac["id"]
+    # Mock plan generation response
+    PLAN_RESPONSE = {
+        "items": [
+            {"phase": "welcome", "title": "Знакомство с командой", "deadline_day": 1, "responsible": "manager"},
+            {"phase": "welcome", "title": "Доступы", "deadline_day": 2, "responsible": "hr"},
+            {"phase": "month1", "title": "1:1", "deadline_day": 7, "responsible": "manager"},
+        ]
+    }
 
-    # 2. Кандидат + application(stage='response') напрямую
-    candidate = Candidate(
-        company_id=admin_user.company_id,
-        last_name="Тестов", first_name="Иван", source="manual",
-    )
-    db_session.add(candidate)
-    await db_session.flush()
-    application = Application(
-        company_id=admin_user.company_id,
-        candidate_id=candidate.id, vacancy_id=vacancy_id,
-        stage="response",
-    )
-    db_session.add(application)
-    await db_session.commit()
+    with patch('app.services.glafira.client.call_json', new_callable=AsyncMock) as mock_call_json:
+        mock_call_json.return_value = PLAN_RESPONSE
 
-    # 3. Move → hired
-    r = await async_client.post(
-        f"/api/v1/applications/{application.id}/move",
-        headers=auth_headers, json={"to_stage": "hired"},
-    )
-    assert r.status_code == 200, r.text
+        # 1. Создать вакансию через API
+        vac = (await async_client.post(
+            "/api/v1/vacancies", headers=auth_headers,
+            json={
+                "name": "Backend Dev",
+                "funnel_template": "default",
+                "positions_count": 1,
+            },
+        )).json()
+        vacancy_id = vac["id"]
 
-    # 4. В БД: ровно 1 employee и >=1 plan items
-    employees = (await db_session.execute(
-        select(Employee).where(Employee.application_id == application.id)
-    )).scalars().all()
-    assert len(employees) == 1
-    employee = employees[0]
-    assert employee.status == "onboarding"
-    assert employee.start_date == date.today()
+        # 2. Кандидат + application(stage='response') напрямую
+        candidate = Candidate(
+            company_id=admin_user.company_id,
+            last_name="Тестов", first_name="Иван", source="manual",
+        )
+        db_session.add(candidate)
+        await db_session.flush()
+        application = Application(
+            company_id=admin_user.company_id,
+            candidate_id=candidate.id, vacancy_id=vacancy_id,
+            stage="response",
+        )
+        db_session.add(application)
+        await db_session.commit()
 
-    plan_count = (await db_session.execute(
-        select(func.count(PulsePlanItem.id)).where(PulsePlanItem.employee_id == employee.id)
-    )).scalar_one()
-    assert plan_count >= 1
-    initial_plan = plan_count
+        # 3. Move → hired
+        r = await async_client.post(
+            f"/api/v1/applications/{application.id}/move",
+            headers=auth_headers, json={"to_stage": "hired"},
+        )
+        assert r.status_code == 200, r.text
 
-    # 5. Идемпотентность: вызвать создание ещё раз напрямую
-    from app.services.pulse.employee import create_employee_from_hire
-    # перезагрузить application с relationships
-    application = (await db_session.execute(
-        select(Application).where(Application.id == application.id)
-    )).scalar_one()
-    await create_employee_from_hire(
-        db_session, application=application,
-        company_id=admin_user.company_id, actor_user_id=admin_user.id,
-    )
-    await db_session.commit()
+        # 4. В БД: ровно 1 employee и >=1 plan items
+        employees = (await db_session.execute(
+            select(Employee).where(Employee.application_id == application.id)
+        )).scalars().all()
+        assert len(employees) == 1
+        employee = employees[0]
+        assert employee.status == "onboarding"
+        assert employee.start_date == date.today()
 
-    # 6. Должен остаться ровно 1 employee и ровно столько же plan items
-    employees_after = (await db_session.execute(
-        select(Employee).where(Employee.application_id == application.id)
-    )).scalars().all()
-    assert len(employees_after) == 1
-    plan_count_after = (await db_session.execute(
-        select(func.count(PulsePlanItem.id)).where(PulsePlanItem.employee_id == employee.id)
-    )).scalar_one()
-    assert plan_count_after == initial_plan
+        plan_count = (await db_session.execute(
+            select(func.count(PulsePlanItem.id)).where(PulsePlanItem.employee_id == employee.id)
+        )).scalar_one()
+        assert plan_count >= 1
+        initial_plan = plan_count
+
+        # 5. Идемпотентность: вызвать создание ещё раз напрямую
+        from app.services.pulse.employee import create_employee_from_hire
+        # перезагрузить application с relationships
+        application = (await db_session.execute(
+            select(Application).where(Application.id == application.id)
+        )).scalar_one()
+        await create_employee_from_hire(
+            db_session, application=application,
+            company_id=admin_user.company_id, actor_user_id=admin_user.id,
+        )
+        await db_session.commit()
+
+        # 6. Должен остаться ровно 1 employee и ровно столько же plan items
+        employees_after = (await db_session.execute(
+            select(Employee).where(Employee.application_id == application.id)
+        )).scalars().all()
+        assert len(employees_after) == 1
+        plan_count_after = (await db_session.execute(
+            select(func.count(PulsePlanItem.id)).where(PulsePlanItem.employee_id == employee.id)
+        )).scalar_one()
+        assert plan_count_after == initial_plan
 
 
 async def test_adapt_day_computed_from_start_date(
