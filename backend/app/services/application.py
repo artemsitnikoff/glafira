@@ -249,7 +249,14 @@ async def move_application(
         company_id=company_id,
     )
 
-    # TODO(phase 2.2): создание Employee при переходе в hired — инвариант #5 (TZ-0 §5)
+    if to_stage == "hired":
+        from app.services.pulse.employee import create_employee_from_hire
+        await create_employee_from_hire(
+            session,
+            application=application,
+            company_id=company_id,
+            actor_user_id=actor_user_id,
+        )
 
     await audit(
         session,

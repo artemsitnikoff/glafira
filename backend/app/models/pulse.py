@@ -54,6 +54,11 @@ class Employee(Base, TimestampMixin, CompanyMixin):
     enps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     left_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     left_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notes: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb")
+    )
 
     # Constraints
     __table_args__ = (
