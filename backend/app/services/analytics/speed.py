@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from ...core.periods import resolve_analytics_window
 from ...models import Application, StageHistory, Vacancy
@@ -13,7 +14,7 @@ from .common import AnalyticsFilters, apply_vacancy_filter
 
 
 async def _build_boxplot_chart(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> ChartData:
-    """Boxplot по этапам - время в днях"""
+    """Boxplot по этапам - dwell time (время нахождения в этапе)"""
     start_date, end_date = window
 
     stages = [
@@ -29,35 +30,61 @@ async def _build_boxplot_chart(session: AsyncSession, company_id: UUID, window: 
     stages_data = []
 
     for stage_key, label in stages:
-        # Упрощенный расчет времени - время от начала заявки до этапа
-        time_query = select(
-            func.extract('epoch',
-                StageHistory.created_at - Application.created_at
-            ) / 86400
-        ).select_from(
-            StageHistory.__table__.join(Application.__table__, StageHistory.application_id == Application.id)
-        ).where(
-            Application.company_id == company_id,
-            StageHistory.to_stage == stage_key,
-            StageHistory.created_at >= datetime.combine(start_date, datetime.min.time()),
-            StageHistory.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+        # Dwell time calculation: entry time to exit time for each stage
+        sh_in = aliased(StageHistory)
+        sh_out = aliased(StageHistory)
+
+        # Subquery: for each entry into stage_key, find the next exit from stage_key
+        subq = (
+            select(
+                sh_in.application_id,
+                sh_in.to_stage.label('stage_key'),
+                sh_in.created_at.label('entered_at'),
+                (
+                    select(func.min(sh_out.created_at))
+                    .where(
+                        sh_out.application_id == sh_in.application_id,
+                        sh_out.from_stage == sh_in.to_stage,
+                        sh_out.created_at > sh_in.created_at,
+                    )
+                    .scalar_subquery()
+                ).label('exited_at'),
+            )
+            .where(
+                sh_in.to_stage == stage_key,
+                sh_in.created_at >= datetime.combine(start_date, datetime.min.time()),
+                sh_in.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+            )
+            .subquery()
         )
 
-        time_query = apply_vacancy_filter(time_query, Application.vacancy_id, filters.vacancy_ids)
+        # dwell_days calculation (if exited_at is NULL, use current_timestamp)
+        dwell_seconds = func.extract('epoch',
+            func.coalesce(subq.c.exited_at, func.current_timestamp()) - subq.c.entered_at)
+        dwell_days = dwell_seconds / 86400.0
+
+        # Main query with filters
+        dwell_query = select(dwell_days).select_from(
+            subq.join(Application, subq.c.application_id == Application.id)
+        ).where(
+            Application.company_id == company_id
+        )
+
+        dwell_query = apply_vacancy_filter(dwell_query, Application.vacancy_id, filters.vacancy_ids)
         if filters.recruiter_ids:
-            time_query = time_query.join(Vacancy, Application.vacancy_id == Vacancy.id).where(
+            dwell_query = dwell_query.join(Vacancy, Application.vacancy_id == Vacancy.id).where(
                 Vacancy.responsible_user_id.in_(filters.recruiter_ids)
             )
 
-        # Получаем значения времени
-        result = await session.execute(time_query)
-        times = [row[0] for row in result if row[0] is not None and row[0] > 0]
+        # Execute and get dwell times
+        result = await session.execute(dwell_query)
+        times = [float(row[0]) for row in result if row[0] is not None and row[0] > 0]
 
         if times:
             times.sort()
             n = len(times)
 
-            # Расчёт квартилей
+            # Calculate percentiles using Python (simpler than SQL PERCENTILE_CONT for this case)
             q1_idx = int(0.25 * (n - 1))
             q2_idx = int(0.5 * (n - 1))
             q3_idx = int(0.75 * (n - 1))
@@ -66,7 +93,7 @@ async def _build_boxplot_chart(session: AsyncSession, company_id: UUID, window: 
             median = times[q2_idx]
             q3 = times[q3_idx]
 
-            # IQR method для outliers
+            # IQR method for outliers
             iqr = q3 - q1
             lower_bound = q1 - 1.5 * iqr
             upper_bound = q3 + 1.5 * iqr
@@ -74,7 +101,7 @@ async def _build_boxplot_chart(session: AsyncSession, company_id: UUID, window: 
             # Outliers
             outliers = [t for t in times if t < lower_bound or t > upper_bound]
 
-            # Min/max в пределах bounds
+            # Min/max within bounds
             filtered_times = [t for t in times if lower_bound <= t <= upper_bound]
             min_val = min(filtered_times) if filtered_times else q1
             max_val = max(filtered_times) if filtered_times else q3
@@ -90,15 +117,15 @@ async def _build_boxplot_chart(session: AsyncSession, company_id: UUID, window: 
                 'outliers': [round(o, 1) for o in outliers]
             })
         else:
-            # Нет данных для этапа
+            # No data for this stage - return null values instead of 0
             stages_data.append({
                 'stage_key': stage_key,
                 'label': label,
-                'median': 0,
-                'q1': 0,
-                'q3': 0,
-                'min': 0,
-                'max': 0,
+                'median': None,
+                'q1': None,
+                'q3': None,
+                'min': None,
+                'max': None,
                 'outliers': []
             })
 
@@ -147,26 +174,48 @@ async def _build_heatmap_chart(session: AsyncSession, company_id: UUID, window: 
     cells = []
     for y, (vacancy_id, _) in enumerate(top_vacancies):
         for x, stage_key in enumerate(stages):
-            # Среднее время для пары (вакансия, этап) - упрощенный расчет
-            time_query = select(
-                func.avg(
-                    func.extract('epoch',
-                        StageHistory.created_at - Application.created_at
-                    ) / 86400
+            # Average dwell time for (vacancy, stage) pair using stage_history transitions
+            sh_in = aliased(StageHistory)
+            sh_out = aliased(StageHistory)
+
+            # Subquery: for each entry into stage_key for this vacancy, find the next exit
+            subq = (
+                select(
+                    sh_in.application_id,
+                    sh_in.created_at.label('entered_at'),
+                    (
+                        select(func.min(sh_out.created_at))
+                        .where(
+                            sh_out.application_id == sh_in.application_id,
+                            sh_out.from_stage == sh_in.to_stage,
+                            sh_out.created_at > sh_in.created_at,
+                        )
+                        .scalar_subquery()
+                    ).label('exited_at'),
                 )
-            ).select_from(
-                StageHistory.__table__.join(Application.__table__, StageHistory.application_id == Application.id)
-            ).where(
-                Application.company_id == company_id,
-                Application.vacancy_id == vacancy_id,
-                StageHistory.to_stage == stage_key,
-                StageHistory.created_at >= datetime.combine(start_date, datetime.min.time()),
-                StageHistory.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+                .where(
+                    sh_in.to_stage == stage_key,
+                    sh_in.created_at >= datetime.combine(start_date, datetime.min.time()),
+                    sh_in.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+                )
+                .subquery()
             )
 
-            result = await session.execute(time_query)
+            # Average dwell time for this vacancy+stage
+            dwell_seconds = func.extract('epoch',
+                func.coalesce(subq.c.exited_at, func.current_timestamp()) - subq.c.entered_at)
+            dwell_days = dwell_seconds / 86400.0
+
+            avg_query = select(func.avg(dwell_days)).select_from(
+                subq.join(Application, subq.c.application_id == Application.id)
+            ).where(
+                Application.company_id == company_id,
+                Application.vacancy_id == vacancy_id
+            )
+
+            result = await session.execute(avg_query)
             avg_days = result.scalar()
-            value_days = round(avg_days, 1) if avg_days is not None else 0.0
+            value_days = round(avg_days, 1) if avg_days is not None else None
 
             cells.append({
                 'x': x,
@@ -186,30 +235,56 @@ async def _build_heatmap_chart(session: AsyncSession, company_id: UUID, window: 
 
 
 async def _build_time_to_hire_table(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> TableData:
-    """Таблица time-to-hire по вакансиям"""
+    """Таблица time-to-hire по вакансиям (от первой записи stage_history до hired)"""
     start_date, end_date = window
 
-    # Запрос для статистик по вакансиям с нанятыми кандидатами
+    # Subquery: for each application, calculate time from first stage_history to hired stage
+    first_history_subq = (
+        select(
+            StageHistory.application_id,
+            func.min(StageHistory.created_at).label('first_history_at')
+        )
+        .group_by(StageHistory.application_id)
+        .subquery()
+    )
+
+    hired_history_subq = (
+        select(
+            StageHistory.application_id,
+            StageHistory.created_at.label('hired_at')
+        )
+        .where(StageHistory.to_stage == 'hired')
+        .subquery()
+    )
+
+    # Main query: join to get time-to-hire per application, then aggregate by vacancy
+    time_to_hire_seconds = func.extract('epoch',
+        hired_history_subq.c.hired_at - first_history_subq.c.first_history_at)
+    time_to_hire_days = time_to_hire_seconds / 86400.0
+
     query = select(
         Vacancy.name,
-        func.percentile_cont(0.5).within_group(
-            func.extract('epoch', Vacancy.closed_at - Vacancy.created_at) / 86400
-        ).label('p50'),
-        func.percentile_cont(0.9).within_group(
-            func.extract('epoch', Vacancy.closed_at - Vacancy.created_at) / 86400
-        ).label('p90'),
-        func.avg(
-            func.extract('epoch', Vacancy.closed_at - Vacancy.created_at) / 86400
-        ).label('avg')
+        func.percentile_cont(0.5).within_group(time_to_hire_days).label('p50'),
+        func.percentile_cont(0.9).within_group(time_to_hire_days).label('p90'),
+        func.avg(time_to_hire_days).label('avg')
+    ).select_from(
+        first_history_subq.join(
+            hired_history_subq,
+            first_history_subq.c.application_id == hired_history_subq.c.application_id
+        ).join(
+            Application,
+            first_history_subq.c.application_id == Application.id
+        ).join(
+            Vacancy,
+            Application.vacancy_id == Vacancy.id
+        )
     ).where(
-        Vacancy.company_id == company_id,
-        Vacancy.status == 'archived',
-        Vacancy.archive_result == 'hired',
-        Vacancy.closed_at >= start_date,
-        Vacancy.closed_at <= end_date,
-        Vacancy.closed_at.is_not(None)
-    ).group_by(Vacancy.id, Vacancy.name).order_by('avg')
+        Application.company_id == company_id,
+        hired_history_subq.c.hired_at >= datetime.combine(start_date, datetime.min.time()),
+        hired_history_subq.c.hired_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+    ).group_by(Vacancy.id, Vacancy.name).order_by(func.avg(time_to_hire_days))
 
+    query = apply_vacancy_filter(query, Application.vacancy_id, filters.vacancy_ids)
     if filters.recruiter_ids:
         query = query.where(Vacancy.responsible_user_id.in_(filters.recruiter_ids))
 
@@ -218,9 +293,9 @@ async def _build_time_to_hire_table(session: AsyncSession, company_id: UUID, win
     for row in result:
         rows.append({
             'vacancy': row.name,
-            'p50': round(row.p50, 1) if row.p50 is not None else 0.0,
-            'p90': round(row.p90, 1) if row.p90 is not None else 0.0,
-            'avg': round(row.avg, 1) if row.avg is not None else 0.0
+            'p50': round(row.p50, 1) if row.p50 is not None else None,
+            'p90': round(row.p90, 1) if row.p90 is not None else None,
+            'avg': round(row.avg, 1) if row.avg is not None else None
         })
 
     columns = [

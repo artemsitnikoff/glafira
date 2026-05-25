@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, date as date_type
 from uuid import UUID
 
-from sqlalchemy import func, select, and_, extract, case
+from sqlalchemy import func, select, and_, extract, case, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.periods import resolve_analytics_window
@@ -157,12 +157,19 @@ async def _build_survival_chart(session: AsyncSession, company_id: UUID, window:
 async def _build_managers_table(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> TableData:
     """Таблица по руководителям"""
 
+    # Honest avg_tenure_days calculation: AVG((COALESCE(left_at, CURRENT_DATE) - start_date) in days)
+    # Cast dates to timestamp to make EXTRACT(epoch) work
+    left_at_ts = func.coalesce(func.cast(Employee.left_at, TIMESTAMP), func.current_timestamp())
+    start_date_ts = func.cast(Employee.start_date, TIMESTAMP)
+    tenure_seconds = func.extract('epoch', left_at_ts - start_date_ts)
+    avg_tenure_days = func.avg(tenure_seconds / 86400.0)
+
     manager_query = select(
         User.id,
         User.full_name,
         func.count(Employee.id).label('hired_count'),
         func.count(case((Employee.status == 'left', 1))).label('left_count'),
-        func.avg(1.0).label('avg_tenure_days')  # Упрощено для MVP
+        avg_tenure_days.label('avg_tenure_days')
     ).select_from(
         Employee.__table__.join(User.__table__, Employee.manager_user_id == User.id)
     ).where(
@@ -180,7 +187,7 @@ async def _build_managers_table(session: AsyncSession, company_id: UUID, window:
         manager_name = row.full_name
         hired_count = row.hired_count
         left_count = row.left_count
-        avg_tenure_days = round(row.avg_tenure_days, 1) if row.avg_tenure_days is not None else 0.0
+        avg_tenure_days = round(row.avg_tenure_days, 1) if row.avg_tenure_days is not None else None
 
         # Retention 90d: кто проработал больше 90 дней
         retention_90d_query = select(func.count(Employee.id)).where(
