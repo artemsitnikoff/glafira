@@ -80,12 +80,16 @@ async def test_integration_config_encrypted_in_db_not_plaintext(async_client: As
         json={"status": "connected", "config": {"api_key": "SECRET_PLAIN_VALUE"}})
     assert r.status_code == 200, r.text
 
+    # После PATCH очищаем session identity map
+    db_session.expire_all()
+
     # Direct DB check — encrypted, not plaintext
     row = (await db_session.execute(
         select(Integration).where(Integration.provider == "hh")
     )).scalar_one()
-    assert "SECRET_PLAIN_VALUE" not in str(row.config), "Plaintext leaked to DB!"
+    assert "SECRET_PLAIN_VALUE" not in str(row.config), f"Plaintext leaked to DB! config={row.config}"
     assert row.config["api_key"] != "SECRET_PLAIN_VALUE"
+    assert len(row.config["api_key"]) > len("SECRET_PLAIN_VALUE")  # encrypted токен обычно длиннее
 
     # GET returns masked (don't check exact format since crypto may have issues with test setup)
     g = await async_client.get("/api/v1/settings/integrations", headers=auth_headers)

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from ...core.periods import parse_home_period
-from ...models import Vacancy, Application, Candidate, Employee
+from ...models import Vacancy, Application, Candidate, Employee, Message
 from ...schemas.home import HomeKpi, KpiCard
 
 
@@ -323,10 +323,91 @@ async def _get_cost_per_hire(session: AsyncSession, company_id: UUID, period_day
 
 
 async def _get_recruiter_response_speed(session: AsyncSession, company_id: UUID, period_days: int | None) -> tuple[float, float | None]:
-    """Скорость отклика рекрутеров - TODO: требует анализ сообщений"""
-    # TODO: Implement when messages analysis is available
-    # Нужно найти среднее время между created_at заявки и первым OUT-сообщением
-    return 0.0, 0.0 if period_days is not None else None
+    """Скорость отклика рекрутеров"""
+    from ...models import Message
+    now = datetime.now(timezone.utc)
+
+    if period_days is None:
+        # Все время
+        first_out_sent = (
+            select(func.min(Message.sent_at))
+            .where(
+                Message.application_id == Application.id,
+                Message.direction == 'out',
+                Message.sender_type.in_(['recruiter', 'ai']),
+            )
+            .scalar_subquery()
+        )
+
+        stmt = (
+            select(
+                func.avg(
+                    func.extract('epoch', first_out_sent - Application.created_at) / 3600.0
+                )
+            )
+            .select_from(Application)
+            .where(
+                Application.company_id == company_id,
+                first_out_sent.is_not(None),  # только те у кого есть ответ
+            )
+        )
+        result = await session.execute(stmt)
+        current = result.scalar()
+        return float(current) if current else 0.0, None
+
+    # Текущий период
+    start_date = now - timedelta(days=period_days)
+
+    first_out_sent = (
+        select(func.min(Message.sent_at))
+        .where(
+            Message.application_id == Application.id,
+            Message.direction == 'out',
+            Message.sender_type.in_(['recruiter', 'ai']),
+        )
+        .scalar_subquery()
+    )
+
+    current_stmt = (
+        select(
+            func.avg(
+                func.extract('epoch', first_out_sent - Application.created_at) / 3600.0
+            )
+        )
+        .select_from(Application)
+        .where(
+            Application.company_id == company_id,
+            Application.created_at >= start_date,
+            Application.created_at < now,
+            first_out_sent.is_not(None),  # только те у кого есть ответ
+        )
+    )
+    current_result = await session.execute(current_stmt)
+    current = current_result.scalar()
+    current_value = float(current) if current else 0.0
+
+    # Предыдущий период
+    prev_start = start_date - timedelta(days=period_days)
+
+    prev_stmt = (
+        select(
+            func.avg(
+                func.extract('epoch', first_out_sent - Application.created_at) / 3600.0
+            )
+        )
+        .select_from(Application)
+        .where(
+            Application.company_id == company_id,
+            Application.created_at >= prev_start,
+            Application.created_at < start_date,
+            first_out_sent.is_not(None),  # только те у кого есть ответ
+        )
+    )
+    prev_result = await session.execute(prev_stmt)
+    previous = prev_result.scalar()
+    previous_value = float(previous) if previous else 0.0
+
+    return current_value, previous_value
 
 
 async def compute_home_kpi(session: AsyncSession, company_id: UUID, period: str = 'month', extended: bool = False) -> HomeKpi:
@@ -352,8 +433,48 @@ async def compute_home_kpi(session: AsyncSession, company_id: UUID, period: str 
 
     cards = []
 
-    for key, unit, func, lower_is_better in kpi_funcs:
-        current, previous = await func(session, company_id, period_days)
+    for key, unit, kpi_func, lower_is_better in kpi_funcs:
+        current, previous = await kpi_func(session, company_id, period_days)
+
+        # Специальная обработка для recruiter_response_speed
+        if key == 'recruiter_response_speed' and current == 0.0:
+            # Проверяем действительно ли нет данных
+            has_data_query = select(func.count(Application.id)).select_from(Application).join(
+                Message, Message.application_id == Application.id
+            ).where(
+                Application.company_id == company_id,
+                Message.direction == 'out',
+                Message.sender_type.in_(['recruiter', 'ai'])
+            )
+
+            if period_days is not None:
+                now = datetime.now(timezone.utc)
+                start_date = now - timedelta(days=period_days)
+                has_data_query = has_data_query.where(
+                    Application.created_at >= start_date,
+                    Application.created_at < now
+                )
+
+            has_data_result = await session.execute(has_data_query)
+            has_data = has_data_result.scalar() > 0
+
+            if not has_data:
+                card = KpiCard(
+                    key=key,
+                    value=None,
+                    unit=unit,
+                    delta=None,
+                    delta_dir='flat',
+                    caption='нет данных'
+                )
+                cards.append(card)
+                continue
+
+        # Округление для recruiter_response_speed
+        if key == 'recruiter_response_speed' and current > 0:
+            current = round(current, 1)
+            if previous and previous > 0:
+                previous = round(previous, 1)
 
         # Для period='all' delta всегда None
         if period == 'all':

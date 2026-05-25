@@ -9,7 +9,7 @@ from .base import ORMBase
 
 class KpiCard(BaseModel):
     key: str
-    value: float
+    value: float | None
     unit: str | None = None
     delta: float | None = None
     delta_dir: str  # up|down|up-bad|down-good|flat

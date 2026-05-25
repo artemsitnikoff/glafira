@@ -10630,7 +10630,14 @@
             "title": "Key"
           },
           "value": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Value"
           },
           "unit": {

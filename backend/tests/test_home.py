@@ -211,3 +211,54 @@ async def test_home_sources_groups_by_source(async_client, auth_headers, db_sess
     # Проверяем сортировку по убыванию count
     counts = [item["count"] for item in data]
     assert counts == sorted(counts, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_home_kpi_extended_recruiter_response_speed(
+    async_client, auth_headers, admin_user, test_candidate, db_session
+):
+    """Засеить application с известным временем первого ответа → recruiter_response_speed соответствует."""
+    from datetime import datetime, timezone, timedelta
+    from app.models import Vacancy, Application, Message
+
+    # Создать vacancy через API
+    vr = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "V"})
+    vacancy_id = vr.json()["id"]
+
+    # Application создан 10h назад
+    now = datetime.now(timezone.utc)
+    app_obj = Application(
+        company_id=admin_user.company_id,
+        candidate_id=test_candidate.id,
+        vacancy_id=vacancy_id,
+        stage="response",
+        created_at=now - timedelta(hours=10),
+    )
+    db_session.add(app_obj)
+    await db_session.flush()
+
+    # Первое OUT-сообщение 3h назад (т.е. ответ дан через 7h после отклика)
+    msg = Message(
+        company_id=admin_user.company_id,
+        candidate_id=test_candidate.id,
+        application_id=app_obj.id,
+        direction="out",
+        sender_type="recruiter",
+        channel="telegram",
+        body="Здравствуйте!",
+        sent_at=now - timedelta(hours=3),
+        created_at=now - timedelta(hours=3),
+    )
+    db_session.add(msg)
+    await db_session.commit()
+
+    # GET /home/kpi?period=month&extended=true
+    r = await async_client.get("/api/v1/home/kpi?period=month&extended=true", headers=auth_headers)
+    assert r.status_code == 200
+    cards = {c["key"]: c for c in r.json()["cards"]}
+    assert "recruiter_response_speed" in cards
+    speed = cards["recruiter_response_speed"]
+    # Ожидаем ~7 часов (с допуском)
+    assert speed["value"] is not None, f"value is None; card={speed}"
+    assert 6.5 <= speed["value"] <= 7.5, f"expected ~7 hours, got {speed['value']}"
+    assert speed["unit"] == "часа"

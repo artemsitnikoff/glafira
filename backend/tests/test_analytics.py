@@ -539,19 +539,28 @@ async def test_funnel_conversion_exact_numbers(async_client, auth_headers, admin
     chart = next(c for c in body["charts"] if c["type"] == "funnel")
     stages_dict = {s["stage_key"]: s for s in chart["data"]["stages"]}
 
-    # Проверяем точные числа
-    if "response" in stages_dict:
-        # В response остались 5 (которые не перешли в selected) + 0 (которые прошли дальше но возможно ещё считаются)
-        # Семантика count может быть разной - проверим что есть данные
-        assert stages_dict["response"]["count"] >= 3  # как минимум те что остались
+    # Проверяем точные числа - фактическая семантика funnel считает по моментальному stage
+    # Поэтому в response остались 5 (не перешли в selected)
+    assert "response" in stages_dict, f"stage 'response' missing; got {list(stages_dict.keys())}"
+    assert stages_dict["response"]["count"] == 5, f"expected response=5, got {stages_dict['response']['count']}"
 
-    if "selected" in stages_dict:
-        # В selected должны быть 3 (5 пришли, 2 ушли дальше)
-        assert stages_dict["selected"]["count"] >= 3
+    # В selected остались 3 (5 пришли, 2 ушли в hired)
+    assert "selected" in stages_dict, f"stage 'selected' missing; got {list(stages_dict.keys())}"
+    assert stages_dict["selected"]["count"] == 3, f"expected selected=3, got {stages_dict['selected']['count']}"
 
-    if "hired" in stages_dict:
-        # В hired должны быть 2
-        assert stages_dict["hired"]["count"] >= 2
+    # terminals проверяем отдельно
+    terminals = chart["data"]["terminals"]
+    assert terminals["hired"]["n"] == 2, f"expected hired=2, got {terminals['hired']['n']}"
+
+    # Проверяем conversion_from_prev_pct
+    # selected получил 5 из response (но это не отражается в последовательности stages)
+    # Конверсия от response к selected не вычисляется в данной схеме
+    # Проверим только что данные присутствуют корректно
+    assert stages_dict["response"]["conversion_from_prev_pct"] is None  # Первый этап
+    # У selected может быть None или корректная конверсия в зависимости от логики
+    selected_conversion = stages_dict["selected"].get("conversion_from_prev_pct")
+    if selected_conversion is not None:
+        assert isinstance(selected_conversion, (int, float))
 
 
 async def test_turnover_avg_tenure_days_exact(async_client, auth_headers, admin_user, test_candidate, db_session):
@@ -577,23 +586,15 @@ async def test_turnover_avg_tenure_days_exact(async_client, auth_headers, admin_
     assert r.status_code == 200
     body = r.json()
 
-    # Проверяем таблицу по руководителям
+    # Найти таблицу "по руководителям"
     mgr_table = next(t for t in body["tables"] if "руководител" in t["title"].lower())
-
-    # Находим строку с нашим admin_user как manager
-    admin_row = next((row for row in mgr_table["rows"] if admin_user.full_name in str(row.get("manager_name", ""))), None)
-    if admin_row:
-        # Проверяем что avg_tenure_days около 100 дней
-        tenure_days = admin_row.get("avg_tenure_days")
-        assert tenure_days is not None
-        assert 98.0 <= tenure_days <= 102.0  # ±2 дня на рассинхрон времени
-    else:
-        # Альтернативная проверка через survival chart
-        survival_chart = next(c for c in body["charts"] if c["type"] == "survival")
-        points = {p["day"]: p["retained_pct"] for p in survival_chart["data"]["points"]}
-        # Сотрудник жив 100 дней, значит на 90й день retention должен быть 100%
-        if 90 in points:
-            assert points[90] == 100.0
+    # Найти строку для admin_user (тест создаёт employee.manager_user_id = admin_user.id, так что admin_row должен быть)
+    admin_row = next((r for r in mgr_table["rows"] if r.get("manager_user_id") == str(admin_user.id) or r.get("manager_name") == admin_user.full_name), None)
+    assert admin_row is not None, f"manager row not found; rows={mgr_table['rows']}"
+    # Главный ассерт — точно про avg_tenure_days
+    tenure = admin_row.get("avg_tenure_days")
+    assert tenure is not None, f"avg_tenure_days is None; row={admin_row}"
+    assert 99.0 <= tenure <= 101.0, f"expected ~100 days, got {tenure}"
 
 
 async def test_speed_dwell_median_from_history(async_client, auth_headers, admin_user, test_candidate, db_session):
@@ -649,9 +650,8 @@ async def test_speed_dwell_median_from_history(async_client, auth_headers, admin
     box_chart = next(c for c in body["charts"] if c["type"] == "boxplot")
     stages_dict = {s["stage_key"]: s for s in box_chart["data"]["stages"]}
 
-    # Проверяем что median dwell для 'selected' около 5 дней
-    if "selected" in stages_dict:
-        selected_stage = stages_dict["selected"]
-        if selected_stage["median"] is not None:
-            # median dwell ≈ 5 дней (от 10 дней назад entry до 5 дней назад exit = 5 дней)
-            assert 4.5 <= selected_stage["median"] <= 5.5
+    # Убрал защитные if - должно падать при отклонении
+    assert "selected" in stages_dict, f"stage 'selected' missing; got {list(stages_dict.keys())}"
+    selected_stage = stages_dict["selected"]
+    assert selected_stage["median"] is not None, f"median is None; got {selected_stage}"
+    assert 4.5 <= selected_stage["median"] <= 5.5, f"expected ~5 days, got {selected_stage['median']}"
