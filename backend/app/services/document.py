@@ -164,13 +164,26 @@ async def upload_document(
 
     await session.flush()
 
+    # Parse resume if it's a resume document
+    if kind == 'resume':
+        try:
+            from app.services.glafira.resume_parse import parse_and_apply_resume
+            await parse_and_apply_resume(
+                session,
+                candidate_id=candidate_id,
+                content=content,
+                filename=file.filename or "",
+                company_id=company_id,
+            )
+        except Exception as e:
+            # Don't block upload on parse failure
+            pass
+
     # Get uploader name
     user_result = await session.execute(
         select(User.full_name).where(User.id == actor_user_id)
     )
     uploaded_by_name = user_result.scalar_one()
-
-    # TODO(phase 2.x glafira): автозаполнение полей из resume_text
 
     return DocumentOut(
         id=document.id,

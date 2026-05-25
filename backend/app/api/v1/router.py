@@ -9,6 +9,8 @@ from .consents import router as consents_router
 from .messages import router as messages_router
 from .documents import router as documents_router
 from .comments import router as comments_router
+from .glafira import router as glafira_router, candidates_evaluation_router
+from .verifications import router as verifications_router
 
 api_router = APIRouter()
 
@@ -21,3 +23,6 @@ api_router.include_router(consents_router, tags=["consents"])
 api_router.include_router(messages_router, prefix="/messages", tags=["messages"])
 api_router.include_router(documents_router, tags=["documents"])
 api_router.include_router(comments_router, tags=["comments"])
+api_router.include_router(glafira_router, prefix="/glafira", tags=["glafira"])
+api_router.include_router(candidates_evaluation_router, tags=["glafira"])
+api_router.include_router(verifications_router, tags=["verifications"])

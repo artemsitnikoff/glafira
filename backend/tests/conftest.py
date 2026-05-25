@@ -13,6 +13,7 @@ from app.core.security import get_password_hash
 from app.database import get_db
 from app.main import app
 from app.models import Base, Company, User, Candidate, Consent
+from datetime import datetime, timezone
 
 TEST_DATABASE_URL = "postgresql+asyncpg://glafira:glafira@localhost:5432/glafira_test"
 
@@ -132,3 +133,22 @@ async def test_candidate(db_session: AsyncSession, admin_user: User) -> Candidat
     await db_session.commit()
     await db_session.refresh(candidate)
     return candidate
+
+
+@pytest_asyncio.fixture
+async def signed_consent(db_session: AsyncSession, test_candidate: Candidate) -> Consent:
+    """Create signed consent for test candidate"""
+    now = datetime.now(timezone.utc)
+    consent = Consent(
+        company_id=test_candidate.company_id,
+        candidate_id=test_candidate.id,
+        number="PD-TEST/26",
+        status="signed",
+        channel="telegram",
+        requested_at=now,
+        signed_at=now
+    )
+    db_session.add(consent)
+    await db_session.commit()
+    await db_session.refresh(consent)
+    return consent

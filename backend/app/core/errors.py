@@ -112,6 +112,16 @@ class UnsupportedFileTypeError(AppError):
         )
 
 
+class GlafiraParseError(AppError):
+    def __init__(self, details: dict | None = None):
+        super().__init__(
+            code="GLAFIRA_PARSE_ERROR",
+            message="Ошибка парсинга ответа от Глафиры",
+            status_code=502,
+            details=details
+        )
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,

@@ -75,6 +75,14 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
         ),
     )
 
+    @property
+    def full_name(self) -> str:
+        """Get full name of candidate"""
+        parts = [self.last_name, self.first_name]
+        if self.middle_name:
+            parts.append(self.middle_name)
+        return " ".join(parts)
+
     # Relationships
     company: Mapped["Company"] = relationship("Company", back_populates="candidates")
     duplicate_of_candidate: Mapped[Optional["Candidate"]] = relationship(
