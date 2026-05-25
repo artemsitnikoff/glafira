@@ -13,6 +13,7 @@ from .glafira import router as glafira_router, candidates_evaluation_router
 from .verifications import router as verifications_router
 from .pulse import router as pulse_router
 from .home import router as home_router
+from .analytics import router as analytics_router
 
 api_router = APIRouter()
 
@@ -30,3 +31,4 @@ api_router.include_router(candidates_evaluation_router, tags=["glafira"])
 api_router.include_router(verifications_router, tags=["verifications"])
 api_router.include_router(pulse_router, prefix="/pulse", tags=["pulse"])
 api_router.include_router(home_router, prefix="/home", tags=["home"])
+api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
