@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path
 from uuid import UUID
 from typing import Annotated
 
@@ -14,12 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter()
 
 
-@router.get("", response_model=Paginated[MessageOut])
+@router.get("/candidates/{candidate_id}/messages", response_model=Paginated[MessageOut])
 async def get_messages(
-    page_params: Annotated[PageParams, Depends()],
-    candidate_id: UUID = Query(...),
-    channel: str | None = Query(None),
-    application_id: UUID | None = Query(None),
+    candidate_id: UUID = Path(...),
+    page_params: Annotated[PageParams, Depends(PageParams)] = ...,
+    channel: str | None = None,
+    application_id: UUID | None = None,
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
@@ -34,10 +34,10 @@ async def get_messages(
     )
 
 
-@router.post("", response_model=MessageOut, status_code=201)
+@router.post("/candidates/{candidate_id}/messages", response_model=MessageOut, status_code=201)
 async def send_message_route(
-    data: MessageCreate,
-    candidate_id: UUID = Query(...),
+    candidate_id: UUID = Path(...),
+    data: MessageCreate = ...,
     user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),

@@ -17,9 +17,8 @@ class TestMessages:
 
         # Send message
         response = await async_client.post(
-            "/api/v1/messages",
+            f"/api/v1/candidates/{candidate_id}/messages",
             headers=auth_headers,
-            params={"candidate_id": candidate_id},
             json={
                 "channel": "telegram",
                 "body": "Тестовое сообщение"
@@ -35,9 +34,8 @@ class TestMessages:
 
         # List messages
         list_response = await async_client.get(
-            "/api/v1/messages",
-            headers=auth_headers,
-            params={"candidate_id": candidate_id}
+            f"/api/v1/candidates/{candidate_id}/messages",
+            headers=auth_headers
         )
 
         assert list_response.status_code == 200
@@ -53,10 +51,9 @@ class TestMessages:
 
         # Test with channel filter
         filter_response = await async_client.get(
-            "/api/v1/messages",
+            f"/api/v1/candidates/{candidate_id}/messages",
             headers=auth_headers,
             params={
-                "candidate_id": candidate_id,
                 "channel": "telegram"
             }
         )

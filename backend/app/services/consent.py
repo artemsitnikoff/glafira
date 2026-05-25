@@ -36,6 +36,34 @@ async def get_candidate_consents(
     return [ConsentOut.model_validate(consent) for consent in consents]
 
 
+async def get_candidate_consent(
+    session: AsyncSession,
+    candidate_id: UUID,
+    company_id: UUID
+) -> ConsentOut | None:
+    """Get latest consent for candidate"""
+    # Verify candidate exists and belongs to company
+    candidate_result = await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
+        )
+    )
+    if not candidate_result.scalar_one_or_none():
+        raise NotFoundError("Кандидат")
+
+    result = await session.execute(
+        select(Consent)
+        .where(Consent.candidate_id == candidate_id)
+        .order_by(Consent.created_at.desc())
+        .limit(1)
+    )
+    consent = result.scalar_one_or_none()
+
+    return ConsentOut.model_validate(consent) if consent else None
+
+
 async def request_consent(
     session: AsyncSession,
     candidate_id: UUID,
@@ -160,6 +188,60 @@ async def sign_consent(
     await audit(
         session,
         action="sign_consent",
+        entity_type="consent",
+        entity_id=consent.id,
+        before={"status": "pending"},
+        after={"status": "signed", "signed_at": now.isoformat()},
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    await session.flush()
+    return ConsentOut.model_validate(consent)
+
+
+async def sign_consent_by_candidate(
+    session: AsyncSession,
+    candidate_id: UUID,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> ConsentOut:
+    """Sign latest pending consent for candidate"""
+    # Verify candidate exists and belongs to company
+    candidate_result = await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
+        )
+    )
+    candidate = candidate_result.scalar_one_or_none()
+    if not candidate:
+        raise NotFoundError("Кандидат")
+
+    # Get latest pending consent
+    result = await session.execute(
+        select(Consent)
+        .where(
+            Consent.candidate_id == candidate_id,
+            Consent.status == 'pending'
+        )
+        .order_by(Consent.created_at.desc())
+        .limit(1)
+    )
+    consent = result.scalar_one_or_none()
+    if not consent:
+        raise NotFoundError("Нет ожидающего подписания согласия")
+
+    # Update consent
+    now = datetime.now(timezone.utc)
+    consent.status = "signed"
+    consent.signed_at = now
+
+    # Audit
+    await audit(
+        session,
+        action="sign_consent_by_candidate",
         entity_type="consent",
         entity_id=consent.id,
         before={"status": "pending"},

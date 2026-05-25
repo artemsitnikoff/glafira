@@ -47,11 +47,11 @@ async def score_candidate(
     session: AsyncSession,
     *,
     candidate_id: UUID,
-    vacancy_id: UUID,
+    vacancy_id: UUID | None,  # если None — общая оценка
     company_id: UUID,
     actor_user_id: UUID
 ) -> AiEvaluation:
-    """Score candidate for a specific vacancy"""
+    """Score candidate for a specific vacancy or general evaluation"""
 
     # Get candidate with related data
     candidate_result = await session.execute(
@@ -70,59 +70,86 @@ async def score_candidate(
     if not candidate:
         raise NotFoundError("Кандидат")
 
-    # Get vacancy
-    vacancy_result = await session.execute(
-        select(Vacancy).where(
-            Vacancy.id == vacancy_id,
-            Vacancy.company_id == company_id,
-            Vacancy.deleted_at.is_(None)
+    # Get vacancy if specified
+    vacancy = None
+    application = None
+    if vacancy_id is not None:
+        vacancy_result = await session.execute(
+            select(Vacancy).where(
+                Vacancy.id == vacancy_id,
+                Vacancy.company_id == company_id,
+                Vacancy.deleted_at.is_(None)
+            )
         )
-    )
-    vacancy = vacancy_result.scalar_one_or_none()
-    if not vacancy:
-        raise NotFoundError("Вакансия")
+        vacancy = vacancy_result.scalar_one_or_none()
+        if not vacancy:
+            raise NotFoundError("Вакансия")
 
-    # Check if application exists
-    application_result = await session.execute(
-        select(Application).where(
-            Application.candidate_id == candidate_id,
-            Application.vacancy_id == vacancy_id
+        # Check if application exists
+        application_result = await session.execute(
+            select(Application).where(
+                Application.candidate_id == candidate_id,
+                Application.vacancy_id == vacancy_id
+            )
         )
-    )
-    application = application_result.scalar_one_or_none()
+        application = application_result.scalar_one_or_none()
 
     # Build prompt data
     experience_text = _build_experience_text(candidate.experience)
     skills_text = _build_skills_text(candidate.skills)
 
-    # Format salary
-    vacancy_salary = "не указана"
-    if vacancy.salary_from and vacancy.salary_to:
-        vacancy_salary = f"{vacancy.salary_from:,} - {vacancy.salary_to:,} {vacancy.currency}"
-    elif vacancy.salary_from:
-        vacancy_salary = f"от {vacancy.salary_from:,} {vacancy.currency}"
-    elif vacancy.salary_to:
-        vacancy_salary = f"до {vacancy.salary_to:,} {vacancy.currency}"
-
-    candidate_salary = "не указана"
-    if candidate.salary_expectation:
-        candidate_salary = f"{candidate.salary_expectation:,} {candidate.currency}"
-
     # Create user prompt
-    user_prompt = SCORING_USER_TEMPLATE.format(
-        vacancy_name=vacancy.name,
-        vacancy_city=vacancy.city or "не указан",
-        vacancy_salary=vacancy_salary,
-        vacancy_description=vacancy.description or "описание отсутствует",
-        candidate_name=candidate.full_name,
-        candidate_city=candidate.city or "не указан",
-        candidate_phone=candidate.phone or "не указан",
-        candidate_email=candidate.email or "не указан",
-        resume_text=candidate.resume_text or "резюме не загружено",
-        experience_text=experience_text,
-        skills_text=skills_text,
-        salary_expectation=candidate_salary
-    )
+    if vacancy is not None:
+        # Vacancy-specific scoring
+        # Format salary
+        vacancy_salary = "не указана"
+        if vacancy.salary_from and vacancy.salary_to:
+            vacancy_salary = f"{vacancy.salary_from:,} - {vacancy.salary_to:,} {vacancy.currency}"
+        elif vacancy.salary_from:
+            vacancy_salary = f"от {vacancy.salary_from:,} {vacancy.currency}"
+        elif vacancy.salary_to:
+            vacancy_salary = f"до {vacancy.salary_to:,} {vacancy.currency}"
+
+        candidate_salary = "не указана"
+        if candidate.salary_expectation:
+            candidate_salary = f"{candidate.salary_expectation:,} {candidate.currency}"
+
+        user_prompt = SCORING_USER_TEMPLATE.format(
+            vacancy_name=vacancy.name,
+            vacancy_city=vacancy.city or "не указан",
+            vacancy_salary=vacancy_salary,
+            vacancy_description=vacancy.description or "описание отсутствует",
+            candidate_name=candidate.full_name,
+            candidate_city=candidate.city or "не указан",
+            candidate_phone=candidate.phone or "не указан",
+            candidate_email=candidate.email or "не указан",
+            resume_text=candidate.resume_text or "резюме не загружено",
+            experience_text=experience_text,
+            skills_text=skills_text,
+            salary_expectation=candidate_salary
+        )
+    else:
+        # General scoring (no vacancy)
+        candidate_salary = "не указана"
+        if candidate.salary_expectation:
+            candidate_salary = f"{candidate.salary_expectation:,} {candidate.currency}"
+
+        user_prompt = f"""
+Оцени резюме кандидата (общая оценка без привязки к конкретной вакансии):
+
+Кандидат: {candidate.full_name}
+Город: {candidate.city or "не указан"}
+Телефон: {candidate.phone or "не указан"}
+Email: {candidate.email or "не указан"}
+Желаемая ЗП: {candidate_salary}
+
+Резюме: {candidate.resume_text or "резюме не загружено"}
+
+Опыт работы:
+{experience_text}
+
+Навыки: {skills_text}
+"""
 
     # Call Claude API
     response_data = await call_json(
@@ -156,7 +183,7 @@ async def score_candidate(
         summary=response_data['summary'] or "",
         strengths=response_data['strengths'] or [],
         risks=response_data['risks'] or [],
-        requirements_match=response_data['requirements_match'] or {},
+        requirements_match=response_data.get('requirements_match') or [],
         forecast=response_data.get('forecast'),
         model=settings.GLAFIRA_MODEL,
         created_at=now
@@ -180,7 +207,7 @@ async def score_candidate(
         text=f"Глафира оценила: {response_data['score']}, вердикт «{response_data['verdict']}»",
         entities=[
             {"type": "candidate", "id": str(candidate_id), "label": candidate.full_name},
-            {"type": "vacancy", "id": str(vacancy_id), "label": vacancy.name},
+        ] + ([{"type": "vacancy", "id": str(vacancy_id), "label": vacancy.name}] if vacancy else []) + [
             {"type": "evaluation", "id": str(evaluation.id), "label": f"Оценка {response_data['score']}"}
         ],
         candidate_id=candidate_id,

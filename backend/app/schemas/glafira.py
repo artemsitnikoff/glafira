@@ -2,44 +2,50 @@
 
 from uuid import UUID
 from pydantic import BaseModel
+from datetime import datetime
 
 from .base import ORMBase
 
 
 class ScoreRequest(BaseModel):
     candidate_id: UUID
-    vacancy_id: UUID
+    vacancy_id: UUID | None = None  # ← ОПЦИОНАЛЬНО (общая оценка резюме)
 
 
 class RequirementMatch(BaseModel):
-    req: str
-    status: str  # pass|warn|fail
-    comment: str
+    requirement: str  # требование из вакансии
+    status: str  # 'match'|'partial'|'miss'
+    comment: str | None
 
 
 class EvaluationOut(ORMBase):
     id: UUID
     candidate_id: UUID
-    application_id: UUID | None
+    vacancy_id: UUID | None = None  # ← вернуть в схему
+    application_id: UUID | None = None
     score: int
-    verdict: str  # good|partial|bad
+    verdict: str  # 'auto_reject'|'interview'|'auto_select' (по TZ; уточни)
     summary: str
     strengths: list[str]
     risks: list[str]
-    requirements_match: dict
-    forecast: str | None
-    model: str | None
+    requirements_match: list[RequirementMatch]  # ← НЕ dict
+    forecast: str
+    model: str | None = None
+    created_at: datetime  # ← ОБЯЗАТЕЛЬНО
 
 
 class ScreeningStartRequest(BaseModel):
-    application_id: UUID
+    candidate_id: UUID
+    application_id: UUID | None = None
+    script_key: str | None = None  # опционально — какой сценарий
 
 
 class ScreeningReplyRequest(BaseModel):
-    application_id: UUID
-    body: str
+    candidate_id: UUID
+    message: str  # текст ответа кандидата
 
 
 class ScreeningOut(BaseModel):
-    ai_message_id: UUID
-    body: str
+    message: str  # ответ Глафиры
+    finished: bool  # True = скрининг завершён, диалог можно закрывать
+    extracted: dict  # извлечённые из диалога факты {salary_expectation, ready_relocate, ...}

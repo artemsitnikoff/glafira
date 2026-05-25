@@ -9,7 +9,7 @@ from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...models import Application, Candidate, Employee, Event, Vacancy, User
+from ...models import Application, Candidate, Employee, Event, Vacancy, User, PulseSurvey
 from ...services.audit import audit
 from ...schemas.base import Paginated
 from ...schemas.pulse import EmployeeListItem
@@ -213,6 +213,37 @@ async def list_employees_paginated(
     result = await session.execute(query)
     employees = result.scalars().all()
 
+    # Get employee IDs for batch queries
+    employee_ids = [emp.id for emp in employees]
+
+    # Batch query for latest surveys per employee
+    surveys_stmt = (
+        select(
+            PulseSurvey.employee_id,
+            PulseSurvey.sent_at,
+            PulseSurvey.overall_score
+        )
+        .where(PulseSurvey.employee_id.in_(employee_ids))
+        .order_by(PulseSurvey.employee_id, PulseSurvey.sent_at.desc())
+    )
+    surveys_result = await session.execute(surveys_stmt)
+    surveys_rows = surveys_result.all()
+
+    # Group surveys by employee_id (first = latest)
+    from collections import defaultdict
+    surveys_by_employee = defaultdict(list)
+    for survey_row in surveys_rows:
+        surveys_by_employee[survey_row.employee_id].append(survey_row)
+
+    # Batch query for candidate avatar_urls
+    candidate_ids = [emp.candidate_id for emp in employees if emp.candidate_id]
+    candidates_stmt = (
+        select(Candidate.id, Candidate.avatar_url)
+        .where(Candidate.id.in_(candidate_ids))
+    )
+    candidates_result = await session.execute(candidates_stmt)
+    candidates_data = {row.id: row.avatar_url for row in candidates_result}
+
     # Convert to response format with computed fields
     items = []
     for employee in employees:
@@ -221,17 +252,33 @@ async def list_employees_paginated(
         adapt_day = compute_adapt_day(employee.start_date)
         manager_full_name = employee.manager_user.full_name if employee.manager_user else None
 
+        # Get latest survey info
+        employee_surveys = surveys_by_employee[employee.id]
+        last_survey_date = None
+        last_survey_mood = None
+        if employee_surveys:
+            latest_survey = employee_surveys[0]  # first = latest
+            last_survey_date = latest_survey.sent_at
+            last_survey_mood = latest_survey.overall_score
+
+        # Get avatar_url from candidate
+        avatar_url = candidates_data.get(employee.candidate_id) if employee.candidate_id else None
+
         item = EmployeeListItem(
             id=employee.id,
             full_name=employee.full_name,
             position=employee.position,
             department=employee.department,
+            avatar_url=avatar_url,
+            probation_days=employee.probation_days,
             start_date=employee.start_date,
             adapt_day=adapt_day,
             status=employee.status,
             risk_level=risk_level,
             enps=employee.enps,
             manager_full_name=manager_full_name,
+            last_survey_date=last_survey_date,
+            last_survey_mood=last_survey_mood,
         )
         items.append(item)
 

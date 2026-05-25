@@ -7,16 +7,19 @@ from datetime import datetime
 from .base import ORMBase
 
 
-class VerificationBlock(BaseModel):
-    status: str  # clean|info|warn|risk
-    summary: str
-    details: dict
+class VerifyBlock(BaseModel):
+    key: str  # 'inn'|'fssp'|'bankruptcy'|'registries'|'public'|'ai_intel'|'alimony'
+    title: str  # человекочитаемое название блока на русском
+    sources: list[dict]  # [{name, type}] — откуда взяли
+    status: str  # 'clean'|'info'|'warn'|'risk'
+    data: dict  # произвольная структура per-block (детали)
 
 
 class VerificationOut(ORMBase):
     id: UUID
     candidate_id: UUID
     consent_id: UUID
-    checked_at: datetime
-    status: str  # clean|info|warn|risk
-    blocks: dict  # 7 ключей: inn, fssp, bankruptcy, registries, public, ai_intel, alimony
+    consent_number: str  # номер подписанного consent
+    status: str  # overall: 'clean'|'info'|'warn'|'risk'
+    blocks: list[VerifyBlock]  # массив, не dict
+    created_at: datetime

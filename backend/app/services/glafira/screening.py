@@ -7,7 +7,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from .client import call_text
+from .client import call_json
 from .prompts import SCREENING_SYSTEM_PROMPT_TEMPLATE
 from ...core.errors import NotFoundError
 from ...models import Application, Candidate, Vacancy, Message, Event, GlafiraSettings
@@ -43,30 +43,43 @@ def _get_emoji_description(emoji_level: str) -> str:
 async def start_screening(
     session: AsyncSession,
     *,
-    application_id: UUID,
+    candidate_id: UUID,
+    application_id: UUID | None = None,
+    script_key: str | None = None,
     company_id: UUID,
     actor_user_id: UUID
-) -> Message:
-    """Start screening conversation for an application"""
+) -> dict:
+    """Start screening conversation for a candidate"""
 
-    # Get application with candidate and vacancy
-    app_result = await session.execute(
-        select(Application)
-        .options(
-            joinedload(Application.candidate),
-            joinedload(Application.vacancy)
-        )
-        .where(
-            Application.id == application_id,
-            Application.company_id == company_id
+    # Get candidate
+    candidate_result = await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
         )
     )
-    application = app_result.scalar_one_or_none()
-    if not application:
-        raise NotFoundError("Заявка")
+    candidate = candidate_result.scalar_one_or_none()
+    if not candidate:
+        raise NotFoundError("Кандидат")
 
-    candidate = application.candidate
-    vacancy = application.vacancy
+    # Get application and vacancy if application_id provided
+    application = None
+    vacancy = None
+    if application_id is not None:
+        app_result = await session.execute(
+            select(Application)
+            .options(joinedload(Application.vacancy))
+            .where(
+                Application.id == application_id,
+                Application.candidate_id == candidate_id,
+                Application.company_id == company_id
+            )
+        )
+        application = app_result.scalar_one_or_none()
+        if not application:
+            raise NotFoundError("Заявка")
+        vacancy = application.vacancy
 
     # Get glafira settings
     settings_result = await session.execute(
@@ -93,7 +106,12 @@ async def start_screening(
     )
 
     # Create user prompt
-    user_prompt = f"""Начни скрининг кандидата на вакансию "{vacancy.name}".
+    if vacancy is not None:
+        context_text = f'на вакансию "{vacancy.name}"'
+    else:
+        context_text = "(общий скрининг)"
+
+    user_prompt = f"""Начни скрининг кандидата {context_text}.
 
 Информация о кандидате:
 - Имя: {candidate.full_name}
@@ -102,14 +120,24 @@ async def start_screening(
 - Последняя должность: {candidate.last_position or "не указана"}
 - Ожидания по ЗП: {candidate.salary_expectation or "не указано"}
 
-Поприветствуй кандидата и начни беседу. Цель — понять мотивацию, опыт и готовность к работе."""
+Поприветствуй кандидата и начни беседу. Цель — понять мотивацию, опыт и готовность к работе.
+Верни JSON в формате: {{"message": "текст ответа", "finished": false, "extracted": {{}}}}"""
 
     # Call Claude API
-    ai_response = await call_text(
-        system=system_prompt,
-        user=user_prompt,
-        max_tokens=1024
-    )
+    try:
+        response_data = await call_json(
+            system=system_prompt,
+            user=user_prompt,
+            max_tokens=1024
+        )
+        ai_response = response_data.get("message", "Привет! Готовы начать скрининг?")
+        finished = response_data.get("finished", False)
+        extracted = response_data.get("extracted", {})
+    except Exception:
+        # Fallback if JSON parsing fails
+        ai_response = "Привет! Готовы начать скрининг?"
+        finished = False
+        extracted = {}
 
     # Create outgoing message
     now = datetime.now(timezone.utc)
@@ -137,11 +165,11 @@ async def start_screening(
         text=f"Глафира начала скрининг кандидата {candidate.full_name}",
         entities=[
             {"type": "candidate", "id": str(candidate.id), "label": candidate.full_name},
-            {"type": "vacancy", "id": str(vacancy.id), "label": vacancy.name},
+        ] + ([{"type": "vacancy", "id": str(vacancy.id), "label": vacancy.name}] if vacancy else []) + [
             {"type": "message", "id": str(message.id), "label": "Начало скрининга"}
         ],
         candidate_id=candidate.id,
-        vacancy_id=vacancy.id,
+        vacancy_id=vacancy.id if vacancy else None,
         created_at=now
     )
     session.add(event)
@@ -154,7 +182,7 @@ async def start_screening(
         entity_id=message.id,
         after={
             'candidate_id': str(candidate.id),
-            'application_id': str(application_id),
+            'application_id': str(application_id) if application_id else None,
             'body_length': len(ai_response)
         },
         actor_user_id=actor_user_id,
@@ -163,49 +191,46 @@ async def start_screening(
     )
 
     await session.flush()
-    return message
+    return {
+        "message": ai_response,
+        "finished": finished,
+        "extracted": extracted
+    }
 
 
 async def reply_screening(
     session: AsyncSession,
     *,
-    application_id: UUID,
-    candidate_message: str,
+    candidate_id: UUID,
+    message: str,
     company_id: UUID,
     actor_user_id: UUID
-) -> Message:
+) -> dict:
     """Reply to candidate message in screening conversation"""
 
-    # Get application with candidate and vacancy
-    app_result = await session.execute(
-        select(Application)
-        .options(
-            joinedload(Application.candidate),
-            joinedload(Application.vacancy)
-        )
-        .where(
-            Application.id == application_id,
-            Application.company_id == company_id
+    # Get candidate
+    candidate_result = await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
         )
     )
-    application = app_result.scalar_one_or_none()
-    if not application:
-        raise NotFoundError("Заявка")
-
-    candidate = application.candidate
-    vacancy = application.vacancy
+    candidate = candidate_result.scalar_one_or_none()
+    if not candidate:
+        raise NotFoundError("Кандидат")
 
     # Save incoming candidate message first
     now = datetime.now(timezone.utc)
     incoming_msg = Message(
         company_id=company_id,
         candidate_id=candidate.id,
-        application_id=application_id,
+        application_id=None,  # No longer tied to specific application
         channel=candidate.preferred_channel or 'telegram',
         direction='in',
         sender_type='candidate',
         sender_user_id=None,
-        body=candidate_message,
+        body=message,
         sent_at=now,
         created_at=now
     )
@@ -214,12 +239,7 @@ async def reply_screening(
     # Get conversation history (last 10 messages)
     history_result = await session.execute(
         select(Message)
-        .where(
-            and_(
-                Message.application_id == application_id,
-                Message.candidate_id == candidate.id
-            )
-        )
+        .where(Message.candidate_id == candidate.id)
         .order_by(Message.sent_at.desc())
         .limit(10)
     )
@@ -256,27 +276,38 @@ async def reply_screening(
         conversation_history.append(f"{speaker}: {msg.body}")
 
     # Add current candidate message to history
-    conversation_history.append(f"{candidate.full_name}: {candidate_message}")
+    conversation_history.append(f"{candidate.full_name}: {message}")
 
-    user_prompt = f"""Продолжи скрининг кандидата {candidate.full_name} на вакансию "{vacancy.name}".
+    user_prompt = f"""Продолжи скрининг кандидата {candidate.full_name}.
 
 История беседы:
 {chr(10).join(conversation_history)}
 
-Ответь на последнее сообщение кандидата, задай уточняющие вопросы по опыту или навыкам."""
+Ответь на последнее сообщение кандидата, задай уточняющие вопросы по опыту или навыкам.
+Попробуй извлечь ключевую информацию (зарплатные ожидания, готовность к переезду, и т.д.).
+Верни JSON в формате: {{"message": "ответ", "finished": false, "extracted": {{"salary_expectation": 100000, "ready_relocate": true}}}}"""
 
     # Call Claude API
-    ai_response = await call_text(
-        system=system_prompt,
-        user=user_prompt,
-        max_tokens=1024
-    )
+    try:
+        response_data = await call_json(
+            system=system_prompt,
+            user=user_prompt,
+            max_tokens=1024
+        )
+        ai_response = response_data.get("message", "Понятно, спасибо за ответ!")
+        finished = response_data.get("finished", False)
+        extracted = response_data.get("extracted", {})
+    except Exception:
+        # Fallback if JSON parsing fails
+        ai_response = "Понятно, спасибо за ответ!"
+        finished = False
+        extracted = {}
 
     # Create outgoing AI message
     outgoing_msg = Message(
         company_id=company_id,
         candidate_id=candidate.id,
-        application_id=application_id,
+        application_id=None,  # No longer tied to specific application
         channel=candidate.preferred_channel or 'telegram',
         direction='out',
         sender_type='ai',
@@ -300,7 +331,7 @@ async def reply_screening(
             {"type": "message", "id": str(outgoing_msg.id), "label": "Ответ в скрининге"}
         ],
         candidate_id=candidate.id,
-        vacancy_id=vacancy.id,
+        vacancy_id=None,
         created_at=now
     )
     session.add(event)
@@ -313,9 +344,9 @@ async def reply_screening(
         entity_id=outgoing_msg.id,
         after={
             'candidate_id': str(candidate.id),
-            'application_id': str(application_id),
+            'application_id': None,
             'response_length': len(ai_response),
-            'candidate_message_length': len(candidate_message)
+            'candidate_message_length': len(message)
         },
         actor_user_id=actor_user_id,
         actor_type='ai',
@@ -323,4 +354,8 @@ async def reply_screening(
     )
 
     await session.flush()
-    return outgoing_msg
+    return {
+        "message": ai_response,
+        "finished": finished,
+        "extracted": extracted
+    }

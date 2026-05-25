@@ -24,7 +24,7 @@ api_router.include_router(vacancies_router, prefix="/vacancies", tags=["vacancie
 api_router.include_router(applications_router, tags=["applications"])
 api_router.include_router(candidates_router, prefix="/candidates", tags=["candidates"])
 api_router.include_router(consents_router, tags=["consents"])
-api_router.include_router(messages_router, prefix="/messages", tags=["messages"])
+api_router.include_router(messages_router, tags=["messages"])
 api_router.include_router(documents_router, tags=["documents"])
 api_router.include_router(comments_router, tags=["comments"])
 api_router.include_router(glafira_router, prefix="/glafira", tags=["glafira"])

@@ -12,6 +12,7 @@ from ...models import User, AiEvaluation, Application
 from ...schemas.glafira import (
     ScoreRequest,
     EvaluationOut,
+    RequirementMatch,
     ScreeningStartRequest,
     ScreeningReplyRequest,
     ScreeningOut
@@ -115,9 +116,8 @@ async def score_candidate_endpoint(
             )
         )
         application = app_result.scalar_one_or_none()
-        if not application:
-            raise NotFoundError("Заявка кандидата на вакансию")
-        application_id = application.id
+        if application:
+            application_id = application.id
 
     # Check if evaluation already exists for this candidate/application pair
     existing = await _find_existing_evaluation(
@@ -129,14 +129,15 @@ async def score_candidate_endpoint(
         return EvaluationOut(
             id=existing.id,
             candidate_id=existing.candidate_id,
+            vacancy_id=data.vacancy_id,
             application_id=existing.application_id,
             score=existing.score,
             verdict=existing.verdict,
             summary=existing.summary,
             strengths=existing.strengths,
             risks=existing.risks,
-            requirements_match=existing.requirements_match,
-            forecast=existing.forecast,
+            requirements_match=[RequirementMatch(**match) for match in (existing.requirements_match if isinstance(existing.requirements_match, list) else [])],
+            forecast=existing.forecast or "",
             model=existing.model,
             created_at=existing.created_at
         )
@@ -155,14 +156,15 @@ async def score_candidate_endpoint(
     return EvaluationOut(
         id=evaluation.id,
         candidate_id=evaluation.candidate_id,
+        vacancy_id=data.vacancy_id,
         application_id=evaluation.application_id,
         score=evaluation.score,
         verdict=evaluation.verdict,
         summary=evaluation.summary,
         strengths=evaluation.strengths,
         risks=evaluation.risks,
-        requirements_match=evaluation.requirements_match,
-        forecast=evaluation.forecast,
+        requirements_match=[RequirementMatch(**match) for match in (evaluation.requirements_match if isinstance(evaluation.requirements_match, list) else [])],
+        forecast=evaluation.forecast or "",
         model=evaluation.model,
         created_at=evaluation.created_at
     )
@@ -191,14 +193,15 @@ async def get_candidate_evaluation(
     return EvaluationOut(
         id=evaluation.id,
         candidate_id=evaluation.candidate_id,
+        vacancy_id=vacancy_id,
         application_id=evaluation.application_id,
         score=evaluation.score,
         verdict=evaluation.verdict,
         summary=evaluation.summary,
         strengths=evaluation.strengths,
         risks=evaluation.risks,
-        requirements_match=evaluation.requirements_match,
-        forecast=evaluation.forecast,
+        requirements_match=[RequirementMatch(**match) for match in (evaluation.requirements_match if isinstance(evaluation.requirements_match, list) else [])],
+        forecast=evaluation.forecast or "",
         model=evaluation.model,
         created_at=evaluation.created_at
     )
@@ -212,9 +215,11 @@ async def start_screening_endpoint(
 ):
     """Start AI screening conversation"""
 
-    message = await start_screening(
+    result = await start_screening(
         session,
+        candidate_id=data.candidate_id,
         application_id=data.application_id,
+        script_key=data.script_key,
         company_id=current_user.company_id,
         actor_user_id=current_user.id
     )
@@ -222,8 +227,9 @@ async def start_screening_endpoint(
     await session.commit()
 
     return ScreeningOut(
-        ai_message_id=message.id,
-        body=message.body
+        message=result["message"],
+        finished=result["finished"],
+        extracted=result["extracted"]
     )
 
 
@@ -235,10 +241,10 @@ async def reply_screening_endpoint(
 ):
     """Reply to candidate in AI screening conversation"""
 
-    message = await reply_screening(
+    result = await reply_screening(
         session,
-        application_id=data.application_id,
-        candidate_message=data.body,
+        candidate_id=data.candidate_id,
+        message=data.message,
         company_id=current_user.company_id,
         actor_user_id=current_user.id
     )
@@ -246,6 +252,7 @@ async def reply_screening_endpoint(
     await session.commit()
 
     return ScreeningOut(
-        ai_message_id=message.id,
-        body=message.body
+        message=result["message"],
+        finished=result["finished"],
+        extracted=result["extracted"]
     )

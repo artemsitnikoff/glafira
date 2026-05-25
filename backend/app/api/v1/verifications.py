@@ -4,11 +4,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from ...deps import get_current_user, get_db
 from ...core.errors import NotFoundError
-from ...models import User
-from ...schemas.verification import VerificationOut
+from ...models import User, Consent
+from ...schemas.verification import VerificationOut, VerifyBlock
 from ...services.glafira.verify import verify_candidate, get_candidate_verification
 
 router = APIRouter()
@@ -31,13 +32,35 @@ async def verify_candidate_endpoint(
 
     await session.commit()
 
+    # Get consent number
+    consent_result = await session.execute(
+        select(Consent).where(Consent.id == verification.consent_id)
+    )
+    consent = consent_result.scalar_one()
+
+    # Convert blocks from old dict format to new list format if needed
+    if isinstance(verification.blocks, dict):
+        # Old format - convert to new
+        blocks = []
+        for key, block_data in verification.blocks.items():
+            blocks.append(VerifyBlock(
+                key=key,
+                title=f"Block {key}",  # placeholder
+                sources=[{"name": "Mock", "type": "api"}],
+                status=block_data.get("status", "clean"),
+                data=block_data.get("details", {})
+            ))
+    else:
+        # New format - already a list
+        blocks = [VerifyBlock(**block) for block in verification.blocks]
+
     return VerificationOut(
         id=verification.id,
         candidate_id=verification.candidate_id,
         consent_id=verification.consent_id,
-        checked_at=verification.checked_at,
+        consent_number=consent.number,
         status=verification.status,
-        blocks=verification.blocks,
+        blocks=blocks,
         created_at=verification.created_at
     )
 
@@ -59,12 +82,34 @@ async def get_candidate_verification_endpoint(
     if not verification:
         raise NotFoundError("Верификация")
 
+    # Get consent number
+    consent_result = await session.execute(
+        select(Consent).where(Consent.id == verification.consent_id)
+    )
+    consent = consent_result.scalar_one()
+
+    # Convert blocks from old dict format to new list format if needed
+    if isinstance(verification.blocks, dict):
+        # Old format - convert to new
+        blocks = []
+        for key, block_data in verification.blocks.items():
+            blocks.append(VerifyBlock(
+                key=key,
+                title=f"Block {key}",  # placeholder
+                sources=[{"name": "Mock", "type": "api"}],
+                status=block_data.get("status", "clean"),
+                data=block_data.get("details", {})
+            ))
+    else:
+        # New format - already a list
+        blocks = [VerifyBlock(**block) for block in verification.blocks]
+
     return VerificationOut(
         id=verification.id,
         candidate_id=verification.candidate_id,
         consent_id=verification.consent_id,
-        checked_at=verification.checked_at,
+        consent_number=consent.number,
         status=verification.status,
-        blocks=verification.blocks,
+        blocks=blocks,
         created_at=verification.created_at
     )

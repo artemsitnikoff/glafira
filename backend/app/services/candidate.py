@@ -181,11 +181,58 @@ async def get_candidates_paginated(
 
     rows = (await session.execute(stmt)).all()
 
-    # Build items - simplified for MVP, no last_vacancy for now
+    # Get candidate IDs from current page
+    candidate_ids = [row.id for row in rows]
+
+    # Batch-запрос всех applications этих кандидатов с JOIN vacancy
+    apps_stmt = (
+        select(
+            Application.id,
+            Application.candidate_id,
+            Application.vacancy_id,
+            Application.stage,
+            Application.created_at,
+            Vacancy.name.label('vacancy_name')
+        )
+        .join(Vacancy, Vacancy.id == Application.vacancy_id)
+        .where(Application.candidate_id.in_(candidate_ids))
+        .order_by(Application.candidate_id, Application.created_at.desc())
+    )
+    apps_rows = (await session.execute(apps_stmt)).all()
+
+    # Сгруппируй по candidate_id
+    from collections import defaultdict
+    apps_by_candidate = defaultdict(list)
+    for app_row in apps_rows:
+        apps_by_candidate[app_row.candidate_id].append(app_row)
+
+    # Build items
     items = []
     for row in rows:
         full_name = _compute_full_name(row.last_name, row.first_name, row.middle_name)
         age = _compute_age(row.birth_date)
+
+        # Получаем applications этого кандидата
+        candidate_apps = apps_by_candidate[row.id]
+
+        # last_vacancy - первый (самый свежий по created_at)
+        last_vacancy = None
+        other_vacancies_count = 0
+
+        if candidate_apps:
+            last_app = candidate_apps[0]  # первый в отсортированном списке
+            stage_color = STAGES.get(last_app.stage, STAGES['added']).color
+
+            last_vacancy = CandidateCardVacancy(
+                application_id=last_app.id,
+                vacancy_id=last_app.vacancy_id,
+                vacancy_name=last_app.vacancy_name,
+                stage=last_app.stage,
+                stage_color=stage_color,
+                is_last=True
+            )
+
+            other_vacancies_count = max(0, len(candidate_apps) - 1)
 
         items.append(CandidateGridItem(
             id=row.id,
@@ -199,8 +246,8 @@ async def get_candidates_paginated(
             avatar_url=None,  # No avatar_url field in Candidate model
             is_duplicate=row.is_duplicate,
             has_pdn=bool(row.has_pdn),
-            last_vacancy=None,  # Simplified for MVP
-            other_vacancies_count=0  # Simplified for MVP
+            last_vacancy=last_vacancy,
+            other_vacancies_count=other_vacancies_count
         ))
 
     pages = math.ceil(total / page_size) if total > 0 else 0

@@ -1861,13 +1861,13 @@
         }
       }
     },
-    "/api/v1/candidates/{candidate_id}/consents": {
+    "/api/v1/candidates/{candidate_id}/consent": {
       "get": {
         "tags": [
           "consents"
         ],
-        "summary": "Get Consents",
-        "operationId": "get_consents_api_v1_candidates__candidate_id__consents_get",
+        "summary": "Get Consent",
+        "operationId": "get_consent_api_v1_candidates__candidate_id__consent_get",
         "security": [
           {
             "HTTPBearer": []
@@ -1891,11 +1891,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ConsentOut"
-                  },
-                  "title": "Response Get Consents Api V1 Candidates  Candidate Id  Consents Get"
+                  "$ref": "#/components/schemas/ConsentOut"
                 }
               }
             }
@@ -1913,13 +1909,13 @@
         }
       }
     },
-    "/api/v1/candidates/{candidate_id}/consents/request": {
+    "/api/v1/candidates/{candidate_id}/consent/request": {
       "post": {
         "tags": [
           "consents"
         ],
         "summary": "Request Consent Route",
-        "operationId": "request_consent_route_api_v1_candidates__candidate_id__consents_request_post",
+        "operationId": "request_consent_route_api_v1_candidates__candidate_id__consent_request_post",
         "security": [
           {
             "HTTPBearer": []
@@ -1973,13 +1969,13 @@
         }
       }
     },
-    "/api/v1/consents/{consent_id}/sign": {
+    "/api/v1/candidates/{candidate_id}/consent/sign": {
       "post": {
         "tags": [
           "consents"
         ],
         "summary": "Sign Consent Route",
-        "operationId": "sign_consent_route_api_v1_consents__consent_id__sign_post",
+        "operationId": "sign_consent_route_api_v1_candidates__candidate_id__consent_sign_post",
         "security": [
           {
             "HTTPBearer": []
@@ -1987,13 +1983,13 @@
         ],
         "parameters": [
           {
-            "name": "consent_id",
+            "name": "candidate_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Consent Id"
+              "title": "Candidate Id"
             }
           }
         ],
@@ -2021,13 +2017,13 @@
         }
       }
     },
-    "/api/v1/messages": {
+    "/api/v1/candidates/{candidate_id}/messages": {
       "get": {
         "tags": [
           "messages"
         ],
         "summary": "Get Messages",
-        "operationId": "get_messages_api_v1_messages_get",
+        "operationId": "get_messages_api_v1_candidates__candidate_id__messages_get",
         "security": [
           {
             "HTTPBearer": []
@@ -2036,7 +2032,7 @@
         "parameters": [
           {
             "name": "candidate_id",
-            "in": "query",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string",
@@ -2156,7 +2152,7 @@
           "messages"
         ],
         "summary": "Send Message Route",
-        "operationId": "send_message_route_api_v1_messages_post",
+        "operationId": "send_message_route_api_v1_candidates__candidate_id__messages_post",
         "security": [
           {
             "HTTPBearer": []
@@ -2165,7 +2161,7 @@
         "parameters": [
           {
             "name": "candidate_id",
-            "in": "query",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string",
@@ -7591,6 +7587,21 @@
             ],
             "title": "Department"
           },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "probation_days": {
+            "type": "integer",
+            "title": "Probation Days"
+          },
           "start_date": {
             "type": "string",
             "format": "date",
@@ -7631,12 +7642,36 @@
               }
             ],
             "title": "Manager Full Name"
+          },
+          "last_survey_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Survey Date"
+          },
+          "last_survey_mood": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Survey Mood"
           }
         },
         "type": "object",
         "required": [
           "id",
           "full_name",
+          "probation_days",
           "start_date",
           "status"
         ],
@@ -7653,6 +7688,18 @@
             "type": "string",
             "format": "uuid",
             "title": "Candidate Id"
+          },
+          "vacancy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vacancy Id"
           },
           "application_id": {
             "anyOf": [
@@ -7693,19 +7740,14 @@
             "title": "Risks"
           },
           "requirements_match": {
-            "additionalProperties": true,
-            "type": "object",
+            "items": {
+              "$ref": "#/components/schemas/RequirementMatch"
+            },
+            "type": "array",
             "title": "Requirements Match"
           },
           "forecast": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Forecast"
           },
           "model": {
@@ -7718,13 +7760,17 @@
               }
             ],
             "title": "Model"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
         "required": [
           "id",
           "candidate_id",
-          "application_id",
           "score",
           "verdict",
           "summary",
@@ -7732,7 +7778,7 @@
           "risks",
           "requirements_match",
           "forecast",
-          "model"
+          "created_at"
         ],
         "title": "EvaluationOut"
       },
@@ -8852,6 +8898,36 @@
         ],
         "title": "RejectRequest"
       },
+      "RequirementMatch": {
+        "properties": {
+          "requirement": {
+            "type": "string",
+            "title": "Requirement"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requirement",
+          "status",
+          "comment"
+        ],
+        "title": "RequirementMatch"
+      },
       "ScoreRequest": {
         "properties": {
           "candidate_id": {
@@ -8860,67 +8936,101 @@
             "title": "Candidate Id"
           },
           "vacancy_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Vacancy Id"
           }
         },
         "type": "object",
         "required": [
-          "candidate_id",
-          "vacancy_id"
+          "candidate_id"
         ],
         "title": "ScoreRequest"
       },
       "ScreeningOut": {
         "properties": {
-          "ai_message_id": {
+          "message": {
             "type": "string",
-            "format": "uuid",
-            "title": "Ai Message Id"
+            "title": "Message"
           },
-          "body": {
-            "type": "string",
-            "title": "Body"
+          "finished": {
+            "type": "boolean",
+            "title": "Finished"
+          },
+          "extracted": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Extracted"
           }
         },
         "type": "object",
         "required": [
-          "ai_message_id",
-          "body"
+          "message",
+          "finished",
+          "extracted"
         ],
         "title": "ScreeningOut"
       },
       "ScreeningReplyRequest": {
         "properties": {
-          "application_id": {
+          "candidate_id": {
             "type": "string",
             "format": "uuid",
-            "title": "Application Id"
+            "title": "Candidate Id"
           },
-          "body": {
+          "message": {
             "type": "string",
-            "title": "Body"
+            "title": "Message"
           }
         },
         "type": "object",
         "required": [
-          "application_id",
-          "body"
+          "candidate_id",
+          "message"
         ],
         "title": "ScreeningReplyRequest"
       },
       "ScreeningStartRequest": {
         "properties": {
-          "application_id": {
+          "candidate_id": {
             "type": "string",
             "format": "uuid",
+            "title": "Candidate Id"
+          },
+          "application_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Application Id"
+          },
+          "script_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Key"
           }
         },
         "type": "object",
         "required": [
-          "application_id"
+          "candidate_id"
         ],
         "title": "ScreeningStartRequest"
       },
@@ -10380,19 +10490,25 @@
             "format": "uuid",
             "title": "Consent Id"
           },
-          "checked_at": {
+          "consent_number": {
             "type": "string",
-            "format": "date-time",
-            "title": "Checked At"
+            "title": "Consent Number"
           },
           "status": {
             "type": "string",
             "title": "Status"
           },
           "blocks": {
-            "additionalProperties": true,
-            "type": "object",
+            "items": {
+              "$ref": "#/components/schemas/VerifyBlock"
+            },
+            "type": "array",
             "title": "Blocks"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
@@ -10400,11 +10516,50 @@
           "id",
           "candidate_id",
           "consent_id",
-          "checked_at",
+          "consent_number",
           "status",
-          "blocks"
+          "blocks",
+          "created_at"
         ],
         "title": "VerificationOut"
+      },
+      "VerifyBlock": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "sources",
+          "status",
+          "data"
+        ],
+        "title": "VerifyBlock"
       },
       "app__schemas__analytics__KpiCard": {
         "properties": {

@@ -9,12 +9,16 @@ class EmployeeListItem(ORMBase):
     full_name: str
     position: str | None = None
     department: str | None = None
+    avatar_url: str | None = None
+    probation_days: int
     start_date: date
     adapt_day: int = 0  # computed
     status: str
     risk_level: str = "low"
     enps: int | None = None
     manager_full_name: str | None = None
+    last_survey_date: datetime | None = None
+    last_survey_mood: float | None = None
 
 
 class PlanItemOut(ORMBase):

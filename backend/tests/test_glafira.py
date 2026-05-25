@@ -328,12 +328,20 @@ class TestGlafiraVerification:
         blocks = body['blocks']
         required_blocks = ['inn', 'fssp', 'bankruptcy', 'registries', 'public', 'ai_intel', 'alimony']
 
+        # blocks is now a list of objects, not a dict
+        block_keys = [block['key'] for block in blocks]
+
         for block_key in required_blocks:
-            assert block_key in blocks
-            assert 'status' in blocks[block_key]
-            assert 'summary' in blocks[block_key]
-            assert 'details' in blocks[block_key]
-            assert blocks[block_key]['status'] in ['clean', 'info', 'warn', 'risk']
+            assert block_key in block_keys
+
+        # Check each block has required fields
+        for block in blocks:
+            assert 'key' in block
+            assert 'title' in block
+            assert 'sources' in block
+            assert 'status' in block
+            assert 'data' in block
+            assert block['status'] in ['clean', 'info', 'warn', 'risk']
 
         # Check overall status
         assert body['status'] in ['clean', 'info', 'warn', 'risk']

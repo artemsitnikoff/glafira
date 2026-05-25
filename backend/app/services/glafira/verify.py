@@ -17,56 +17,87 @@ from ...services.audit import audit
 logger = logging.getLogger(__name__)
 
 
-def _generate_mock_verification_blocks(candidate_id: UUID) -> tuple[str, dict]:
+def _generate_mock_verification_blocks(candidate_id: UUID) -> tuple[str, list[dict]]:
     """Generate deterministic mock verification blocks"""
     # Use candidate ID for deterministic randomness
     seed = int(hashlib.sha256(str(candidate_id).encode()).hexdigest()[:8], 16)
     rng = random.Random(seed)
 
-    blocks = {}
+    blocks = []
 
     # Define all 7 blocks
     block_configs = [
-        ("inn", "ИНН — идентификация", ["ФНС", "DaData"]),
-        ("fssp", "Исполнительные производства", ["ФССП", "Datanewton"]),
-        ("bankruptcy", "Банкротство и связи с юрлицами", ["ЕФРСБ", "DaData"]),
-        ("registries", "Реестры и санкции", ["ФНС", "Росфинмониторинг"]),
-        ("public", "Публичная экспертиза", ["СМИ", "Соцсети"]),
-        ("ai_intel", "AI-разведка", ["Глафира"]),
-        ("alimony", "Алиментные обязательства", ["ФССП", "Госуслуги"]),
+        ("inn", "Проверка ИНН", [{"name": "ФНС", "type": "gov"}]),
+        ("fssp", "Исполнительные производства", [{"name": "ФССП", "type": "gov"}]),
+        ("bankruptcy", "Реестр банкротов", [{"name": "ЕФРСБ", "type": "gov"}]),
+        ("registries", "Прочие реестры", [{"name": "РОСРЕЕСТР", "type": "gov"}]),
+        ("public", "Публичные источники", [{"name": "Соцсети", "type": "public"}]),
+        ("ai_intel", "AI-анализ", [{"name": "Глафира", "type": "ai"}]),
+        ("alimony", "Алименты", [{"name": "ФССП", "type": "gov"}]),
     ]
 
     # Most blocks are clean, 1-2 can have issues
     issue_count = rng.randint(0, 2)
-    issue_blocks = rng.sample(block_configs, min(issue_count, len(block_configs)))
+    issue_indices = rng.sample(range(len(block_configs)), min(issue_count, len(block_configs)))
 
-    for key, title, sources in block_configs:
-        if (key, title, sources) in issue_blocks:
+    for idx, (key, title, sources) in enumerate(block_configs):
+        if idx in issue_indices:
             # This block has an issue
             status = rng.choice(["info", "warn", "risk"])
-            if status == "info":
-                summary = "Найдена дополнительная информация"
-                details = {"note": "Требует проверки"}
-            elif status == "warn":
-                summary = "Обнаружено предупреждение"
-                details = {"warning": "Возможные риски"}
-            else:  # risk
-                summary = "Выявлены критические риски"
-                details = {"risk": "Высокий уровень угрозы"}
         else:
-            # Clean block
             status = "clean"
-            summary = "Проверка пройдена успешно"
-            details = {"verified": True}
 
-        blocks[key] = {
+        # Generate deterministic mock data per block
+        if key == "inn":
+            inn_suffix = str(seed)[-10:]
+            data = {
+                "inn": f"77{inn_suffix}",
+                "tax_status": "active" if status == "clean" else "inactive",
+                "last_check": "2026-05-25"
+            }
+        elif key == "fssp":
+            data = {
+                "open_cases": 0 if status == "clean" else rng.randint(1, 3),
+                "total_debt": 0 if status == "clean" else rng.randint(10000, 500000)
+            }
+        elif key == "bankruptcy":
+            data = {
+                "is_bankrupt": False,
+                "bankruptcy_cases": 0 if status == "clean" else 1
+            }
+        elif key == "registries":
+            data = {
+                "sanctions_found": status != "clean",
+                "registry_count": 0 if status == "clean" else 1
+            }
+        elif key == "public":
+            data = {
+                "mentions_count": rng.randint(0, 5),
+                "negative_mentions": 0 if status == "clean" else rng.randint(1, 3)
+            }
+        elif key == "ai_intel":
+            data = {
+                "reputation_score": 85 if status == "clean" else rng.randint(20, 60),
+                "confidence": 0.92
+            }
+        elif key == "alimony":
+            data = {
+                "alimony_debt": 0 if status == "clean" else rng.randint(50000, 200000),
+                "active_cases": 0 if status == "clean" else 1
+            }
+        else:
+            data = {}
+
+        blocks.append({
+            "key": key,
+            "title": title,
+            "sources": sources,
             "status": status,
-            "summary": summary,
-            "details": details
-        }
+            "data": data
+        })
 
     # Determine overall status
-    statuses = [block["status"] for block in blocks.values()]
+    statuses = [block["status"] for block in blocks]
     if "risk" in statuses:
         overall_status = "risk"
     elif "warn" in statuses:

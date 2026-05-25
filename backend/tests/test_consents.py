@@ -19,7 +19,7 @@ class TestConsents:
 
         # Request consent
         response = await async_client.post(
-            f"/api/v1/candidates/{candidate_id}/consents/request",
+            f"/api/v1/candidates/{candidate_id}/consent/request",
             headers=auth_headers,
             json={"channel": "telegram"}
         )
@@ -48,7 +48,7 @@ class TestConsents:
 
         # Sign consent
         sign_response = await async_client.post(
-            f"/api/v1/consents/{consent_id}/sign",
+            f"/api/v1/candidates/{candidate_id}/consent/sign",
             headers=auth_headers
         )
 
@@ -77,15 +77,14 @@ class TestConsents:
 
         # Request and sign consent
         consent_response = await async_client.post(
-            f"/api/v1/candidates/{candidate_id}/consents/request",
+            f"/api/v1/candidates/{candidate_id}/consent/request",
             headers=auth_headers,
             json={"channel": "telegram"}
         )
         assert consent_response.status_code == 201
-        consent_id = consent_response.json()["id"]
 
         await async_client.post(
-            f"/api/v1/consents/{consent_id}/sign",
+            f"/api/v1/candidates/{candidate_id}/consent/sign",
             headers=auth_headers
         )
 
