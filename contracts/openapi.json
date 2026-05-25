@@ -3494,6 +3494,257 @@
         }
       }
     },
+    "/api/v1/home/kpi": {
+      "get": {
+        "tags": [
+          "home"
+        ],
+        "summary": "Get Kpi",
+        "description": "Получить KPI для главной страницы",
+        "operationId": "get_kpi_api_v1_home_kpi_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Период: week, month, quarter, year, all",
+              "default": "month",
+              "title": "Period"
+            },
+            "description": "Период: week, month, quarter, year, all"
+          },
+          {
+            "name": "extended",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Включить расширенные метрики",
+              "default": false,
+              "title": "Extended"
+            },
+            "description": "Включить расширенные метрики"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomeKpi"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/home/attention": {
+      "get": {
+        "tags": [
+          "home"
+        ],
+        "summary": "Get Attention",
+        "description": "Получить список вакансий, требующих внимания",
+        "operationId": "get_attention_api_v1_home_attention_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AttentionItem"
+                  },
+                  "type": "array",
+                  "title": "Response Get Attention Api V1 Home Attention Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/home/events": {
+      "get": {
+        "tags": [
+          "home"
+        ],
+        "summary": "Get Events",
+        "description": "Получить ленту событий",
+        "operationId": "get_events_api_v1_home_events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Количество событий",
+              "default": 30,
+              "title": "Limit"
+            },
+            "description": "Количество событий"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/home/pulse-summary": {
+      "get": {
+        "tags": [
+          "home"
+        ],
+        "summary": "Get Pulse Summary",
+        "description": "Получить сводку пульса",
+        "operationId": "get_pulse_summary_api_v1_home_pulse_summary_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Период: week, month, quarter, year, all",
+              "default": "month",
+              "title": "Period"
+            },
+            "description": "Период: week, month, quarter, year, all"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PulseSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/home/sources": {
+      "get": {
+        "tags": [
+          "home"
+        ],
+        "summary": "Get Sources",
+        "description": "Получить топ источников кандидатов",
+        "operationId": "get_sources_api_v1_home_sources_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Период: week, month, quarter, year, all",
+              "default": "month",
+              "title": "Period"
+            },
+            "description": "Период: week, month, quarter, year, all"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceItem"
+                  },
+                  "title": "Response Get Sources Api V1 Home Sources Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health Check",
@@ -3875,6 +4126,80 @@
           "selected_at"
         ],
         "title": "ApplicationRow"
+      },
+      "AttentionHrItem": {
+        "properties": {
+          "employee_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Employee Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "adapt_day": {
+            "type": "integer",
+            "title": "Adapt Day"
+          },
+          "risk_score": {
+            "type": "integer",
+            "title": "Risk Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_id",
+          "full_name",
+          "reason",
+          "adapt_day",
+          "risk_score"
+        ],
+        "title": "AttentionHrItem"
+      },
+      "AttentionItem": {
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Vacancy Id"
+          },
+          "vacancy_name": {
+            "type": "string",
+            "title": "Vacancy Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "vacancy_id",
+          "vacancy_name",
+          "kind",
+          "text"
+        ],
+        "title": "AttentionItem"
       },
       "Body_upload_document_route_api_v1_candidates__candidate_id__documents_post": {
         "properties": {
@@ -5309,6 +5634,83 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HomeKpi": {
+        "properties": {
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/KpiCard"
+            },
+            "type": "array",
+            "title": "Cards"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "cards"
+        ],
+        "title": "HomeKpi"
+      },
+      "KpiCard": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "delta_dir": {
+            "type": "string",
+            "title": "Delta Dir"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "value",
+          "delta_dir"
+        ],
+        "title": "KpiCard"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -5808,6 +6210,83 @@
         ],
         "title": "PulseKPI"
       },
+      "PulseSummary": {
+        "properties": {
+          "onboarding_count": {
+            "type": "integer",
+            "title": "Onboarding Count"
+          },
+          "onboarding_delta": {
+            "type": "integer",
+            "title": "Onboarding Delta"
+          },
+          "risk_split": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Risk Split"
+          },
+          "satisfaction_avg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Satisfaction Avg"
+          },
+          "answered_pct": {
+            "type": "number",
+            "title": "Answered Pct"
+          },
+          "silent_pct": {
+            "type": "number",
+            "title": "Silent Pct"
+          },
+          "enps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enps"
+          },
+          "enps_delta": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enps Delta"
+          },
+          "attention_hr": {
+            "items": {
+              "$ref": "#/components/schemas/AttentionHrItem"
+            },
+            "type": "array",
+            "title": "Attention Hr"
+          }
+        },
+        "type": "object",
+        "required": [
+          "onboarding_count",
+          "onboarding_delta",
+          "risk_split",
+          "answered_pct",
+          "silent_pct",
+          "attention_hr"
+        ],
+        "title": "PulseSummary"
+      },
       "RejectRequest": {
         "properties": {
           "reason": {
@@ -5897,6 +6376,24 @@
           "application_id"
         ],
         "title": "ScreeningStartRequest"
+      },
+      "SourceItem": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "count"
+        ],
+        "title": "SourceItem"
       },
       "StageHistoryItem": {
         "properties": {
