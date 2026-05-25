@@ -48,10 +48,13 @@ async def create_new_user(
     if current_user.role != "admin":
         raise ForbiddenError("Только администратор может создавать пользователей")
 
-    user = await create_user(session, user_data, company_id, current_user.id)
+    user, temp_password = await create_user(session, user_data, company_id, current_user.id)
     await session.commit()
 
-    return UserShort.model_validate(user)
+    # Return user data with temp_password included once
+    response_data = UserShort.model_validate(user).model_dump()
+    response_data["temp_password"] = temp_password
+    return response_data
 
 
 @router.patch("/{user_id}", response_model=UserShort)

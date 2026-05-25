@@ -17,11 +17,21 @@ async def list_integrations(session: AsyncSession, company_id: UUID) -> list[Int
     )
     integrations = list(result.scalars().all())
 
-    # Mask sensitive config for response
+    # Create response objects with masked config (don't mutate ORM objects)
+    response_integrations = []
     for integration in integrations:
-        integration.config = mask_config(integration.config)
+        response_integration = Integration(
+            id=integration.id,
+            company_id=integration.company_id,
+            provider=integration.provider,
+            status=integration.status,
+            config=mask_config(integration.config),
+            created_at=integration.created_at,
+            updated_at=integration.updated_at
+        )
+        response_integrations.append(response_integration)
 
-    return integrations
+    return response_integrations
 
 
 async def update_integration(
@@ -87,7 +97,15 @@ async def update_integration(
         company_id=company_id,
     )
 
-    # Mask config for response
-    integration.config = mask_config(integration.config)
+    # Create response object with masked config (don't mutate ORM object)
+    response_integration = Integration(
+        id=integration.id,
+        company_id=integration.company_id,
+        provider=integration.provider,
+        status=integration.status,
+        config=mask_config(integration.config),
+        created_at=integration.created_at,
+        updated_at=integration.updated_at
+    )
 
-    return integration
+    return response_integration

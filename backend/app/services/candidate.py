@@ -1,5 +1,5 @@
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 
 from sqlalchemy import and_, asc, case, desc, exists, func, or_, select, text
@@ -138,11 +138,11 @@ async def get_candidates_paginated(
     if added_period:
         now = datetime.now(timezone.utc)
         if added_period == "7d":
-            base_filters.append(Candidate.created_at >= now.replace(day=now.day-7))
+            base_filters.append(Candidate.created_at >= now - timedelta(days=7))
         elif added_period == "30d":
-            base_filters.append(Candidate.created_at >= now.replace(day=now.day-30))
+            base_filters.append(Candidate.created_at >= now - timedelta(days=30))
         elif added_period == "3m":
-            base_filters.append(Candidate.created_at >= now.replace(month=max(1, now.month-3)))
+            base_filters.append(Candidate.created_at >= now - timedelta(days=90))
 
     # Count total
     count_stmt = select(func.count(Candidate.id)).where(and_(*base_filters))

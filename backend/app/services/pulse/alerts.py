@@ -7,6 +7,7 @@ from uuid import UUID
 
 from ...core.errors import NotFoundError
 from ...models import PulseAlert
+from ...services.audit import audit
 
 
 async def list_alerts(
@@ -60,4 +61,17 @@ async def dismiss_alert(
     )
 
     await session.execute(update_stmt)
+
+    # Audit log
+    await audit(
+        session,
+        action="dismiss_alert",
+        entity_type="pulse_alert",
+        entity_id=alert.id,
+        before={"is_dismissed": False},
+        after={"is_dismissed": True},
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
     await session.flush()

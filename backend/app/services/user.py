@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from uuid import UUID
 import math
+import secrets
 
 from ..models import User
 from ..schemas.user import UserCreate, UserUpdate, UserShort
@@ -76,10 +77,10 @@ async def create_user(
     user_data: UserCreate,
     company_id: UUID,
     actor_user_id: UUID
-) -> User:
+) -> tuple[User, str]:
     """Create new user"""
     # Generate temp password (should be changed on first login)
-    temp_password = "change_me"
+    temp_password = secrets.token_urlsafe(16)
 
     user = User(
         company_id=company_id,
@@ -109,7 +110,7 @@ async def create_user(
         company_id=company_id,
     )
 
-    return user
+    return user, temp_password
 
 
 async def update_user(
