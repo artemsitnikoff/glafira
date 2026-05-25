@@ -24,5 +24,7 @@ class Settings(BaseSettings):
     AVITO_CLIENT_ID: str = ""
     AVITO_CLIENT_SECRET: str = ""
 
+    FERNET_KEY: str | None = None
+
 
 settings = Settings()

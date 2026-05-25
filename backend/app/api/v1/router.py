@@ -14,6 +14,7 @@ from .verifications import router as verifications_router
 from .pulse import router as pulse_router
 from .home import router as home_router
 from .analytics import router as analytics_router
+from .settings import router as settings_router
 
 api_router = APIRouter()
 
@@ -32,3 +33,4 @@ api_router.include_router(verifications_router, tags=["verifications"])
 api_router.include_router(pulse_router, prefix="/pulse", tags=["pulse"])
 api_router.include_router(home_router, prefix="/home", tags=["home"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(settings_router, prefix="/settings", tags=["settings"])

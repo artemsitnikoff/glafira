@@ -1,0 +1,103 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from uuid import UUID
+
+from ...models import User
+from ...core.errors import NotFoundError, ValidationError
+from ...core.security import get_password_hash, verify_password
+from ...services.audit import audit
+
+
+async def get_profile(session: AsyncSession, user_id: UUID) -> User:
+    """Get user profile by ID"""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise NotFoundError("Пользователь")
+    return user
+
+
+async def update_profile(session: AsyncSession, user_id: UUID, data, company_id: UUID) -> User:
+    """Update user profile"""
+    user = await get_profile(session, user_id)
+
+    # Store original values for audit
+    before = {
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "position": user.position,
+        "timezone": user.timezone,
+        "avatar_url": user.avatar_url,
+    }
+
+    # Update fields
+    if data.full_name is not None:
+        user.full_name = data.full_name
+    if data.email is not None:
+        user.email = data.email
+    if data.phone is not None:
+        user.phone = data.phone
+    if data.position is not None:
+        user.position = data.position
+    if data.timezone is not None:
+        user.timezone = data.timezone
+    if data.avatar_url is not None:
+        user.avatar_url = data.avatar_url
+
+    await session.flush()
+
+    # Audit log
+    after = {
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "position": user.position,
+        "timezone": user.timezone,
+        "avatar_url": user.avatar_url,
+    }
+
+    await audit(
+        session,
+        action="update_profile",
+        entity_type="user",
+        entity_id=user.id,
+        before=before,
+        after=after,
+        actor_user_id=user_id,
+        company_id=company_id,
+    )
+
+    return user
+
+
+async def change_password(
+    session: AsyncSession,
+    user: User,
+    current_password: str,
+    new_password: str,
+    new_password_confirm: str,
+    company_id: UUID,
+) -> User:
+    """Change user password"""
+    if new_password != new_password_confirm:
+        raise ValidationError("Пароли не совпадают")
+
+    if not verify_password(current_password, user.password_hash):
+        raise ValidationError("Неверный текущий пароль")
+
+    user.password_hash = get_password_hash(new_password)
+
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="change_password",
+        entity_type="user",
+        entity_id=user.id,
+        actor_user_id=user.id,
+        company_id=company_id,
+    )
+
+    return user

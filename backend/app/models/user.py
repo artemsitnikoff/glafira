@@ -32,6 +32,7 @@ class User(Base, TimestampMixin, CompanyMixin):
     )
     position: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     timezone: Mapped[str] = mapped_column(
         String(50),
         nullable=False,

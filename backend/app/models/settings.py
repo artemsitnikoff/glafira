@@ -100,7 +100,7 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
     auto_reject_below: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("30"))
     auto_select_above: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("80"))
     days_no_response: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("7"))
-    stop_words: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    stop_words: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     default_mode: Mapped[str] = mapped_column(String(1), nullable=False, server_default=text("'A'"))
 
     # Constraints
