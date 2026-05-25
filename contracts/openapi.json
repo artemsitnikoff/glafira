@@ -2675,7 +2675,7 @@
           "glafira"
         ],
         "summary": "Get Candidate Evaluation",
-        "description": "Get latest evaluation for candidate",
+        "description": "Get evaluation for candidate",
         "operationId": "get_candidate_evaluation_api_v1_candidates__candidate_id__evaluation_get",
         "security": [
           {
@@ -2708,6 +2708,23 @@
                 }
               ],
               "title": "Application Id"
+            }
+          },
+          {
+            "name": "vacancy_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vacancy Id"
             }
           }
         ],

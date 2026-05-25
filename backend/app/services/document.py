@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 from pathlib import Path
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import NotFoundError, FileTooLargeError, UnsupportedFileTypeError
 from ..models import Candidate, Document, User
+
+logger = logging.getLogger(__name__)
 from ..schemas.document import DocumentOut
 from ..services.audit import audit
 from ..services.storage import storage_service
@@ -177,7 +180,7 @@ async def upload_document(
             )
         except Exception as e:
             # Don't block upload on parse failure
-            pass
+            logger.warning("Resume autoparse failed for candidate %s: %s", candidate_id, e)
 
     # Get uploader name
     user_result = await session.execute(

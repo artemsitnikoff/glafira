@@ -2,13 +2,13 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...deps import get_current_user, get_db
-from ...core.errors import NotFoundError
-from ...models import User, AiEvaluation
+from ...core.errors import NotFoundError, ValidationError
+from ...models import User, AiEvaluation, Application
 from ...schemas.glafira import (
     ScoreRequest,
     EvaluationOut,
@@ -24,6 +24,77 @@ router = APIRouter()
 candidates_evaluation_router = APIRouter()
 
 
+async def _find_existing_evaluation(
+    session: AsyncSession,
+    candidate_id: UUID,
+    application_id: UUID | None,
+    company_id: UUID
+) -> AiEvaluation | None:
+    """Helper to find existing evaluation for candidate/application pair"""
+    result = await session.execute(
+        select(AiEvaluation).where(
+            AiEvaluation.candidate_id == candidate_id,
+            AiEvaluation.application_id.is_not_distinct_from(application_id),
+            AiEvaluation.company_id == company_id
+        ).order_by(AiEvaluation.created_at.desc()).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _find_evaluation_for_filter(
+    session: AsyncSession,
+    candidate_id: UUID,
+    application_id: UUID | None,
+    vacancy_id: UUID | None,
+    company_id: UUID
+) -> AiEvaluation | None:
+    """Helper to find evaluation with flexible filtering"""
+    if application_id is not None:
+        # Direct lookup by application_id
+        result = await session.execute(
+            select(AiEvaluation).where(
+                AiEvaluation.candidate_id == candidate_id,
+                AiEvaluation.application_id == application_id,
+                AiEvaluation.company_id == company_id
+            ).order_by(AiEvaluation.created_at.desc()).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    elif vacancy_id is not None:
+        # Resolve vacancy_id to application_id first
+        app_result = await session.execute(
+            select(Application).where(
+                Application.candidate_id == candidate_id,
+                Application.vacancy_id == vacancy_id,
+                Application.company_id == company_id
+            )
+        )
+        application = app_result.scalar_one_or_none()
+        if not application:
+            return None
+
+        # Find evaluation by resolved application_id
+        result = await session.execute(
+            select(AiEvaluation).where(
+                AiEvaluation.candidate_id == candidate_id,
+                AiEvaluation.application_id == application.id,
+                AiEvaluation.company_id == company_id
+            ).order_by(AiEvaluation.created_at.desc()).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    else:
+        # Get general evaluation (application_id IS NULL)
+        result = await session.execute(
+            select(AiEvaluation).where(
+                AiEvaluation.candidate_id == candidate_id,
+                AiEvaluation.application_id.is_(None),
+                AiEvaluation.company_id == company_id
+            ).order_by(AiEvaluation.created_at.desc()).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
 @router.post("/score", response_model=EvaluationOut, status_code=201)
 async def score_candidate_endpoint(
     data: ScoreRequest,
@@ -32,14 +103,26 @@ async def score_candidate_endpoint(
 ):
     """Score candidate for vacancy using Glafira AI"""
 
-    # Check if evaluation already exists
-    existing_result = await session.execute(
-        select(AiEvaluation).where(
-            AiEvaluation.candidate_id == data.candidate_id,
-            AiEvaluation.application_id.is_not(None)
-        ).order_by(AiEvaluation.created_at.desc()).limit(1)
+    # Determine application_id
+    application_id = None
+    if data.vacancy_id is not None:
+        # Find application for this candidate/vacancy pair
+        app_result = await session.execute(
+            select(Application).where(
+                Application.candidate_id == data.candidate_id,
+                Application.vacancy_id == data.vacancy_id,
+                Application.company_id == current_user.company_id
+            )
+        )
+        application = app_result.scalar_one_or_none()
+        if not application:
+            raise NotFoundError("Заявка кандидата на вакансию")
+        application_id = application.id
+
+    # Check if evaluation already exists for this candidate/application pair
+    existing = await _find_existing_evaluation(
+        session, data.candidate_id, application_id, current_user.company_id
     )
-    existing = existing_result.scalar_one_or_none()
 
     if existing:
         # Return existing evaluation with 200 status
@@ -88,31 +171,20 @@ async def score_candidate_endpoint(
 @candidates_evaluation_router.get("/candidates/{candidate_id}/evaluation", response_model=EvaluationOut)
 async def get_candidate_evaluation(
     candidate_id: UUID,
-    application_id: UUID | None = None,
+    application_id: UUID | None = Query(None),
+    vacancy_id: UUID | None = Query(None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
 ):
-    """Get latest evaluation for candidate"""
+    """Get evaluation for candidate"""
 
-    if application_id:
-        # Get evaluation for specific application
-        result = await session.execute(
-            select(AiEvaluation).where(
-                AiEvaluation.candidate_id == candidate_id,
-                AiEvaluation.application_id == application_id,
-                AiEvaluation.company_id == current_user.company_id
-            ).order_by(AiEvaluation.created_at.desc()).limit(1)
-        )
-    else:
-        # Get latest evaluation for candidate
-        result = await session.execute(
-            select(AiEvaluation).where(
-                AiEvaluation.candidate_id == candidate_id,
-                AiEvaluation.company_id == current_user.company_id
-            ).order_by(AiEvaluation.created_at.desc()).limit(1)
-        )
+    if application_id is not None and vacancy_id is not None:
+        raise ValidationError("Укажите либо application_id, либо vacancy_id, но не оба")
 
-    evaluation = result.scalar_one_or_none()
+    evaluation = await _find_evaluation_for_filter(
+        session, candidate_id, application_id, vacancy_id, current_user.company_id
+    )
+
     if not evaluation:
         raise NotFoundError("Оценка")
 
