@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, ForeignKey, CheckConstraint, TIMESTAMP, text
+from sqlalchemy import String, ForeignKey, CheckConstraint, TIMESTAMP, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,7 +28,7 @@ class Consent(Base, TimestampMixin, CompanyMixin):
         ForeignKey("candidates.id", ondelete="CASCADE"),
         nullable=False
     )
-    number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"))
     channel: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     signed_at: Mapped[Optional[datetime]] = mapped_column(
@@ -41,12 +41,12 @@ class Consent(Base, TimestampMixin, CompanyMixin):
         TIMESTAMP(timezone=True), nullable=True
     )
 
-    # Constraints
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending', 'signed', 'revoked')",
-            name="check_consent_status"
+            name="check_consent_status",
         ),
+        UniqueConstraint("company_id", "number", name="uq_consents_company_number"),
     )
 
     # Relationships

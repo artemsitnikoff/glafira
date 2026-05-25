@@ -300,7 +300,7 @@ async def create_vacancy(
             "name": vacancy.name,
             "status": vacancy.status,
             "funnel_template": vacancy.funnel_template,
-            "team": vacancy_data.team,
+            "team": [str(uid) for uid in vacancy_data.team],
         },
         actor_user_id=actor_user_id,
         company_id=company_id,

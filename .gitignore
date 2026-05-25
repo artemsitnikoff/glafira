@@ -58,3 +58,5 @@ dist/
 
 # OS
 Thumbs.db
+storage/ (backend file uploads)
+backend/storage/

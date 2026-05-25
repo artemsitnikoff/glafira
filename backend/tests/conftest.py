@@ -12,7 +12,7 @@ from app.config import settings
 from app.core.security import get_password_hash
 from app.database import get_db
 from app.main import app
-from app.models import Base, Company, User
+from app.models import Base, Company, User, Candidate, Consent
 
 TEST_DATABASE_URL = "postgresql+asyncpg://glafira:glafira@localhost:5432/glafira_test"
 
@@ -114,3 +114,21 @@ async def auth_headers(async_client: AsyncClient, admin_user: User) -> dict[str,
     assert response.status_code == 200, response.text
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def test_candidate(db_session: AsyncSession, admin_user: User) -> Candidate:
+    """Create test candidate"""
+    candidate = Candidate(
+        company_id=admin_user.company_id,
+        last_name="Тестов",
+        first_name="Тест",
+        source="manual",
+        phone="+7 900 123 45 67",
+        email="test@example.com",
+        city="Москва"
+    )
+    db_session.add(candidate)
+    await db_session.commit()
+    await db_session.refresh(candidate)
+    return candidate

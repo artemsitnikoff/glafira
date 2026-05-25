@@ -75,6 +75,43 @@ class ConsentRequiredError(AppError):
         )
 
 
+class InvalidMentionError(AppError):
+    def __init__(self, details: list[dict] | None = None):
+        super().__init__(
+            code="INVALID_MENTION",
+            message="Некорректное упоминание",
+            status_code=422,
+            details=details
+        )
+
+
+class AlreadySignedError(AppError):
+    def __init__(self):
+        super().__init__(
+            code="ALREADY_SIGNED",
+            message="Согласие уже подписано",
+            status_code=409
+        )
+
+
+class FileTooLargeError(AppError):
+    def __init__(self):
+        super().__init__(
+            code="FILE_TOO_LARGE",
+            message="Файл превышает допустимый размер",
+            status_code=413
+        )
+
+
+class UnsupportedFileTypeError(AppError):
+    def __init__(self):
+        super().__init__(
+            code="UNSUPPORTED_FILE_TYPE",
+            message="Неподдерживаемый тип файла",
+            status_code=415
+        )
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
