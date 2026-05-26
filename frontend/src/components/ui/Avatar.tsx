@@ -20,12 +20,12 @@ function initials(fullName: string): string {
 
 interface AvatarProps {
   name: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   src?: string | null;
 }
 
 export function Avatar({ name, size = 'md', src }: AvatarProps) {
-  const px = size === 'sm' ? 22 : size === 'lg' ? 64 : 28;
+  const px = size === 'xs' ? 16 : size === 'sm' ? 22 : size === 'lg' ? 64 : 28;
   const bg = PALETTE[hashName(name) % PALETTE.length];
 
   if (src) {

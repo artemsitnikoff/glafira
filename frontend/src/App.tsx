@@ -4,6 +4,8 @@ import AppLayout from '@/components/AppLayout';
 import LoginPage from '@/pages/LoginPage';
 import HomePage from '@/pages/HomePage';
 import VacanciesPage from '@/pages/VacanciesPage';
+import VacanciesArchivePage from '@/pages/VacanciesArchivePage';
+import VacancyFormPage from '@/pages/VacancyFormPage';
 import VacancyDetailPage from '@/pages/VacancyDetailPage';
 import CandidatesPage from '@/pages/CandidatesPage';
 import CandidateDetailPage from '@/pages/CandidateDetailPage';
@@ -37,7 +39,11 @@ export default function App() {
         <Route index element={<Navigate to="/home" replace />} />
         <Route path="home" element={<HomePage />} />
         <Route path="vacancies" element={<VacanciesPage />} />
+        <Route path="vacancies/archive" element={<VacanciesArchivePage />} />
+        <Route path="vacancies/new" element={<VacancyFormPage />} />
+        <Route path="vacancies/:id/edit" element={<VacancyFormPage />} />
         <Route path="vacancies/:id" element={<VacancyDetailPage />} />
+        <Route path="vacancies/:id/candidates/:cid" element={<VacancyDetailPage />} />
         <Route path="candidates" element={<CandidatesPage />} />
         <Route path="candidates/:id" element={<CandidateDetailPage />} />
         <Route path="pulse" element={<PulsePage />} />

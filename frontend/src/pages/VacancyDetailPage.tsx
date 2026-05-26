@@ -1,3 +1,167 @@
+import { useState } from 'react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import './funnel/Funnel.css';
+import './funnel/FilterDrawer.css';
+import { useVacancy } from '@/api/hooks/useVacancy';
+import { useVacancyStages } from '@/api/hooks/useVacancyStages';
+import VacancyHeader from '@/pages/funnel/VacancyHeader';
+import StageChipsBar from '@/pages/funnel/StageChipsBar';
+import SearchBar from '@/pages/funnel/SearchBar';
+import FunnelTable from '@/pages/funnel/FunnelTable';
+import BulkActionBar from '@/pages/funnel/BulkActionBar';
+import FilterDrawer from '@/pages/funnel/FilterDrawer';
+import NewCandidateModal from '@/pages/funnel/NewCandidateModal';
+import DetailHost from '@/pages/funnel/DetailHost';
+import { Skeleton } from '@/components/ui/Skeleton';
+import type { ApplicationFilters } from '@/api/hooks/useApplications';
+
 export default function VacancyDetailPage() {
-  return <div>Детали вакансии (TODO)</div>;
+  const { id, cid } = useParams<{ id: string; cid?: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const { data: vacancy, isLoading: vacancyLoading } = useVacancy(id!);
+  const { data: stages, isLoading: stagesLoading } = useVacancyStages(id!);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [createCandidateOpen, setCreateCandidateOpen] = useState(false);
+
+  // Extract filters from URL
+  const filters: ApplicationFilters = {
+    stage: searchParams.get('stage') || undefined,
+    search: searchParams.get('search') || undefined,
+    score_min: searchParams.get('score_min') ? Number(searchParams.get('score_min')) : undefined,
+    sort: searchParams.get('sort') || 'score',
+    order: (searchParams.get('order') as 'asc' | 'desc') || 'desc',
+  };
+
+  const isDetailMode = !!cid;
+
+  const updateFilters = (newFilters: ApplicationFilters) => {
+    const params = new URLSearchParams(searchParams);
+
+    // Clear existing filter params
+    params.delete('stage');
+    params.delete('search');
+    params.delete('score_min');
+    params.delete('sort');
+    params.delete('order');
+
+    // Add new filters
+    Object.entries(newFilters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.set(key, String(value));
+      }
+    });
+
+    setSearchParams(params);
+  };
+
+  const closeDetail = () => {
+    navigate({
+      pathname: `/vacancies/${id}`,
+      search: searchParams.toString(),
+    });
+  };
+
+  if (vacancyLoading || stagesLoading) {
+    return (
+      <div className="vacancy-detail">
+        <div className="vac-header">
+          <Skeleton height={60} />
+        </div>
+        <div className="funnel-row">
+          <Skeleton height={32} width={100} />
+          <Skeleton height={32} width={120} />
+          <Skeleton height={32} width={140} />
+        </div>
+        <div className="cand-controls">
+          <Skeleton height={30} width={280} />
+          <Skeleton height={30} width={120} />
+        </div>
+        <div className="cand-table">
+          <Skeleton height={400} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!vacancy || !stages) {
+    return <div>Вакансия не найдена</div>;
+  }
+
+  return (
+    <div className={`vacancy-detail ${isDetailMode ? 'is-detail' : ''}`}>
+      <VacancyHeader
+        vacancy={vacancy}
+        onEdit={() => navigate(`/vacancies/${id}/edit`)}
+        onAddCandidate={() => setCreateCandidateOpen(true)}
+      />
+
+      <StageChipsBar
+        stages={stages}
+        currentStage={filters.stage}
+        onStageSelect={stage => {
+          updateFilters({ ...filters, stage });
+          closeDetail();
+        }}
+      />
+
+      <SearchBar
+        search={filters.search}
+        onSearchChange={search => updateFilters({ ...filters, search })}
+        onFiltersOpen={() => setFiltersOpen(true)}
+        filtersCount={0} // TODO: calculate active filters count
+      />
+
+      <div className="funnel-grid">
+        <FunnelTable
+          vacancyId={id!}
+          filters={filters}
+          onFiltersChange={updateFilters}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+          activeCandidateId={cid}
+          detailMode={isDetailMode}
+          onCandidateSelect={candidateId =>
+            navigate({
+              pathname: `/vacancies/${id}/candidates/${candidateId}`,
+              search: searchParams.toString(),
+            })
+          }
+        />
+
+        {isDetailMode && (
+          <DetailHost
+            candidateId={cid!}
+            onClose={closeDetail}
+          />
+        )}
+      </div>
+
+      {selectedIds.size > 0 && !isDetailMode && (
+        <BulkActionBar
+          selectedIds={selectedIds}
+          onClearSelection={() => setSelectedIds(new Set())}
+          vacancyId={id!}
+        />
+      )}
+
+      {filtersOpen && (
+        <FilterDrawer
+          onClose={() => setFiltersOpen(false)}
+          filters={filters}
+          onFiltersChange={updateFilters}
+        />
+      )}
+
+      {createCandidateOpen && (
+        <NewCandidateModal
+          vacancyId={id!}
+          onClose={() => setCreateCandidateOpen(false)}
+        />
+      )}
+    </div>
+  );
 }

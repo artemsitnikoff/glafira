@@ -1,0 +1,475 @@
+/* Vacancy Form Layout */
+.nv-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-2);
+}
+
+/* Top Bar */
+.nv-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-6);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-1);
+  z-index: 10;
+}
+
+.nv-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+}
+
+.nv-crumb-home {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.nv-crumb-home:hover {
+  color: var(--brand-accent);
+}
+
+.nv-crumb-sep {
+  color: var(--fg-4);
+}
+
+.nv-crumb-cur {
+  color: var(--fg-1);
+  font-weight: 500;
+}
+
+.nv-top-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Grid */
+.nv-grid {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6);
+  overflow-y: auto;
+}
+
+.nv-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.nv-card-full {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Step Body */
+.nv-step-body {
+  flex: 1;
+  padding: var(--space-8);
+}
+
+.nv-h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.nv-h2 {
+  font-size: 14px;
+  color: var(--fg-2);
+  margin: 0 0 var(--space-8) 0;
+  line-height: 1.5;
+}
+
+/* Form Fields */
+.nv-field {
+  margin-bottom: var(--space-6);
+}
+
+.nv-field:last-child {
+  margin-bottom: 0;
+}
+
+.nv-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-1);
+  margin-bottom: var(--space-2);
+}
+
+.nv-req {
+  color: var(--error-fg);
+}
+
+.nv-mute {
+  color: var(--fg-3);
+  font-weight: 400;
+}
+
+.nv-input {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--fg-1);
+  background: var(--bg-1);
+  transition: all 0.15s ease;
+}
+
+.nv-input:focus {
+  outline: none;
+  border-color: var(--brand-accent);
+  box-shadow: 0 0 0 3px var(--brand-bg);
+}
+
+.nv-input.error {
+  border-color: var(--error-border);
+}
+
+.nv-input::placeholder {
+  color: var(--fg-3);
+}
+
+.nv-textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.nv-field-sort {
+  max-width: 200px;
+}
+
+/* Grids */
+.nv-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.nv-grid-2-tight {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.nv-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* Segmented Control */
+.nv-segmented {
+  display: flex;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.nv-segmented button {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nv-segmented button:not(:last-child) {
+  border-right: 1px solid var(--border-1);
+}
+
+.nv-segmented button:hover {
+  background: var(--bg-3);
+}
+
+.nv-segmented button.active {
+  background: var(--brand-accent);
+  color: var(--bg-1);
+}
+
+/* Toggle */
+.nv-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.nv-toggle-row input[type="checkbox"] {
+  margin: 0;
+}
+
+/* Funnel Templates */
+.funnel-templates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.funnel-template {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.funnel-template:hover {
+  background: var(--bg-2);
+  border-color: var(--border-2);
+}
+
+.funnel-template input[type="radio"] {
+  margin: 0;
+}
+
+.funnel-template-name {
+  font-size: 14px;
+  color: var(--fg-1);
+  font-weight: 500;
+}
+
+/* User List */
+.nv-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+}
+
+.nv-user-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.nv-user-row:hover {
+  background: var(--bg-2);
+}
+
+.nv-user-row.on {
+  background: var(--brand-bg);
+}
+
+.nv-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.nv-check.on {
+  background: var(--brand-accent);
+  border-color: var(--brand-accent);
+  color: var(--bg-1);
+}
+
+.nv-ur-text {
+  flex: 1;
+}
+
+.nv-ur-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+  color: var(--fg-1);
+  margin-bottom: var(--space-1);
+}
+
+.nv-owner-badge {
+  background: var(--success-bg);
+  color: var(--success-fg);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.nv-ur-meta {
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
+/* Auto Controls */
+.nv-auto-controls {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-2);
+  border-radius: var(--radius-md);
+}
+
+.nv-auto-controls label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--fg-2);
+}
+
+.nv-auto-controls input[type="number"] {
+  width: 80px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+
+/* Footer */
+.nv-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-8);
+  border-top: 1px solid var(--border-1);
+}
+
+.nv-foot-progress {
+  font-size: 14px;
+  color: var(--fg-2);
+}
+
+.nv-foot-progress b {
+  color: var(--fg-1);
+}
+
+/* Error States */
+.error-banner {
+  padding: var(--space-3);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
+  color: var(--error-fg);
+  font-size: 14px;
+  margin-bottom: var(--space-4);
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--error-fg);
+  margin-top: var(--space-1);
+}
+
+/* Salary Input */
+.salary-input {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.salary-input input {
+  flex: 1;
+}
+
+.currency-select {
+  min-width: 80px;
+}
+
+/* Modal (for NewCandidate) */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-content {
+  background: var(--bg-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  max-width: 600px;
+  max-height: 90vh;
+  width: 100%;
+  margin: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  animation: scaleIn 0.2s ease;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-1);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+  color: var(--fg-1);
+  background: var(--bg-2);
+}
+
+.modal-body {
+  flex: 1;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-top: 1px solid var(--border-1);
+}

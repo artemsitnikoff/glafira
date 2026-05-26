@@ -11,6 +11,7 @@ import {
   Bell,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Send,
   X,
   Check,
@@ -18,6 +19,16 @@ import {
   Flag,
   AlertTriangle,
   Clock,
+  RefreshCw,
+  Bookmark,
+  Filter,
+  ArrowRight,
+  ExternalLink,
+  Funnel,
+  Sparkles,
+  MoreHorizontal,
+  Pause,
+  Calendar,
 } from 'lucide-react';
 
 const iconMap = {
@@ -33,6 +44,7 @@ const iconMap = {
   bell: Bell,
   'chevron-down': ChevronDown,
   'chevron-right': ChevronRight,
+  'chevron-left': ChevronLeft,
   send: Send,
   x: X,
   check: Check,
@@ -40,9 +52,23 @@ const iconMap = {
   flag: Flag,
   'alert-triangle': AlertTriangle,
   clock: Clock,
+  refresh: RefreshCw,
+  bookmark: Bookmark,
+  filter: Filter,
+  'arrow-right': ArrowRight,
+  open: ExternalLink,
+  funnel: Funnel,
+  sparkle: Sparkles,
+  more: MoreHorizontal,
+  pause: Pause,
+  'cal-clock': Calendar,
   // Для совместимости с prototype
   chart: BarChart3,
   chevD: ChevronDown,
+  chevR: ChevronRight,
+  chevL: ChevronLeft,
+  arrowRight: ArrowRight,
+  calClock: Calendar,
   heart: Activity, // Пульс-Онбординг → Activity (Pulse icon)
 } as const;
 

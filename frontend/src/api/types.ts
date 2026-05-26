@@ -3162,6 +3162,10 @@ export interface components {
             external_source?: string | null;
             /** External Url */
             external_url?: string | null;
+            /** Archive Result */
+            archive_result?: string | null;
+            /** Closed At */
+            closed_at?: string | null;
             /**
              * Created At
              * Format: date-time
