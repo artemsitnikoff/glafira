@@ -1,0 +1,94 @@
+:root {
+  /* Фоны */
+  --bg-1: #FAFAFA;        /* фон страницы */
+  --bg-2: #FFFFFF;        /* карточки, сайдбар */
+  --bg-3: #F2F3F5;        /* hover-фон */
+  --bg-3-hover: #ECEEF1;
+  --bg-active: #FDF0EC;   /* активный пункт навигации (тинт бренда) */
+
+  /* Границы */
+  --border-1: #E6E8EB;
+
+  /* Текст */
+  --fg-1: #1A1D21;        /* основной */
+  --fg-2: #4A5159;        /* вторичный */
+  --fg-3: #8A929C;        /* приглушённый, мета */
+
+  /* Бренд (розово-персиковый акцент «Глафиры») */
+  --brand-accent: #F2A2A2;
+  --brand-accent-strong: #E87D7D;
+
+  /* Этапы воронки (STAGES) */
+  --stage-response: #5B6573;   /* Отклик */
+  --stage-added: #7E5CF0;      /* Добавлен (system) */
+  --stage-selected: #9AA3AE;   /* Отобран */
+  --stage-recruiter: #7AB4F5;  /* Контакт с рекрутером */
+  --stage-interview: #2A8AF0;  /* Интервью */
+  --stage-manager: #5778E8;    /* Контакт с менеджером */
+  --stage-offer: #E0A21A;      /* Оффер */
+  --stage-hired: #16A34A;      /* Нанят (terminal) */
+  --stage-rejected: #DC4646;   /* Отказ (terminal) */
+
+  /* AI-скоринг */
+  --score-green: #16A34A;      /* 80–100 */
+  --score-yellow: #E0A21A;     /* 50–79 */
+  --score-red: #DC4646;        /* 0–49 */
+
+  /* Риск ухода (Пульс) */
+  --risk-low: #16A34A;
+  --risk-low-soft: #E7F6EC;
+  --risk-mid: #E0820A;
+  --risk-mid-soft: #FCF1E0;
+  --risk-high: #DC4646;
+  --risk-high-soft: #FBE9E9;
+
+  /* Источники (бренды) */
+  --src-hh: #D6001C;           /* hh.ru красный */
+  --src-avito: #00AAFF;        /* Авито синий */
+  --src-tg: #229ED9;           /* Telegram */
+  --src-whatsapp: #25D366;
+  --src-max: #0077FF;
+  --src-viber: #7360F2;
+
+  /* Верификация (источники проверок) */
+  --vf-src-api: #2A8AF0;       /* синий — API */
+  --vf-src-reg: #7E5CF0;       /* фиолетовый — госреестр */
+  --vf-src-pub: #E0820A;       /* оранжевый — публичный */
+  --vf-src-ai: #DC4646;        /* красный — AI */
+  --vf-st-clean: #16A34A;      /* статус «Чисто» */
+  --vf-st-info: #2A8AF0;       /* «Инфо» */
+  --vf-st-warn: #E0820A;       /* «Внимание» */
+  --vf-st-risk: #DC4646;       /* «Риск» */
+
+  /* Шрифты */
+  --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-display: 'Inter Tight', 'Inter', sans-serif;
+  --font-mono: 'Inter Tight', ui-monospace, 'SF Mono', monospace;
+
+  /* Геометрия */
+  --sidebar-width: 240px;
+  --radius-card: 12px;
+  --radius-chip: 16px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+  /* Z-index */
+  --z-dropdown: 1000;
+  --z-modal: 2000;
+  --z-tooltip: 3000;
+}

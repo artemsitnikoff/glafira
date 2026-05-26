@@ -1,0 +1,51 @@
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useAuthStore, selectIsAuthenticated } from '@/store/authStore';
+import AppLayout from '@/components/AppLayout';
+import LoginPage from '@/pages/LoginPage';
+import HomePage from '@/pages/HomePage';
+import VacanciesPage from '@/pages/VacanciesPage';
+import VacancyDetailPage from '@/pages/VacancyDetailPage';
+import CandidatesPage from '@/pages/CandidatesPage';
+import CandidateDetailPage from '@/pages/CandidateDetailPage';
+import PulsePage from '@/pages/PulsePage';
+import PulseEmployeePage from '@/pages/PulseEmployeePage';
+import AnalyticsPage from '@/pages/AnalyticsPage';
+import SettingsPage from '@/pages/SettingsPage';
+import NotFoundPage from '@/pages/NotFoundPage';
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore(selectIsAuthenticated);
+  const location = useLocation();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return <>{children}</>;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <AppLayout />
+          </RequireAuth>
+        }
+      >
+        <Route index element={<Navigate to="/home" replace />} />
+        <Route path="home" element={<HomePage />} />
+        <Route path="vacancies" element={<VacanciesPage />} />
+        <Route path="vacancies/:id" element={<VacancyDetailPage />} />
+        <Route path="candidates" element={<CandidatesPage />} />
+        <Route path="candidates/:id" element={<CandidateDetailPage />} />
+        <Route path="pulse" element={<PulsePage />} />
+        <Route path="pulse/:id" element={<PulseEmployeePage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+      </Route>
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
+  );
+}
