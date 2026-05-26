@@ -5,6 +5,9 @@
   --bg-3: #F2F3F5;        /* hover-фон */
   --bg-3-hover: #ECEEF1;
   --bg-active: #FDF0EC;   /* активный пункт навигации (тинт бренда) */
+  --bg-app: #FAFAFA;      /* alias для bg-1 */
+  --bg-panel: #FFFFFF;    /* alias для bg-2 */
+  --bg-panel-2: #F8F9FB;  /* lighter panel bg */
 
   /* Границы */
   --border-1: #E6E8EB;
@@ -17,6 +20,8 @@
   /* Бренд (розово-персиковый акцент «Глафиры») */
   --brand-accent: #F2A2A2;
   --brand-accent-strong: #E87D7D;
+  --accent: #2A8AF0;      /* primary accent blue */
+  --accent-hover: #2563eb; /* hover state */
 
   /* Этапы воронки (STAGES) */
   --stage-response: #5B6573;   /* Отклик */
@@ -86,9 +91,32 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-1: var(--shadow-sm); /* alias */
 
   /* Z-index */
   --z-dropdown: 1000;
   --z-modal: 2000;
   --z-tooltip: 3000;
+
+  /* Status colors */
+  --status-success: #16A34A;
+  --status-success-hover: #15803d;
+  --status-error: #DC4646;
+  --status-error-bg: #FEF2F2;
+  --status-error-border: #FECACA;
+
+  /* Durations */
+  --dur-fast: 150ms;
+  --dur-normal: 200ms;
+  --dur-slow: 300ms;
+
+  /* Easings */
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);
+
+  /* Compatibility with prototype */
+  --ark-gray-200: #F3F4F6;
+  --ark-blue-50: #EFF6FF;
+  --ark-red-500: #EF4444;
 }

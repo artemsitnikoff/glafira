@@ -1,12 +1,10 @@
 import { Outlet } from 'react-router-dom';
+import { Sidebar } from './Sidebar';
 
 export default function AppLayout() {
   return (
     <div className="app-layout">
-      <aside className="app-sidebar">
-        {/* TODO(TZ-3 §7): Sidebar — следующий шаг */}
-        Sidebar placeholder
-      </aside>
+      <Sidebar />
       <main className="app-content">
         <Outlet />
       </main>
