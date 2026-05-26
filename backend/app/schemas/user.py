@@ -24,3 +24,8 @@ class UserUpdate(BaseModel):
     role: str | None = None
     position: str | None = None
     is_active: bool | None = None
+
+
+class UserCreateResult(UserShort):
+    """Returned by POST /users — includes one-time temp_password for admin to show."""
+    temp_password: str

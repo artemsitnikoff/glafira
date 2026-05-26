@@ -4,7 +4,7 @@ from uuid import UUID
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
-from ...schemas.user import UserShort, UserCreate, UserUpdate
+from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate
 from ...schemas.base import Paginated
 from ...services.user import get_users, get_user, create_user, update_user
 from ...models import User
@@ -37,7 +37,7 @@ async def get_user_by_id(
     return UserShort.model_validate(user)
 
 
-@router.post("/", response_model=UserShort, status_code=201)
+@router.post("/", response_model=UserCreateResult, status_code=201)
 async def create_new_user(
     user_data: UserCreate,
     session: AsyncSession = Depends(get_db),

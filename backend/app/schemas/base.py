@@ -16,3 +16,11 @@ class Paginated(BaseModel, Generic[T]):
     page: int
     page_size: int
     pages: int
+
+
+class MessageResult(BaseModel):
+    message: str
+
+
+class StatusResult(BaseModel):
+    status: str

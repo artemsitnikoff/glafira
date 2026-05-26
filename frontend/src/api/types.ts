@@ -1664,6 +1664,11 @@ export interface components {
             /** To Stage */
             to_stage: string;
         };
+        /** BulkMoveResult */
+        BulkMoveResult: {
+            /** Moved Count */
+            moved_count: number;
+        };
         /** BulkRejectRequest */
         BulkRejectRequest: {
             /** Application Ids */
@@ -1672,6 +1677,11 @@ export interface components {
             reason: string;
             /** Side */
             side: string;
+        };
+        /** BulkRejectResult */
+        BulkRejectResult: {
+            /** Rejected Count */
+            rejected_count: number;
         };
         /** CandidateCardVacancy */
         CandidateCardVacancy: {
@@ -2376,6 +2386,11 @@ export interface components {
             /** Application Context */
             application_context?: string | null;
         };
+        /** MessageResult */
+        MessageResult: {
+            /** Message */
+            message: string;
+        };
         /** MoveRequest */
         MoveRequest: {
             /** To Stage */
@@ -2690,6 +2705,11 @@ export interface components {
             /** Count */
             count: number;
         };
+        /** StageActionResult */
+        StageActionResult: {
+            /** New Stage */
+            new_stage: string;
+        };
         /** StageHistoryItem */
         StageHistoryItem: {
             /** From Stage */
@@ -2707,6 +2727,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** StatusResult */
+        StatusResult: {
+            /** Status */
+            status: string;
         };
         /** SurveyCreate */
         SurveyCreate: {
@@ -2885,6 +2910,27 @@ export interface components {
             role: string;
             /** Position */
             position?: string | null;
+        };
+        /**
+         * UserCreateResult
+         * @description Returned by POST /users — includes one-time temp_password for admin to show.
+         */
+        UserCreateResult: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Full Name */
+            full_name: string;
+            /** Position */
+            position: string | null;
+            /** Avatar Url */
+            avatar_url: string | null;
+            /** Role */
+            role: string;
+            /** Temp Password */
+            temp_password: string;
         };
         /** UserMe */
         UserMe: {
@@ -3323,7 +3369,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageResult"];
                 };
             };
         };
@@ -3465,7 +3511,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserShort"];
+                    "application/json": components["schemas"]["UserCreateResult"];
                 };
             };
             /** @description Validation Error */
@@ -3761,7 +3807,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkMoveResult"];
                 };
             };
             /** @description Validation Error */
@@ -3794,7 +3840,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkRejectResult"];
                 };
             };
             /** @description Validation Error */
@@ -3829,7 +3875,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StageActionResult"];
                 };
             };
             /** @description Validation Error */
@@ -3864,7 +3910,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StageActionResult"];
                 };
             };
             /** @description Validation Error */
@@ -3895,7 +3941,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StageActionResult"];
                 };
             };
             /** @description Validation Error */
@@ -4164,7 +4210,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusResult"];
                 };
             };
             /** @description Validation Error */
@@ -4847,7 +4893,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusResult"];
                 };
             };
             /** @description Validation Error */
@@ -5608,7 +5654,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageResult"];
                 };
             };
             /** @description Validation Error */
@@ -5757,7 +5803,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MessageResult"];
                 };
             };
             /** @description Validation Error */

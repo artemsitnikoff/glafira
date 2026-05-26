@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
-from ...schemas.base import Paginated
+from ...schemas.base import Paginated, StatusResult
 from ...schemas.pulse import (
     EmployeeListItem, EmployeeDetail, PulseKPI,
     AlertOut, PlanItemOut, PlanItemUpdate,
@@ -45,7 +45,7 @@ async def list_alerts(
     )
 
 
-@router.post("/alerts/{alert_id}/dismiss")
+@router.post("/alerts/{alert_id}/dismiss", response_model=StatusResult)
 async def dismiss_alert(
     alert_id: UUID,
     company_id: UUID = Depends(get_current_company_id),

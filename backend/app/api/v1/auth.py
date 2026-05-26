@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_db
 from ...deps import get_current_user
 from ...schemas.auth import LoginRequest, TokenResponse, UserMe
+from ...schemas.base import MessageResult
 from ...services.auth import authenticate_user, create_tokens
 from ...core.security import decode_token
 from ...core.errors import InvalidCredentialsError
@@ -71,7 +72,7 @@ async def refresh_token(
     return TokenResponse(access_token=new_access_token)
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=MessageResult)
 async def logout(response: Response):
     """Logout and clear refresh token"""
     response.delete_cookie(

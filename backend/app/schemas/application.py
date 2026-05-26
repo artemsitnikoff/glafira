@@ -52,3 +52,15 @@ class StageHistoryItem(ORMBase):
     actor_name: str | None
     reason: str | None
     created_at: datetime
+
+
+class StageActionResult(BaseModel):
+    new_stage: str
+
+
+class BulkMoveResult(BaseModel):
+    moved_count: int
+
+
+class BulkRejectResult(BaseModel):
+    rejected_count: int

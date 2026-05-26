@@ -10,8 +10,11 @@ from ...schemas.application import (
     ApplicationRow,
     BulkMoveRequest,
     BulkRejectRequest,
+    BulkMoveResult,
+    BulkRejectResult,
     MoveRequest,
     RejectRequest,
+    StageActionResult,
     StageHistoryItem,
 )
 from ...schemas.base import Paginated
@@ -66,7 +69,7 @@ async def get_applications_for_vacancy_funnel(
 
 # Bulk endpoints are registered BEFORE /{application_id}/* so the path
 # parameter does not capture the literal "bulk".
-@router.post("/applications/bulk/move")
+@router.post("/applications/bulk/move", response_model=BulkMoveResult)
 async def bulk_move_applications_endpoint(
     move_data: BulkMoveRequest,
     session: AsyncSession = Depends(get_db),
@@ -80,7 +83,7 @@ async def bulk_move_applications_endpoint(
     return {"moved_count": len(applications)}
 
 
-@router.post("/applications/bulk/reject")
+@router.post("/applications/bulk/reject", response_model=BulkRejectResult)
 async def bulk_reject_applications_endpoint(
     reject_data: BulkRejectRequest,
     session: AsyncSession = Depends(get_db),
@@ -94,7 +97,7 @@ async def bulk_reject_applications_endpoint(
     return {"rejected_count": len(applications)}
 
 
-@router.post("/applications/{application_id}/move")
+@router.post("/applications/{application_id}/move", response_model=StageActionResult)
 async def move_application_endpoint(
     application_id: UUID,
     move_data: MoveRequest,
@@ -109,7 +112,7 @@ async def move_application_endpoint(
     return {"new_stage": application.stage}
 
 
-@router.post("/applications/{application_id}/reject")
+@router.post("/applications/{application_id}/reject", response_model=StageActionResult)
 async def reject_application_endpoint(
     application_id: UUID,
     reject_data: RejectRequest,
@@ -124,7 +127,7 @@ async def reject_application_endpoint(
     return {"new_stage": application.stage}
 
 
-@router.post("/applications/{application_id}/restore")
+@router.post("/applications/{application_id}/restore", response_model=StageActionResult)
 async def restore_application_endpoint(
     application_id: UUID,
     session: AsyncSession = Depends(get_db),

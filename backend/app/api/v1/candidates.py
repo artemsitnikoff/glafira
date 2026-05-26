@@ -14,7 +14,7 @@ from ...schemas.candidate import (
     ApplicationHistoryItem,
     AddTagRequest
 )
-from ...schemas.base import Paginated
+from ...schemas.base import Paginated, StatusResult
 from ...services.candidate import (
     get_candidates_paginated,
     get_candidate_detail,
@@ -120,7 +120,7 @@ async def get_candidate_applications_route(
     return await get_candidate_applications(session, candidate_id, company_id)
 
 
-@router.post("/{candidate_id}/tags", status_code=201)
+@router.post("/{candidate_id}/tags", status_code=201, response_model=StatusResult)
 async def add_candidate_tag_route(
     candidate_id: UUID,
     data: AddTagRequest,
@@ -130,6 +130,7 @@ async def add_candidate_tag_route(
 ):
     await add_candidate_tag(session, candidate_id, data.tag_id, company_id, user.id)
     await session.commit()
+    return {"status": "success"}
 
 
 @router.delete("/{candidate_id}/tags/{tag_id}", status_code=204)

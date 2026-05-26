@@ -6,6 +6,7 @@ from typing import Optional
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
+from ...schemas.base import MessageResult
 from ...schemas.settings import (
     ProfileOut,
     ProfileUpdate,
@@ -62,7 +63,7 @@ async def update_profile(
     return ProfileOut.model_validate(user)
 
 
-@router.post("/profile/password")
+@router.post("/profile/password", response_model=MessageResult)
 async def change_password(
     data: PasswordChange,
     session: AsyncSession = Depends(get_db),
@@ -141,7 +142,7 @@ async def update_reject_reason(
     return RejectReasonOut.model_validate(reason)
 
 
-@router.delete("/reject-reasons/{reason_id}")
+@router.delete("/reject-reasons/{reason_id}", response_model=MessageResult)
 async def delete_reject_reason(
     reason_id: UUID,
     session: AsyncSession = Depends(get_db),

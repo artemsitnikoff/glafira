@@ -110,7 +110,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResult"
+                }
               }
             }
           }
@@ -336,7 +338,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserShort"
+                  "$ref": "#/components/schemas/UserCreateResult"
                 }
               }
             }
@@ -986,7 +988,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BulkMoveResult"
+                }
               }
             }
           },
@@ -1030,7 +1034,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BulkRejectResult"
+                }
               }
             }
           },
@@ -1091,7 +1097,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StageActionResult"
+                }
               }
             }
           },
@@ -1147,7 +1155,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StageActionResult"
+                }
               }
             }
           },
@@ -1193,7 +1203,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StageActionResult"
+                }
               }
             }
           },
@@ -1793,7 +1805,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResult"
+                }
               }
             }
           },
@@ -3000,7 +3014,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResult"
+                }
               }
             }
           },
@@ -4813,7 +4829,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResult"
+                }
               }
             }
           },
@@ -5108,7 +5126,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResult"
+                }
               }
             }
           },
@@ -6184,6 +6204,19 @@
         ],
         "title": "BulkMoveRequest"
       },
+      "BulkMoveResult": {
+        "properties": {
+          "moved_count": {
+            "type": "integer",
+            "title": "Moved Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "moved_count"
+        ],
+        "title": "BulkMoveResult"
+      },
       "BulkRejectRequest": {
         "properties": {
           "application_ids": {
@@ -6210,6 +6243,19 @@
           "side"
         ],
         "title": "BulkRejectRequest"
+      },
+      "BulkRejectResult": {
+        "properties": {
+          "rejected_count": {
+            "type": "integer",
+            "title": "Rejected Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rejected_count"
+        ],
+        "title": "BulkRejectResult"
       },
       "CandidateCardVacancy": {
         "properties": {
@@ -8195,6 +8241,19 @@
         ],
         "title": "MessageOut"
       },
+      "MessageResult": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "MessageResult"
+      },
       "MoveRequest": {
         "properties": {
           "to_stage": {
@@ -9093,6 +9152,19 @@
         ],
         "title": "SourceItem"
       },
+      "StageActionResult": {
+        "properties": {
+          "new_stage": {
+            "type": "string",
+            "title": "New Stage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_stage"
+        ],
+        "title": "StageActionResult"
+      },
       "StageHistoryItem": {
         "properties": {
           "from_stage": {
@@ -9152,6 +9224,19 @@
           "created_at"
         ],
         "title": "StageHistoryItem"
+      },
+      "StatusResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "StatusResult"
       },
       "SurveyCreate": {
         "properties": {
@@ -9592,6 +9677,60 @@
           "role"
         ],
         "title": "UserCreate"
+      },
+      "UserCreateResult": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "temp_password": {
+            "type": "string",
+            "title": "Temp Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "full_name",
+          "position",
+          "avatar_url",
+          "role",
+          "temp_password"
+        ],
+        "title": "UserCreateResult",
+        "description": "Returned by POST /users — includes one-time temp_password for admin to show."
       },
       "UserMe": {
         "properties": {
