@@ -38,7 +38,7 @@ async def get_attention(
     return await compute_attention(session, company_id)
 
 
-@router.get("/events")
+@router.get("/events", response_model=list[EventOut])
 async def get_events(
     limit: int = Query(default=30, ge=1, le=100, description="Количество событий"),
     session=Depends(get_db),
@@ -48,12 +48,12 @@ async def get_events(
     """Получить ленту событий"""
     events = await list_recent_events(session, company_id, limit)
 
-    # Добавляем Cache-Control header для polling
-    response = JSONResponse(
+    # JSONResponse keeps Cache-Control for the 15s polling loop; response_model on
+    # the decorator is needed so openapi-typescript can generate EventOut for the frontend.
+    return JSONResponse(
         content=[event.model_dump(mode='json') for event in events],
-        headers={"Cache-Control": "no-cache"}
+        headers={"Cache-Control": "no-cache"},
     )
-    return response
 
 
 @router.get("/pulse-summary", response_model=PulseSummary)

@@ -3618,7 +3618,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventOut"
+                  },
+                  "title": "Response Get Events Api V1 Home Events Get"
+                }
               }
             }
           },
@@ -7781,6 +7787,41 @@
           "created_at"
         ],
         "title": "EvaluationOut"
+      },
+      "EventOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "entities": {
+            "items": {},
+            "type": "array",
+            "title": "Entities"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "text",
+          "created_at"
+        ],
+        "title": "EventOut"
       },
       "GlafiraSettingsOut": {
         "properties": {

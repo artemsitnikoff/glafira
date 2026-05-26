@@ -15,6 +15,9 @@ import {
   X,
   Check,
   MessageCircle,
+  Flag,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react';
 
 const iconMap = {
@@ -34,6 +37,9 @@ const iconMap = {
   x: X,
   check: Check,
   'message-circle': MessageCircle,
+  flag: Flag,
+  'alert-triangle': AlertTriangle,
+  clock: Clock,
   // Для совместимости с prototype
   chart: BarChart3,
   chevD: ChevronDown,

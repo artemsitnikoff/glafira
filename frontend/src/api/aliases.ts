@@ -12,6 +12,11 @@ export type VerificationOut = components['schemas']['VerificationOut'];
 export type EmployeeListItem = components['schemas']['EmployeeListItem'];
 export type AnalyticsResponse = components['schemas']['AnalyticsResponse'];
 export type PulseSummary = components['schemas']['PulseSummary'];
+export type AttentionItem = components['schemas']['AttentionItem'];
+export type SourceItem = components['schemas']['SourceItem'];
+export type AttentionHrItem = components['schemas']['AttentionHrItem'];
+
+export type EventOut = components['schemas']['EventOut'];
 
 // FastAPI generated KpiCard under namespaced keys because the same class name
 // is defined in both app.schemas.home and app.schemas.analytics. Structures match;

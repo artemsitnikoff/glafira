@@ -2211,6 +2211,25 @@ export interface components {
              */
             created_at: string;
         };
+        /** EventOut */
+        EventOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Type */
+            type: string;
+            /** Text */
+            text: string;
+            /** Entities */
+            entities?: unknown[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** GlafiraSettingsOut */
         GlafiraSettingsOut: {
             /**
@@ -5149,7 +5168,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EventOut"][];
                 };
             };
             /** @description Validation Error */
