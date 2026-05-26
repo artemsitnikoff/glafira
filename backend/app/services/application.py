@@ -1,5 +1,5 @@
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 
 from sqlalchemy import and_, asc, desc, exists, func, or_, select
@@ -46,6 +46,10 @@ async def get_applications_for_vacancy_paginated(
     salary_max: int | None = None,
     source: str | None = None,
     city: str | None = None,
+    messenger: list[str] | None = None,
+    ready_relocate: bool | None = None,
+    added_period: str | None = None,
+    repeat: bool | None = None,
     sort: str | None = None,
     order: str = "desc",
 ) -> Paginated[ApplicationRow]:
@@ -85,6 +89,18 @@ async def get_applications_for_vacancy_paginated(
         base_filters.append(Candidate.source == source)
     if city:
         base_filters.append(Candidate.city.ilike(f"%{city}%"))
+    if messenger:
+        base_filters.append(Candidate.preferred_channel.in_(messenger))
+    # TODO(post-MVP): нет поля ready_relocate в Candidate; добавить через миграцию или хранить в extra JSONB
+    # if ready_relocate is not None:
+    #     base_filters.append(Candidate.ready_relocate == ready_relocate)
+    if added_period and added_period != 'all':
+        period_days = {'7d': 7, '30d': 30, '90d': 90}.get(added_period)
+        if period_days:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
+            base_filters.append(Application.created_at >= cutoff)
+    if repeat is not None:
+        base_filters.append(Application.is_repeat == repeat)
 
     count_stmt = (
         select(func.count(Application.id))

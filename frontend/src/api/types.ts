@@ -463,6 +463,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Clients
+         * @description List all clients for the company
+         */
+        get: operations["list_clients_api_v1_clients_get"];
+        put?: never;
+        /**
+         * Create Client
+         * @description Create a new client
+         */
+        post: operations["create_client_api_v1_clients_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/candidates/{candidate_id}/consent": {
         parameters: {
             query?: never;
@@ -1943,6 +1967,40 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
+        };
+        /** ClientCreate */
+        ClientCreate: {
+            /** Name */
+            name: string;
+            /** Contact Person */
+            contact_person?: string | null;
+        };
+        /** ClientOut */
+        ClientOut: {
+            /** Name */
+            name: string;
+            /** Contact Person */
+            contact_person?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** CommentCreate */
         CommentCreate: {
@@ -3757,6 +3815,10 @@ export interface operations {
                 salary_max?: number | null;
                 source?: string | null;
                 city?: string | null;
+                messenger?: string[] | null;
+                ready_relocate?: boolean | null;
+                added_period?: string | null;
+                repeat?: boolean | null;
                 sort?: string | null;
                 order?: string;
             };
@@ -4242,6 +4304,59 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_clients_api_v1_clients_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOut"][];
+                };
+            };
+        };
+    };
+    create_client_api_v1_clients_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOut"];
+                };
             };
             /** @description Validation Error */
             422: {
