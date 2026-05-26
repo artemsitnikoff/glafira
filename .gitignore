@@ -47,11 +47,13 @@ htmlcov/
 # Alembic temp
 alembic/versions/__pycache__/
 
-# Node (frontend, future)
+# Node (frontend)
 node_modules/
 dist/
 .next/
 .nuxt/
+*.tsbuildinfo
+frontend/.vite/
 
 # Logs
 *.log
