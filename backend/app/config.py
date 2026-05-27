@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DEFAULT_COMPANY_ID: str = "00000000-0000-0000-0000-000000000001"
 
     ANTHROPIC_API_KEY: str = ""
-    GLAFIRA_MODEL: str = "anthropic/claude-sonnet-4-5"
+    GLAFIRA_MODEL: str = "anthropic/claude-sonnet-4-6"
     GLAFIRA_VERIFY_MODE: str = "mock"
 
     OPENROUTER_API_KEY: str = ""
