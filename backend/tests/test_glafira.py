@@ -43,15 +43,18 @@ class TestGlafiraScoring:
         await db_session.commit()
 
         # Mock Claude response
-        mock_response = type('Response', (), {
-            'content': [type('Content', (), {
-                'text': '{"score": 78, "verdict": "good", "summary": "Хороший кандидат", "strengths": ["Python", "FastAPI"], "risks": ["нет опыта в Django"], "requirements_match": {"Python": "соответствует"}, "forecast": "готов через 2 недели"}'
-            })()]
-        })()
+        mock_json_response = {
+            "score": 78,
+            "verdict": "good",
+            "summary": "Хороший кандидат",
+            "strengths": ["Python", "FastAPI"],
+            "risks": ["нет опыта в Django"],
+            "requirements_match": {"Python": "соответствует"},
+            "forecast": "готов через 2 недели"
+        }
 
-        with patch('app.services.glafira.client.get_client') as mock_get:
-            mock_client = mock_get.return_value
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = mock_json_response
 
             response = await async_client.post(
                 '/api/v1/glafira/score',
@@ -124,16 +127,11 @@ class TestGlafiraScoring:
         db_session.add(application)
         await db_session.commit()
 
-        # Mock invalid Claude response
-        mock_response = type('Response', (), {
-            'content': [type('Content', (), {
-                'text': 'Sorry, I cannot process this request'
-            })()]
-        })()
+        # Mock parse error from call_json
+        from app.core.errors import GlafiraParseError
 
-        with patch('app.services.glafira.client.get_client') as mock_get:
-            mock_client = mock_get.return_value
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.side_effect = GlafiraParseError(details={"raw": "Sorry, I cannot process this request", "reason": "Invalid JSON"})
 
             response = await async_client.post(
                 '/api/v1/glafira/score',
@@ -210,22 +208,29 @@ class TestGlafiraScoring:
         await db_session.commit()
 
         # Mock Claude responses with different scores
-        mock_response_a = type('Response', (), {
-            'content': [type('Content', (), {
-                'text': '{"score": 70, "verdict": "good", "summary": "Подходит для A", "strengths": ["Python"], "risks": [], "requirements_match": {}, "forecast": "2 недели"}'
-            })()]
-        })()
+        mock_json_response_a = {
+            "score": 70,
+            "verdict": "good",
+            "summary": "Подходит для A",
+            "strengths": ["Python"],
+            "risks": [],
+            "requirements_match": {},
+            "forecast": "2 недели"
+        }
 
-        mock_response_b = type('Response', (), {
-            'content': [type('Content', (), {
-                'text': '{"score": 90, "verdict": "good", "summary": "Отлично подходит для B", "strengths": ["Python", "FastAPI"], "risks": [], "requirements_match": {}, "forecast": "1 неделя"}'
-            })()]
-        })()
+        mock_json_response_b = {
+            "score": 90,
+            "verdict": "good",
+            "summary": "Отлично подходит для B",
+            "strengths": ["Python", "FastAPI"],
+            "risks": [],
+            "requirements_match": {},
+            "forecast": "1 неделя"
+        }
 
         # Score for vacancy A
-        with patch('app.services.glafira.client.get_client') as mock_get:
-            mock_client = mock_get.return_value
-            mock_client.messages.create = AsyncMock(return_value=mock_response_a)
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = mock_json_response_a
 
             response_a = await async_client.post(
                 '/api/v1/glafira/score',
@@ -242,9 +247,8 @@ class TestGlafiraScoring:
             assert body_a['summary'] == "Подходит для A"
 
         # Score for vacancy B
-        with patch('app.services.glafira.client.get_client') as mock_get:
-            mock_client = mock_get.return_value
-            mock_client.messages.create = AsyncMock(return_value=mock_response_b)
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = mock_json_response_b
 
             response_b = await async_client.post(
                 '/api/v1/glafira/score',

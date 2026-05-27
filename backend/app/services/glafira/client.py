@@ -1,21 +1,10 @@
-"""Клиент для взаимодействия с Claude API"""
+"""Клиент для взаимодействия с Claude API через OpenRouter"""
 
 import json
 import re
-from anthropic import AsyncAnthropic
+import httpx
 from ...config import settings
 from ...core.errors import GlafiraParseError
-
-
-_client: AsyncAnthropic | None = None
-
-
-def get_client() -> AsyncAnthropic:
-    """Get Claude API client instance"""
-    global _client
-    if _client is None:
-        _client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    return _client
 
 
 # Regex to clean markdown fences from JSON response
@@ -23,18 +12,45 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
-    """Call Claude API expecting JSON response"""
-    client = get_client()
+    """Call Claude API via OpenRouter expecting JSON response"""
+    if not settings.OPENROUTER_API_KEY:
+        raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
 
-    response = await client.messages.create(
-        model=settings.GLAFIRA_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
+    async with httpx.AsyncClient() as client:
+        payload = {
+            "model": settings.GLAFIRA_MODEL,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user}
+            ]
+        }
 
-    # Extract text from response
-    text = response.content[0].text if response.content else ""
+        response = await client.post(
+            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+
+        if response.status_code != 200:
+            raise GlafiraParseError(details={
+                "reason": f"OpenRouter HTTP {response.status_code}",
+                "raw": response.text[:500]
+            })
+
+        data = response.json()
+        choices = data.get("choices", [])
+        if not choices:
+            raise GlafiraParseError(details={
+                "reason": "No choices in response",
+                "raw": str(data)[:500]
+            })
+
+        # Extract text from response
+        text = choices[0].get("message", {}).get("content", "")
 
     # Clean markdown fences
     cleaned = _FENCE_RE.sub("", text).strip()
@@ -46,14 +62,42 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
 
 
 async def call_text(*, system: str, user: str, max_tokens: int = 1024) -> str:
-    """Call Claude API expecting text response"""
-    client = get_client()
+    """Call Claude API via OpenRouter expecting text response"""
+    if not settings.OPENROUTER_API_KEY:
+        raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
 
-    response = await client.messages.create(
-        model=settings.GLAFIRA_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
+    async with httpx.AsyncClient() as client:
+        payload = {
+            "model": settings.GLAFIRA_MODEL,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user}
+            ]
+        }
 
-    return response.content[0].text if response.content else ""
+        response = await client.post(
+            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+
+        if response.status_code != 200:
+            raise GlafiraParseError(details={
+                "reason": f"OpenRouter HTTP {response.status_code}",
+                "raw": response.text[:500]
+            })
+
+        data = response.json()
+        choices = data.get("choices", [])
+        if not choices:
+            raise GlafiraParseError(details={
+                "reason": "No choices in response",
+                "raw": str(data)[:500]
+            })
+
+        # Extract text from response
+        return choices[0].get("message", {}).get("content", "")
