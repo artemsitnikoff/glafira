@@ -38,57 +38,66 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 
 ## 2. `.env` на VPS
 
-Создай `/path/to/project/.env` (рядом с docker-compose). Заполни:
+В корне проекта (`/var/www/glafira/` или твой путь) скопируй шаблон и заполни реальными значениями:
 
 ```bash
-# --- База (контейнер postgres из compose) ---
+cp .env.example .env
+nano .env
+```
+
+Полный список переменных (имена сверены с `backend/app/config.py`, проект читает их через `pydantic-settings`):
+
+```bash
+# --- БД (postgres) ---
+# Эти три читает docker-compose для инициализации postgres-контейнера:
 POSTGRES_USER=glafira
 POSTGRES_PASSWORD=<придумай надёжный, 24+ символов>
 POSTGRES_DB=glafira
-# DATABASE_URL указывает на сервис 'db' внутри compose-сети:
+# DATABASE_URL читает бек. В compose host=db (имя сервиса), порт 5432.
 DATABASE_URL=postgresql+asyncpg://glafira:<тот же пароль>@db:5432/glafira
 
-# --- Секреты (из шага 1) ---
-JWT_SECRET=<сгенерированный token_urlsafe(64)>
-FERNET_KEY=<сгенерированный Fernet ключ>
+# --- Аутентификация ---
+JWT_SECRET=<сгенерированный token_urlsafe(64) из шага 1>
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=14
+DEFAULT_COMPANY_ID=00000000-0000-0000-0000-000000000001
 
-# --- LLM ---
+# --- AI (Глафира через OpenRouter) ---
 OPENROUTER_API_KEY=<новый ключ с openrouter.ai>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 GLAFIRA_MODEL=anthropic/claude-sonnet-4-6
-
-# --- Верификация: на проде ТОЛЬКО mock (real → 501) ---
+# Только mock на проде (real → 501 пока интеграция с госреестрами не сделана)
 GLAFIRA_VERIFY_MODE=mock
+# legacy, не используется — оставь пустым:
+ANTHROPIC_API_KEY=
 
-# --- CORS: продовый домен фронта (с https!) ---
+# --- Источники (заполнишь позже в UI Настройки → Интеграции, можно оставить пустыми) ---
+HH_CLIENT_ID=
+HH_CLIENT_SECRET=
+AVITO_CLIENT_ID=
+AVITO_CLIENT_SECRET=
+
+# --- Шифрование токенов интеграций ---
+FERNET_KEY=<сгенерированный Fernet ключ из шага 1>
+
+# --- Деплой ---
+# Список origin'ов фронта через запятую (без слеша в конце!)
 CORS_ORIGINS=https://ats.mydomain.ru
-
-# --- Cookie: HTTPS есть → Secure=True ---
+# True если HTTPS поднят (Secure-cookie). Если http (тестово) — оставь False.
 SESSION_COOKIE_SECURE=True
 
-# --- Компания по умолчанию (как в seed) ---
-DEFAULT_COMPANY_ID=<тот же uuid, что в seed, если фиксирован>
-```
-
-> Имена переменных сверь с реальным `backend/app/config.py` — если какие-то называются иначе, приведи к фактическим. Перечисленные выше — по нашим ТЗ.
-
-**Фронтовый build-time env** (для Vite, до сборки фронта):
-```bash
-# frontend/.env.production
+# --- Frontend (читает Vite на этапе build) ---
 VITE_API_BASE_URL=https://ats.mydomain.ru/api/v1
 ```
-> Это собирается в статику на этапе build. После https-домена — именно https и реальный путь до API.
+
+> `VITE_API_BASE_URL` зашивается в статику при сборке фронта. Если потом поменяешь домен — нужно пересобрать фронт.
 
 ---
 
-## 3. Проверка CORS в коде (pre-flight, КРИТИЧНО)
+## 3. CORS и Secure-cookie — уже из env (проверять не надо)
 
-Самая частая грабля переноса. В `backend/app/main.py` найди настройку CORSMiddleware:
-```bash
-grep -n "CORS\|allow_origins\|localhost" backend/app/main.py
-```
-- Если `allow_origins` берётся из `CORS_ORIGINS` (env) — хорошо, ничего не трогай.
-- Если там **хардкод `http://localhost:5173`** или подобное — замени на чтение из env (`settings.CORS_ORIGINS`). Иначе фронт с `https://ats.mydomain.ru` НЕ достучится до бека (браузер заблокирует), и будет «всё сломано», хотя дело только в CORS.
+`main.py` читает `allow_origins=settings.cors_origins_list`, `auth.py` — `secure=settings.SESSION_COOKIE_SECURE`. Захардкоженных значений нет — управляешь через `.env` (см. шаг 2).
 
 ---
 
