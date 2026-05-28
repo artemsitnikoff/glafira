@@ -28,8 +28,9 @@
 }
 
 .home-header__updated {
-  font-family: var(--font-mono);
-  font-size: 13px;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
   color: var(--fg-3);
 }
 
