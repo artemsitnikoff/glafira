@@ -13,7 +13,7 @@ from app.models import Company, GlafiraSettings, RejectReason, User
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-ADMIN_EMAIL = "anna.sedova@example.com"
+ADMIN_EMAIL = "admin@dclouds.ru"
 ADMIN_PASSWORD = "Glafira2026!"
 
 
