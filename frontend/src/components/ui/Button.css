@@ -34,14 +34,14 @@
 
 .btn--md {
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: 13px;
   gap: 8px;
 }
 
 /* Variants */
 .btn--primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--fg-on-accent);
 }
 
 .btn--primary:hover:not(:disabled) {
@@ -60,7 +60,7 @@
 
 .btn--success {
   background: var(--status-success);
-  color: #fff;
+  color: var(--fg-on-accent);
 }
 
 .btn--success:hover:not(:disabled) {

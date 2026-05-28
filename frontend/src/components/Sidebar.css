@@ -24,7 +24,7 @@
 
 .sidebar__brand-name {
   font-weight: 700;
-  font-size: 15px;
+  font-size: 16px;
   letter-spacing: -0.01em;
 }
 
@@ -118,7 +118,7 @@
 
 .sidebar__badge {
   background: var(--ark-red-500, #ef4444);
-  color: #fff;
+  color: var(--fg-on-accent);
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -177,7 +177,7 @@
   border: 0;
   border-radius: 6px;
   background: var(--accent);
-  color: #fff;
+  color: var(--fg-on-accent);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -192,7 +192,7 @@
 
 .sidebar__search {
   height: 28px;
-  background: #fff;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-1);
   border-radius: 6px;
   display: flex;
@@ -209,7 +209,7 @@
   flex: 1;
   min-width: 0;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg-1);
 }
 
@@ -272,7 +272,7 @@
 
 .sidebar__new-badge {
   background: var(--accent);
-  color: #fff;
+  color: var(--fg-on-accent);
   font-size: 10px;
   font-weight: 600;
   font-family: var(--font-mono);
