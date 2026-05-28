@@ -8,7 +8,7 @@ export function useTags() {
   return useQuery({
     queryKey: ['tags'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/tags')
+      const response = await api.get('/settings/tags')
       return response.data as TagOut[]
     },
   })

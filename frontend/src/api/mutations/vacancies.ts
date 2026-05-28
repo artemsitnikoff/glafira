@@ -11,7 +11,7 @@ export function useCreateVacancy() {
 
   return useMutation({
     mutationFn: async (data: VacancyCreate) => {
-      const response = await api.post('/api/v1/vacancies', data);
+      const response = await api.post('/vacancies', data);
       return response.data as VacancyDetail;
     },
     onSuccess: () => {
@@ -26,7 +26,7 @@ export function useUpdateVacancy() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: VacancyUpdate }) => {
-      const response = await api.patch(`/api/v1/vacancies/${id}`, data);
+      const response = await api.patch(`/vacancies/${id}`, data);
       return response.data as VacancyDetail;
     },
     onSuccess: (_, { id }) => {
@@ -42,7 +42,7 @@ export function useArchiveVacancy() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.post(`/api/v1/vacancies/${id}/archive`);
+      const response = await api.post(`/vacancies/${id}/archive`);
       return response.data;
     },
     onSuccess: (_, id) => {

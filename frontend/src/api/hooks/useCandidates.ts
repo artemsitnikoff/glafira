@@ -49,7 +49,7 @@ export function useCandidates(filters: CandidateFilters = {}) {
         }
       })
 
-      const response = await client.get(`/api/v1/candidates?${params}`)
+      const response = await client.get(`/candidates?${params}`)
       return response.data as Paginated<CandidateGridItem>
     },
     getNextPageParam: (lastPage, allPages) => {
@@ -66,7 +66,7 @@ export function useCandidate(candidateId: string) {
   return useQuery({
     queryKey: ['candidates', candidateId],
     queryFn: async () => {
-      const response = await client.get(`/api/v1/candidates/${candidateId}`)
+      const response = await client.get(`/candidates/${candidateId}`)
       return response.data as CandidateDetail
     },
     enabled: !!candidateId
@@ -80,7 +80,7 @@ export function useCandidateApplications(candidateId: string) {
   return useQuery({
     queryKey: ['candidates', candidateId, 'applications'],
     queryFn: async () => {
-      const response = await client.get(`/api/v1/candidates/${candidateId}/applications`)
+      const response = await client.get(`/candidates/${candidateId}/applications`)
       return response.data as ApplicationHistoryItem[]
     },
     enabled: !!candidateId
@@ -100,7 +100,7 @@ export function useAssignToVacancy() {
       data: AssignToVacancyRequest
     }) => {
       const response = await client.post(
-        `/api/v1/candidates/${candidateId}/applications`,
+        `/candidates/${candidateId}/applications`,
         data
       )
       return response.data as ApplicationRow

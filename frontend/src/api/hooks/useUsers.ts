@@ -8,7 +8,7 @@ export function useUsers() {
   return useQuery({
     queryKey: ['users'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/users');
+      const response = await api.get('/users');
       return response.data as PaginatedUsers;
     },
   });

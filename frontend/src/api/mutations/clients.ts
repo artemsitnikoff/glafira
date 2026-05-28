@@ -10,7 +10,7 @@ export function useCreateClient() {
 
   return useMutation({
     mutationFn: async (data: ClientCreate) => {
-      const response = await api.post('/api/v1/clients', data);
+      const response = await api.post('/clients', data);
       return response.data as ClientOut;
     },
     onSuccess: () => {

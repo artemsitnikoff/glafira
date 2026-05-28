@@ -8,7 +8,7 @@ export function useVacancy(id: string) {
   return useQuery({
     queryKey: ['vacancies', id],
     queryFn: async () => {
-      const response = await api.get(`/api/v1/vacancies/${id}`);
+      const response = await api.get(`/vacancies/${id}`);
       return response.data as VacancyDetail;
     },
     enabled: !!id,

@@ -8,7 +8,7 @@ export function useEmailTemplates() {
   return useQuery({
     queryKey: ['settings', 'email-templates'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/email-templates');
+      const response = await api.get('/settings/email-templates');
       return response.data as EmailTemplateOut[];
     },
     staleTime: 60_000,

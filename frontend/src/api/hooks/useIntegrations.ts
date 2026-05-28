@@ -8,7 +8,7 @@ export function useIntegrations() {
   return useQuery({
     queryKey: ['settings', 'integrations'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/integrations');
+      const response = await api.get('/settings/integrations');
       return response.data as IntegrationOut[];
     },
     staleTime: 60_000,

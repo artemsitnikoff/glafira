@@ -34,7 +34,7 @@ export function useVacancies(params: UseVacanciesParams = {}) {
   return useQuery({
     queryKey: ['vacancies', { page, page_size, status, search, sort, order }],
     queryFn: async () => {
-      const response = await api.get(`/api/v1/vacancies?${searchParams.toString()}`)
+      const response = await api.get(`/vacancies?${searchParams.toString()}`)
       return response.data as Paginated
     },
   })

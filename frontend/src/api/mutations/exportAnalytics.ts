@@ -27,7 +27,7 @@ async function exportAnalytics(params: ExportAnalyticsParams): Promise<void> {
     params.recruiter_ids.forEach(id => urlParams.append('recruiter_ids', id));
   }
 
-  const response = await api.get(`/api/v1/analytics/export?${urlParams.toString()}`, {
+  const response = await api.get(`/analytics/export?${urlParams.toString()}`, {
     responseType: 'blob',
   });
 

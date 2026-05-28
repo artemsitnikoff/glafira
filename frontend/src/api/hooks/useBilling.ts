@@ -8,7 +8,7 @@ export function useBilling() {
   return useQuery({
     queryKey: ['settings', 'billing'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/billing');
+      const response = await api.get('/settings/billing');
       return response.data as BillingOut;
     },
     staleTime: 60_000,

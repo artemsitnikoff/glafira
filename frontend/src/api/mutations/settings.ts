@@ -21,7 +21,7 @@ export function useUpdateProfile() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: ProfileUpdate) => {
-      const response = await api.patch('/api/v1/settings/profile', data);
+      const response = await api.patch('/settings/profile', data);
       return response.data;
     },
     onSuccess: () => {
@@ -33,7 +33,7 @@ export function useUpdateProfile() {
 export function useChangePassword() {
   return useMutation({
     mutationFn: async (data: PasswordChange) => {
-      const response = await api.post('/api/v1/settings/profile/password', data);
+      const response = await api.post('/settings/profile/password', data);
       return response.data as MessageResult;
     },
   });
@@ -44,7 +44,7 @@ export function useUpdateGlafiraSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: GlafiraSettingsUpdate) => {
-      const response = await api.patch('/api/v1/settings/glafira', data);
+      const response = await api.patch('/settings/glafira', data);
       return response.data;
     },
     onSuccess: () => {
@@ -58,7 +58,7 @@ export function useCreateRejectReason() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: RejectReasonCreate) => {
-      const response = await api.post('/api/v1/settings/reject-reasons', data);
+      const response = await api.post('/settings/reject-reasons', data);
       return response.data;
     },
     onSuccess: () => {
@@ -71,7 +71,7 @@ export function useUpdateRejectReason() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: RejectReasonUpdate }) => {
-      const response = await api.patch(`/api/v1/settings/reject-reasons/${id}`, data);
+      const response = await api.patch(`/settings/reject-reasons/${id}`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -84,7 +84,7 @@ export function useDeleteRejectReason() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.delete(`/api/v1/settings/reject-reasons/${id}`);
+      const response = await api.delete(`/settings/reject-reasons/${id}`);
       return response.data;
     },
     onSuccess: () => {
@@ -98,7 +98,7 @@ export function useCreateEmailTemplate() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: EmailTemplateCreate) => {
-      const response = await api.post('/api/v1/settings/email-templates', data);
+      const response = await api.post('/settings/email-templates', data);
       return response.data;
     },
     onSuccess: () => {
@@ -111,7 +111,7 @@ export function useUpdateEmailTemplate() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: EmailTemplateUpdate }) => {
-      const response = await api.patch(`/api/v1/settings/email-templates/${id}`, data);
+      const response = await api.patch(`/settings/email-templates/${id}`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -125,7 +125,7 @@ export function useCreateSurveyTemplate() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: SurveyTemplateCreate) => {
-      const response = await api.post('/api/v1/settings/survey-templates', data);
+      const response = await api.post('/settings/survey-templates', data);
       return response.data;
     },
     onSuccess: () => {
@@ -138,7 +138,7 @@ export function useUpdateSurveyTemplate() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: SurveyTemplateUpdate }) => {
-      const response = await api.patch(`/api/v1/settings/survey-templates/${id}`, data);
+      const response = await api.patch(`/settings/survey-templates/${id}`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -152,7 +152,7 @@ export function useUpdateIntegration() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ provider, data }: { provider: string; data: IntegrationUpdate }) => {
-      const response = await api.patch(`/api/v1/settings/integrations/${provider}`, data);
+      const response = await api.patch(`/settings/integrations/${provider}`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -166,7 +166,7 @@ export function useInviteUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: UserCreate) => {
-      const response = await api.post('/api/v1/users', data);
+      const response = await api.post('/users', data);
       return response.data;
     },
     onSuccess: () => {
@@ -179,7 +179,7 @@ export function useUpdateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UserUpdate }) => {
-      const response = await api.patch(`/api/v1/users/${id}`, data);
+      const response = await api.patch(`/users/${id}`, data);
       return response.data;
     },
     onSuccess: () => {

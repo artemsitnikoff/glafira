@@ -8,7 +8,7 @@ export function useClients() {
   return useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/clients');
+      const response = await api.get('/clients');
       return response.data as ClientOut[];
     },
   });

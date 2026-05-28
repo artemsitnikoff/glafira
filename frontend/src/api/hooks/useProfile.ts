@@ -8,7 +8,7 @@ export function useProfile() {
   return useQuery({
     queryKey: ['settings', 'profile'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/profile');
+      const response = await api.get('/settings/profile');
       return response.data as ProfileOut;
     },
     staleTime: 30_000,

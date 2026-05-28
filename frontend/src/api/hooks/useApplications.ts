@@ -70,7 +70,7 @@ export function useApplications(
       if (filters.size) params.append('size', filters.size.toString());
       if (filters.candidate_id) params.append('candidate_id', filters.candidate_id);
 
-      const response = await api.get(`/api/v1/vacancies/${vacancyId}/applications?${params.toString()}`);
+      const response = await api.get(`/vacancies/${vacancyId}/applications?${params.toString()}`);
       return response.data as Paginated;
     },
     enabled: !!vacancyId && (options.enabled ?? true),

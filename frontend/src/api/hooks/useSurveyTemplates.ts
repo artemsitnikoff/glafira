@@ -8,7 +8,7 @@ export function useSurveyTemplates() {
   return useQuery({
     queryKey: ['settings', 'survey-templates'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/survey-templates');
+      const response = await api.get('/settings/survey-templates');
       return response.data as SurveyTemplateOut[];
     },
     staleTime: 60_000,

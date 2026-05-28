@@ -8,7 +8,7 @@ export function useGlafiraSettings() {
   return useQuery({
     queryKey: ['settings', 'glafira'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/glafira');
+      const response = await api.get('/settings/glafira');
       return response.data as GlafiraSettingsOut;
     },
     staleTime: 60_000,

@@ -12,7 +12,7 @@ export function useMoveApplication(vacancyId?: string) {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: MoveRequest }) => {
-      const response = await api.post(`/api/v1/applications/${id}/move`, data);
+      const response = await api.post(`/applications/${id}/move`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -29,7 +29,7 @@ export function useRejectApplication(vacancyId?: string) {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: RejectRequest }) => {
-      const response = await api.post(`/api/v1/applications/${id}/reject`, data);
+      const response = await api.post(`/applications/${id}/reject`, data);
       return response.data;
     },
     onSuccess: () => {
@@ -46,7 +46,7 @@ export function useRestoreApplication(vacancyId?: string) {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.post(`/api/v1/applications/${id}/restore`);
+      const response = await api.post(`/applications/${id}/restore`);
       return response.data;
     },
     onSuccess: () => {
@@ -63,7 +63,7 @@ export function useBulkMove(vacancyId?: string) {
 
   return useMutation({
     mutationFn: async (data: BulkMoveRequest) => {
-      const response = await api.post('/api/v1/applications/bulk/move', data);
+      const response = await api.post('/applications/bulk/move', data);
       return response.data;
     },
     onSuccess: () => {
@@ -80,7 +80,7 @@ export function useBulkReject(vacancyId?: string) {
 
   return useMutation({
     mutationFn: async (data: BulkRejectRequest) => {
-      const response = await api.post('/api/v1/applications/bulk/reject', data);
+      const response = await api.post('/applications/bulk/reject', data);
       return response.data;
     },
     onSuccess: () => {

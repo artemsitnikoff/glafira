@@ -8,7 +8,7 @@ export function useArchivedVacancies() {
   return useQuery({
     queryKey: ['vacancies', 'archived'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/vacancies?status=archived');
+      const response = await api.get('/vacancies?status=archived');
       return response.data as Paginated;
     },
   });

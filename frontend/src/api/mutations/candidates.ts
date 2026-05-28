@@ -10,7 +10,7 @@ export function useCreateCandidate(vacancyId?: string) {
 
   return useMutation({
     mutationFn: async (data: CandidateCreate) => {
-      const response = await api.post('/api/v1/candidates', data);
+      const response = await api.post('/candidates', data);
       return response.data as CandidateDetail;
     },
     onSuccess: () => {
@@ -28,7 +28,7 @@ export function useDeleteCandidate() {
 
   return useMutation({
     mutationFn: async (candidateId: string) => {
-      await api.delete(`/api/v1/candidates/${candidateId}`);
+      await api.delete(`/candidates/${candidateId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates'] });

@@ -22,7 +22,7 @@ export function useAnalytics(report: string, filters: AnalyticsFilters) {
         filters.recruiter_ids.forEach(id => params.append('recruiter_ids', id));
       }
 
-      const response = await api.get(`/api/v1/analytics/${report}?${params.toString()}`);
+      const response = await api.get(`/analytics/${report}?${params.toString()}`);
       return response.data as AnalyticsResponse;
     },
     enabled: !!report,
