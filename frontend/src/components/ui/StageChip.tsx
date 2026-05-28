@@ -10,7 +10,7 @@ export function StageChip({ stage, size = 'md' }: StageChipProps) {
   if (!cfg) return null;
 
   const padding = size === 'sm' ? '2px 8px' : '4px 12px';
-  const fs = size === 'sm' ? 11 : 13;
+  const fs = size === 'sm' ? 11 : 11;
 
   return (
     <span

@@ -36,7 +36,7 @@
 }
 
 .vh-title {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1.2;
   margin: 0 0 var(--space-2) 0;
@@ -214,11 +214,15 @@
   display: flex;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border-1);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--fg-2);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.cand-thead .ct-profile {
+  align-items: stretch;
 }
 
 .ct-profile {
@@ -226,12 +230,13 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
-  min-width: 320px;
+  width: 378px;
   position: sticky;
   left: 0;
   background: var(--bg-2);
-  z-index: 1;
+  z-index: 5;
   border-right: 1px solid var(--border-1);
+  box-shadow: 1px 0 0 var(--border-1);
 }
 
 .ct-prof-label {
@@ -293,7 +298,7 @@
 }
 
 .ct-sort-arr {
-  font-size: 8px;
+  font-size: 7px;
   line-height: 1;
   color: var(--fg-3);
 }
@@ -313,7 +318,7 @@
   border-bottom: 1px solid var(--border-1);
   cursor: pointer;
   transition: background-color 0.15s ease;
-  min-height: 64px;
+  height: 76px;
   position: relative;
 }
 
@@ -332,6 +337,11 @@
 
 .cand-row .ct-profile {
   background: inherit;
+  height: 100%;
+}
+
+.cand-row .ct-rest {
+  height: 100%;
 }
 
 .row-check {

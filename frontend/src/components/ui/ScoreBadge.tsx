@@ -20,8 +20,8 @@ export function ScoreBadge({ value, size = 'md' }: ScoreBadgeProps) {
   const sizes = {
     sm: { fs: 11, p: '2px 6px' },
     md: { fs: 13, p: '3px 8px' },
-    lg: { fs: 16, p: '4px 12px' },
-    xl: { fs: 24, p: '8px 16px' }
+    lg: { fs: 15, p: '4px 12px' },
+    xl: { fs: 22, p: '8px 16px' }
   };
 
   return (
