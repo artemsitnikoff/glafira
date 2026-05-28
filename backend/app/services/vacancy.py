@@ -57,8 +57,7 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID) -> Vacanc
             id=row.id,
             name=row.name,
             count=row.count,
-            new_count=row.new_count,
-            has_unread=False  # TODO: implement unread logic
+            new_count=row.new_count
         ))
 
     # Count archived vacancies
@@ -324,7 +323,14 @@ async def update_vacancy(
         "name": vacancy.name,
         "status": vacancy.status,
         "glafira_mode": vacancy.glafira_mode,
+        "archive_result": vacancy.archive_result,
+        "closed_at": vacancy.closed_at.isoformat() if vacancy.closed_at else None,
     }
+
+    # Detect restore from archive (archived → active)
+    is_restore = (vacancy.status == "archived" and
+                  hasattr(vacancy_data, 'status') and
+                  vacancy_data.status == "active")
 
     # Update fields
     if vacancy_data.name is not None:
@@ -354,6 +360,15 @@ async def update_vacancy(
     if vacancy_data.glafira_mode is not None:
         vacancy.glafira_mode = vacancy_data.glafira_mode
 
+    # Handle status update with restore logic
+    if hasattr(vacancy_data, 'status') and vacancy_data.status is not None:
+        vacancy.status = vacancy_data.status
+
+        # If restoring from archive, clear archive fields in same transaction
+        if is_restore:
+            vacancy.archive_result = None
+            vacancy.closed_at = None
+
     # Handle team updates
     if vacancy_data.team is not None:
         # Remove existing team members
@@ -375,18 +390,26 @@ async def update_vacancy(
 
     await session.flush()
 
-    # Audit log
+    # Audit log - use different action for restore
+    audit_action = "vacancy_restore" if is_restore else "vacancy_update"
+    after_data = {
+        "name": vacancy.name,
+        "status": vacancy.status,
+        "glafira_mode": vacancy.glafira_mode,
+    }
+    if is_restore:
+        after_data.update({
+            "archive_result": vacancy.archive_result,
+            "closed_at": vacancy.closed_at.isoformat() if vacancy.closed_at else None,
+        })
+
     await audit(
         session,
-        action="update",
+        action=audit_action,
         entity_type="vacancy",
         entity_id=vacancy.id,
         before=before,
-        after={
-            "name": vacancy.name,
-            "status": vacancy.status,
-            "glafira_mode": vacancy.glafira_mode,
-        },
+        after=after_data,
         actor_user_id=actor_user_id,
         company_id=company_id,
     )

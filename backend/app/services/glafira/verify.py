@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...core.errors import ConsentRequiredError, NotFoundError
+from ...core.errors import ConsentRequiredError, NotFoundError, FeatureNotImplementedError
 from ...models import Candidate, Consent, Verification, Event
 from ...services.audit import audit
 
@@ -143,14 +143,17 @@ async def verify_candidate(
 
     # Check verification mode
     if settings.GLAFIRA_VERIFY_MODE == 'real':
-        logger.warning(f"Real verification not implemented, falling back to mock for candidate {candidate_id}")
-        # raise NotImplementedError("Real verification not implemented yet")
+        raise FeatureNotImplementedError(details={
+            "feature": "real_verification",
+            "hint": "Set GLAFIRA_VERIFY_MODE=mock to use mock data"
+        })
 
     # Generate mock verification data
     overall_status, blocks = _generate_mock_verification_blocks(candidate_id)
 
     # Create verification record
     now = datetime.now(timezone.utc)
+    is_mock = (settings.GLAFIRA_VERIFY_MODE == 'mock')
     verification = Verification(
         company_id=company_id,
         candidate_id=candidate_id,
@@ -158,6 +161,7 @@ async def verify_candidate(
         checked_at=now,
         status=overall_status,
         blocks=blocks,
+        is_mock=is_mock,
         created_at=now
     )
 

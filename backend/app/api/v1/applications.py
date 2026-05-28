@@ -51,6 +51,7 @@ async def get_applications_for_vacancy_funnel(
     repeat: bool | None = Query(None),
     sort: str | None = Query(None),
     order: str = Query("desc", pattern="^(asc|desc)$"),
+    candidate_id: UUID | None = Query(None),
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
 ):
@@ -72,6 +73,7 @@ async def get_applications_for_vacancy_funnel(
         repeat=repeat,
         sort=sort,
         order=order,
+        candidate_id=candidate_id,
     )
 
 

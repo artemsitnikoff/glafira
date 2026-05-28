@@ -3,6 +3,7 @@ import { useUiStore } from '@/store/uiStore';
 import { useMe } from '@/api/hooks/useMe';
 import { useSidebar } from '@/api/hooks/useSidebar';
 import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
+import { useCandidates } from '@/api/hooks/useCandidates';
 import { Avatar } from './ui/Avatar';
 import { Icon } from './ui/Icon';
 import './Sidebar.css';
@@ -25,6 +26,7 @@ export function Sidebar() {
   const { data: me } = useMe();
   const { data: sidebar } = useSidebar();
   const { count: alertsCount } = usePulseAlertsCount();
+  const { data: candidatesData } = useCandidates({});
   const ui = useUiStore();
 
   // Фильтруем вакансии по поисковому запросу
@@ -106,7 +108,6 @@ export function Sidebar() {
                       `sidebar__vac ${isActive || activeVacancyId === String(v.id) ? 'is-active' : ''}`
                     }
                   >
-                    {v.has_unread && <span className="sidebar__dot" />}
                     <span className="sidebar__vac-name">{v.name}</span>
                     <span className="mono">{v.count}</span>
                     {v.new_count > 0 && (
@@ -134,6 +135,9 @@ export function Sidebar() {
         >
           <Icon name="users" size={18} />
           <span>Кандидаты</span>
+          {candidatesData?.pages?.[0]?.total && (
+            <span className="mono">{candidatesData.pages[0].total}</span>
+          )}
         </NavLink>
 
         <NavLink
@@ -141,7 +145,7 @@ export function Sidebar() {
           className={({ isActive }) => `sidebar__item ${isActive ? 'is-active' : ''}`}
         >
           <Icon name="activity" size={18} />
-          <span>Адаптация</span>
+          <span>Пульс</span>
           {alertsCount > 0 && <span className="sidebar__badge">{alertsCount}</span>}
         </NavLink>
 

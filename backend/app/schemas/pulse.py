@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
+from typing import Literal
 from .base import ORMBase
 
 
@@ -66,6 +67,22 @@ class NoteCreate(BaseModel):
     text: str
 
 
+class EmployeeStatusUpdate(BaseModel):
+    status: Literal['onboarding', 'passed', 'left']
+    left_at: date | None = None
+    left_reason: str | None = None
+
+
+class BulkRunSurveyRequest(BaseModel):
+    employee_ids: list[UUID]
+    template_key: str
+    send_at: datetime | None = None
+
+
+class BulkRunSurveyResult(BaseModel):
+    launched_count: int
+
+
 class NoteOut(BaseModel):
     text: str
     author_user_id: str
@@ -86,10 +103,20 @@ class EmployeeDetail(ORMBase):
     manager_full_name: str | None = None
     recruiter_full_name: str | None = None
     hire_source: str | None = None
+    candidate_id: UUID  # для ссылки на карточку соискателя + Chat/Actions табов
+    left_at: date | None = None  # для баннера «Уволен»
+    left_reason: str | None = None  # для баннера «Уволен»
+    ai_summary: str | None = None
+    ai_summary_generated_at: datetime | None = None
     plan: list[PlanItemOut] = Field(default_factory=list)
     surveys: list[SurveyOut] = Field(default_factory=list)
     alerts: list[AlertOut] = Field(default_factory=list)
     notes: list[NoteOut] = Field(default_factory=list)
+
+
+class EmployeeSummaryResponse(BaseModel):
+    summary: str | None = None
+    generated_at: datetime | None = None
 
 
 class PulseKPI(BaseModel):

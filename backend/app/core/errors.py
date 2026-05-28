@@ -66,6 +66,15 @@ class ValidationError(AppError):
         )
 
 
+class ConflictError(AppError):
+    def __init__(self, message: str = "Конфликт данных"):
+        super().__init__(
+            code="CONFLICT",
+            message=message,
+            status_code=409
+        )
+
+
 class ConsentRequiredError(AppError):
     def __init__(self):
         super().__init__(
@@ -118,6 +127,16 @@ class GlafiraParseError(AppError):
             code="GLAFIRA_PARSE_ERROR",
             message="Ошибка парсинга ответа от Глафиры",
             status_code=502,
+            details=details
+        )
+
+
+class FeatureNotImplementedError(AppError):
+    def __init__(self, details: dict | None = None):
+        super().__init__(
+            code="FEATURE_NOT_IMPLEMENTED",
+            message="Функция не реализована",
+            status_code=501,
             details=details
         )
 

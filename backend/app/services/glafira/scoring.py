@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload
 from .client import call_json
 from .prompts import SCORING_SYSTEM_PROMPT, SCORING_USER_TEMPLATE
 from ...config import settings
-from ...core.errors import NotFoundError
+from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill
 from ...services.audit import audit
 
@@ -158,19 +158,28 @@ Email: {candidate.email or "не указан"}
         max_tokens=2048
     )
 
-    # Validate required fields
+    # Validate required fields - no fallbacks, strict validation
     required_fields = ['score', 'verdict', 'summary', 'strengths', 'risks', 'requirements_match', 'forecast']
     for field in required_fields:
         if field not in response_data:
-            response_data[field] = None
+            raise GlafiraParseError(details={
+                "reason": f"Missing required field: {field}",
+                "got": list(response_data.keys())
+            })
 
-    # Ensure score is valid integer
+    # Validate score is valid integer in range [0,100]
     if not isinstance(response_data['score'], int) or not (0 <= response_data['score'] <= 100):
-        response_data['score'] = 50  # Default score if invalid
+        raise GlafiraParseError(details={
+            "reason": "Invalid score: must be integer between 0 and 100",
+            "got": response_data.get('score')
+        })
 
-    # Ensure verdict is valid
+    # Validate verdict is valid enum value
     if response_data['verdict'] not in ['good', 'partial', 'bad']:
-        response_data['verdict'] = 'partial'
+        raise GlafiraParseError(details={
+            "reason": "Invalid verdict: must be 'good', 'partial', or 'bad'",
+            "got": response_data.get('verdict')
+        })
 
     # Create evaluation record
     now = datetime.now(timezone.utc)

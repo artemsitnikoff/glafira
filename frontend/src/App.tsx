@@ -7,10 +7,10 @@ import VacanciesPage from '@/pages/VacanciesPage';
 import VacanciesArchivePage from '@/pages/VacanciesArchivePage';
 import VacancyFormPage from '@/pages/VacancyFormPage';
 import VacancyDetailPage from '@/pages/VacancyDetailPage';
-import CandidatesPage from '@/pages/CandidatesPage';
-import CandidateDetailPage from '@/pages/CandidateDetailPage';
-import PulsePage from '@/pages/PulsePage';
-import PulseEmployeePage from '@/pages/PulseEmployeePage';
+import { CandidatesPoolPage } from '@/pages/candidates/CandidatesPoolPage';
+import { CandidatePoolDetailPage } from '@/pages/candidates/CandidatePoolDetailPage';
+import { PulsePage } from '@/pages/pulse/PulsePage';
+import { PulseEmployeePage } from '@/pages/pulse/PulseEmployeePage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import SettingsPage from '@/pages/SettingsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
@@ -44,10 +44,10 @@ export default function App() {
         <Route path="vacancies/:id/edit" element={<VacancyFormPage />} />
         <Route path="vacancies/:id" element={<VacancyDetailPage />} />
         <Route path="vacancies/:id/candidates/:cid" element={<VacancyDetailPage />} />
-        <Route path="candidates" element={<CandidatesPage />} />
-        <Route path="candidates/:id" element={<CandidateDetailPage />} />
+        <Route path="candidates" element={<CandidatesPoolPage />} />
+        <Route path="candidates/:id" element={<CandidatePoolDetailPage />} />
         <Route path="pulse" element={<PulsePage />} />
-        <Route path="pulse/:id" element={<PulseEmployeePage />} />
+        <Route path="pulse/:employeeId" element={<PulseEmployeePage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

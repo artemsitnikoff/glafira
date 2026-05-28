@@ -112,3 +112,89 @@ async def test_get_vacancy_stages(
     assert len(stages) == 9
     for stage in stages:
         assert {"stage_key", "label", "color", "count", "is_terminal"} <= set(stage.keys())
+
+
+async def test_restore_vacancy_from_archive(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    """Test 1: Restore archived vacancy clears archive_result and closed_at"""
+    # Create vacancy
+    created = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Test Vacancy"},
+    )
+    vacancy_id = created.json()["id"]
+
+    # Archive vacancy
+    await async_client.post(
+        f"/api/v1/vacancies/{vacancy_id}/archive",
+        headers=auth_headers,
+        json={"result": "hired"},
+    )
+
+    # Restore vacancy
+    response = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"status": "active"},
+    )
+    assert response.status_code == 200
+
+    # Check vacancy is restored with all archive fields cleared
+    data = response.json()
+    assert data["status"] == "active"
+    assert data["archive_result"] is None
+    assert data["closed_at"] is None
+
+
+async def test_restore_vacancy_audit_log(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+):
+    """Test 2: Restore vacancy creates audit log with vacancy_restore action"""
+    from app.models import AuditLog
+
+    # Create vacancy
+    created = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Test Vacancy 2"},
+    )
+    vacancy_id = created.json()["id"]
+
+    # Archive vacancy
+    await async_client.post(
+        f"/api/v1/vacancies/{vacancy_id}/archive",
+        headers=auth_headers,
+        json={"result": "cancelled"},
+    )
+
+    # Restore vacancy
+    await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"status": "active"},
+    )
+
+    # Check audit log entry was created
+    audit_entry = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.entity_type == "vacancy",
+                AuditLog.entity_id == vacancy_id,
+                AuditLog.action == "vacancy_restore"
+            )
+            .order_by(AuditLog.created_at.desc())
+        )
+    ).scalar_one_or_none()
+
+    assert audit_entry is not None
+    assert audit_entry.action == "vacancy_restore"
+    assert audit_entry.changes["before"]["status"] == "archived"
+    assert audit_entry.changes["after"]["status"] == "active"
+    assert audit_entry.changes["after"]["archive_result"] is None
+    assert audit_entry.changes["after"]["closed_at"] is None

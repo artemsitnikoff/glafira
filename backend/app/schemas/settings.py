@@ -157,7 +157,12 @@ class IntegrationUpdate(BaseModel):
 
 # Billing schemas
 class BillingOut(BaseModel):
-    plan: str
-    users_limit: int
-    candidates_limit: int
+    plan: str                    # "MVP" — config-заглушка тарифа
+    is_demo: bool                # True: реальной оплаты нет (MVP)
+    users_limit: int             # config-заглушка
+    candidates_limit: int        # config-заглушка
+    vacancies_limit: int         # config-заглушка
+    current_users: int           # РЕАЛЬНЫЙ count (is_active если есть; иначе все)
+    current_candidates: int      # РЕАЛЬНЫЙ count (deleted_at IS NULL)
+    current_vacancies: int       # РЕАЛЬНЫЙ count (status='active' AND deleted_at IS NULL)
     billing_until: Optional[datetime]

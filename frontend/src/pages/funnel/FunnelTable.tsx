@@ -278,7 +278,7 @@ function FunnelRow({
               <span className="t-mono">{candidate.phone || 'Не указан'}</span>
               <div className="mess-row">
                 {candidate.messengers?.map((messenger: string) => (
-                  <MessIconRound key={messenger} channel={messenger as any} size="sm" />
+                  <MessIconRound key={messenger} channel={messenger as any /* messenger from API as valid channel */} size="sm" />
                 ))}
               </div>
             </div>

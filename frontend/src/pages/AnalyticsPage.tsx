@@ -1,3 +1,5 @@
-export default function AnalyticsPage() {
-  return <div>Аналитика (TODO)</div>;
+import AnalyticsPage from './analytics/AnalyticsPage';
+
+export default function MainAnalyticsPage() {
+  return <AnalyticsPage />;
 }

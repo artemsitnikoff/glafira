@@ -329,3 +329,86 @@ async def test_applications_filter_messenger(
     body = response.json()
     assert body["total"] == 1
     assert "TelegramCandidate" in body["items"][0]["full_name"]
+
+
+async def test_applications_filter_ready_relocate(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+):
+    """Test ready_relocate JSONB filter - 3 candidates with relocation: true/false/empty;
+    ready_relocate=true → 1, ready_relocate=false → 1, no filter → 3"""
+
+    vacancy_response = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Remote Job"},
+    )
+    vacancy_id = vacancy_response.json()["id"]
+
+    # Candidate with relocation: true
+    relocate_yes = await _make_candidate(
+        db_session,
+        last_name="WillRelocate",
+        extra={"relocation": True}
+    )
+    await _make_application(
+        db_session,
+        candidate_id=relocate_yes.id,
+        vacancy_id=vacancy_id
+    )
+
+    # Candidate with relocation: false
+    relocate_no = await _make_candidate(
+        db_session,
+        last_name="WontRelocate",
+        extra={"relocation": False}
+    )
+    await _make_application(
+        db_session,
+        candidate_id=relocate_no.id,
+        vacancy_id=vacancy_id
+    )
+
+    # Candidate without relocation field (empty extra)
+    relocate_unknown = await _make_candidate(
+        db_session,
+        last_name="NoRelocateInfo",
+        extra={}
+    )
+    await _make_application(
+        db_session,
+        candidate_id=relocate_unknown.id,
+        vacancy_id=vacancy_id
+    )
+
+    await db_session.commit()
+
+    # Test ready_relocate=true - should return only WillRelocate
+    true_response = await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/applications?ready_relocate=true",
+        headers=auth_headers
+    )
+    assert true_response.status_code == 200
+    true_body = true_response.json()
+    assert true_body["total"] == 1
+    assert "WillRelocate" in true_body["items"][0]["full_name"]
+
+    # Test ready_relocate=false - should return only WontRelocate
+    false_response = await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/applications?ready_relocate=false",
+        headers=auth_headers
+    )
+    assert false_response.status_code == 200
+    false_body = false_response.json()
+    assert false_body["total"] == 1
+    assert "WontRelocate" in false_body["items"][0]["full_name"]
+
+    # Test without ready_relocate filter - should return all 3
+    all_response = await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/applications",
+        headers=auth_headers
+    )
+    assert all_response.status_code == 200
+    all_body = all_response.json()
+    assert all_body["total"] == 3

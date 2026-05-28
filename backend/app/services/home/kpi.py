@@ -1,7 +1,7 @@
 """Сервис для расчёта KPI главной страницы"""
 
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import func, select, and_
+from sqlalchemy import func, select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
@@ -37,9 +37,18 @@ async def _get_open_vacancies(session: AsyncSession, company_id: UUID, period_da
     if period_days is None:
         return current, None
 
-    # Для других периодов считаем тот же показатель на начало периода (приближение)
-    # В реальности нужна временная точка, но в MVP используем ту же логику
-    previous = current  # Упрощение: считаем что число не изменилось за период
+    # previous = вакансии, которые БЫЛИ active на начало периода
+    period_start = datetime.now(timezone.utc) - timedelta(days=period_days)
+    previous_query = select(func.count(Vacancy.id)).where(
+        Vacancy.company_id == company_id,
+        Vacancy.created_at < period_start,
+        or_(
+            Vacancy.status == 'active',
+            and_(Vacancy.status == 'archived', Vacancy.closed_at > period_start.date())
+        )
+    )
+    previous_result = await session.execute(previous_query)
+    previous = float(previous_result.scalar() or 0)
 
     return current, previous
 

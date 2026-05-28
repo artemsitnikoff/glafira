@@ -1,9 +1,12 @@
 """Analytics: Overview отчёт"""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select, and_
+from sqlalchemy import func, select, and_, or_
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.periods import resolve_analytics_window
@@ -29,8 +32,35 @@ async def _get_open_vacancies(session: AsyncSession, company_id: UUID, window: t
     if not filters.compare:
         return current, None
 
-    # Предыдущий период — приближение через тот же запрос
-    previous = current  # Упрощение для MVP
+    # previous = вакансии, которые БЫЛИ active на начало периода
+    # Используем тот же подход что в home/kpi.py
+    from ...core.periods import ANALYTICS_PERIODS
+    period_days = ANALYTICS_PERIODS.get(filters.period)
+    if period_days:
+        period_start = datetime.now(timezone.utc) - timedelta(days=period_days)
+    elif filters.period == 'custom' and filters.date_from:
+        period_start = datetime.combine(filters.date_from, datetime.min.time(), tzinfo=timezone.utc)
+    else:
+        # period='all' или нет date_from при custom — историческое сравнение невозможно
+        return current, None
+
+    try:
+        previous_query = select(func.count(Vacancy.id)).where(
+            Vacancy.company_id == company_id,
+            Vacancy.created_at < period_start,
+            or_(
+                Vacancy.status == 'active',
+                and_(Vacancy.status == 'archived', Vacancy.closed_at > period_start.date())
+            )
+        )
+        if filters.recruiter_ids:
+            previous_query = previous_query.where(Vacancy.responsible_user_id.in_(filters.recruiter_ids))
+
+        previous_result = await session.execute(previous_query)
+        previous = float(previous_result.scalar() or 0)
+    except Exception as e:
+        logger.warning("Failed to compute previous open_vacancies snapshot: %s", e)
+        return current, None
     return current, previous
 
 

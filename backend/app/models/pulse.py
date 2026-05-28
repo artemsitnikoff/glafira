@@ -59,6 +59,10 @@ class Employee(Base, TimestampMixin, CompanyMixin):
         nullable=False,
         server_default=text("'[]'::jsonb")
     )
+    ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_summary_generated_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     # Constraints
     __table_args__ = (

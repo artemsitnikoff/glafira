@@ -1,22 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../client';
-import type { components } from '../types';
+import { client } from '../client';
+import type { AlertOut } from '../aliases';
 
-type AlertOut = components['schemas']['AlertOut'];
-
-export function usePulseAlerts() {
-  return useQuery({
+export function usePulseAlertsCount() {
+  const { data: alerts, isLoading } = useQuery({
     queryKey: ['pulse', 'alerts'],
     queryFn: async () => {
-      const response = await api.get<AlertOut[]>('/pulse/alerts');
+      const response = await client.get<AlertOut[]>('/pulse/alerts?dismissed=false');
       return response.data;
     },
     refetchInterval: 30_000,
   });
-}
 
-export function usePulseAlertsCount() {
-  const q = usePulseAlerts();
-  const count = (q.data ?? []).filter((a: AlertOut) => !a.is_dismissed).length;
-  return { count, isLoading: q.isLoading };
+  const count = alerts?.length || 0;
+  return { count, isLoading };
 }

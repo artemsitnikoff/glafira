@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from .client import call_json
 from .prompts import SCREENING_SYSTEM_PROMPT_TEMPLATE
-from ...core.errors import NotFoundError
+from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Application, Candidate, Vacancy, Message, Event, GlafiraSettings
 from ...services.audit import audit
 
@@ -124,20 +124,22 @@ async def start_screening(
 Верни JSON в формате: {{"message": "текст ответа", "finished": false, "extracted": {{}}}}"""
 
     # Call Claude API
-    try:
-        response_data = await call_json(
-            system=system_prompt,
-            user=user_prompt,
-            max_tokens=1024
-        )
-        ai_response = response_data.get("message", "Привет! Готовы начать скрининг?")
-        finished = response_data.get("finished", False)
-        extracted = response_data.get("extracted", {})
-    except Exception:
-        # Fallback if JSON parsing fails
-        ai_response = "Привет! Готовы начать скрининг?"
-        finished = False
-        extracted = {}
+    response_data = await call_json(
+        system=system_prompt,
+        user=user_prompt,
+        max_tokens=1024
+    )
+
+    # Validate required fields - no fallbacks, strict validation
+    if "message" not in response_data:
+        raise GlafiraParseError(details={
+            "reason": "Missing 'message' field in LLM response",
+            "got": list(response_data.keys())
+        })
+
+    ai_response = response_data["message"]
+    finished = response_data.get("finished", False)
+    extracted = response_data.get("extracted", {})
 
     # Create outgoing message
     now = datetime.now(timezone.utc)
@@ -288,20 +290,22 @@ async def reply_screening(
 Верни JSON в формате: {{"message": "ответ", "finished": false, "extracted": {{"salary_expectation": 100000, "ready_relocate": true}}}}"""
 
     # Call Claude API
-    try:
-        response_data = await call_json(
-            system=system_prompt,
-            user=user_prompt,
-            max_tokens=1024
-        )
-        ai_response = response_data.get("message", "Понятно, спасибо за ответ!")
-        finished = response_data.get("finished", False)
-        extracted = response_data.get("extracted", {})
-    except Exception:
-        # Fallback if JSON parsing fails
-        ai_response = "Понятно, спасибо за ответ!"
-        finished = False
-        extracted = {}
+    response_data = await call_json(
+        system=system_prompt,
+        user=user_prompt,
+        max_tokens=1024
+    )
+
+    # Validate required fields - no fallbacks, strict validation
+    if "message" not in response_data:
+        raise GlafiraParseError(details={
+            "reason": "Missing 'message' field in LLM response",
+            "got": list(response_data.keys())
+        })
+
+    ai_response = response_data["message"]
+    finished = response_data.get("finished", False)
+    extracted = response_data.get("extracted", {})
 
     # Create outgoing AI message
     outgoing_msg = Message(

@@ -8,6 +8,8 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+export const client = api; // Alias for consistency
+
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
   if (token) {

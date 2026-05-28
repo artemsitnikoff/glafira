@@ -12,9 +12,11 @@ from ...schemas.candidate import (
     CandidateDetail,
     CandidateGridItem,
     ApplicationHistoryItem,
-    AddTagRequest
+    AddTagRequest,
+    AssignToVacancyRequest
 )
 from ...schemas.base import Paginated, StatusResult
+from ...schemas.application import ApplicationRow
 from ...services.candidate import (
     get_candidates_paginated,
     get_candidate_detail,
@@ -23,7 +25,8 @@ from ...services.candidate import (
     delete_candidate,
     get_candidate_applications,
     add_candidate_tag,
-    remove_candidate_tag
+    remove_candidate_tag,
+    assign_candidate_to_vacancy
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -143,3 +146,18 @@ async def remove_candidate_tag_route(
 ):
     await remove_candidate_tag(session, candidate_id, tag_id, company_id, user.id)
     await session.commit()
+
+
+@router.post("/{candidate_id}/applications", response_model=ApplicationRow, status_code=201)
+async def assign_to_vacancy_route(
+    candidate_id: UUID,
+    data: AssignToVacancyRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    result = await assign_candidate_to_vacancy(
+        session, candidate_id, data.vacancy_id, data.stage, company_id, user.id
+    )
+    await session.commit()
+    return result

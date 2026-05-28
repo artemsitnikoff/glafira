@@ -22,4 +22,5 @@ class VerificationOut(ORMBase):
     consent_number: str  # номер подписанного consent
     status: str  # overall: 'clean'|'info'|'warn'|'risk'
     blocks: list[VerifyBlock]  # массив, не dict
+    is_mock: bool  # если true - это mock данные
     created_at: datetime

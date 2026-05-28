@@ -41,12 +41,13 @@ async def get_attention(
 @router.get("/events", response_model=list[EventOut])
 async def get_events(
     limit: int = Query(default=30, ge=1, le=100, description="Количество событий"),
+    candidate_id: UUID | None = Query(default=None, description="Фильтр по кандидату"),
     session=Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
     current_user=Depends(get_current_user)
 ):
     """Получить ленту событий"""
-    events = await list_recent_events(session, company_id, limit)
+    events = await list_recent_events(session, company_id, limit, candidate_id)
 
     # JSONResponse keeps Cache-Control for the 15s polling loop; response_model on
     # the decorator is needed so openapi-typescript can generate EventOut for the frontend.

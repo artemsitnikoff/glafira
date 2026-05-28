@@ -262,3 +262,53 @@ async def test_home_kpi_extended_recruiter_response_speed(
     assert speed["value"] is not None, f"value is None; card={speed}"
     assert 6.5 <= speed["value"] <= 7.5, f"expected ~7 hours, got {speed['value']}"
     assert speed["unit"] == "часа"
+
+
+@pytest.mark.asyncio
+async def test_open_vacancies_previous_real(async_client, auth_headers, db_session, admin_user):
+    """Тест 1: исторический snapshot для open_vacancies"""
+    now = datetime.now(timezone.utc)
+
+    # seed: 2 vacancy created 10 дней назад со status='active' (current = 2)
+    ten_days_ago = now - timedelta(days=10)
+    for i in range(2):
+        vacancy = Vacancy(
+            company_id=admin_user.company_id,
+            name=f"Old Active Vacancy {i}",
+            status='active',
+            created_at=ten_days_ago
+        )
+        db_session.add(vacancy)
+
+    # 1 vacancy created 10 дней назад со status='archived', но closed_at=5 дней назад (была active на начало недели)
+    five_days_ago = now - timedelta(days=5)
+    archived_vacancy = Vacancy(
+        company_id=admin_user.company_id,
+        name="Recently Archived Vacancy",
+        status='archived',
+        created_at=ten_days_ago,
+        closed_at=five_days_ago.date()
+    )
+    db_session.add(archived_vacancy)
+
+    await db_session.commit()
+
+    # для period_days=7: current=2 (2 active), previous=3 (2 active + 1 archived что было active неделю назад)
+    # delta = current - previous = 2 - 3 = -1
+    response = await async_client.get("/api/v1/home/kpi?period=week", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Найти карточку open_vacancies
+    open_vacancies_card = None
+    for card in data["cards"]:
+        if card["key"] == "open_vacancies":
+            open_vacancies_card = card
+            break
+
+    assert open_vacancies_card is not None, "open_vacancies card not found"
+    assert open_vacancies_card["value"] == 2.0  # current=2 (только active)
+
+    # delta = current - previous = 2 - 3 = -1
+    assert open_vacancies_card["delta"] == -1.0
+    assert open_vacancies_card["delta_dir"] == "down"

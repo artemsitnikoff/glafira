@@ -133,3 +133,8 @@ class CandidateUpdate(BaseModel):
 
 class AddTagRequest(BaseModel):
     tag_id: UUID
+
+
+class AssignToVacancyRequest(BaseModel):
+    vacancy_id: UUID
+    stage: str = "response"

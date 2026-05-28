@@ -422,7 +422,8 @@ export interface paths {
         /** Get Candidate Applications Route */
         get: operations["get_candidate_applications_route_api_v1_candidates__candidate_id__applications_get"];
         put?: never;
-        post?: never;
+        /** Assign To Vacancy Route */
+        post: operations["assign_to_vacancy_route_api_v1_candidates__candidate_id__applications_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -863,7 +864,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Employee Status
+         * @description Обновить статус сотрудника
+         */
+        patch: operations["update_employee_status_api_v1_pulse_employees__employee_id__patch"];
         trace?: never;
     };
     "/api/v1/pulse/employees/{employee_id}/plan": {
@@ -910,6 +915,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pulse/employees/bulk/run-survey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Run Survey
+         * @description Запуск опросов для группы сотрудников
+         */
+        post: operations["bulk_run_survey_api_v1_pulse_employees_bulk_run_survey_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pulse/employees/{employee_id}/note": {
         parameters: {
             query?: never;
@@ -924,6 +949,26 @@ export interface paths {
          * @description Добавить заметку к сотруднику
          */
         post: operations["add_employee_note_api_v1_pulse_employees__employee_id__note_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pulse/employees/{employee_id}/ai-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Regenerate Summary
+         * @description Регенерировать AI-сводку для сотрудника
+         */
+        post: operations["regenerate_summary_api_v1_pulse_employees__employee_id__ai_summary_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1344,7 +1389,11 @@ export interface paths {
         get: operations["get_email_template_api_v1_settings_email_templates__template_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Email Template
+         * @description Delete email template
+         */
+        delete: operations["delete_email_template_api_v1_settings_email_templates__template_id__delete"];
         options?: never;
         head?: never;
         /**
@@ -1392,7 +1441,11 @@ export interface paths {
         get: operations["get_survey_template_api_v1_settings_survey_templates__template_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Survey Template
+         * @description Delete survey template
+         */
+        delete: operations["delete_survey_template_api_v1_settings_survey_templates__template_id__delete"];
         options?: never;
         head?: never;
         /**
@@ -1454,6 +1507,46 @@ export interface paths {
          * @description Get billing information
          */
         get: operations["get_billing_api_v1_settings_billing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tags
+         * @description Get all tags for the company
+         */
+        get: operations["list_tags_api_v1_settings_tags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Audit Logs
+         * @description Get audit logs with filters - admin only
+         */
+        get: operations["list_audit_logs_api_v1_audit_log_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1628,6 +1721,19 @@ export interface components {
             /** Selected At */
             selected_at: string | null;
         };
+        /** AssignToVacancyRequest */
+        AssignToVacancyRequest: {
+            /**
+             * Vacancy Id
+             * Format: uuid
+             */
+            vacancy_id: string;
+            /**
+             * Stage
+             * @default response
+             */
+            stage: string;
+        };
         /** AttentionHrItem */
         AttentionHrItem: {
             /**
@@ -1660,14 +1766,53 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** AuditLogOut */
+        AuditLogOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Action */
+            action: string;
+            /** Entity Type */
+            entity_type: string;
+            /** Entity Id */
+            entity_id: string | null;
+            /** Actor User Id */
+            actor_user_id: string | null;
+            /** Actor Type */
+            actor_type: string;
+            /** Changes */
+            changes: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Ip */
+            ip: string | null;
+        };
         /** BillingOut */
         BillingOut: {
             /** Plan */
             plan: string;
+            /** Is Demo */
+            is_demo: boolean;
             /** Users Limit */
             users_limit: number;
             /** Candidates Limit */
             candidates_limit: number;
+            /** Vacancies Limit */
+            vacancies_limit: number;
+            /** Current Users */
+            current_users: number;
+            /** Current Candidates */
+            current_candidates: number;
+            /** Current Vacancies */
+            current_vacancies: number;
             /** Billing Until */
             billing_until: string | null;
         };
@@ -1706,6 +1851,20 @@ export interface components {
         BulkRejectResult: {
             /** Rejected Count */
             rejected_count: number;
+        };
+        /** BulkRunSurveyRequest */
+        BulkRunSurveyRequest: {
+            /** Employee Ids */
+            employee_ids: string[];
+            /** Template Key */
+            template_key: string;
+            /** Send At */
+            send_at?: string | null;
+        };
+        /** BulkRunSurveyResult */
+        BulkRunSurveyResult: {
+            /** Launched Count */
+            launched_count: number;
         };
         /** CandidateCardVacancy */
         CandidateCardVacancy: {
@@ -2189,6 +2348,19 @@ export interface components {
             recruiter_full_name?: string | null;
             /** Hire Source */
             hire_source?: string | null;
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Left At */
+            left_at?: string | null;
+            /** Left Reason */
+            left_reason?: string | null;
+            /** Ai Summary */
+            ai_summary?: string | null;
+            /** Ai Summary Generated At */
+            ai_summary_generated_at?: string | null;
             /** Plan */
             plan?: components["schemas"]["PlanItemOut"][];
             /** Surveys */
@@ -2240,6 +2412,25 @@ export interface components {
             last_survey_date?: string | null;
             /** Last Survey Mood */
             last_survey_mood?: number | null;
+        };
+        /** EmployeeStatusUpdate */
+        EmployeeStatusUpdate: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "onboarding" | "passed" | "left";
+            /** Left At */
+            left_at?: string | null;
+            /** Left Reason */
+            left_reason?: string | null;
+        };
+        /** EmployeeSummaryResponse */
+        EmployeeSummaryResponse: {
+            /** Summary */
+            summary?: string | null;
+            /** Generated At */
+            generated_at?: string | null;
         };
         /** EvaluationOut */
         EvaluationOut: {
@@ -2443,6 +2634,8 @@ export interface components {
             sent_at: string;
             /** Application Context */
             application_context?: string | null;
+            /** Vacancy Id */
+            vacancy_id?: string | null;
         };
         /** MessageResult */
         MessageResult: {
@@ -2472,6 +2665,19 @@ export interface components {
         Paginated_ApplicationRow_: {
             /** Items */
             items: components["schemas"]["ApplicationRow"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Pages */
+            pages: number;
+        };
+        /** Paginated[AuditLogOut] */
+        Paginated_AuditLogOut_: {
+            /** Items */
+            items: components["schemas"]["AuditLogOut"][];
             /** Total */
             total: number;
             /** Page */
@@ -3192,8 +3398,6 @@ export interface components {
             count: number;
             /** New Count */
             new_count: number;
-            /** Has Unread */
-            has_unread: boolean;
         };
         /** VacancyStageCount */
         VacancyStageCount: {
@@ -3236,6 +3440,8 @@ export interface components {
             currency?: string | null;
             /** Description */
             description?: string | null;
+            /** Status */
+            status?: string | null;
             /** Glafira Mode */
             glafira_mode?: string | null;
             /** Team */
@@ -3287,6 +3493,8 @@ export interface components {
             status: string;
             /** Blocks */
             blocks: components["schemas"]["VerifyBlock"][];
+            /** Is Mock */
+            is_mock: boolean;
             /**
              * Created At
              * Format: date-time
@@ -3825,6 +4033,7 @@ export interface operations {
                 repeat?: boolean | null;
                 sort?: string | null;
                 order?: string;
+                candidate_id?: string | null;
             };
             header?: never;
             path: {
@@ -4242,6 +4451,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplicationHistoryItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_to_vacancy_route_api_v1_candidates__candidate_id__applications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignToVacancyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationRow"];
                 };
             };
             /** @description Validation Error */
@@ -5070,6 +5314,7 @@ export interface operations {
                 department?: string | null;
                 risk_level?: string | null;
                 status?: string | null;
+                survey_overdue_days?: number | null;
                 q?: string | null;
             };
             header?: never;
@@ -5108,6 +5353,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_employee_status_api_v1_pulse_employees__employee_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                employee_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmployeeStatusUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -5226,6 +5506,39 @@ export interface operations {
             };
         };
     };
+    bulk_run_survey_api_v1_pulse_employees_bulk_run_survey_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkRunSurveyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkRunSurveyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_employee_note_api_v1_pulse_employees__employee_id__note_post: {
         parameters: {
             query?: never;
@@ -5248,6 +5561,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmployeeDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    regenerate_summary_api_v1_pulse_employees__employee_id__ai_summary_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                employee_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeSummaryResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5320,6 +5664,8 @@ export interface operations {
             query?: {
                 /** @description Количество событий */
                 limit?: number;
+                /** @description Фильтр по кандидату */
+                candidate_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -6055,6 +6401,37 @@ export interface operations {
             };
         };
     };
+    delete_email_template_api_v1_settings_email_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_email_template_api_v1_settings_email_templates__template_id__patch: {
         parameters: {
             query?: never;
@@ -6174,6 +6551,37 @@ export interface operations {
             };
         };
     };
+    delete_survey_template_api_v1_settings_survey_templates__template_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_survey_template_api_v1_settings_survey_templates__template_id__patch: {
         parameters: {
             query?: never;
@@ -6280,6 +6688,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BillingOut"];
+                };
+            };
+        };
+    };
+    list_tags_api_v1_settings_tags_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagOut"][];
+                };
+            };
+        };
+    };
+    list_audit_logs_api_v1_audit_log_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                entity_type?: string | null;
+                actor_user_id?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Paginated_AuditLogOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

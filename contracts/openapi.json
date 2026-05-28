@@ -1007,6 +1007,23 @@
               "default": "desc",
               "title": "Order"
             }
+          },
+          {
+            "name": "candidate_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Candidate Id"
+            }
           }
         ],
         "responses": {
@@ -1816,6 +1833,62 @@
                     "$ref": "#/components/schemas/ApplicationHistoryItem"
                   },
                   "title": "Response Get Candidate Applications Route Api V1 Candidates  Candidate Id  Applications Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "candidates"
+        ],
+        "summary": "Assign To Vacancy Route",
+        "operationId": "assign_to_vacancy_route_api_v1_candidates__candidate_id__applications_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Candidate Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignToVacancyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationRow"
                 }
               }
             }
@@ -3338,6 +3411,22 @@
             }
           },
           {
+            "name": "survey_overdue_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Survey Overdue Days"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "required": false,
@@ -3403,6 +3492,63 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmployeeDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Update Employee Status",
+        "description": "Обновить статус сотрудника",
+        "operationId": "update_employee_status_api_v1_pulse_employees__employee_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Employee Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployeeStatusUpdate"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3590,6 +3736,53 @@
         }
       }
     },
+    "/api/v1/pulse/employees/bulk/run-survey": {
+      "post": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Bulk Run Survey",
+        "description": "Запуск опросов для группы сотрудников",
+        "operationId": "bulk_run_survey_api_v1_pulse_employees_bulk_run_survey_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkRunSurveyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkRunSurveyResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/pulse/employees/{employee_id}/note": {
       "post": {
         "tags": [
@@ -3632,6 +3825,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EmployeeDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pulse/employees/{employee_id}/ai-summary": {
+      "post": {
+        "tags": [
+          "pulse"
+        ],
+        "summary": "Regenerate Summary",
+        "description": "Регенерировать AI-сводку для сотрудника",
+        "operationId": "regenerate_summary_api_v1_pulse_employees__employee_id__ai_summary_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "employee_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Employee Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmployeeSummaryResponse"
                 }
               }
             }
@@ -3770,6 +4012,25 @@
               "title": "Limit"
             },
             "description": "Количество событий"
+          },
+          {
+            "name": "candidate_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Фильтр по кандидату",
+              "title": "Candidate Id"
+            },
+            "description": "Фильтр по кандидату"
           }
         ],
         "responses": {
@@ -5468,6 +5729,53 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Email Template",
+        "description": "Delete email template",
+        "operationId": "delete_email_template_api_v1_settings_email_templates__template_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/settings/survey-templates": {
@@ -5650,6 +5958,53 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Survey Template",
+        "description": "Delete survey template",
+        "operationId": "delete_survey_template_api_v1_settings_survey_templates__template_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/settings/integrations": {
@@ -5766,6 +6121,166 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/api/v1/settings/tags": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Tags",
+        "description": "Get all tags for the company",
+        "operationId": "list_tags_api_v1_settings_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TagOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Tags Api V1 Settings Tags Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/audit-log": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "List Audit Logs",
+        "description": "Get audit logs with filters - admin only",
+        "operationId": "list_audit_logs_api_v1_audit_log_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 24,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entity Type"
+            }
+          },
+          {
+            "name": "actor_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor User Id"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paginated_AuditLogOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/health": {
@@ -6196,6 +6711,25 @@
         ],
         "title": "ApplicationRow"
       },
+      "AssignToVacancyRequest": {
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Vacancy Id"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "default": "response"
+          }
+        },
+        "type": "object",
+        "required": [
+          "vacancy_id"
+        ],
+        "title": "AssignToVacancyRequest"
+      },
       "AttentionHrItem": {
         "properties": {
           "employee_id": {
@@ -6270,11 +6804,101 @@
         ],
         "title": "AttentionItem"
       },
+      "AuditLogOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "entity_type": {
+            "type": "string",
+            "title": "Entity Type"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
+          },
+          "actor_type": {
+            "type": "string",
+            "title": "Actor Type"
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "entity_type",
+          "entity_id",
+          "actor_user_id",
+          "actor_type",
+          "changes",
+          "created_at",
+          "ip"
+        ],
+        "title": "AuditLogOut"
+      },
       "BillingOut": {
         "properties": {
           "plan": {
             "type": "string",
             "title": "Plan"
+          },
+          "is_demo": {
+            "type": "boolean",
+            "title": "Is Demo"
           },
           "users_limit": {
             "type": "integer",
@@ -6283,6 +6907,22 @@
           "candidates_limit": {
             "type": "integer",
             "title": "Candidates Limit"
+          },
+          "vacancies_limit": {
+            "type": "integer",
+            "title": "Vacancies Limit"
+          },
+          "current_users": {
+            "type": "integer",
+            "title": "Current Users"
+          },
+          "current_candidates": {
+            "type": "integer",
+            "title": "Current Candidates"
+          },
+          "current_vacancies": {
+            "type": "integer",
+            "title": "Current Vacancies"
           },
           "billing_until": {
             "anyOf": [
@@ -6300,8 +6940,13 @@
         "type": "object",
         "required": [
           "plan",
+          "is_demo",
           "users_limit",
           "candidates_limit",
+          "vacancies_limit",
+          "current_users",
+          "current_candidates",
+          "current_vacancies",
           "billing_until"
         ],
         "title": "BillingOut"
@@ -6399,6 +7044,53 @@
           "rejected_count"
         ],
         "title": "BulkRejectResult"
+      },
+      "BulkRunSurveyRequest": {
+        "properties": {
+          "employee_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Employee Ids"
+          },
+          "template_key": {
+            "type": "string",
+            "title": "Template Key"
+          },
+          "send_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Send At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "employee_ids",
+          "template_key"
+        ],
+        "title": "BulkRunSurveyRequest"
+      },
+      "BulkRunSurveyResult": {
+        "properties": {
+          "launched_count": {
+            "type": "integer",
+            "title": "Launched Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "launched_count"
+        ],
+        "title": "BulkRunSurveyResult"
       },
       "CandidateCardVacancy": {
         "properties": {
@@ -7782,6 +8474,57 @@
             ],
             "title": "Hire Source"
           },
+          "candidate_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Candidate Id"
+          },
+          "left_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left At"
+          },
+          "left_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Reason"
+          },
+          "ai_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary"
+          },
+          "ai_summary_generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary Generated At"
+          },
           "plan": {
             "items": {
               "$ref": "#/components/schemas/PlanItemOut"
@@ -7817,7 +8560,8 @@
           "full_name",
           "start_date",
           "probation_days",
-          "status"
+          "status",
+          "candidate_id"
         ],
         "title": "EmployeeDetail"
       },
@@ -7943,6 +8687,76 @@
           "status"
         ],
         "title": "EmployeeListItem"
+      },
+      "EmployeeStatusUpdate": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "onboarding",
+              "passed",
+              "left"
+            ],
+            "title": "Status"
+          },
+          "left_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left At"
+          },
+          "left_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "EmployeeStatusUpdate"
+      },
+      "EmployeeSummaryResponse": {
+        "properties": {
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "title": "EmployeeSummaryResponse"
       },
       "EvaluationOut": {
         "properties": {
@@ -8443,6 +9257,18 @@
               }
             ],
             "title": "Application Context"
+          },
+          "vacancy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vacancy Id"
           }
         },
         "type": "object",
@@ -8553,6 +9379,42 @@
           "pages"
         ],
         "title": "Paginated[ApplicationRow]"
+      },
+      "Paginated_AuditLogOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditLogOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "Paginated[AuditLogOut]"
       },
       "Paginated_CandidateGridItem_": {
         "properties": {
@@ -10570,10 +11432,6 @@
           "new_count": {
             "type": "integer",
             "title": "New Count"
-          },
-          "has_unread": {
-            "type": "boolean",
-            "title": "Has Unread"
           }
         },
         "type": "object",
@@ -10581,8 +11439,7 @@
           "id",
           "name",
           "count",
-          "new_count",
-          "has_unread"
+          "new_count"
         ],
         "title": "VacancySidebarItem"
       },
@@ -10766,6 +11623,17 @@
             ],
             "title": "Description"
           },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
           "glafira_mode": {
             "anyOf": [
               {
@@ -10923,6 +11791,10 @@
             "type": "array",
             "title": "Blocks"
           },
+          "is_mock": {
+            "type": "boolean",
+            "title": "Is Mock"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -10937,6 +11809,7 @@
           "consent_number",
           "status",
           "blocks",
+          "is_mock",
           "created_at"
         ],
         "title": "VerificationOut"

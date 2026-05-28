@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useLogin } from '@/api/hooks/useLogin';
+import type { ApiError } from '@/api/aliases';
 import './LoginPage.css';
 
 export default function LoginPage() {
@@ -12,11 +13,12 @@ export default function LoginPage() {
     login.mutate({ email, password });
   };
 
-  const errCode = (login.error as any)?.error?.code;
+  const apiError = login.error as ApiError | null;
+  const errCode = apiError?.error?.code;
   const errMsg =
     errCode === 'INVALID_CREDENTIALS' ? 'Неверный email или пароль' :
     errCode === 'USER_INACTIVE' ? 'Пользователь деактивирован' :
-    (login.error as any)?.error?.message ?? (login.error as any)?.message;
+    apiError?.error?.message ?? 'Ошибка входа';
 
   return (
     <div className="login-page">

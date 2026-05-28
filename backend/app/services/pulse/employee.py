@@ -169,14 +169,50 @@ async def list_employees_paginated(
     department: str | None = None,
     risk_level: str | None = None,
     status_filter: str | None = None,
+    survey_overdue_days: int | None = None,
     q: str | None = None,
 ) -> Paginated[EmployeeListItem]:
     """Получает список сотрудников с пагинацией и фильтрами"""
 
+    # Handle survey_overdue_days filter with subquery
+    base_filters = [Employee.company_id == company_id]
+
+    if survey_overdue_days is not None:
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=survey_overdue_days)
+
+        # Subquery for employees with surveys
+        last_survey_subq = (
+            select(
+                PulseSurvey.employee_id,
+                func.max(PulseSurvey.sent_at).label('last_sent_at')
+            )
+            .group_by(PulseSurvey.employee_id)
+        ).subquery()
+
+        # Left join to get employees with either no surveys or overdue surveys
+        from sqlalchemy.orm import outerjoin
+        survey_filter = select(Employee).outerjoin(
+            last_survey_subq,
+            Employee.id == last_survey_subq.c.employee_id
+        ).where(
+            Employee.company_id == company_id,
+            (last_survey_subq.c.last_sent_at.is_(None)) |
+            (last_survey_subq.c.last_sent_at < cutoff_date)
+        )
+
+        # Get employee IDs from survey filter
+        survey_filtered_ids = [row.id for row in (await session.execute(survey_filter)).scalars()]
+
+        if survey_filtered_ids:
+            base_filters.append(Employee.id.in_(survey_filtered_ids))
+        else:
+            # No employees match the survey filter - return empty result
+            base_filters.append(Employee.id.in_([]))
+
     # Base query with joins for computed fields
     query = select(Employee).options(
         selectinload(Employee.manager_user)
-    ).where(Employee.company_id == company_id)
+    ).where(*base_filters)
 
     # Filters
     if manager_user_id:
@@ -191,7 +227,7 @@ async def list_employees_paginated(
         query = query.where(Employee.full_name.ilike(f"%{q}%"))
 
     # Count total
-    count_query = select(func.count(Employee.id)).where(Employee.company_id == company_id)
+    count_query = select(func.count(Employee.id)).where(*base_filters)
     if manager_user_id:
         count_query = count_query.where(Employee.manager_user_id == manager_user_id)
     if department:
@@ -235,14 +271,9 @@ async def list_employees_paginated(
     for survey_row in surveys_rows:
         surveys_by_employee[survey_row.employee_id].append(survey_row)
 
-    # Batch query for candidate avatar_urls
+    # Batch query for candidates (no avatar_url field exists)
     candidate_ids = [emp.candidate_id for emp in employees if emp.candidate_id]
-    candidates_stmt = (
-        select(Candidate.id, Candidate.avatar_url)
-        .where(Candidate.id.in_(candidate_ids))
-    )
-    candidates_result = await session.execute(candidates_stmt)
-    candidates_data = {row.id: row.avatar_url for row in candidates_result}
+    candidates_data = {}
 
     # Convert to response format with computed fields
     items = []
@@ -261,8 +292,8 @@ async def list_employees_paginated(
             last_survey_date = latest_survey.sent_at
             last_survey_mood = latest_survey.overall_score
 
-        # Get avatar_url from candidate
-        avatar_url = candidates_data.get(employee.candidate_id) if employee.candidate_id else None
+        # No avatar_url field exists in Candidate model
+        avatar_url = None
 
         item = EmployeeListItem(
             id=employee.id,
@@ -376,3 +407,77 @@ async def add_note(
         ).where(Employee.id == employee_id)
     )
     return updated_result.scalar_one()
+
+
+async def update_employee_status(
+    session: AsyncSession,
+    employee_id: UUID,
+    data,  # EmployeeStatusUpdate
+    company_id: UUID,
+    actor_user_id: UUID,
+) -> Employee:
+    """Updates employee status with validation and audit logging"""
+    from ...core.errors import ValidationError
+
+    # Find employee
+    employee = await get_employee(session, employee_id, company_id)
+
+    # Save original status for audit
+    old_status = employee.status
+
+    # Validate status transition
+    if employee.status == 'left':
+        raise ValidationError("Нельзя изменить статус уволенного сотрудника", {
+            "code": "INVALID_TRANSITION"
+        })
+
+    # Validate required fields for 'left' status
+    if data.status == 'left':
+        if not data.left_at:
+            raise ValidationError("Дата увольнения обязательна для статуса 'left'")
+        if not data.left_reason:
+            raise ValidationError("Причина увольнения обязательна для статуса 'left'")
+
+    # Update employee fields
+    employee.status = data.status
+
+    if data.status == 'left':
+        employee.left_at = data.left_at
+        employee.left_reason = data.left_reason
+    else:
+        # Clear left fields when changing to other statuses
+        employee.left_at = None
+        employee.left_reason = None
+
+    await session.flush()
+
+    # Create audit log
+    await audit(
+        session,
+        action="employee_status_change",
+        entity_type="employee",
+        entity_id=employee_id,
+        before={"status": old_status},
+        after={
+            "status": employee.status,
+            "left_at": employee.left_at.isoformat() if employee.left_at else None,
+            "left_reason": employee.left_reason
+        },
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    # Create event (using existing event model structure)
+    text = f"Статус изменён: {old_status} → {employee.status}"
+    event = Event(
+        company_id=company_id,
+        type="move",  # Use existing type for status changes
+        text=text,
+        entities=[{"type": "employee", "id": str(employee_id)}],  # Store entity info in JSONB
+        actor_user_id=actor_user_id,
+        actor_type="human",
+    )
+    session.add(event)
+
+    await session.flush()
+    return employee

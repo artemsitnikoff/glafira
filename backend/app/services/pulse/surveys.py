@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from ...models import Employee, PulseSurvey
-from ...schemas.pulse import SurveyCreate
+from ...schemas.pulse import SurveyCreate, BulkRunSurveyRequest, BulkRunSurveyResult
 from ...core.errors import NotFoundError
 from ...services.audit import audit
 
@@ -84,3 +84,67 @@ async def submit_employee_survey(
     )
 
     return survey
+
+
+async def bulk_run_survey(
+    session: AsyncSession,
+    data: BulkRunSurveyRequest,
+    company_id: UUID,
+    actor_user_id: UUID,
+) -> BulkRunSurveyResult:
+    """Atomic bulk survey creation for multiple employees"""
+
+    # First, validate all employee IDs exist and belong to company in one query
+    if not data.employee_ids:
+        return BulkRunSurveyResult(launched_count=0)
+
+    employees_query = select(Employee).where(
+        Employee.id.in_(data.employee_ids),
+        Employee.company_id == company_id
+    )
+    employees_result = await session.execute(employees_query)
+    found_employees = employees_result.scalars().all()
+
+    # Check if all requested employees were found
+    found_employee_ids = {emp.id for emp in found_employees}
+    requested_employee_ids = set(data.employee_ids)
+
+    if found_employee_ids != requested_employee_ids:
+        missing_ids = requested_employee_ids - found_employee_ids
+        raise NotFoundError(f"Сотрудники с ID {list(missing_ids)} не найдены")
+
+    # Now create surveys for all validated employees
+    send_at = data.send_at or datetime.now(timezone.utc)
+    launched_count = 0
+
+    for employee in found_employees:
+        # Create survey
+        survey = PulseSurvey(
+            company_id=company_id,
+            employee_id=employee.id,
+            type="weekly",  # Default type for bulk surveys
+            template_key=data.template_key,
+            sent_at=send_at,
+            answers=[],
+        )
+        session.add(survey)
+        launched_count += 1
+
+        # Create audit entry for each survey
+        await audit(
+            session,
+            action="survey_run",
+            entity_type="pulse_survey",
+            entity_id=survey.id,
+            after={
+                "template_key": data.template_key,
+                "employee_id": str(employee.id),
+                "bulk_operation": True,
+            },
+            actor_user_id=actor_user_id,
+            company_id=company_id,
+        )
+
+    await session.flush()
+
+    return BulkRunSurveyResult(launched_count=launched_count)

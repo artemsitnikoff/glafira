@@ -19,9 +19,18 @@ export type ApplicationFilters = {
   order?: 'asc' | 'desc';
   page?: number;
   size?: number;
+  candidate_id?: string;
 };
 
-export function useApplications(vacancyId: string, filters: ApplicationFilters = {}) {
+type UseApplicationsOptions = {
+  enabled?: boolean;
+};
+
+export function useApplications(
+  vacancyId: string,
+  filters: ApplicationFilters = {},
+  options: UseApplicationsOptions = {}
+) {
   return useQuery({
     queryKey: ['vacancies', vacancyId, 'applications', filters],
     queryFn: async () => {
@@ -59,10 +68,11 @@ export function useApplications(vacancyId: string, filters: ApplicationFilters =
       if (filters.order) params.append('order', filters.order);
       if (filters.page) params.append('page', filters.page.toString());
       if (filters.size) params.append('size', filters.size.toString());
+      if (filters.candidate_id) params.append('candidate_id', filters.candidate_id);
 
       const response = await api.get(`/api/v1/vacancies/${vacancyId}/applications?${params.toString()}`);
       return response.data as Paginated;
     },
-    enabled: !!vacancyId,
+    enabled: !!vacancyId && (options.enabled ?? true),
   });
 }

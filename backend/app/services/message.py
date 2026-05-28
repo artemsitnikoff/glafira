@@ -76,8 +76,10 @@ async def get_messages_paginated(
             sender_name = "Глафира"
 
         application_context = None
+        vacancy_id = None
         if message.application and message.application.vacancy:
             application_context = f"Контекст: вакансия {message.application.vacancy.name}"
+            vacancy_id = message.application.vacancy.id
 
         items.append(MessageOut(
             id=message.id,
@@ -87,7 +89,8 @@ async def get_messages_paginated(
             sender_name=sender_name,
             body=message.body,
             sent_at=message.sent_at,
-            application_context=application_context
+            application_context=application_context,
+            vacancy_id=vacancy_id
         ))
 
     pages = math.ceil(total / page_size) if total > 0 else 0
@@ -162,6 +165,7 @@ async def send_message(
 
     # Return MessageOut
     application_context = None
+    vacancy_id = None
     if message_data.application_id:
         app_result = await session.execute(
             select(Application)
@@ -171,6 +175,7 @@ async def send_message(
         app = app_result.scalar_one_or_none()
         if app and app.vacancy:
             application_context = f"Контекст: вакансия {app.vacancy.name}"
+            vacancy_id = app.vacancy.id
 
     return MessageOut(
         id=message.id,
@@ -180,5 +185,6 @@ async def send_message(
         sender_name=user.full_name,
         body=message.body,
         sent_at=message.sent_at,
-        application_context=application_context
+        application_context=application_context,
+        vacancy_id=vacancy_id
     )

@@ -8,11 +8,16 @@ from ...models import Event
 from ...schemas.home import EventOut
 
 
-async def list_recent_events(session: AsyncSession, company_id: UUID, limit: int = 30) -> list[EventOut]:
+async def list_recent_events(session: AsyncSession, company_id: UUID, limit: int = 30, candidate_id: UUID | None = None) -> list[EventOut]:
     """Получает список последних событий компании"""
     query = select(Event).where(
         Event.company_id == company_id
-    ).order_by(
+    )
+
+    if candidate_id:
+        query = query.where(Event.candidate_id == candidate_id)
+
+    query = query.order_by(
         Event.created_at.desc(),
         Event.id.desc()
     ).limit(limit)

@@ -76,6 +76,21 @@ async def admin_user(db_session: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture
+async def regular_user(db_session: AsyncSession, admin_user: User) -> User:
+    user = User(
+        company_id=admin_user.company_id,
+        email="regular@example.com",
+        password_hash=get_password_hash("Glafira2026!"),
+        full_name="Обычный Пользователь",
+        role="recruiter",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
 async def inactive_user(db_session: AsyncSession, admin_user: User) -> User:
     user = User(
         company_id=admin_user.company_id,

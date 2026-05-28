@@ -11,7 +11,6 @@ class VacancySidebarItem(ORMBase):
     name: str
     count: int
     new_count: int
-    has_unread: bool
 
 
 class VacancySidebar(BaseModel):
@@ -93,6 +92,7 @@ class VacancyUpdate(BaseModel):
     salary_to: int | None = None
     currency: str | None = None
     description: str | None = None
+    status: str | None = None
     glafira_mode: str | None = None
     team: list[UUID] | None = None
     auto_move: bool | None = None

@@ -14,6 +14,7 @@ class MessageOut(ORMBase):
     body: str
     sent_at: datetime
     application_context: str | None = None
+    vacancy_id: UUID | None = None
 
 
 class MessageCreate(BaseModel):

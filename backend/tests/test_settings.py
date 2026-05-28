@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import User, GlafiraSettings, RejectReason, Integration
+from app.models import User, GlafiraSettings, RejectReason, Integration, EmailTemplate, SurveyTemplate
 
 
 @pytest_asyncio.fixture
@@ -147,3 +147,195 @@ async def test_profile_patch_updates_exact_fields(async_client: AsyncClient, aut
     assert admin_user.full_name == "Updated Name"
     assert admin_user.phone == "+7-999-123-4567"
     assert admin_user.email == original_email
+
+
+async def test_delete_email_template_success(async_client: AsyncClient, auth_headers: dict):
+    """DELETE email template returns 200, subsequent GET returns 404"""
+    # Create template
+    r1 = await async_client.post("/api/v1/settings/email-templates", headers=auth_headers,
+        json={"name": "Test Template", "event_type": "welcome", "subject": "Welcome", "body": "Body"})
+    assert r1.status_code == 201
+    template_id = r1.json()["id"]
+
+    # Delete template
+    r2 = await async_client.delete(f"/api/v1/settings/email-templates/{template_id}", headers=auth_headers)
+    assert r2.status_code == 200
+    assert r2.json()["message"] == "Email-шаблон удалён"
+
+    # Verify deletion - GET should return 404
+    r3 = await async_client.get(f"/api/v1/settings/email-templates/{template_id}", headers=auth_headers)
+    assert r3.status_code == 404
+
+
+async def test_delete_nonexistent_email_template_returns_404(async_client: AsyncClient, auth_headers: dict):
+    """DELETE non-existent email template returns 404"""
+    from uuid import uuid4
+    fake_id = str(uuid4())
+
+    r = await async_client.delete(f"/api/v1/settings/email-templates/{fake_id}", headers=auth_headers)
+    assert r.status_code == 404
+
+
+async def test_delete_email_template_audit_log(async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession):
+    """DELETE email template creates audit log entry"""
+    from app.models import AuditLog
+
+    # Create template
+    r1 = await async_client.post("/api/v1/settings/email-templates", headers=auth_headers,
+        json={"name": "Audit Test", "event_type": "test", "subject": "Test", "body": "Test Body"})
+    template_id = r1.json()["id"]
+
+    # Delete template
+    await async_client.delete(f"/api/v1/settings/email-templates/{template_id}", headers=auth_headers)
+
+    # Check audit log
+    audit_entry = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.entity_type == "email_template",
+                AuditLog.entity_id == template_id,
+                AuditLog.action == "email_template_delete"
+            )
+        )
+    ).scalar_one()
+
+    assert audit_entry is not None
+    assert audit_entry.action == "email_template_delete"
+    assert audit_entry.changes["before"]["name"] == "Audit Test"
+    assert "after" not in audit_entry.changes
+
+
+async def test_delete_survey_template_success(async_client: AsyncClient, auth_headers: dict):
+    """DELETE survey template returns 200, subsequent GET returns 404"""
+    # Create template
+    r1 = await async_client.post("/api/v1/settings/survey-templates", headers=auth_headers,
+        json={"name": "Survey Test", "channels": {"telegram": True}, "questions": {"items": [{"text": "How are you?"}]}})
+    assert r1.status_code == 201
+    template_id = r1.json()["id"]
+
+    # Delete template
+    r2 = await async_client.delete(f"/api/v1/settings/survey-templates/{template_id}", headers=auth_headers)
+    assert r2.status_code == 200
+    assert r2.json()["message"] == "Survey-шаблон удалён"
+
+    # Verify deletion - GET should return 404
+    r3 = await async_client.get(f"/api/v1/settings/survey-templates/{template_id}", headers=auth_headers)
+    assert r3.status_code == 404
+
+
+async def test_delete_nonexistent_survey_template_returns_404(async_client: AsyncClient, auth_headers: dict):
+    """DELETE non-existent survey template returns 404"""
+    from uuid import uuid4
+    fake_id = str(uuid4())
+
+    r = await async_client.delete(f"/api/v1/settings/survey-templates/{fake_id}", headers=auth_headers)
+    assert r.status_code == 404
+
+
+async def test_delete_survey_template_audit_log(async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession):
+    """DELETE survey template creates audit log entry"""
+    from app.models import AuditLog
+
+    # Create template
+    r1 = await async_client.post("/api/v1/settings/survey-templates", headers=auth_headers,
+        json={"name": "Survey Audit", "channels": {"email": True}, "questions": {"items": [{"text": "Rating?"}]}})
+    template_id = r1.json()["id"]
+
+    # Delete template
+    await async_client.delete(f"/api/v1/settings/survey-templates/{template_id}", headers=auth_headers)
+
+    # Check audit log
+    audit_entry = (
+        await db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.entity_type == "survey_template",
+                AuditLog.entity_id == template_id,
+                AuditLog.action == "survey_template_delete"
+            )
+        )
+    ).scalar_one()
+
+    assert audit_entry is not None
+    assert audit_entry.action == "survey_template_delete"
+    assert audit_entry.changes["before"]["name"] == "Survey Audit"
+    assert "after" not in audit_entry.changes
+
+
+@pytest.mark.asyncio
+async def test_billing_real_counts_exclude_deleted(async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User):
+    """Тест 5: seed 5 кандидатов БЕЗ deleted_at + 1 С deleted_at → current_candidates == 5 (НЕ 6)"""
+    from app.models import Candidate, User, Vacancy
+    from datetime import datetime, timezone
+
+    # seed: 5 кандидатов БЕЗ deleted_at
+    for i in range(5):
+        candidate = Candidate(
+            company_id=admin_user.company_id,
+            last_name=f"AliveCandidate{i}",
+            first_name="Test",
+            source="manual"
+        )
+        db_session.add(candidate)
+
+    # 1 кандидат С deleted_at=now()
+    deleted_candidate = Candidate(
+        company_id=admin_user.company_id,
+        last_name="DeletedCandidate",
+        first_name="Test",
+        source="manual",
+        deleted_at=datetime.now(timezone.utc)
+    )
+    db_session.add(deleted_candidate)
+
+    # 3 user (включая admin_user), 2 active vacancy + 1 archived
+    user1 = User(
+        company_id=admin_user.company_id,
+        email="user1@example.com",
+        password_hash="hashed",
+        full_name="User 1",
+        is_active=True
+    )
+    user2 = User(
+        company_id=admin_user.company_id,
+        email="user2@example.com",
+        password_hash="hashed",
+        full_name="User 2",
+        is_active=True
+    )
+    db_session.add_all([user1, user2])
+
+    # 2 active vacancy
+    for i in range(2):
+        vacancy = Vacancy(
+            company_id=admin_user.company_id,
+            name=f"Active Billing Vacancy {i}",
+            status='active'
+        )
+        db_session.add(vacancy)
+
+    # 1 archived vacancy
+    archived_vacancy = Vacancy(
+        company_id=admin_user.company_id,
+        name="Archived Billing Vacancy",
+        status='archived'
+    )
+    db_session.add(archived_vacancy)
+
+    await db_session.commit()
+
+    # GET /settings/billing
+    response = await async_client.get("/api/v1/settings/billing", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+
+    # КРИТИЧЕСКАЯ ПРОВЕРКА: удалённый кандидат исключён
+    assert body["current_candidates"] == 5  # НЕ 6 (удалённый исключён)
+    assert body["current_vacancies"] == 2   # archived НЕ считается
+    assert body["current_users"] == 3       # admin_user + user1 + user2 (все is_active=True)
+    assert body["is_demo"] == True
+    assert body["plan"] == "MVP"
+    assert body["users_limit"] == 10
+    assert body["candidates_limit"] == 1000
+    assert body["vacancies_limit"] == 50

@@ -52,6 +52,7 @@ async def get_applications_for_vacancy_paginated(
     repeat: bool | None = None,
     sort: str | None = None,
     order: str = "desc",
+    candidate_id: UUID | None = None,
 ) -> Paginated[ApplicationRow]:
     has_pdn_subq = (
         select(Consent.id)
@@ -63,6 +64,9 @@ async def get_applications_for_vacancy_paginated(
         Application.vacancy_id == vacancy_id,
         Application.company_id == company_id,
     ]
+
+    if candidate_id:
+        base_filters.append(Application.candidate_id == candidate_id)
 
     if stage:
         base_filters.append(Application.stage == stage)
@@ -91,9 +95,12 @@ async def get_applications_for_vacancy_paginated(
         base_filters.append(Candidate.city.ilike(f"%{city}%"))
     if messenger:
         base_filters.append(Candidate.preferred_channel.in_(messenger))
-    # TODO(post-MVP): нет поля ready_relocate в Candidate; добавить через миграцию или хранить в extra JSONB
-    # if ready_relocate is not None:
-    #     base_filters.append(Candidate.ready_relocate == ready_relocate)
+    if ready_relocate is not None:
+        # JSONB predicate for Postgres: extra->'relocation' casted to boolean
+        from sqlalchemy import Boolean
+        base_filters.append(
+            Candidate.extra['relocation'].astext.cast(Boolean) == ready_relocate
+        )
     if added_period and added_period != 'all':
         period_days = {'7d': 7, '30d': 30, '90d': 90}.get(added_period)
         if period_days:

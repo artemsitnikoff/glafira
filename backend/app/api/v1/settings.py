@@ -7,6 +7,7 @@ from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...schemas.base import MessageResult
+from ...schemas.candidate import TagOut
 from ...schemas.settings import (
     ProfileOut,
     ProfileUpdate,
@@ -35,6 +36,7 @@ from ...services.settings import (
     integrations,
     billing,
 )
+from ...services import candidate as candidate_service
 
 router = APIRouter()
 
@@ -204,6 +206,19 @@ async def update_email_template(
     return EmailTemplateOut.model_validate(template)
 
 
+@router.delete("/email-templates/{template_id}", response_model=MessageResult)
+async def delete_email_template(
+    template_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Delete email template"""
+    await email_templates.delete_email_template(session, template_id, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Email-шаблон удалён"}
+
+
 # Survey Templates endpoints
 @router.get("/survey-templates", response_model=list[SurveyTemplateOut])
 async def list_survey_templates(
@@ -253,6 +268,19 @@ async def update_survey_template(
     return SurveyTemplateOut.model_validate(template)
 
 
+@router.delete("/survey-templates/{template_id}", response_model=MessageResult)
+async def delete_survey_template(
+    template_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Delete survey template"""
+    await survey_templates.delete_survey_template(session, template_id, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Survey-шаблон удалён"}
+
+
 # Integrations endpoints
 @router.get("/integrations", response_model=list[IntegrationOut])
 async def list_integrations(
@@ -281,8 +309,20 @@ async def update_integration(
 # Billing endpoint
 @router.get("/billing", response_model=BillingOut)
 async def get_billing(
+    session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
 ):
     """Get billing information"""
-    billing_data = billing.get_billing(company_id)
+    billing_data = await billing.get_billing(session, company_id)
     return BillingOut.model_validate(billing_data)
+
+
+# Tags endpoint
+@router.get("/tags", response_model=list[TagOut])
+async def list_tags(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Get all tags for the company"""
+    tags = await candidate_service.list_company_tags(session, company_id)
+    return [TagOut.model_validate(tag) for tag in tags]

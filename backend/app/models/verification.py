@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, ForeignKey, CheckConstraint, TIMESTAMP, text
+from sqlalchemy import String, ForeignKey, CheckConstraint, TIMESTAMP, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +35,7 @@ class Verification(Base, TimestampMixin, CompanyMixin):
     checked_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     blocks: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    is_mock: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
     # Constraints
     __table_args__ = (

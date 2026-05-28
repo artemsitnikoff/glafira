@@ -4,6 +4,7 @@ import './funnel/Funnel.css';
 import './funnel/FilterDrawer.css';
 import { useVacancy } from '@/api/hooks/useVacancy';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
+import { useApplications } from '@/api/hooks/useApplications';
 import VacancyHeader from '@/pages/funnel/VacancyHeader';
 import StageChipsBar from '@/pages/funnel/StageChipsBar';
 import SearchBar from '@/pages/funnel/SearchBar';
@@ -36,7 +37,29 @@ export default function VacancyDetailPage() {
     order: (searchParams.get('order') as 'asc' | 'desc') || 'desc',
   };
 
+  // Get applications for finding current candidate's application
+  const { data: applicationsData } = useApplications(id!, filters);
+
   const isDetailMode = !!cid;
+
+  // Find current application by candidate_id
+  const currentApplication = isDetailMode && applicationsData?.items
+    ? applicationsData.items.find(app => app.candidate_id === cid) || null
+    : null;
+
+  // Fallback query for direct links when candidate is not in current page/filter
+  const fallbackQuery = useApplications(
+    id!,
+    { candidate_id: cid, page: 1, size: 1 },
+    { enabled: isDetailMode && !!cid && !currentApplication && !!applicationsData }
+  );
+
+  // Resolve the final application - prefer main query, fallback to specific query
+  const resolvedApplication = currentApplication
+    ?? fallbackQuery.data?.items?.[0]
+    ?? null;
+
+  const isResolvingApplication = isDetailMode && !resolvedApplication && fallbackQuery.isLoading;
 
   const updateFilters = (newFilters: ApplicationFilters) => {
     const params = new URLSearchParams(searchParams);
@@ -134,8 +157,9 @@ export default function VacancyDetailPage() {
 
         {isDetailMode && (
           <DetailHost
-            candidateId={cid!}
+            application={resolvedApplication}
             onClose={closeDetail}
+            isResolving={isResolvingApplication}
           />
         )}
       </div>

@@ -1,7 +1,7 @@
 """Тесты для Analytics домена"""
 
 import pytest
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from uuid import uuid4
 
 from app.models import Vacancy, Application, StageHistory, Employee, Candidate, User, RejectReason
@@ -655,3 +655,53 @@ async def test_speed_dwell_median_from_history(async_client, auth_headers, admin
     selected_stage = stages_dict["selected"]
     assert selected_stage["median"] is not None, f"median is None; got {selected_stage}"
     assert 4.5 <= selected_stage["median"] <= 5.5, f"expected ~5 days, got {selected_stage['median']}"
+
+
+@pytest.mark.asyncio
+async def test_analytics_overview_previous_real(async_client, auth_headers, db_session, admin_user):
+    """Тест 2: исторический snapshot для analytics overview open_vacancies"""
+    now = datetime.now(timezone.utc)
+
+    # seed: 2 vacancy created 10 дней назад со status='active' (current = 2)
+    ten_days_ago = now - timedelta(days=10)
+    for i in range(2):
+        vacancy = Vacancy(
+            company_id=admin_user.company_id,
+            name=f"Old Active Analytics Vacancy {i}",
+            status='active',
+            created_at=ten_days_ago
+        )
+        db_session.add(vacancy)
+
+    # 1 vacancy created 10 дней назад со status='archived', но closed_at=5 дней назад (была active на начало недели)
+    five_days_ago = now - timedelta(days=5)
+    archived_vacancy = Vacancy(
+        company_id=admin_user.company_id,
+        name="Recently Archived Analytics Vacancy",
+        status='archived',
+        created_at=ten_days_ago,
+        closed_at=five_days_ago.date()
+    )
+    db_session.add(archived_vacancy)
+
+    await db_session.commit()
+
+    # для period_days=7: current=2 (2 active), previous=3 (2 active + 1 archived что было active неделю назад)
+    # compare=true чтобы включить расчёт previous
+    response = await async_client.get("/api/v1/analytics/overview?period=week&compare=true", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Найти KPI open_vacancies
+    open_vacancies_kpi = None
+    for kpi in data["kpis"]:
+        if kpi["key"] == "open_vacancies":
+            open_vacancies_kpi = kpi
+            break
+
+    assert open_vacancies_kpi is not None, "open_vacancies KPI not found"
+    assert open_vacancies_kpi["value"] == 2.0  # current=2 (только active)
+
+    # delta = current - previous = 2 - 3 = -1
+    assert open_vacancies_kpi["delta"] == -1.0
+    assert open_vacancies_kpi["delta_dir"] == "down"

@@ -143,3 +143,33 @@ async def update_email_template(
     )
 
     return template
+
+
+async def delete_email_template(
+    session: AsyncSession, template_id: UUID, company_id: UUID, actor_user_id: UUID
+) -> None:
+    """Delete email template"""
+    template = await get_email_template(session, template_id, company_id)
+
+    # Store original values for audit
+    before = {
+        "name": template.name,
+        "event_type": template.event_type,
+        "is_enabled": template.is_enabled,
+    }
+
+    # Hard delete
+    await session.delete(template)
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="email_template_delete",
+        entity_type="email_template",
+        entity_id=template_id,
+        before=before,
+        after=None,
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )

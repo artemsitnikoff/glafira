@@ -61,6 +61,7 @@ async def verify_candidate_endpoint(
         consent_number=consent.number,
         status=verification.status,
         blocks=blocks,
+        is_mock=verification.is_mock,
         created_at=verification.created_at
     )
 
@@ -111,5 +112,6 @@ async def get_candidate_verification_endpoint(
         consent_number=consent.number,
         status=verification.status,
         blocks=blocks,
+        is_mock=verification.is_mock,
         created_at=verification.created_at
     )

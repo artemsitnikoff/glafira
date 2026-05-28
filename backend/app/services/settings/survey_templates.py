@@ -142,3 +142,34 @@ async def update_survey_template(
     )
 
     return template
+
+
+async def delete_survey_template(
+    session: AsyncSession, template_id: UUID, company_id: UUID, actor_user_id: UUID
+) -> None:
+    """Delete survey template"""
+    template = await get_survey_template(session, template_id, company_id)
+
+    # Store original values for audit
+    before = {
+        "name": template.name,
+        "trigger_day": template.trigger_day,
+        "interval_days": template.interval_days,
+        "is_enabled": template.is_enabled,
+    }
+
+    # Hard delete
+    await session.delete(template)
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="survey_template_delete",
+        entity_type="survey_template",
+        entity_id=template_id,
+        before=before,
+        after=None,
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )

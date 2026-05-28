@@ -22,3 +22,16 @@ export function useCreateCandidate(vacancyId?: string) {
     },
   });
 }
+
+export function useDeleteCandidate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (candidateId: string) => {
+      await api.delete(`/api/v1/candidates/${candidateId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidates'] });
+    },
+  });
+}

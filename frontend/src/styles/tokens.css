@@ -11,15 +11,21 @@
 
   /* Границы */
   --border-1: #E6E8EB;
+  --border-2: #D1D5DB;
 
   /* Текст */
   --fg-1: #1A1D21;        /* основной */
   --fg-2: #4A5159;        /* вторичный */
   --fg-3: #8A929C;        /* приглушённый, мета */
+  --fg-4: #B8BCC4;        /* очень приглушённый */
 
   /* Бренд (розово-персиковый акцент «Глафиры») */
   --brand-accent: #F2A2A2;
   --brand-accent-strong: #E87D7D;
+  --brand-bg: #FEF7F7;    /* очень светлый розовый для фонов */
+  --brand-border: #F2A2A2; /* граница бренда (alias для brand-accent) */
+  --brand-fg: #D87878;    /* темнее для текста */
+  --color-primary: #2A8AF0; /* alias для --accent (совместимость) */
   --accent: #2A8AF0;      /* primary accent blue */
   --accent-hover: #2563eb; /* hover state */
 
@@ -72,8 +78,12 @@
 
   /* Геометрия */
   --sidebar-width: 240px;
+  --radius-sm: 4px;       /* мелкие элементы */
+  --radius-md: 6px;       /* средние элементы, кнопки */
+  --radius-lg: 12px;      /* крупные карточки */
   --radius-card: 12px;
   --radius-chip: 16px;
+  --radius-full: 9999px;  /* круглые элементы */
 
   /* Spacing */
   --space-1: 4px;
@@ -91,6 +101,7 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   --shadow-1: var(--shadow-sm); /* alias */
 
   /* Z-index */
@@ -104,6 +115,16 @@
   --status-error: #DC4646;
   --status-error-bg: #FEF2F2;
   --status-error-border: #FECACA;
+
+  /* Semantic status colors (aliases) */
+  --success-bg: #ECFDF5;    /* зелёный фон */
+  --success-border: #BBF7D0; /* зелёная граница */
+  --success-fg: #16A34A;    /* зелёный текст */
+  --error-bg: #FEF2F2;      /* красный фон */
+  --error-border: #FECACA;  /* красная граница */
+  --error-fg: #DC4646;      /* красный текст */
+  --warning-bg: #FFFBEB;    /* жёлтый фон */
+  --warning-fg: #D97706;    /* жёлтый текст */
 
   /* Durations */
   --dur-fast: 150ms;

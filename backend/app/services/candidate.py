@@ -6,7 +6,7 @@ from sqlalchemy import and_, asc, case, desc, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..core.errors import NotFoundError, ValidationError
+from ..core.errors import NotFoundError, ValidationError, ConflictError
 from ..core.stages import STAGES
 from ..models import (
     Application,
@@ -14,6 +14,7 @@ from ..models import (
     CandidateTag,
     CandidateExperience,
     CandidateSkill,
+    Client,
     Consent,
     Tag,
     User,
@@ -47,6 +48,17 @@ def _compute_age(birth_date: date | None) -> int | None:
 
 def _compute_full_name(last_name: str, first_name: str, middle_name: str | None) -> str:
     return " ".join(part for part in (last_name, first_name, middle_name) if part)
+
+
+async def compute_has_pdn(session: AsyncSession, candidate_id: UUID) -> bool:
+    """True если у кандидата есть Consent со status='signed'."""
+    result = await session.execute(
+        select(exists().where(and_(
+            Consent.candidate_id == candidate_id,
+            Consent.status == "signed"
+        )))
+    )
+    return result.scalar_one()
 
 
 async def get_candidates_paginated(
@@ -283,10 +295,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
     candidate = await get_candidate(session, candidate_id, company_id)
 
     # Check has_pdn
-    has_pdn_result = await session.execute(
-        select(exists().where(and_(Consent.candidate_id == candidate_id, Consent.status == "signed")))
-    )
-    has_pdn = has_pdn_result.scalar_one()
+    has_pdn = await compute_has_pdn(session, candidate_id)
 
     # Build tags
     tags = [TagOut.model_validate(ct.tag) for ct in candidate.tags]
@@ -524,11 +533,13 @@ async def get_candidate_applications(
             Application.reject_reason,
             Vacancy.name.label("vacancy_name"),
             Vacancy.status.label("vacancy_status"),
-            User.full_name.label("recruiter_name")
+            User.full_name.label("recruiter_name"),
+            Client.name.label("client_name")
         )
         .select_from(Application)
         .join(Vacancy, Application.vacancy_id == Vacancy.id)
         .outerjoin(User, Vacancy.responsible_user_id == User.id)
+        .outerjoin(Client, Vacancy.client_id == Client.id)
         .where(
             Application.candidate_id == candidate_id,
             Application.company_id == company_id
@@ -546,7 +557,7 @@ async def get_candidate_applications(
             vacancy_status=row.vacancy_status,
             stage=row.stage,
             stage_color=_STAGE_COLORS.get(row.stage, "#9AA3AE"),
-            client_name=None,  # TODO: add client join
+            client_name=row.client_name,
             recruiter_name=row.recruiter_name,
             ai_score=row.ai_score,
             selected_at=row.selected_at,
@@ -641,3 +652,112 @@ async def remove_candidate_tag(
     )
 
     await session.flush()
+
+
+async def assign_candidate_to_vacancy(
+    session: AsyncSession,
+    candidate_id: UUID,
+    vacancy_id: UUID,
+    stage: str,
+    company_id: UUID,
+    actor_user_id: UUID
+):
+    """Assign existing candidate to vacancy"""
+    from ..schemas.application import ApplicationRow  # Import here to avoid circular dependency
+
+    # Ensure candidate exists and belongs to company
+    candidate = await get_candidate(session, candidate_id, company_id)
+
+    # Ensure vacancy exists and belongs to company
+    vacancy_result = await session.execute(
+        select(Vacancy).where(Vacancy.id == vacancy_id, Vacancy.company_id == company_id, Vacancy.deleted_at.is_(None))
+    )
+    vacancy = vacancy_result.scalar_one_or_none()
+    if not vacancy:
+        raise NotFoundError("Вакансия")
+
+    # Check if stage is valid
+    if stage not in STAGES:
+        raise ValidationError(f"Неверная стадия: {stage}")
+
+    # Check if application already exists
+    existing_result = await session.execute(
+        select(Application).where(
+            Application.candidate_id == candidate_id,
+            Application.vacancy_id == vacancy_id,
+            Application.company_id == company_id
+        )
+    )
+    existing_app = existing_result.scalar_one_or_none()
+    if existing_app:
+        stage_def = STAGES.get(existing_app.stage)
+        stage_name = stage_def.label if stage_def else existing_app.stage
+        raise ConflictError(f"Кандидат уже назначен на эту вакансию в стадии '{stage_name}'")
+
+    # Create application
+    now = datetime.now(timezone.utc)
+    application = Application(
+        company_id=company_id,
+        candidate_id=candidate_id,
+        vacancy_id=vacancy_id,
+        stage=stage,
+        selected_at=now,
+        created_at=now
+    )
+    session.add(application)
+    await session.flush()
+
+    # Audit
+    await audit(
+        session,
+        action="assign",
+        entity_type="application",
+        entity_id=application.id,
+        after={
+            "candidate_id": str(candidate_id),
+            "vacancy_id": str(vacancy_id),
+            "stage": stage
+        },
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    # TODO: Create Event record for activity feed
+
+    # Return ApplicationRow format
+    full_name = _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name)
+    age = _compute_age(candidate.birth_date)
+
+    return ApplicationRow(
+        id=application.id,
+        candidate_id=candidate_id,
+        display_number=candidate.display_number,
+        full_name=full_name,
+        avatar_url=None,  # No avatar field in candidate model
+        age=age,
+        last_position=candidate.last_position,
+        ai_score=candidate.ai_score,
+        has_pdn=await compute_has_pdn(session, candidate_id),
+        phone=candidate.phone,
+        messengers=candidate.messengers or [],
+        salary_expectation=candidate.salary_expectation,
+        currency=candidate.currency,
+        city=candidate.city,
+        stage=stage,
+        stage_color=STAGES[stage].color,
+        selected_at=application.selected_at
+    )
+
+
+async def list_company_tags(
+    session: AsyncSession,
+    company_id: UUID
+) -> list[Tag]:
+    """Get all tags for a company"""
+    query = (
+        select(Tag)
+        .filter(Tag.company_id == company_id)
+        .order_by(Tag.name)
+    )
+    result = await session.execute(query)
+    return result.scalars().all()
