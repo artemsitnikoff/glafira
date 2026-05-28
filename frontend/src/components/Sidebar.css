@@ -98,7 +98,7 @@
 }
 
 .sidebar__item.is-active {
-  background: #fff;
+  background: var(--bg-elevated);
   color: var(--accent);
   box-shadow: var(--shadow-1);
 }

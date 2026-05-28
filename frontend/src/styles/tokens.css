@@ -1,23 +1,78 @@
 :root {
+  /* ============================================================
+     ARK PALETTE — base colors (эталон)
+     ============================================================ */
+
+  /* Neutrals (cool gray, slight blue tint) */
+  --ark-white: #FFFFFF;
+  --ark-gray-50:  #F8F9FB;
+  --ark-gray-100: #F4F6F8;
+  --ark-gray-200: #ECEFF2;
+  --ark-gray-300: #E6E9EC;
+  --ark-gray-400: #C9CFD6;
+  --ark-gray-500: #9AA3AE;
+  --ark-gray-600: #5B6573;
+  --ark-gray-700: #3A4452;
+  --ark-gray-800: #1F2733;
+  --ark-gray-900: #0F1620;
+
+  /* Brand accent (calm blue) */
+  --ark-blue-50:  #EAF3FE;
+  --ark-blue-100: #CFE2FB;
+  --ark-blue-300: #7AB4F5;
+  --ark-blue-500: #2A8AF0;
+  --ark-blue-600: #1F7AE0;
+  --ark-blue-700: #1865BE;
+
+  /* Semantic accents */
+  --ark-green-100: #DEF5E5;
+  --ark-green-500: #16A34A;
+  --ark-green-600: #128640;
+
+  --ark-yellow-100: #FFF1C8;
+  --ark-yellow-500: #E0A21A;
+  --ark-yellow-600: #B5821A;
+
+  --ark-red-100: #FCE3E3;
+  --ark-red-500: #DC4646;
+  --ark-red-600: #B83030;
+
+  --ark-violet-100: #ECE7FE;
+  --ark-violet-500: #7E5CF0;
+
+  /* ============================================================
+     SEMANTIC COLORS — переопределение через ark
+     ============================================================ */
+
   /* Фоны */
-  --bg-1: #FAFAFA;        /* фон страницы */
-  --bg-2: #FFFFFF;        /* карточки, сайдбар */
-  --bg-3: #F2F3F5;        /* hover-фон */
-  --bg-3-hover: #ECEEF1;
-  --bg-active: #FDF0EC;   /* активный пункт навигации (тинт бренда) */
-  --bg-app: #FAFAFA;      /* alias для bg-1 */
-  --bg-panel: #FFFFFF;    /* alias для bg-2 */
-  --bg-panel-2: #F8F9FB;  /* lighter panel bg */
+  --bg-1: var(--ark-white);          /* #FFFFFF (было #FAFAFA) */
+  --bg-2: var(--ark-gray-100);       /* #F4F6F8 (было #FFFFFF) ← КЛЮЧЕВОЕ для сайдбара */
+  --bg-3: var(--ark-gray-100);       /* #F4F6F8 (было #F2F3F5) — как --bg-hover в эталоне */
+  --bg-3-hover: var(--ark-gray-200); /* #ECEFF2 (было #ECEEF1) */
+  --bg-active: var(--ark-blue-50);   /* #EAF3FE (было #FDF0EC) */
+  --bg-app: var(--ark-white);        /* alias для bg-1 */
+  --bg-panel: var(--ark-gray-100);   /* alias для bg-2 */
+  --bg-panel-2: var(--ark-gray-50);  /* #F8F9FB */
+  --bg-elevated: var(--ark-white);   /* #FFFFFF — для карточек, активных элементов */
+  --bg-selected: var(--ark-blue-50); /* #EAF3FE */
 
   /* Границы */
-  --border-1: #E6E8EB;
-  --border-2: #D1D5DB;
+  --border-1: var(--ark-gray-300);   /* #E6E9EC (было #E6E8EB) */
+  --border-2: var(--ark-gray-200);   /* #ECEFF2 (было #D1D5DB) */
 
   /* Текст */
-  --fg-1: #1A1D21;        /* основной */
-  --fg-2: #4A5159;        /* вторичный */
-  --fg-3: #8A929C;        /* приглушённый, мета */
-  --fg-4: #B8BCC4;        /* очень приглушённый */
+  --fg-1: var(--ark-gray-900);       /* #0F1620 (было #1A1D21) */
+  --fg-2: var(--ark-gray-600);       /* #5B6573 (было #4A5159) */
+  --fg-3: var(--ark-gray-500);       /* #9AA3AE (было #8A929C) */
+  --fg-4: var(--ark-gray-400);       /* #C9CFD6 (было #B8BCC4) */
+
+  /* Акцент */
+  --accent: var(--ark-blue-500);     /* #2A8AF0 — уже совпадал */
+  --accent-hover: var(--ark-blue-600); /* #1F7AE0 (было #2563eb) */
+
+  /* ============================================================
+     ДОМЕННЫЕ ATS ПЕРЕМЕННЫЕ — оставить как есть
+     ============================================================ */
 
   /* Бренд (розово-персиковый акцент «Глафиры») */
   --brand-accent: #F2A2A2;
@@ -25,9 +80,6 @@
   --brand-bg: #FEF7F7;    /* очень светлый розовый для фонов */
   --brand-border: #F2A2A2; /* граница бренда (alias для brand-accent) */
   --brand-fg: #D87878;    /* темнее для текста */
-  --color-primary: #2A8AF0; /* alias для --accent (совместимость) */
-  --accent: #2A8AF0;      /* primary accent blue */
-  --accent-hover: #2563eb; /* hover state */
 
   /* Этапы воронки (STAGES) */
   --stage-response: #5B6573;   /* Отклик */
@@ -61,22 +113,29 @@
   --src-max: #0077FF;
   --src-viber: #7360F2;
 
-  /* Верификация (источники проверок) */
-  --vf-src-api: #2A8AF0;       /* синий — API */
-  --vf-src-reg: #7E5CF0;       /* фиолетовый — госреестр */
-  --vf-src-pub: #E0820A;       /* оранжевый — публичный */
-  --vf-src-ai: #DC4646;        /* красный — AI */
-  --vf-st-clean: #16A34A;      /* статус «Чисто» */
-  --vf-st-info: #2A8AF0;       /* «Инфо» */
-  --vf-st-warn: #E0820A;       /* «Внимание» */
-  --vf-st-risk: #DC4646;       /* «Риск» */
+  /* ============================================================
+     ШРИФТЫ
+     ============================================================ */
 
-  /* Шрифты */
   --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
-  --font-display: 'Inter Tight', 'Inter', sans-serif;
-  --font-mono: 'Inter Tight', ui-monospace, 'SF Mono', monospace;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
 
-  /* Геометрия */
+  /* Шкала размеров из эталона */
+  --fs-11: 11px;   /* micro caption */
+  --fs-12: 12px;   /* caption, label */
+  --fs-13: 13px;   /* dense table/list text */
+  --fs-14: 14px;   /* body, default UI */
+  --fs-15: 15px;   /* slightly emphasized body */
+  --fs-16: 16px;   /* section headline */
+  --fs-18: 18px;   /* small page title */
+  --fs-20: 20px;   /* page title */
+  --fs-24: 24px;   /* large page title / KPI value */
+  --fs-32: 32px;   /* hero number on dashboard */
+
+  /* ============================================================
+     ГЕОМЕТРИЯ
+     ============================================================ */
+
   --sidebar-width: 240px;
   --radius-sm: 4px;       /* мелкие элементы */
   --radius-md: 6px;       /* средние элементы, кнопки */
@@ -93,7 +152,6 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
-  --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
 
@@ -107,14 +165,10 @@
   /* Z-index */
   --z-dropdown: 1000;
   --z-modal: 2000;
-  --z-tooltip: 3000;
 
   /* Status colors */
   --status-success: #16A34A;
-  --status-success-hover: #15803d;
   --status-error: #DC4646;
-  --status-error-bg: #FEF2F2;
-  --status-error-border: #FECACA;
 
   /* Semantic status colors (aliases) */
   --success-bg: #ECFDF5;    /* зелёный фон */
@@ -129,15 +183,7 @@
   /* Durations */
   --dur-fast: 150ms;
   --dur-normal: 200ms;
-  --dur-slow: 300ms;
 
   /* Easings */
   --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
-  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);
-
-  /* Compatibility with prototype */
-  --ark-gray-200: #F3F4F6;
-  --ark-blue-50: #EFF6FF;
-  --ark-red-500: #EF4444;
 }
