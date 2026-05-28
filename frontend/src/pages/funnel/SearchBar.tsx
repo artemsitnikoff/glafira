@@ -10,7 +10,7 @@ type Props = {
 export default function SearchBar({ search = '', onSearchChange, onFiltersOpen, filtersCount }: Props) {
   return (
     <div className="cand-controls">
-      <div className="submenu-search" style={{ width: 280, height: 30, background: '#fff', border: '1px solid var(--border-1)' }}>
+      <div className="submenu-search" style={{ width: 280, height: 32, background: '#fff', border: '1px solid var(--border-1)' }}>
         <Icon name="search" size={14} style={{ color: 'var(--fg-3)', flex: 'none' }} />
         <input
           placeholder="Поиск по ФИО…"
