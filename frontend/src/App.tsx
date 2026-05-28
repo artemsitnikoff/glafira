@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuthStore, selectIsAuthenticated } from '@/store/authStore';
+import { api } from '@/api/client';
+import type { UserMe } from '@/api/aliases';
 import AppLayout from '@/components/AppLayout';
 import LoginPage from '@/pages/LoginPage';
 import HomePage from '@/pages/HomePage';
@@ -17,7 +20,36 @@ import NotFoundPage from '@/pages/NotFoundPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
+  const setAuth = useAuthStore((s) => s.setAuth);
   const location = useLocation();
+  // bootstrap: при первом маунте после reload — token/user в памяти потеряны,
+  // но refresh-cookie HttpOnly жива. Пробуем восстановить сессию через refresh.
+  const [bootstrapping, setBootstrapping] = useState(!isAuthenticated);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      setBootstrapping(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const refresh = await api.post<{ access_token: string }>('/auth/refresh');
+        const token = refresh.data.access_token;
+        const me = await api.get<UserMe>('/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled) setAuth(token, me.data);
+      } catch {
+        // refresh не сработал — пользователь не авторизован, редирект на /login
+      } finally {
+        if (!cancelled) setBootstrapping(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, setAuth]);
+
+  if (bootstrapping) return null;
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
