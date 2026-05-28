@@ -4,14 +4,15 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api.v1.router import api_router
+from .config import settings
 from .core.errors import AppError, app_error_handler, validation_error_handler, http_exception_handler
 
 app = FastAPI(title="Глафира Рекрутёр ATS", version="1.0.0", redirect_slashes=False)
 
-# CORS для фронтенда
+# CORS для фронтенда (origins из env CORS_ORIGINS, comma-separated)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

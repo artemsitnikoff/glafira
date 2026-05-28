@@ -29,5 +29,13 @@ class Settings(BaseSettings):
 
     FERNET_KEY: str | None = None
 
+    # Deployment
+    CORS_ORIGINS: str = "http://localhost:5173"  # comma-separated list
+    SESSION_COOKIE_SECURE: bool = False  # True in production with HTTPS
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
 
 settings = Settings()

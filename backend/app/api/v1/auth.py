@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, Cookie
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...config import settings
 from ...database import get_db
 from ...deps import get_current_user
 from ...schemas.auth import LoginRequest, TokenResponse, UserMe
@@ -28,7 +29,7 @@ async def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False,  # Set to True in production with HTTPS
+        secure=settings.SESSION_COOKIE_SECURE,
         samesite="lax",
         path="/api/v1/auth/refresh",
         max_age=14 * 24 * 60 * 60  # 14 days
