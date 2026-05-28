@@ -1,0 +1,51 @@
+# Production compose. На VPS:
+#   docker compose -f docker-compose.prod.yml up -d db          # сначала БД
+#   docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head
+#   docker compose -f docker-compose.prod.yml run --rm backend python -m app.seed
+#   docker compose -f docker-compose.prod.yml up -d              # поднять всё
+#
+# Порты бек/фронт привязаны к 127.0.0.1 — наружу выходит через общий nginx на VPS.
+# Postgres наружу НЕ публикуется — доступ только внутри compose-сети.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - glafira_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - backend_storage:/app/storage
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Production: без --reload, 2 worker'а. При мало RAM можно --workers 1.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+
+volumes:
+  glafira_pgdata:
+  backend_storage:

@@ -97,52 +97,16 @@ VITE_API_BASE_URL=https://ats.mydomain.ru/api/v1
 
 ## 3. docker-compose для прода
 
-> Если у тебя уже есть `docker-compose.yml` для локалки — сделай отдельный `docker-compose.prod.yml`, чтобы не путать. Все порты — на `127.0.0.1` (наружу только через nginx).
+В репозитории уже лежит `docker-compose.prod.yml` (в корне), `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`. Под наш стек ничего настраивать не нужно — после `git pull` всё на месте.
 
-Ориентир (приведи под свою реальную структуру):
+Что внутри:
+- **db** — `postgres:16` с volume `glafira_pgdata` (данные сохраняются между рестартами). Порт наружу НЕ публикуется — доступ только из compose-сети.
+- **backend** — `uvicorn app.main:app --workers 2`, привязан к `127.0.0.1:8000`. `.env` подключается через `env_file: .env`.
+- **frontend** — multi-stage build (Node собирает статику → nginx раздаёт), привязан к `127.0.0.1:8080`. SPA-fallback и gzip уже в `nginx.conf`.
 
-```yaml
-services:
-  db:
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - glafira_pgdata:/var/lib/postgresql/data
-    # порт наружу НЕ публикуем — доступ только внутри compose-сети
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 5s
-      retries: 10
+Порты `8000` и `8080` свободны на твоём VPS (проверено через `netstat -atnp`). Привязка к `127.0.0.1` обязательна — наружу выходим только через общий nginx (шаг 6).
 
-  backend:
-    build: ./backend
-    restart: unless-stopped
-    env_file: .env
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:8000:8000"   # только localhost; nginx проксирует
-    # команда запуска — uvicorn (приведи под свой Dockerfile)
-
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_BASE_URL: https://ats.mydomain.ru/api/v1
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:80"     # статика фронта; nginx проксирует
-
-volumes:
-  glafira_pgdata:
-```
-
-> Порты `8000`/`8080` — пример; выбери свободные на VPS (проверь `ss -tlnp`, чтобы не пересеклись с другими сервисами). Привязка к `127.0.0.1` обязательна — наружу выходим только через общий nginx.
+Если по какой-то причине нужно поменять порт — отредактируй `docker-compose.prod.yml` (строки `127.0.0.1:8000:8000` / `127.0.0.1:8080:80`).
 
 ---
 
