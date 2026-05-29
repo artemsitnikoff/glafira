@@ -5,6 +5,62 @@
   min-height: 0;
 }
 
+/* Buttons — эталонный набор, scoped.
+   ВАЖНО: глобальный components/ui/Button.css использует BEM (.btn--sm/.btn--primary),
+   а эталон/воронка используют .btn-sm/.btn-primary/.btn-secondary — определяем их здесь. */
+.cnd-funnel-wrap .btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+
+.cnd-funnel-wrap .btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.cnd-funnel-wrap .btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.cnd-funnel-wrap .btn-secondary {
+  background: #fff;
+  color: var(--fg-1);
+  border-color: var(--border-1);
+}
+.cnd-funnel-wrap .btn-secondary:hover {
+  background: var(--bg-3-hover);
+}
+
+.cnd-funnel-wrap .btn-ghost {
+  background: transparent;
+  color: var(--fg-2);
+}
+.cnd-funnel-wrap .btn-ghost:hover {
+  background: var(--bg-3-hover);
+  color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .btn-sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.cnd-funnel-wrap .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Vacancy header (sticky) */
 .cnd-funnel-wrap .vac-header {
   position: sticky;
@@ -754,8 +810,7 @@
 
 /* Filter button */
 .cnd-funnel-wrap .has-filters {
-  background: var(--ark-blue-50);
-  border-color: var(--ark-blue-100);
+  border-color: var(--accent);
   color: var(--accent);
 }
 
@@ -763,14 +818,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   background: var(--accent);
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 9px;
   margin-left: 4px;
 }
 
