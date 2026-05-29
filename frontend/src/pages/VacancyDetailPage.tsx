@@ -127,8 +127,11 @@ export default function VacancyDetailPage() {
         stages={stages}
         currentStage={filters.stage}
         onStageSelect={stage => {
-          updateFilters({ ...filters, stage });
-          closeDetail();
+          // Одна навигация: меняем этап + закрываем карточку (без гонки со stale searchParams).
+          const params = new URLSearchParams(searchParams);
+          if (stage && stage !== 'all') params.set('stage', stage);
+          else params.delete('stage');
+          navigate({ pathname: `/vacancies/${id}`, search: params.toString() });
         }}
       />
 

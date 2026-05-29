@@ -16,10 +16,8 @@ export default function StageChipsBar({ stages, currentStage, onStageSelect }: P
     .filter(s => !s.is_terminal || s.stage_key === 'hired')
     .reduce((sum, s) => sum + s.count, 0);
 
-  // Separate stages
-  const workflowStages = stages.filter(
-    s => !s.is_terminal && s.stage_key !== 'added'
-  );
+  // Separate stages (включая «Добавлен» — туда попадают вручную добавленные кандидаты)
+  const workflowStages = stages.filter(s => !s.is_terminal);
   const hiredStage = stages.find(s => s.stage_key === 'hired');
   const rejectedStage = stages.find(s => s.stage_key === 'rejected');
 

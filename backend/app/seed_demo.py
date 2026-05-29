@@ -52,8 +52,8 @@ CANDIDATES_DATA = [
 
     # === +30 кандидатов (порядок соответствует vacancy_assignments) ===
     # Frontend — Vacancy idx 0 (+10)
-    {"full_name": "Павел Дроздов", "age": 29, "city": "Москва", "position": "Frontend Developer", "company": "OZON", "target_stage": "response", "ai_score": 58},
-    {"full_name": "Алиса Кравцова", "age": 26, "city": "Химки", "position": "React Developer", "company": "Сбер", "target_stage": "response", "ai_score": 63},
+    {"full_name": "Павел Дроздов", "age": 29, "city": "Москва", "position": "Frontend Developer", "company": "OZON", "target_stage": "added", "ai_score": 58},
+    {"full_name": "Алиса Кравцова", "age": 26, "city": "Химки", "position": "React Developer", "company": "Сбер", "target_stage": "added", "ai_score": 63},
     {"full_name": "Григорий Лаптев", "age": 34, "city": "Москва", "position": "Senior Frontend", "company": "Avito", "target_stage": "selected", "ai_score": 79},
     {"full_name": "Вера Шестакова", "age": 28, "city": "Мытищи", "position": "Frontend Engineer", "company": "Тинькофф", "target_stage": "selected", "ai_score": 71},
     {"full_name": "Роман Цветков", "age": 31, "city": "Москва", "position": "React/TS Developer", "company": "VK", "target_stage": "recruiter", "ai_score": 83},
@@ -64,7 +64,7 @@ CANDIDATES_DATA = [
     {"full_name": "Алёна Маркова", "age": 30, "city": "Одинцово", "position": "React Developer", "company": "МТС", "target_stage": "manager", "ai_score": 80},
 
     # Продажи — Vacancy idx 1 (+8)
-    {"full_name": "Виталий Поляков", "age": 37, "city": "Санкт-Петербург", "position": "Менеджер B2B", "company": "Гермес", "target_stage": "response", "ai_score": 44},
+    {"full_name": "Виталий Поляков", "age": 37, "city": "Санкт-Петербург", "position": "Менеджер B2B", "company": "Гермес", "target_stage": "added", "ai_score": 44},
     {"full_name": "Оксана Дёмина", "age": 32, "city": "СПб", "position": "Sales Manager", "company": "OZON", "target_stage": "response", "ai_score": 57},
     {"full_name": "Артур Савельев", "age": 40, "city": "Колпино", "position": "Key Account Manager", "company": "Магнит", "target_stage": "selected", "ai_score": 66},
     {"full_name": "Лариса Тихонова", "age": 29, "city": "Пушкин", "position": "Менеджер по продажам", "company": "Yota", "target_stage": "recruiter", "ai_score": 73},
@@ -379,6 +379,13 @@ async def seed_applications_and_move(session: AsyncSession, candidates: list[Can
         )
         session.add(application)
         await session.flush()  # Получить ID
+
+        # «Добавлен» — кандидат заведён вручную, остаётся на входном этапе без переходов
+        if target_stage == "added":
+            application.stage = "added"
+            application.stage_changed_at = response_date
+            applications.append(application)
+            continue
 
         # Если нужен rejected, устанавливаем причину
         if target_stage == "rejected":
