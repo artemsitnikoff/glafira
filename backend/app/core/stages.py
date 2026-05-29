@@ -20,18 +20,17 @@ STAGES: Dict[str, StageDefinition] = {
     "selected": StageDefinition("selected", "Отобран", "#9AA3AE", 3),
     "recruiter": StageDefinition("recruiter", "Контакт с рекрутером", "#7AB4F5", 4),
     "interview": StageDefinition("interview", "Интервью", "#2A8AF0", 5),
-    "test": StageDefinition("test", "Тестовое", "#5778E8", 6),  # custom stage for technical funnel
-    "manager": StageDefinition("manager", "Контакт с менеджером", "#5778E8", 7),
-    "offer": StageDefinition("offer", "Оффер", "#E0A21A", 8),
-    "hired": StageDefinition("hired", "Нанят", "#16A34A", 9, is_terminal=True),
-    "rejected": StageDefinition("rejected", "Отказ", "#DC4646", 10, is_terminal=True),
+    "manager": StageDefinition("manager", "Контакт с менеджером", "#5778E8", 6),
+    "offer": StageDefinition("offer", "Оффер", "#E0A21A", 7),
+    "hired": StageDefinition("hired", "Нанят", "#16A34A", 8, is_terminal=True),
+    "rejected": StageDefinition("rejected", "Отказ", "#DC4646", 9, is_terminal=True),
 }
 
 # Funnel templates
 FUNNEL_TEMPLATES: Dict[str, List[str]] = {
     "default": ["response", "added", "selected", "recruiter", "interview", "manager", "offer", "hired", "rejected"],
     "mass": ["response", "selected", "interview", "hired", "rejected"],
-    "technical": ["response", "added", "selected", "recruiter", "interview", "test", "manager", "offer", "hired", "rejected"],
+    "technical": ["response", "added", "selected", "recruiter", "interview", "manager", "offer", "hired", "rejected"],
     "sales": ["response", "added", "selected", "recruiter", "interview", "manager", "offer", "hired", "rejected"],  # same as default
 }
 

@@ -49,6 +49,47 @@ CANDIDATES_DATA = [
     {"full_name": "Алексей Соловьёв", "age": 38, "city": "Новосибирск", "position": "Комплектовщик", "company": "Wildberries", "target_stage": "response", "ai_score": 50},
     {"full_name": "Марина Павлова", "age": 34, "city": "Бердск", "position": "Старший кладовщик", "company": "X5", "target_stage": "interview", "ai_score": 78},
     {"full_name": "Денис Новиков", "age": 31, "city": "Новосибирск", "position": "Комплектовщик 1С", "company": "OZON", "target_stage": "hired", "ai_score": 89},
+
+    # === +30 кандидатов (порядок соответствует vacancy_assignments) ===
+    # Frontend — Vacancy idx 0 (+10)
+    {"full_name": "Павел Дроздов", "age": 29, "city": "Москва", "position": "Frontend Developer", "company": "OZON", "target_stage": "response", "ai_score": 58},
+    {"full_name": "Алиса Кравцова", "age": 26, "city": "Химки", "position": "React Developer", "company": "Сбер", "target_stage": "response", "ai_score": 63},
+    {"full_name": "Григорий Лаптев", "age": 34, "city": "Москва", "position": "Senior Frontend", "company": "Avito", "target_stage": "selected", "ai_score": 79},
+    {"full_name": "Вера Шестакова", "age": 28, "city": "Мытищи", "position": "Frontend Engineer", "company": "Тинькофф", "target_stage": "selected", "ai_score": 71},
+    {"full_name": "Роман Цветков", "age": 31, "city": "Москва", "position": "React/TS Developer", "company": "VK", "target_stage": "recruiter", "ai_score": 83},
+    {"full_name": "Дарья Беляева", "age": 27, "city": "Королёв", "position": "Frontend Developer", "company": "Яндекс", "target_stage": "recruiter", "ai_score": 75},
+    {"full_name": "Кирилл Фомин", "age": 33, "city": "Москва", "position": "Senior React", "company": "Kaspersky", "target_stage": "interview", "ai_score": 87},
+    {"full_name": "Надежда Ершова", "age": 25, "city": "Люберцы", "position": "Frontend", "company": "Wildberries", "target_stage": "interview", "ai_score": 69},
+    {"full_name": "Станислав Гордеев", "age": 36, "city": "Москва", "position": "Frontend Lead", "company": "X5", "target_stage": "offer", "ai_score": 91},
+    {"full_name": "Алёна Маркова", "age": 30, "city": "Одинцово", "position": "React Developer", "company": "МТС", "target_stage": "manager", "ai_score": 80},
+
+    # Продажи — Vacancy idx 1 (+8)
+    {"full_name": "Виталий Поляков", "age": 37, "city": "Санкт-Петербург", "position": "Менеджер B2B", "company": "Гермес", "target_stage": "response", "ai_score": 44},
+    {"full_name": "Оксана Дёмина", "age": 32, "city": "СПб", "position": "Sales Manager", "company": "OZON", "target_stage": "response", "ai_score": 57},
+    {"full_name": "Артур Савельев", "age": 40, "city": "Колпино", "position": "Key Account Manager", "company": "Магнит", "target_stage": "selected", "ai_score": 66},
+    {"full_name": "Лариса Тихонова", "age": 29, "city": "Пушкин", "position": "Менеджер по продажам", "company": "Yota", "target_stage": "recruiter", "ai_score": 73},
+    {"full_name": "Геннадий Блинов", "age": 43, "city": "СПб", "position": "Региональный менеджер", "company": "X5", "target_stage": "interview", "ai_score": 81},
+    {"full_name": "Полина Жукова", "age": 28, "city": "Гатчина", "position": "Account Executive", "company": "Леруа Мерлен", "target_stage": "manager", "ai_score": 78},
+    {"full_name": "Эдуард Климов", "age": 35, "city": "СПб", "position": "B2B Sales", "company": "Continental", "target_stage": "offer", "ai_score": 88},
+    {"full_name": "Жанна Соболева", "age": 31, "city": "Колпино", "position": "Sales Manager", "company": "МегаФон", "target_stage": "rejected", "ai_score": 40, "reject_reason": "Завышенные ожидания по ЗП", "reject_side": "candidate"},
+
+    # Кладовщик — Vacancy idx 2 (+6)
+    {"full_name": "Виктор Гусев", "age": 39, "city": "Новосибирск", "position": "Кладовщик", "company": "Магнит", "target_stage": "response", "ai_score": None},
+    {"full_name": "Раиса Сорокина", "age": 45, "city": "Бердск", "position": "Комплектовщик", "company": "Лента", "target_stage": "response", "ai_score": 48},
+    {"full_name": "Тимур Исаев", "age": 33, "city": "Новосибирск", "position": "Старший кладовщик", "company": "OZON", "target_stage": "selected", "ai_score": 70},
+    {"full_name": "Зоя Кудрявцева", "age": 36, "city": "Новосибирск", "position": "Кладовщик-оператор", "company": "X5", "target_stage": "interview", "ai_score": 74},
+    {"full_name": "Леонид Панов", "age": 41, "city": "Искитим", "position": "Комплектовщик 1С", "company": "Wildberries", "target_stage": "hired", "ai_score": 86},
+    {"full_name": "Галина Фёдорова", "age": 38, "city": "Новосибирск", "position": "Кладовщик", "company": "Магнит", "target_stage": "rejected", "ai_score": 39, "reject_reason": "Не вышел на связь", "reject_side": "candidate"},
+
+    # iOS (архивная idx 3, archive_result=hired) (+3)
+    {"full_name": "Артём Лазарев", "age": 30, "city": "Москва", "position": "iOS Developer (Swift)", "company": "Тинькофф", "target_stage": "hired", "ai_score": 90},
+    {"full_name": "Светлана Гречко", "age": 28, "city": "Москва", "position": "iOS Engineer", "company": "VK", "target_stage": "rejected", "ai_score": 61, "reject_reason": "Принял другой оффер", "reject_side": "candidate"},
+    {"full_name": "Богдан Юдин", "age": 34, "city": "Москва", "position": "Senior iOS", "company": "Сбер", "target_stage": "interview", "ai_score": 77},
+
+    # Контент (архивная idx 4, archive_result=cancelled) (+3)
+    {"full_name": "Маргарита Власова", "age": 27, "city": "Санкт-Петербург", "position": "Контент-менеджер", "company": "Avito", "target_stage": "rejected", "ai_score": 52, "reject_reason": "Несоответствие навыков", "reject_side": "company"},
+    {"full_name": "Игнат Прохоров", "age": 31, "city": "СПб", "position": "Контент-редактор", "company": "OZON", "target_stage": "interview", "ai_score": 68},
+    {"full_name": "Ульяна Зуева", "age": 25, "city": "СПб", "position": "SMM-менеджер", "company": "Магнит", "target_stage": "response", "ai_score": 55},
 ]
 
 CLIENTS_DATA = [
@@ -61,6 +102,11 @@ VACANCIES_DATA = [
     {"name": "Senior Frontend Developer", "client_idx": 0, "location": "Москва", "salary_from": 200000, "salary_to": 280000},
     {"name": "Менеджер по продажам B2B", "client_idx": 1, "location": "Санкт-Петербург", "salary_from": 80000, "salary_to": 120000},
     {"name": "Кладовщик", "client_idx": 2, "location": "Новосибирск", "salary_from": 45000, "salary_to": 60000},
+    # Архивные вакансии (idx 3, 4)
+    {"name": "iOS-разработчик (Swift)", "client_idx": 0, "location": "Москва", "salary_from": 250000, "salary_to": 350000,
+     "status": "archived", "archive_result": "hired", "closed_at": date.today() - timedelta(days=20)},
+    {"name": "Контент-менеджер", "client_idx": 1, "location": "Санкт-Петербург", "salary_from": 70000, "salary_to": 100000,
+     "status": "archived", "archive_result": "cancelled", "closed_at": date.today() - timedelta(days=48)},
 ]
 
 
@@ -153,15 +199,17 @@ async def seed_vacancies(session: AsyncSession, clients: list[Client], admin: Us
     logger.info("Creating demo vacancies...")
 
     # Стандартные этапы для всех вакансий
+    # 9 этапов 1:1 по эталону (включая системный «Добавлен»)
     stages = [
         {"stage_key": "response", "label": "Отклик", "order_index": 1},
-        {"stage_key": "selected", "label": "Отобран", "order_index": 2},
-        {"stage_key": "recruiter", "label": "Рекрутер", "order_index": 3},
-        {"stage_key": "interview", "label": "Интервью", "order_index": 4},
-        {"stage_key": "manager", "label": "Менеджер", "order_index": 5},
-        {"stage_key": "offer", "label": "Оффер", "order_index": 6},
-        {"stage_key": "hired", "label": "Принят", "order_index": 7, "is_terminal": True},
-        {"stage_key": "rejected", "label": "Отказ", "order_index": 8, "is_terminal": True},
+        {"stage_key": "added", "label": "Добавлен", "order_index": 2},
+        {"stage_key": "selected", "label": "Отобран", "order_index": 3},
+        {"stage_key": "recruiter", "label": "Контакт с рекрутером", "order_index": 4},
+        {"stage_key": "interview", "label": "Интервью", "order_index": 5},
+        {"stage_key": "manager", "label": "Контакт с менеджером", "order_index": 6},
+        {"stage_key": "offer", "label": "Оффер", "order_index": 7},
+        {"stage_key": "hired", "label": "Нанят", "order_index": 8, "is_terminal": True},
+        {"stage_key": "rejected", "label": "Отказ", "order_index": 9, "is_terminal": True},
     ]
 
     vacancies = []
@@ -176,7 +224,9 @@ async def seed_vacancies(session: AsyncSession, clients: list[Client], admin: Us
             salary_to=vacancy_data["salary_to"],
             currency="RUB",
             employment_type="full_time",
-            status="active",
+            status=vacancy_data.get("status", "active"),
+            archive_result=vacancy_data.get("archive_result"),
+            closed_at=vacancy_data.get("closed_at"),
             responsible_user_id=admin.id,
         )
         session.add(vacancy)
@@ -216,6 +266,20 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
         birth_year = date.today().year - candidate_data["age"]
         birth_date = date(birth_year, 1, 15)  # Примерная дата
 
+        # Телефон — детерминированный псевдослучайный (+7 9XX XXX-XX-XX), помещается в String(20)
+        phone = f"+7 9{(13 + i) % 90:02d} {(100 + i * 37) % 900:03d}-{(11 + i * 7) % 90:02d}-{(13 + i * 13) % 90:02d}"
+        # Мессенджеры — варьируем как в эталоне (telegram / whatsapp / max)
+        messenger_variants = [
+            ["telegram"],
+            ["telegram", "whatsapp"],
+            ["telegram", "max"],
+            ["whatsapp", "max"],
+            ["telegram", "whatsapp", "max"],
+        ]
+        messengers = messenger_variants[i % len(messenger_variants)]
+        # Зарплатные ожидания — для наполнения колонки ЗП в воронке
+        salary_expectation = 150000 + (i * 13000) % 250000
+
         candidate = Candidate(
             company_id=COMPANY_ID,
             display_number=f"D{i+1:03d}",
@@ -223,11 +287,13 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
             last_name=last_name,
             birth_date=birth_date,
             city=candidate_data["city"],
+            phone=phone,
+            salary_expectation=salary_expectation,
             last_position=candidate_data["position"],
             last_company=candidate_data["company"],
             source="manual",
             preferred_channel="telegram",
-            messengers=["telegram"],
+            messengers=messengers,
             extra={"demo": "true"}
         )
         session.add(candidate)
@@ -280,7 +346,11 @@ async def seed_applications_and_move(session: AsyncSession, candidates: list[Can
     logger.info("Creating demo applications...")
 
     # Распределение кандидатов по вакансиям
-    vacancy_assignments = [0] * 8 + [1] * 8 + [2] * 4  # 8+8+4 = 20 кандидатов
+    vacancy_assignments = (
+        [0] * 8 + [1] * 8 + [2] * 4        # существующие 20 (vac 0/1/2)
+        + [0] * 10 + [1] * 8 + [2] * 6     # +24 новых на активные вакансии
+        + [3] * 3 + [4] * 3                # +6 новых на архивные (idx 3,4)
+    )  # итого 50 кандидатов
 
     # Базовая дата - 90 дней назад
     base_date = datetime.now(timezone.utc) - timedelta(days=90)

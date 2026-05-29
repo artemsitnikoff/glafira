@@ -36,7 +36,7 @@ export function useApplications(
     queryFn: async () => {
       const params = new URLSearchParams();
 
-      if (filters.stage) params.append('stage', filters.stage);
+      if (filters.stage && filters.stage !== 'all') params.append('stage', filters.stage);
       if (filters.search) params.append('search', filters.search);
       if (filters.score_min) params.append('score_min', filters.score_min.toString());
       if (filters.salary_max) params.append('salary_max', filters.salary_max.toString());

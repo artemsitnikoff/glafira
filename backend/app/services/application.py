@@ -68,7 +68,7 @@ async def get_applications_for_vacancy_paginated(
     if candidate_id:
         base_filters.append(Application.candidate_id == candidate_id)
 
-    if stage:
+    if stage and stage != "all":
         base_filters.append(Application.stage == stage)
     if search:
         like = f"%{search}%"
