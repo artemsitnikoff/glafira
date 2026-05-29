@@ -1,5 +1,27 @@
 /* === TZ-6: Карточка соискателя (scoped under .cnd-funnel-wrap .cand-detail) === */
 
+@keyframes cdPopIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cdLoadFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dancerBounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0) rotate(0deg); }
+  10% { transform: translateY(-8px) rotate(-5deg); }
+  40% { transform: translateY(-6px) rotate(3deg); }
+  60% { transform: translateY(-4px) rotate(-2deg); }
+}
+
+@keyframes dotBounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
+  40% { transform: translateY(-8px); opacity: 1; }
+}
+
 .cnd-funnel-wrap .cand-detail .candidate-detail {
   display: flex;
   flex-direction: column;
@@ -53,56 +75,58 @@
 .cnd-funnel-wrap .cand-detail .cd-pop-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 999;
+  z-index: 30;
   background: transparent;
 }
 
 .cnd-funnel-wrap .cand-detail .cd-move-pop {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 0;
-  margin-top: 4px;
-  min-width: 200px;
+  min-width: 280px;
+  max-height: 360px;
+  overflow-y: auto;
   background: #fff;
   border: 1px solid var(--border-1);
-  border-radius: 8px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -8px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.06);
   z-index: 1000;
-  overflow: hidden;
+  padding: 6px;
+  animation: cdPopIn .12s cubic-bezier(.2,.8,.2,1);
 }
 
 .cnd-funnel-wrap .cand-detail .cd-pop-head {
-  padding: 12px 16px;
-  background: var(--bg-panel-2);
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
   font-weight: 600;
-  font-size: 13px;
-  color: var(--fg-1);
-  border-bottom: 1px solid var(--border-1);
 }
 
 .cnd-funnel-wrap .cand-detail .cd-pop-group {
-  padding: 8px 16px;
-  background: var(--bg-panel-2);
+  padding: 8px 12px 4px;
+  font-size: 11px;
   font-weight: 600;
-  font-size: 12px;
-  color: var(--fg-2);
-  text-transform: uppercase;
   letter-spacing: 0.04em;
-  border-bottom: 1px solid var(--border-1);
+  text-transform: uppercase;
+  color: var(--fg-3);
 }
 
 .cnd-funnel-wrap .cand-detail .cd-pop-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 10px 16px;
+  padding: 8px 10px;
   background: none;
   border: none;
   text-align: left;
   cursor: pointer;
   color: var(--fg-1);
-  font-size: 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  transition: background 120ms;
 }
 
 .cnd-funnel-wrap .cand-detail .cd-pop-item:hover {
@@ -114,15 +138,15 @@
 }
 
 .cnd-funnel-wrap .cand-detail .r-bullet {
-  width: 6px;
-  height: 6px;
-  background: var(--fg-3);
+  width: 8px;
+  height: 8px;
+  background: var(--ark-blue-500, #2A8AF0);
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .cnd-funnel-wrap .cand-detail .r-bullet.co {
-  background: var(--accent);
+  background: var(--ark-yellow-500, #E0A21A);
 }
 
 /* Header */
@@ -146,23 +170,25 @@
 }
 
 .cnd-funnel-wrap .cand-detail .src-pill {
-  padding: 2px 8px;
-  border-radius: 12px;
+  padding: 2px 7px;
+  border-radius: 4px;
   font-size: 11px;
-  font-weight: 500;
-  color: white;
+  font-weight: 600;
 }
 
 .cnd-funnel-wrap .cand-detail .src-pill.src-hh {
-  background: var(--src-hh);
+  background: #FFE7CC;
+  color: #B5670F;
 }
 
 .cnd-funnel-wrap .cand-detail .src-pill.src-tg {
-  background: var(--src-tg);
+  background: #CFE2FB;
+  color: #1865BE;
 }
 
 .cnd-funnel-wrap .cand-detail .src-pill.src-avito {
-  background: var(--src-avito);
+  background: #DEF5E5;
+  color: #128640;
 }
 
 .cnd-funnel-wrap .cand-detail .cd-h-main {
@@ -226,8 +252,13 @@
   border: 0;
   color: var(--accent);
   cursor: pointer;
+  font: inherit;
   font-size: 13px;
   padding: 0;
+}
+
+.cnd-funnel-wrap .cand-detail .tag-add:hover {
+  text-decoration: underline;
 }
 
 .cnd-funnel-wrap .cand-detail .cd-contact-box {
@@ -267,6 +298,20 @@
 .cnd-funnel-wrap .cand-detail .mess-icons-row {
   display: inline-flex;
   gap: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .mess-round {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex: none;
+  cursor: pointer;
+  transition: transform 120ms cubic-bezier(.2,.8,.2,1);
+}
+
+.cnd-funnel-wrap .cand-detail .mess-round:hover {
+  transform: scale(1.08);
 }
 
 /* Score badge - scoped to avoid collision */
@@ -353,6 +398,7 @@
   padding: 0 10px;
   background: transparent;
   border: 0;
+  font: inherit;
   font-size: 12px;
   font-weight: 500;
   color: var(--fg-2);
@@ -360,6 +406,11 @@
   margin-bottom: -1px;
   white-space: nowrap;
   cursor: pointer;
+  transition: color 120ms cubic-bezier(.2,.8,.2,1), border-color 120ms cubic-bezier(.2,.8,.2,1);
+}
+
+.cnd-funnel-wrap .cand-detail .cc-tab:hover {
+  color: var(--fg-1);
 }
 
 .cnd-funnel-wrap .cand-detail .cc-tab.active {
@@ -375,6 +426,554 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+.cnd-funnel-wrap .cand-detail .cc-content > .resume-single,
+.cnd-funnel-wrap .cand-detail .cc-content > .ai-single,
+.cnd-funnel-wrap .cand-detail .cc-content > .chat-tab,
+.cnd-funnel-wrap .cand-detail .cc-content > .verification-tab,
+.cnd-funnel-wrap .cand-detail .cc-content > .evaluation-tab {
+  flex: 1;
+}
+
+/* === RESUME TAB STYLES === */
+
+.cnd-funnel-wrap .cand-detail .resume-single {
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.cnd-funnel-wrap .cand-detail .cc-sec-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-3);
+  margin: 0 0 12px;
+}
+
+.cnd-funnel-wrap .cand-detail .job {
+  padding: 12px 0;
+  border-top: 1px solid var(--border-1);
+}
+
+.cnd-funnel-wrap .cand-detail .job:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.cnd-funnel-wrap .cand-detail .job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.cnd-funnel-wrap .cand-detail .job-title {
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0 0 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .job-co {
+  color: var(--fg-2);
+  margin: 0 0 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .job-period {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+.cnd-funnel-wrap .cand-detail .job-desc {
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+
+.cnd-funnel-wrap .cand-detail .skill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cnd-funnel-wrap .cand-detail .skill-chip {
+  background: var(--ark-gray-100);
+  color: var(--fg-1);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  border: 1px solid var(--border-1);
+}
+
+.cnd-funnel-wrap .cand-detail .edu-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 8px 0;
+}
+
+.cnd-funnel-wrap .cand-detail .extra-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.cnd-funnel-wrap .cand-detail .extra-k {
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+/* === FILO CARD (AI Verdict) === */
+
+.cnd-funnel-wrap .cand-detail .filo-card {
+  background: linear-gradient(135deg, #FFD2E8 0%, #FFB1D6 100%);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-head-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-ai-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FFE7EC 0%, #FFD2E8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition: transform 200ms cubic-bezier(.2,.8,.2,1);
+}
+
+.cnd-funnel-wrap .cand-detail .filo-ai-mark:hover {
+  transform: scale(1.05);
+}
+
+.cnd-funnel-wrap .cand-detail .glafira-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0 0 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-sub {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-2);
+  margin: 0;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-link-row {
+  margin-top: 12px;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-link {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--brand-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.cnd-funnel-wrap .cand-detail .filo-link:hover {
+  text-decoration: underline;
+}
+
+/* === AI EVALUATION === */
+
+.cnd-funnel-wrap .cand-detail .ai-single {
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.cnd-funnel-wrap .cand-detail .msg {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+
+.cnd-funnel-wrap .cand-detail .ai-msg-good {
+  background: var(--risk-low-soft);
+  border-left: 4px solid var(--score-green);
+}
+
+.cnd-funnel-wrap .cand-detail .ai-msg-warn {
+  background: var(--risk-mid-soft);
+  border-left: 4px solid var(--score-yellow);
+}
+
+.cnd-funnel-wrap .cand-detail .ai-msg-q {
+  background: var(--bg-3);
+  border-left: 4px solid var(--accent);
+}
+
+.cnd-funnel-wrap .cand-detail .crit-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.cnd-funnel-wrap .cand-detail .crit-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cnd-funnel-wrap .cand-detail .crit-label {
+  font-size: 13px;
+  color: var(--fg-2);
+  min-width: 120px;
+}
+
+.cnd-funnel-wrap .cand-detail .crit-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cnd-funnel-wrap .cand-detail .crit-fill {
+  height: 100%;
+  background: var(--score-green);
+  transition: width 300ms ease;
+}
+
+.cnd-funnel-wrap .cand-detail .crit-score {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* === CHAT TAB === */
+
+.cnd-funnel-wrap .cand-detail .chat-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: radial-gradient(ellipse at center, rgba(42,138,240,0.03) 0%, rgba(126,92,240,0.02) 100%);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  max-width: 78%;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-row:has(.chat-bubble-me) {
+  margin-left: auto;
+  flex-direction: row-reverse;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--fg-3);
+}
+
+.cnd-funnel-wrap .cand-detail .chat-bubble-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-bubble {
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+  position: relative;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-bubble-me {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-body {
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-meta {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-ch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--fg-3);
+  padding-left: 8px;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-ch-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-3);
+}
+
+.cnd-funnel-wrap .cand-detail .chat-compose {
+  border-top: 1px solid var(--border-1);
+  padding: 16px 0 0;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-compose-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-input {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid var(--border-1);
+  border-radius: 20px;
+  background: #fff;
+  resize: none;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-input:focus {
+  border-color: var(--accent);
+}
+
+.cnd-funnel-wrap .cand-detail .chat-send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 150ms;
+  flex: none;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.cnd-funnel-wrap .cand-detail .chat-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cnd-funnel-wrap .cand-detail .chat-hint {
+  font-size: 11px;
+  color: var(--fg-3);
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* === VERIFICATION TAB === */
+
+.cnd-funnel-wrap .cand-detail .verify-locked {
+  text-align: center;
+  padding: 40px 20px;
+  background: var(--bg-panel-2);
+  border-radius: 10px;
+  margin: 20px 0;
+}
+
+.cnd-funnel-wrap .cand-detail .verify-locked-ico {
+  margin-bottom: 16px;
+  color: var(--fg-3);
+}
+
+.cnd-funnel-wrap .cand-detail .verify-locked h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0 0 12px;
+}
+
+.cnd-funnel-wrap .cand-detail .verify-locked p {
+  color: var(--fg-2);
+  line-height: 1.5;
+  margin: 0 0 20px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-meta-glyph {
+  color: var(--fg-3);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-block {
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  background: var(--bg-panel-2);
+  border-bottom: 1px solid var(--border-1);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-3);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-title {
+  font-weight: 600;
+  color: var(--fg-1);
+  margin-bottom: 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-sources {
+  display: flex;
+  gap: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src-api {
+  background: var(--bg-3);
+  color: var(--fg-2);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src-db {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-st-clean {
+  background: var(--risk-low-soft);
+  color: var(--score-green);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-body {
+  padding: 16px 18px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-kv {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-k {
+  font-weight: 500;
+  color: var(--fg-2);
+  min-width: 120px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-v {
+  color: var(--fg-1);
 }
 
 /* === LEGACY CLASSES (preserve existing functionality) === */
@@ -886,18 +1485,22 @@
 
 /* Button classes */
 .cnd-funnel-wrap .cand-detail .btn {
-  padding: 6px 12px;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-md);
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: var(--bg-panel);
   color: var(--fg-1);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   text-decoration: none;
   white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 
 .cnd-funnel-wrap .cand-detail .btn:hover {
@@ -905,22 +1508,24 @@
 }
 
 .cnd-funnel-wrap .cand-detail .btn-sm {
-  padding: 4px 8px;
+  height: 26px;
+  padding: 0 10px;
   font-size: 12px;
 }
 
 .cnd-funnel-wrap .cand-detail .btn-success {
-  background: var(--accent);
+  background: var(--ark-green-500, #22A06B);
   color: white;
-  border-color: var(--accent);
+  border-color: var(--ark-green-500, #22A06B);
 }
 
 .cnd-funnel-wrap .cand-detail .btn-success:hover {
-  background: var(--accent-hover);
+  background: var(--ark-green-600, #1B8556);
+  border-color: var(--ark-green-600, #1B8556);
 }
 
 .cnd-funnel-wrap .cand-detail .btn-secondary {
-  background: var(--bg-panel);
+  background: #fff;
   color: var(--fg-1);
   border-color: var(--border-1);
 }
@@ -930,9 +1535,10 @@
 }
 
 .cnd-funnel-wrap .cand-detail .icon-btn {
+  width: 32px;
+  height: 32px;
   background: none;
   border: none;
-  padding: var(--space-2);
   border-radius: var(--radius-md);
   color: var(--fg-2);
   cursor: pointer;

@@ -21,10 +21,6 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool }: 
 
   const uploadMutation = useUploadDocument(actualCandidateId);
 
-  function handleUploadClick() {
-    fileInputRef.current?.click();
-  }
-
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) {
@@ -55,104 +51,84 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool }: 
   }
 
   return (
-    <div className="tab-content">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-        <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>Резюме</h2>
-        <button
-          className="candidate-toolbar__btn candidate-toolbar__btn--primary"
-          onClick={handleUploadClick}
-          disabled={uploadMutation.isPending}
-        >
-          <Icon name={uploadMutation.isPending ? "loader" : "upload"} size={16} />
-          Загрузить новое резюме
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx"
-          onChange={handleFileChange}
-          style={{ display: 'none' }}
-        />
-      </div>
+    <div className="resume-single">
+      {/* Hidden upload input - preserve upload functionality */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx"
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
 
-      {/* Experience */}
-      <div style={{ marginBottom: 'var(--space-4)' }}>
-        <h3 style={{ margin: '0 0 var(--space-3) 0', fontSize: '16px', fontWeight: '600' }}>Опыт работы</h3>
-        {candidate.experience && candidate.experience.length > 0 ? (
-          <div>
-            {candidate.experience.map((exp: any, index: number) => (
-              <div key={index} className="experience-item">
-                <div className="experience-item__header">
-                  <h4 className="experience-item__title">{exp.position}</h4>
-                  <p className="experience-item__company">{exp.company}</p>
-                  <p className="experience-item__period">
-                    {exp.period || 'Период не указан'}
-                  </p>
+      <h3 className="cc-sec-title">Опыт работы</h3>
+      {candidate.experience && candidate.experience.length > 0 ? (
+        <div>
+          {candidate.experience.map((exp: any, index: number) => (
+            <div key={index} className="job">
+              <div className="job-header">
+                <div>
+                  <div className="job-title">{exp.position || 'Должность не указана'}</div>
+                  <div className="job-co">{exp.company || 'Компания не указана'}</div>
                 </div>
-                {exp.description && (
-                  <p className="experience-item__description">{exp.description}</p>
-                )}
+                <div className="job-period">{exp.period || 'Период не указан'}</div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">
-            <Icon name="briefcase" size={24} className="empty-state__icon" />
-            <p className="empty-state__text">Опыт работы не указан</p>
-          </div>
-        )}
-      </div>
-
-      {/* Skills */}
-      <div style={{ marginBottom: 'var(--space-4)' }}>
-        <h3 style={{ margin: '0 0 var(--space-2) 0', fontSize: '16px', fontWeight: '600' }}>Навыки</h3>
-        {candidate.skills && candidate.skills.length > 0 ? (
-          <div className="chips-container">
-            {candidate.skills.map((skill: any, index: number) => (
-              <span key={index} className="chip">
-                {skill}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p style={{ color: 'var(--fg-3)' }}>Навыки не указаны</p>
-        )}
-      </div>
-
-      {/* Tags */}
-      <div style={{ marginBottom: 'var(--space-4)' }}>
-        <h3 style={{ margin: '0 0 var(--space-2) 0', fontSize: '16px', fontWeight: '600' }}>Теги</h3>
-        {candidate.tags && candidate.tags.length > 0 ? (
-          <div className="chips-container">
-            {candidate.tags.map((tag: any, index: number) => (
-              <span key={index} className="chip" style={{ background: 'var(--brand-accent)', color: 'white' }}>
-                {tag.name}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p style={{ color: 'var(--fg-3)' }}>Теги не указаны</p>
-        )}
-      </div>
-
-      {/* Resume Summary */}
-      {candidate.resume_summary && (
-        <div style={{ marginBottom: 'var(--space-4)' }}>
-          <h3 style={{ margin: '0 0 var(--space-2) 0', fontSize: '16px', fontWeight: '600' }}>Краткое описание</h3>
-          <p style={{ color: 'var(--fg-2)', lineHeight: '1.5' }}>{candidate.resume_summary}</p>
+              {exp.description && (
+                <div className="job-desc">{exp.description}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <Icon name="briefcase" size={24} className="empty-state__icon" />
+          <p className="empty-state__text">Опыт работы не указан</p>
         </div>
       )}
 
-      {/* Extra */}
-      {candidate.extra && (
-        <div>
-          <h3 style={{ margin: '0 0 var(--space-2) 0', fontSize: '16px', fontWeight: '600' }}>Дополнительная информация</h3>
-          <div style={{ color: 'var(--fg-2)', lineHeight: '1.5' }}>
-            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-              {typeof candidate.extra === 'string' ? candidate.extra : JSON.stringify(candidate.extra, null, 2)}
-            </pre>
-          </div>
+      <h3 className="cc-sec-title">Навыки</h3>
+      {candidate.skills && candidate.skills.length > 0 ? (
+        <div className="skill-row">
+          {candidate.skills.map((skill: any, index: number) => (
+            <span key={index} className="skill-chip">
+              {skill}
+            </span>
+          ))}
         </div>
+      ) : (
+        <p style={{ color: 'var(--fg-3)', margin: '8px 0' }}>Навыки не указаны</p>
+      )}
+
+      {candidate.education && candidate.education.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">Образование</h3>
+          {candidate.education.map((edu: any, index: number) => (
+            <div key={index} className="edu-row">
+              <div>
+                <div className="job-title">{edu.institution || 'Учебное заведение'}</div>
+                <div className="job-co">{edu.specialization || edu.degree || 'Специальность'}</div>
+              </div>
+              <div className="job-period">{edu.period || edu.year || 'Год не указан'}</div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {candidate.extra && (
+        <>
+          <h3 className="cc-sec-title">Дополнительно</h3>
+          <div className="extra-grid">
+            {typeof candidate.extra === 'object' ? (
+              Object.entries(candidate.extra).map(([key, value]: [string, any]) => (
+                <div key={key}>
+                  <span className="extra-k">{key}:</span> {String(value)}
+                </div>
+              ))
+            ) : (
+              <div>{String(candidate.extra)}</div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

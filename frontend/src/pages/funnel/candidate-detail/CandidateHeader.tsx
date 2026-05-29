@@ -1,15 +1,17 @@
 import { Icon } from '@/components/ui/Icon';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
+import { MessIconRound } from '@/components/ui/MessIconRound';
+import { ScoreBadge } from '@/components/ui/ScoreBadge';
+import { PdnBadge } from '@/components/PdnBadge';
 
 type Props = {
-  candidateId: string;
-  application: ApplicationRow;
-  onClose: () => void;
+  candidateId: string | null | undefined;
+  application: ApplicationRow | null;
 };
 
-export function CandidateHeader({ candidateId, onClose }: Props) {
-  const { data: candidate, isLoading } = useCandidateDetail(candidateId);
+export function CandidateHeader({ candidateId, application }: Props) {
+  const { data: candidate, isLoading } = useCandidateDetail(candidateId || null);
 
   if (isLoading || !candidate) {
     return (
@@ -20,55 +22,95 @@ export function CandidateHeader({ candidateId, onClose }: Props) {
         <div className="candidate-header__info">
           <div style={{ width: '200px', height: '24px', background: 'var(--bg-3)', borderRadius: 'var(--radius-md)' }} />
         </div>
-        <button className="candidate-header__close" onClick={onClose}>
-          <Icon name="x" size={20} />
-        </button>
       </div>
     );
   }
 
-  // Get source for context display
-  const getSourceLabel = () => {
-    // Derive source from stage or other data - for now use placeholder
-    return 'Отклик с HeadHunter';
+  // Real data mapping for context display
+  const getSourceInfo = () => {
+    const source = candidate?.source || (application as any)?.source || 'hh';
+
+    const sourceMap: Record<string, string> = {
+      'hh': 'hh',
+      'telegram': 'tg',
+      'avito': 'avito',
+      'pool': 'pool'
+    };
+    const sourceClass = sourceMap[source] || 'hh';
+
+    const labelMap: Record<string, string> = {
+      'hh': 'Отклик с HeadHunter',
+      'telegram': 'Отклик из Telegram',
+      'avito': 'Отклик с Авито',
+      'pool': 'Из пула'
+    };
+
+    return {
+      className: `src-pill src-${sourceClass}`,
+      label: labelMap[source] || 'Отклик'
+    };
   };
 
-  const formatDate = () => {
-    // Format application date - use a placeholder date for now
-    return new Date().toLocaleDateString('ru');
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    try {
+      return new Date(dateStr).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    } catch {
+      return null;
+    }
   };
 
-  // Mock vacancy name - in real app would come from props or context
-  const vacancyName = 'Frontend-разработчик (Senior)';
+  // Format salary with narrow non-breaking spaces like in etalon
+  const fmtSalary = (n: number) => {
+    return n.toLocaleString('ru-RU').replace(/\s/g, ' ');
+  };
+
+  const sourceInfo = getSourceInfo();
+  const formattedDate = (application as any)?.created_at ? formatDate((application as any).created_at) : null;
 
   return (
     <div className="cd-header">
       <div className="cd-context">
-        <span className="src-pill src-hh">
-          {getSourceLabel()}
-        </span>
-        <span>от {formatDate()}</span>
-        <span className="sep">·</span>
-        <span>{vacancyName}</span>
+        {sourceInfo && (
+          <span className={sourceInfo.className}>
+            {sourceInfo.label}
+          </span>
+        )}
+        {formattedDate && (
+          <>
+            <span>от {formattedDate}</span>
+            <span className="sep">·</span>
+          </>
+        )}
+        {(application as any)?.vacancy_title && (
+          <span>{(application as any).vacancy_title}</span>
+        )}
+        {candidate.city && (
+          <>
+            <span className="sep">·</span>
+            <span>{candidate.city}</span>
+          </>
+        )}
       </div>
 
       <div className="cd-h-main">
         <div className="cd-h-left">
           <div className="cd-name-row">
             <h1 className="cd-name">{candidate.full_name}</h1>
-            {/* PdN badge - TODO: implement when has_pdn field is available */}
-            {candidate.ai_score && (
-              <span className={`score-badge score-${candidate.ai_score >= 80 ? 'green' : candidate.ai_score >= 50 ? 'yellow' : 'red'} score-lg`}>
-                {candidate.ai_score}
-              </span>
-            )}
+            {candidate.has_pdn && <PdnBadge size="md" />}
+            {candidate.ai_score && <ScoreBadge value={candidate.ai_score} size="lg" />}
           </div>
           <div className="cd-exp-line">
-            {candidate.experience?.[0]?.period || 'Опыт не указан'} · {candidate.experience?.[0]?.company || 'Компания не указана'}
+            {candidate.experience?.[0] && (
+              <>
+                {candidate.experience[0].period && `${candidate.experience[0].period} · `}
+                {candidate.experience[0].company}
+              </>
+            )}
           </div>
           <div className="cd-salary-line">
             <span className="cd-salary t-mono">
-              {candidate.salary_expectation ? `${candidate.salary_expectation.toLocaleString()} ₽` : '—'}
+              {candidate.salary_expectation ? `${fmtSalary(candidate.salary_expectation)} ₽` : '—'}
             </span>
             <span className="cd-salary-label">ожидания</span>
           </div>
@@ -82,7 +124,9 @@ export function CandidateHeader({ candidateId, onClose }: Props) {
             <span className="cb-label">Телефон:</span>
             <span className="t-mono cb-strong">{candidate.phone || 'Не указан'}</span>
             <div className="mess-icons-row">
-              {/* TODO: Add messenger icons when available */}
+              {candidate.messengers?.map(messenger => (
+                <MessIconRound key={messenger} channel={messenger as any} size="sm" />
+              ))}
             </div>
           </div>
           <div className="cb-row">
@@ -95,10 +139,6 @@ export function CandidateHeader({ candidateId, onClose }: Props) {
           </div>
         </div>
       </div>
-
-      <button className="candidate-header__close" onClick={onClose} title="Закрыть (Esc)">
-        <Icon name="x" size={20} />
-      </button>
     </div>
   );
 }

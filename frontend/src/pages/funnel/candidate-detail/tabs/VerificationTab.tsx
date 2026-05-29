@@ -33,7 +33,7 @@ export function VerificationTab({ candidateId, candidate }: Props) {
           });
           // Scroll to consent block
           setTimeout(() => {
-            const consentElement = document.querySelector('.verification-lock');
+            const consentElement = document.querySelector('.verify-locked');
             consentElement?.scrollIntoView({ behavior: 'smooth' });
           }, 100);
         }
@@ -70,26 +70,24 @@ export function VerificationTab({ candidateId, candidate }: Props) {
 
   if (needsConsent) {
     return (
-      <div className="tab-content">
-        <div className="verification-lock">
-          <div className="verification-lock__icon">
-            <Icon name="lock" size={48} />
-          </div>
-          <h3 className="verification-lock__title">
-            Требуется согласие на обработку персональных данных
-          </h3>
-          <p className="verification-lock__text">
-            Для проведения верификации кандидата необходимо получить его согласие на обработку персональных данных.
-          </p>
-          <button
-            className="candidate-toolbar__btn candidate-toolbar__btn--primary"
-            onClick={handleRequestConsent}
-            disabled={consentMutation.isPending}
-          >
-            <Icon name={consentMutation.isPending ? "loader" : "mail"} size={16} />
-            Получить согласие
-          </button>
+      <div className="verify-locked">
+        <div className="verify-locked-ico">
+          <Icon name="lock" size={36} />
         </div>
+        <h3>Верификация недоступна</h3>
+        <p>
+          Кандидат пока не подписал согласие на обработку персональных данных (152-ФЗ).
+          Запросите ПдН — после подписания Глафира автоматически проверит кандидата
+          по всем реестрам и публичным источникам.
+        </p>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={handleRequestConsent}
+          disabled={consentMutation.isPending}
+        >
+          <Icon name={consentMutation.isPending ? "loader" : "mail"} size={14} />
+          Запросить ПдН
+        </button>
       </div>
     );
   }
@@ -120,11 +118,11 @@ export function VerificationTab({ candidateId, candidate }: Props) {
   }
 
   return (
-    <div className="tab-content">
+    <div className="verification-tab">
       {verification.is_mock && (
         <div style={{
-          background: 'var(--warning-bg)',
-          border: '1px solid var(--warning-border)',
+          background: '#FFF1C8',
+          border: '1px solid var(--ark-yellow-500)',
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-3) var(--space-4)',
           marginBottom: 'var(--space-4)',
@@ -132,48 +130,71 @@ export function VerificationTab({ candidateId, candidate }: Props) {
           alignItems: 'center',
           gap: 'var(--space-2)'
         }}>
-          <Icon name="alert-triangle" size={20} style={{ color: 'var(--warning-text)', flex: 'none' }} />
-          <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--warning-text)' }}>
+          <Icon name="alert-triangle" size={20} style={{ color: 'var(--ark-yellow-600)', flex: 'none' }} />
+          <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--ark-yellow-600)' }}>
             <strong>Демо-данные.</strong> Реальная проверка по госреестрам не подключена.
             Не используйте для кадровых решений.
           </div>
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-        <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>Результаты верификации</h2>
+      <div className="vf-meta">
+        <span className="vf-meta-glyph">
+          <Icon name="shield" size={14} />
+        </span>
+        Проверка выполнена {new Date(verification.created_at).toLocaleDateString('ru-RU')} · №PD-{verification.id?.slice(-8) || '12345678'}
         <button
-          className="candidate-toolbar__btn"
+          className="btn btn-sm btn-secondary"
           onClick={handleRunVerification}
           disabled={verifyMutation.isPending}
+          style={{ marginLeft: 'auto' }}
         >
-          <Icon name={verifyMutation.isPending ? "loader" : "refresh-cw"} size={16} />
-          Повторить верификацию
+          <Icon name={verifyMutation.isPending ? "loader" : "refresh-cw"} size={14} />
+          Повторить
         </button>
       </div>
 
       {verification.blocks && verification.blocks.length > 0 ? (
-        <div className="list-container">
+        <div>
           {verification.blocks.map((block, index) => (
-            <div key={index} className="list-item">
-              <div className="list-item__header">
-                <h4 className="list-item__title">
-                  {block.key?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || `Блок ${index + 1}`}
-                </h4>
-                <span className="list-item__meta">
-                  Проверено: {new Date(verification.created_at).toLocaleDateString('ru')}
+            <section key={index} className="vf-block">
+              <header className="vf-head">
+                <div className="vf-head-left">
+                  <div className="vf-icon">
+                    <Icon name="search" size={16} />
+                  </div>
+                  <div className="vf-head-text">
+                    <div className="vf-title">
+                      {block.key?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || `Проверка ${index + 1}`}
+                    </div>
+                    <div className="vf-sources">
+                      <span className="vf-src vf-src-api">API</span>
+                      <span className="vf-src vf-src-db">База данных</span>
+                    </div>
+                  </div>
+                </div>
+                <span className="vf-status vf-st-clean">
+                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Чисто
                 </span>
-              </div>
-              <div className="list-item__content">
+              </header>
+              <div className="vf-body">
                 {typeof block.data === 'string' ? (
                   <p>{block.data}</p>
+                ) : block.data && typeof block.data === 'object' ? (
+                  Object.entries(block.data).map(([key, value]: [string, any]) => (
+                    <div key={key} className="vf-kv">
+                      <span className="vf-k">{key}:</span>
+                      <span className="vf-v">{String(value)}</span>
+                    </div>
+                  ))
                 ) : (
-                  <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '14px' }}>
-                    {JSON.stringify(block.data, null, 2)}
-                  </pre>
+                  <p>Нет данных</p>
                 )}
               </div>
-            </div>
+            </section>
           ))}
         </div>
       ) : (

@@ -1,4 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
+import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import type { EvaluationOut } from '@/api/aliases';
 
 type Props = {
@@ -8,44 +9,45 @@ type Props = {
 };
 
 export function AIVerdictCard({ evaluation, onReEvaluate, loading }: Props) {
-  const verdictClass = `ai-verdict-card__verdict--${evaluation.verdict.replace('_', '-')}`;
+  const getVerdictText = () => {
+    if (evaluation.score >= 80) return 'Хорошо подходит. Релевантный опыт, ключевые навыки совпадают с требованиями вакансии.';
+    if (evaluation.score >= 50) return 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.';
+    return 'Не подходит. Опыт не совпадает с требованиями вакансии.';
+  };
 
   return (
-    <div className="ai-verdict-card">
-      <div className="ai-verdict-card__header">
-        <h3 className="ai-verdict-card__title">
-          AI-оценка: {evaluation.score}/100
-        </h3>
-        <span className={`ai-verdict-card__verdict ${verdictClass}`}>
-          {evaluation.verdict}
-        </span>
-        <span className="score-badge score-badge--high" style={{ marginLeft: 'auto' }}>
-          {evaluation.score}
-        </span>
+    <div className="filo-card filo-card-compact">
+      <div className="filo-head">
+        <div className="filo-head-left">
+          <div className="filo-ai-mark filo-glafira" aria-label="Глафира">
+            <span className="glafira-emoji">👩🏻</span>
+          </div>
+          <div>
+            <div className="filo-title">Оценка от Глафиры</div>
+            <div className="filo-sub">{getVerdictText()}</div>
+          </div>
+        </div>
+        <ScoreBadge value={evaluation.score} size="xl" />
       </div>
 
-      <p className="ai-verdict-card__summary">
-        {evaluation.summary}
-      </p>
+      <div className="filo-link-row">
+        <a className="filo-link" href="#" onClick={(e) => { e.preventDefault(); /* TODO: navigate to detailed evaluation */ }}>
+          Посмотреть подробную оценку →
+        </a>
+      </div>
 
-      {evaluation.model && (
-        <p style={{ color: 'var(--fg-3)', fontSize: '12px', margin: '0 0 var(--space-3) 0' }}>
-          Модель: {evaluation.model} • {new Date(evaluation.created_at).toLocaleDateString('ru')}
-        </p>
-      )}
-
-      <div className="ai-verdict-card__actions">
-        {onReEvaluate && (
+      {onReEvaluate && (
+        <div className="ai-verdict-card__actions" style={{ marginTop: '12px' }}>
           <button
-            className="candidate-toolbar__btn"
+            className="btn btn-sm btn-secondary"
             onClick={onReEvaluate}
             disabled={loading}
           >
-            <Icon name={loading ? "loader" : "refresh-cw"} size={16} />
+            <Icon name={loading ? "loader" : "refresh-cw"} size={14} />
             Переоценить
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

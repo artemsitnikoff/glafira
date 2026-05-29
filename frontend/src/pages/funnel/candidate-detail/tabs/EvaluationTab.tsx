@@ -2,7 +2,6 @@ import { Icon } from '@/components/ui/Icon';
 import { useEvaluation } from '@/api/hooks/useEvaluation';
 import { useEvaluate } from '@/api/mutations/candidateDetail';
 import { useCandidateApplications } from '@/api/hooks/useCandidates';
-import { AIVerdictCard } from '../AIVerdictCard';
 
 type Props = {
   candidateId?: string;
@@ -11,12 +10,6 @@ type Props = {
   fromPool?: boolean;
 };
 
-// Status values from backend contract: 'match'|'partial'|'miss'
-const STATUS_ICONS = {
-  match: '✅',
-  partial: '⚠️',
-  miss: '❌',
-} as const;
 
 // Component for single evaluation display
 function SingleEvaluation({
@@ -31,95 +24,91 @@ function SingleEvaluation({
   loading: boolean;
 }) {
   return (
-    <div className="evaluation-card" style={{ marginBottom: 'var(--space-4)' }}>
+    <div className="ai-single" style={{ marginBottom: 'var(--space-4)' }}>
       {vacancyName && (
         <h3 style={{ margin: '0 0 var(--space-3) 0', fontSize: '16px', fontWeight: '600' }}>
           {vacancyName}
         </h3>
       )}
 
-      <AIVerdictCard
-        evaluation={evaluation}
-        onReEvaluate={onReEvaluate}
-        loading={loading}
-      />
+      {/* Three analysis blocks */}
+      <div style={{ marginBottom: '20px' }}>
+        {evaluation.strengths && evaluation.strengths.length > 0 && (
+          <div className="msg ai-msg-good">
+            <span style={{ marginRight: '8px' }}>✅</span>
+            <div>
+              <strong>Сильные стороны</strong>
+              <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                {evaluation.strengths.map((strength: string, index: number) => (
+                  <li key={index}>{strength}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
-      {/* Strengths and Risks */}
-      <div className="strengths-risks">
-        <div className="strengths-risks__column">
-          <h4>✅ Сильные стороны</h4>
-          {evaluation.strengths && evaluation.strengths.length > 0 ? (
-            <ul className="strengths-risks__list">
-              {evaluation.strengths.map((strength: string, index: number) => (
-                <li key={index} className="strengths-risks__item">
-                  {strength}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p style={{ color: 'var(--fg-3)', fontStyle: 'italic' }}>Не выявлено</p>
-          )}
-        </div>
+        {evaluation.risks && evaluation.risks.length > 0 && (
+          <div className="msg ai-msg-warn">
+            <span style={{ marginRight: '8px' }}>⚠️</span>
+            <div>
+              <strong>Риски</strong>
+              <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                {evaluation.risks.map((risk: string, index: number) => (
+                  <li key={index}>{risk}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
-        <div className="strengths-risks__column">
-          <h4>⚠️ Риски</h4>
-          {evaluation.risks && evaluation.risks.length > 0 ? (
-            <ul className="strengths-risks__list">
-              {evaluation.risks.map((risk: string, index: number) => (
-                <li key={index} className="strengths-risks__item">
-                  {risk}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p style={{ color: 'var(--fg-3)', fontStyle: 'italic' }}>Не выявлено</p>
-          )}
-        </div>
+        {evaluation.questions && evaluation.questions.length > 0 && (
+          <div className="msg ai-msg-q">
+            <span style={{ marginRight: '8px' }}>💬</span>
+            <div>
+              <strong>Вопросы для интервью</strong>
+              <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                {evaluation.questions.map((question: string, index: number) => (
+                  <li key={index}>{question}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Requirements Match Table */}
+      {/* Requirements breakdown with progress bars */}
       {evaluation.requirements_match && evaluation.requirements_match.length > 0 && (
-        <div>
-          <h4 style={{ margin: 'var(--space-4) 0 var(--space-2) 0', fontSize: '14px', fontWeight: '600' }}>
-            Соответствие требованиям
-          </h4>
-          <table className="requirements-table">
-            <thead>
-              <tr>
-                <th>Требование</th>
-                <th>Статус</th>
-                <th>Комментарий</th>
-              </tr>
-            </thead>
-            <tbody>
-              {evaluation.requirements_match.map((match: any, index: number) => (
-                <tr key={index}>
-                  <td>{match.requirement}</td>
-                  <td>
-                    <div className="requirements-table__status">
-                      <span className="requirements-table__status-icon">
-                        {STATUS_ICONS[match.status as keyof typeof STATUS_ICONS] || '❓'}
-                      </span>
-                      <span>{match.status}</span>
-                    </div>
-                  </td>
-                  <td>{match.comment || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="crit-list">
+          {evaluation.requirements_match.map((match: any, index: number) => (
+            <div key={index} className="crit-item">
+              <div className="crit-label">{match.requirement}</div>
+              <div className="crit-bar">
+                <div
+                  className="crit-fill"
+                  style={{
+                    width: `${match.score || 0}%`,
+                    backgroundColor: match.status === 'match' ? 'var(--score-green)' :
+                                     match.status === 'partial' ? 'var(--score-yellow)' :
+                                     'var(--score-red)'
+                  }}
+                />
+              </div>
+              <div className="crit-score">{match.score || 0}%</div>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Forecast */}
-      {evaluation.forecast && (
-        <div style={{ marginTop: 'var(--space-4)' }}>
-          <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: '14px', fontWeight: '600' }}>
-            Прогноз
-          </h4>
-          <p style={{ color: 'var(--fg-2)', lineHeight: '1.5' }}>
-            {evaluation.forecast}
-          </p>
+      {onReEvaluate && (
+        <div style={{ marginTop: '16px', textAlign: 'right' }}>
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={onReEvaluate}
+            disabled={loading}
+          >
+            <Icon name={loading ? "loader" : "refresh-cw"} size={14} />
+            Переоценить
+          </button>
         </div>
       )}
     </div>
@@ -324,12 +313,10 @@ export function EvaluationTab({ candidateId, applicationId, candidate, fromPool 
   }
 
   return (
-    <div className="tab-content">
-      <SingleEvaluation
-        evaluation={evaluation}
-        onReEvaluate={handleReEvaluate}
-        loading={evaluateMutation.isPending}
-      />
-    </div>
+    <SingleEvaluation
+      evaluation={evaluation}
+      onReEvaluate={handleReEvaluate}
+      loading={evaluateMutation.isPending}
+    />
   );
 }

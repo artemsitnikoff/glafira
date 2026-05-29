@@ -77,102 +77,117 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   }
 
   return (
-    <div className="tab-content">
-      <h2 style={{ margin: '0 0 var(--space-4) 0', fontSize: '18px', fontWeight: '600' }}>
-        Чат с кандидатом
-      </h2>
-
-      <div className="chat-container">
-        <div className="chat-messages">
-          {messages && messages.length > 0 ? (
-            fromPool && messageGroups ? (
-              messageGroups.map(([vacancyId, group], groupIndex) => (
-                <div key={vacancyId || 'null-group'}>
-                  {/* Разделитель группы */}
-                  <div style={{
-                    padding: 'var(--space-3) 0',
-                    margin: groupIndex > 0 ? 'var(--space-4) 0 var(--space-3) 0' : '0 0 var(--space-3) 0',
-                    borderTop: groupIndex > 0 ? '1px solid var(--border-1)' : 'none',
-                    textAlign: 'center'
+    <div className="chat-tab">
+      <div className="chat-stream">
+        {messages && messages.length > 0 ? (
+          fromPool && messageGroups ? (
+            messageGroups.map(([vacancyId, group], groupIndex) => (
+              <div key={vacancyId || 'null-group'}>
+                {/* Group divider */}
+                <div style={{
+                  padding: 'var(--space-3) 0',
+                  margin: groupIndex > 0 ? 'var(--space-4) 0 var(--space-3) 0' : '0 0 var(--space-3) 0',
+                  borderTop: groupIndex > 0 ? '1px solid var(--border-1)' : 'none',
+                  textAlign: 'center'
+                }}>
+                  <span style={{
+                    fontSize: '12px',
+                    color: 'var(--fg-3)',
+                    fontWeight: 500,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
                   }}>
-                    <span style={{
-                      fontSize: '12px',
-                      color: 'var(--fg-3)',
-                      fontWeight: 500,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em'
-                    }}>
-                      {getGroupTitle(group, vacancyId)}
-                    </span>
-                  </div>
+                    {getGroupTitle(group, vacancyId)}
+                  </span>
+                </div>
 
-                  {/* Сообщения группы */}
-                  {group.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`chat-message chat-message--${message.sender_type === 'user' ? 'user' : 'assistant'}`}
-                    >
-                      <div style={{ marginBottom: 'var(--space-1)' }}>
-                        <strong>
-                          {message.sender_type === 'user' ? 'Рекрутер' : 'Кандидат'}
-                        </strong>
-                        <span style={{ color: 'var(--fg-3)', fontSize: '12px', marginLeft: 'var(--space-2)' }}>
-                          {new Date(message.sent_at).toLocaleString('ru')}
-                        </span>
-                      </div>
-                      <div>{message.body}</div>
+                {/* Messages */}
+                {group.map((message) => (
+                  <div key={message.id} className="chat-row">
+                    <div className="chat-avatar">
+                      <Icon name={message.sender_type === 'user' ? 'user' : 'users'} size={16} />
                     </div>
-                  ))}
-                </div>
-              ))
-            ) : (
-              // Стандартный режим - плоский список
-              messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`chat-message chat-message--${message.sender_type === 'user' ? 'user' : 'assistant'}`}
-                >
-                  <div style={{ marginBottom: 'var(--space-1)' }}>
-                    <strong>
-                      {message.sender_type === 'user' ? 'Рекрутер' : 'Кандидат'}
-                    </strong>
-                    <span style={{ color: 'var(--fg-3)', fontSize: '12px', marginLeft: 'var(--space-2)' }}>
-                      {new Date(message.sent_at).toLocaleString('ru')}
-                    </span>
+                    <div className="chat-bubble-wrap">
+                      <div className={`chat-bubble chat-bubble-${message.sender_type === 'user' ? 'me' : 'them'}`}>
+                        <div className="chat-body">{message.body}</div>
+                        <div className="chat-meta">
+                          {new Date(message.sent_at).toLocaleTimeString('ru', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+                      {message.channel && (
+                        <div className="chat-ch">
+                          <span className="chat-ch-dot" />
+                          {message.channel}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>{message.body}</div>
-                </div>
-              ))
-            )
+                ))}
+              </div>
+            ))
           ) : (
-            <div className="empty-state">
-              <Icon name="message-circle" size={32} className="empty-state__icon" />
-              <p className="empty-state__text">Сообщений пока нет</p>
-            </div>
-          )}
-        </div>
+            // Standard mode - flat list
+            messages.map((message) => (
+              <div key={message.id} className="chat-row">
+                <div className="chat-avatar">
+                  <Icon name={message.sender_type === 'user' ? 'user' : 'users'} size={16} />
+                </div>
+                <div className="chat-bubble-wrap">
+                  <div className={`chat-bubble chat-bubble-${message.sender_type === 'user' ? 'me' : 'them'}`}>
+                    <div className="chat-body">{message.body}</div>
+                    <div className="chat-meta">
+                      {new Date(message.sent_at).toLocaleTimeString('ru', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                  </div>
+                  {message.channel && (
+                    <div className="chat-ch">
+                      <span className="chat-ch-dot" />
+                      {message.channel}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )
+        ) : (
+          <div className="empty-state">
+            <Icon name="message-circle" size={32} className="empty-state__icon" />
+            <p className="empty-state__text">Сообщений пока нет</p>
+          </div>
+        )}
+      </div>
 
-        <div className="chat-input-container">
+      <div className="chat-compose">
+        <div className="chat-compose-row">
           <textarea
             className="chat-input"
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Напишите сообщение... (Enter для отправки, Shift+Enter для новой строки)"
-            rows={2}
+            placeholder="Напишите сообщение..."
+            rows={1}
           />
           <button
-            className="candidate-toolbar__btn candidate-toolbar__btn--primary"
+            className="chat-send-btn"
             onClick={handleSendMessage}
             disabled={!messageText.trim() || sendMutation.isPending}
           >
             <Icon name={sendMutation.isPending ? "loader" : "send"} size={16} />
           </button>
         </div>
+        <div className="chat-hint">
+          Enter — отправить, Shift+Enter — новая строка
+        </div>
       </div>
 
       {sendMutation.isError && (
-        <div style={{ marginTop: 'var(--space-2)', color: 'var(--stage-rejected)', fontSize: '14px' }}>
+        <div style={{ marginTop: 'var(--space-2)', color: 'var(--stage-rejected)', fontSize: '12px' }}>
           Ошибка отправки: {sendMutation.error?.message}
         </div>
       )}

@@ -25,17 +25,17 @@ type Props = {
 
 const TABS = [
   { id: 'resume', label: 'Резюме' },
-  { id: 'evaluation', label: 'AI-оценка' },
+  { id: 'evaluation', label: 'Оценка AI' },
   { id: 'verification', label: 'Верификация' },
   { id: 'chat', label: 'Чат' },
   { id: 'docs', label: 'Документы' },
   { id: 'comments', label: 'Комментарии' },
-  { id: 'actions', label: 'Действия' },
+  { id: 'actions', label: 'Все действия' },
 ];
 
 export function CandidateDetail({ application, onClose, isResolving }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const activeTab = searchParams.get('tab') || 'resume';
 
@@ -71,17 +71,8 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Show loader while application is being resolved or candidate details are loading OR timer loader
-  if (isResolving || (!application && candidateDetailQuery.isLoading) || loading) {
-    return (
-      <div className="candidate-detail">
-        <CandidateLoader />
-      </div>
-    );
-  }
-
   // Show "not found" if we have finished loading but no application found
-  if (!application) {
+  if (!isResolving && !application) {
     return (
       <div className="candidate-detail">
         <div className="candidate-detail__loader">
@@ -99,15 +90,17 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
   }
 
   // Extract IDs from confirmed application
-  const candidateId = application.candidate_id;
-  const applicationId = application.id;
+  const candidateId = application?.candidate_id;
+  const applicationId = application?.id;
+
+  const showLoader = isResolving || (!application && candidateDetailQuery.isLoading) || loading;
 
   return (
     <div className="candidate-detail">
       <div className="cd-toolbar">
         <CandidateToolbar
-          application={application}
-          candidate={candidateDetailQuery.data}
+          application={application || undefined}
+          candidate={candidateDetailQuery.data || undefined}
           onClose={onClose}
           onTabChange={setActiveTab}
         />
@@ -117,7 +110,6 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
         <CandidateHeader
           candidateId={candidateId}
           application={application}
-          onClose={onClose}
         />
       </div>
 
@@ -133,14 +125,30 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
         ))}
       </div>
 
-      <div className="cc-content">
-        {activeTab === 'resume' && <ResumeTab candidateId={candidateId} />}
-        {activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} />}
-        {activeTab === 'verification' && <VerificationTab candidateId={candidateId} />}
-        {activeTab === 'chat' && <ChatTab candidateId={candidateId} />}
-        {activeTab === 'docs' && <DocumentsTab candidateId={candidateId} />}
-        {activeTab === 'comments' && <CommentsTab candidateId={candidateId} />}
-        {activeTab === 'actions' && <AllActionsTab candidateId={candidateId} />}
+      <div className="cc-content" style={{ position: 'relative' }}>
+        {candidateId && activeTab === 'resume' && <ResumeTab candidateId={candidateId} />}
+        {candidateId && applicationId && activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} />}
+        {candidateId && activeTab === 'verification' && <VerificationTab candidateId={candidateId} />}
+        {candidateId && activeTab === 'chat' && <ChatTab candidateId={candidateId} />}
+        {candidateId && activeTab === 'docs' && <DocumentsTab candidateId={candidateId} />}
+        {candidateId && activeTab === 'comments' && <CommentsTab candidateId={candidateId} />}
+        {candidateId && activeTab === 'actions' && <AllActionsTab candidateId={candidateId} />}
+
+        {showLoader && (
+          <div className="cd-loading" style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(255,255,255,.92)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: 'cdLoadFade 240ms',
+            zIndex: 10
+          }}>
+            <CandidateLoader />
+          </div>
+        )}
       </div>
     </div>
   );
