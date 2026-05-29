@@ -1,10 +1,27 @@
 import { useApplications, type ApplicationFilters } from '@/api/hooks/useApplications';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Avatar } from '@/components/ui/Avatar';
-import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import { StageChip } from '@/components/ui/StageChip';
 import { MessIconRound } from '@/components/ui/MessIconRound';
 import { Icon } from '@/components/ui/Icon';
+
+// Score-бейдж 1:1 по эталону: светлый пастельный фон + тёмный текст, фикс-бокс по score-{size}.
+// Использует scoped-классы .score-badge/.score-green/.score-lg из Funnel.css.
+// Общий components/ui/ScoreBadge — другой стиль (сплошной фон + белый текст), его НЕ трогаем (юзают другие экраны).
+function scoreColorClass(s: number | null | undefined): string {
+  if (s == null) return '';
+  if (s >= 80) return 'score-green';
+  if (s >= 50) return 'score-yellow';
+  return 'score-red';
+}
+
+function ScoreBadge({ value, size = 'lg' }: { value: number | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
+  return (
+    <span className={`score-badge ${scoreColorClass(value)} score-${size}`} title="Почему такая оценка">
+      {value == null ? '—' : value}
+    </span>
+  );
+}
 
 type Props = {
   vacancyId: string;
@@ -269,7 +286,7 @@ function FunnelRow({
           onChange={onSelect}
           onClick={e => e.stopPropagation()}
         />
-        <Avatar name={candidate.full_name} size="sm" src={candidate.avatar_url} />
+        <Avatar name={candidate.full_name} size="md" src={candidate.avatar_url} />
         <div className="prof-text">
           <div className="prof-name">
             {candidate.display_number && (
