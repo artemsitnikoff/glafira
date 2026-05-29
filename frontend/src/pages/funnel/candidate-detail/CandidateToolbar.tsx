@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
-import { Button } from '@/components/ui/Button';
 import type { ApplicationRow, Candidate } from '@/api/aliases';
 import { useMoveApplication, useRejectApplication, useRestoreApplication } from '@/api/mutations/applications';
 import { useRequestConsent } from '@/api/mutations/candidateDetail';
@@ -144,147 +143,136 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   }
 
   return (
-    <div className="candidate-toolbar">
-      <div className="toolbar-actions">
-        {/* Move/Create Employee Button */}
-        {!isRejected && (
-          <div className="toolbar-dropdown" ref={moveRef}>
-            {isHired ? (
-              <Button
-                variant="success"
-                size="sm"
-                onClick={handleCreateEmployee}
-              >
-                Создать сотрудника
-              </Button>
-            ) : (
-              <Button
-                variant="success"
-                size="sm"
-                onClick={() => setMovePopoverOpen(!movePopoverOpen)}
-              >
-                Перевести
-                <Icon name="chevron-down" size={14} />
-              </Button>
-            )}
+    <div className="cd-toolbar">
+      {/* Move/Create Employee Button */}
+      {!isRejected && (
+        <div className="cd-move-wrap" ref={moveRef}>
+          {isHired ? (
+            <button className="btn btn-success btn-sm" onClick={handleCreateEmployee}>
+              <Icon name="arrow-right" size={14} />
+              Создать сотрудника
+            </button>
+          ) : (
+            <button className="btn btn-success btn-sm" onClick={() => setMovePopoverOpen(!movePopoverOpen)}>
+              <Icon name="arrow-right" size={14} />
+              Перевести
+              <Icon name="chevron-down" size={12} />
+            </button>
+          )}
 
-            {movePopoverOpen && !isHired && (
-              <div className="popover">
-                <div className="popover-content">
-                  {availableStages.map(stage => (
-                    <button
-                      key={stage.id}
-                      className="popover-item"
-                      onClick={() => handleMoveToStage(stage.id)}
-                      disabled={moveMutation.isPending}
-                    >
-                      {stage.name}
-                    </button>
-                  ))}
-                </div>
+          {movePopoverOpen && !isHired && (
+            <>
+              <div className="cd-pop-backdrop" onClick={() => setMovePopoverOpen(false)} />
+              <div className="cd-move-pop" role="menu">
+                <div className="cd-pop-head">На какой этап?</div>
+                {availableStages.map(stage => (
+                  <button
+                    key={stage.id}
+                    className="cd-pop-item"
+                    onClick={() => handleMoveToStage(stage.id)}
+                    disabled={moveMutation.isPending}
+                  >
+                    <span className="cd-pop-label">{stage.name}</span>
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
+      )}
 
-        {/* Reject/Restore Button */}
-        {isRejected ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleRestore}
-            disabled={restoreMutation.isPending}
-          >
-            Восстановить
-          </Button>
-        ) : (
-          <div className="toolbar-dropdown" ref={rejectRef}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setRejectPopoverOpen(!rejectPopoverOpen)}
-            >
-              Отклонить
-              <Icon name="chevron-down" size={14} />
-            </Button>
+      {/* Reject/Restore Button */}
+      {isRejected ? (
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={handleRestore}
+          disabled={restoreMutation.isPending}
+        >
+          Восстановить
+        </button>
+      ) : (
+        <div className="cd-move-wrap" ref={rejectRef}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRejectPopoverOpen(!rejectPopoverOpen)}>
+            <Icon name="x" size={14} />
+            Отклонить
+            <Icon name="chevron-down" size={12} />
+          </button>
 
-            {rejectPopoverOpen && (
-              <div className="popover">
-                <div className="popover-content">
-                  {candidateReasons.length > 0 && (
-                    <div className="popover-section">
-                      <div className="popover-section-title">Кандидат</div>
-                      {candidateReasons.map(reason => (
-                        <button
-                          key={reason.id}
-                          className="popover-item"
-                          onClick={() => handleRejectWithReason(reason.id)}
-                          disabled={rejectMutation.isPending}
-                        >
-                          {reason.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {companyReasons.length > 0 && (
-                    <div className="popover-section">
-                      <div className="popover-section-title">Компания</div>
-                      {companyReasons.map(reason => (
-                        <button
-                          key={reason.id}
-                          className="popover-item"
-                          onClick={() => handleRejectWithReason(reason.id)}
-                          disabled={rejectMutation.isPending}
-                        >
-                          {reason.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+          {rejectPopoverOpen && (
+            <>
+              <div className="cd-pop-backdrop" onClick={() => setRejectPopoverOpen(false)} />
+              <div className="cd-move-pop cd-reject-pop" role="menu">
+                <div className="cd-pop-head">Причина отказа</div>
+                {candidateReasons.length > 0 && (
+                  <>
+                    <div className="cd-pop-group">От кандидата</div>
+                    {candidateReasons.map(reason => (
+                      <button
+                        key={reason.id}
+                        className="cd-pop-item cd-reject-item"
+                        onClick={() => handleRejectWithReason(reason.id)}
+                        disabled={rejectMutation.isPending}
+                      >
+                        <span className="r-bullet" />
+                        <span className="cd-pop-label">{reason.name}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+                {companyReasons.length > 0 && (
+                  <>
+                    <div className="cd-pop-group">Со стороны компании</div>
+                    {companyReasons.map(reason => (
+                      <button
+                        key={reason.id}
+                        className="cd-pop-item cd-reject-item"
+                        onClick={() => handleRejectWithReason(reason.id)}
+                        disabled={rejectMutation.isPending}
+                      >
+                        <span className="r-bullet co" />
+                        <span className="cd-pop-label">{reason.name}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
+      )}
 
-        {/* Comment Button */}
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleComment}
+      {/* Comment Button */}
+      <button className="btn btn-secondary btn-sm" onClick={handleComment}>
+        <Icon name="message-square" size={14} />
+        Комментарий
+      </button>
+
+      {/* Consent Button */}
+      {application && !application.has_pdn ? (
+        <button
+          className="btn btn-secondary btn-sm cd-pdn-btn"
+          onClick={handleRequestConsent}
+          disabled={consentMutation.isPending}
+          title="Запросить согласие на обработку персональных данных"
         >
-          Комментарий
-        </Button>
+          <Icon name="shield" size={14} />
+          ПдН
+        </button>
+      ) : (
+        <span className="cd-pdn-confirmed" title="Согласие на обработку ПдН получено">
+          ПдН
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </span>
+      )}
 
-        {/* Consent Button */}
-        {application && !application.has_pdn ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleRequestConsent}
-            disabled={consentMutation.isPending}
-            title="Запросить согласие на обработку персональных данных"
-          >
-            <Icon name="shield" size={16} />
-            ПдН
-          </Button>
-        ) : (
-          <div className="consent-badge" title="Согласие на обработку ПдН получено">
-            <Icon name="check-circle" size={16} />
-            ПдН ✓
-          </div>
-        )}
+      <div style={{ flex: 1 }} />
 
-        {/* Close Button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          className="toolbar-close"
-        >
-          <Icon name="x" size={16} />
-        </Button>
-      </div>
+      {/* Close Button */}
+      <button className="icon-btn" onClick={onClose} title="Закрыть">
+        <Icon name="x" size={18} />
+      </button>
     </div>
   );
 }

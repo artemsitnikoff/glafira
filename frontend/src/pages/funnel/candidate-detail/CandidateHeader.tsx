@@ -1,6 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
-import { useUpdateCandidate } from '@/api/mutations/candidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
 
 type Props = {
@@ -9,13 +8,12 @@ type Props = {
   onClose: () => void;
 };
 
-export function CandidateHeader({ candidateId, application, onClose }: Props) {
+export function CandidateHeader({ candidateId, onClose }: Props) {
   const { data: candidate, isLoading } = useCandidateDetail(candidateId);
-  const updateMutation = useUpdateCandidate(candidateId);
 
   if (isLoading || !candidate) {
     return (
-      <div className="candidate-header">
+      <div className="cd-header">
         <div className="candidate-header__avatar">
           <Icon name="user" size={24} />
         </div>
@@ -29,70 +27,71 @@ export function CandidateHeader({ candidateId, application, onClose }: Props) {
     );
   }
 
-  const initials = candidate.full_name
-    .split(' ')
-    .map(name => name[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  // Get source for context display
+  const getSourceLabel = () => {
+    // Derive source from stage or other data - for now use placeholder
+    return 'Отклик с HeadHunter';
+  };
 
-  const scoreClass = candidate.ai_score
-    ? candidate.ai_score >= 80 ? 'score-badge--high'
-      : candidate.ai_score >= 50 ? 'score-badge--mid'
-      : 'score-badge--low'
-    : '';
+  const formatDate = () => {
+    // Format application date - use a placeholder date for now
+    return new Date().toLocaleDateString('ru');
+  };
 
-  const stageClass = `stage-chip--${application.stage.replace('_', '-')}`;
-
-  function handlePreferredChannelChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    updateMutation.mutate({
-      preferred_channel: e.target.value,
-    });
-  }
+  // Mock vacancy name - in real app would come from props or context
+  const vacancyName = 'Frontend-разработчик (Senior)';
 
   return (
-    <div className="candidate-header">
-      <div className="candidate-header__avatar">
-        {initials}
+    <div className="cd-header">
+      <div className="cd-context">
+        <span className="src-pill src-hh">
+          {getSourceLabel()}
+        </span>
+        <span>от {formatDate()}</span>
+        <span className="sep">·</span>
+        <span>{vacancyName}</span>
       </div>
 
-      <div className="candidate-header__info">
-        <h1 className="candidate-header__name">
-          {candidate.full_name}
-        </h1>
-
-        <div className="candidate-header__badges">
-          {candidate.ai_score && (
-            <span className={`score-badge ${scoreClass}`}>
-              {candidate.ai_score}
+      <div className="cd-h-main">
+        <div className="cd-h-left">
+          <div className="cd-name-row">
+            <h1 className="cd-name">{candidate.full_name}</h1>
+            {/* PdN badge - TODO: implement when has_pdn field is available */}
+            {candidate.ai_score && (
+              <span className={`score-badge score-${candidate.ai_score >= 80 ? 'green' : candidate.ai_score >= 50 ? 'yellow' : 'red'} score-lg`}>
+                {candidate.ai_score}
+              </span>
+            )}
+          </div>
+          <div className="cd-exp-line">
+            {candidate.experience?.[0]?.period || 'Опыт не указан'} · {candidate.experience?.[0]?.company || 'Компания не указана'}
+          </div>
+          <div className="cd-salary-line">
+            <span className="cd-salary t-mono">
+              {candidate.salary_expectation ? `${candidate.salary_expectation.toLocaleString()} ₽` : '—'}
             </span>
-          )}
-          <span className={`stage-chip ${stageClass}`}>
-            {application.stage}
-          </span>
+            <span className="cd-salary-label">ожидания</span>
+          </div>
+          <div className="cd-tags-row">
+            <button className="tag-add">+ Добавить тег</button>
+          </div>
         </div>
 
-        <div className="candidate-header__meta">
-          <div>
-            📱 {candidate.phone || 'Не указан'} •
-            ✉️ {candidate.email || 'Не указан'}
+        <div className="cd-contact-box">
+          <div className="cb-row">
+            <span className="cb-label">Телефон:</span>
+            <span className="t-mono cb-strong">{candidate.phone || 'Не указан'}</span>
+            <div className="mess-icons-row">
+              {/* TODO: Add messenger icons when available */}
+            </div>
           </div>
-          <div>
-            📍 {candidate.city || 'Город не указан'} •
-            💰 {candidate.salary_expectation ? `${candidate.salary_expectation.toLocaleString()} ₽` : 'З/п не указана'}
+          <div className="cb-row">
+            <span className="cb-label">Город:</span>
+            <span>{candidate.city || 'Не указан'}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: 'var(--space-1)' }}>
-            <span>Предпочитаемый канал:</span>
-            <select
-              className="preferred-channel-select"
-              value={candidate.preferred_channel}
-              onChange={handlePreferredChannelChange}
-            >
-              <option value="telegram">Telegram</option>
-              <option value="phone">Телефон</option>
-              <option value="email">Email</option>
-              <option value="whatsapp">WhatsApp</option>
-            </select>
+          <div className="cb-row">
+            <span className="cb-label">E-mail:</span>
+            <span>{candidate.email || 'Не указан'}</span>
           </div>
         </div>
       </div>

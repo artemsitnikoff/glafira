@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { components } from '@/api/types';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
@@ -35,6 +35,7 @@ const TABS = [
 
 export function CandidateDetail({ application, onClose, isResolving }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [loading, setLoading] = useState(false);
 
   const activeTab = searchParams.get('tab') || 'resume';
 
@@ -49,6 +50,15 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
     });
   }
 
+  // Timer loader 850ms on candidateId change (like in etalon)
+  useEffect(() => {
+    if (application?.candidate_id) {
+      setLoading(true);
+      const timeout = setTimeout(() => setLoading(false), 850);
+      return () => clearTimeout(timeout);
+    }
+  }, [application?.candidate_id]);
+
   // Handle Esc key
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -61,8 +71,8 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Show loader while application is being resolved or candidate details are loading
-  if (isResolving || (!application && candidateDetailQuery.isLoading)) {
+  // Show loader while application is being resolved or candidate details are loading OR timer loader
+  if (isResolving || (!application && candidateDetailQuery.isLoading) || loading) {
     return (
       <div className="candidate-detail">
         <CandidateLoader />
@@ -94,15 +104,7 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
 
   return (
     <div className="candidate-detail">
-      <div className="candidate-detail__header">
-        <CandidateHeader
-          candidateId={candidateId}
-          application={application}
-          onClose={onClose}
-        />
-      </div>
-
-      <div className="candidate-detail__toolbar">
+      <div className="cd-toolbar">
         <CandidateToolbar
           application={application}
           candidate={candidateDetailQuery.data}
@@ -111,21 +113,27 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
         />
       </div>
 
-      <div className="candidate-detail__tabs">
-        <div className="candidate-tabs">
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              className={`candidate-tabs__tab ${activeTab === tab.id ? 'candidate-tabs__tab--active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="cd-header">
+        <CandidateHeader
+          candidateId={candidateId}
+          application={application}
+          onClose={onClose}
+        />
       </div>
 
-      <div className="candidate-detail__content">
+      <div className="cc-tabs">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`cc-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="cc-content">
         {activeTab === 'resume' && <ResumeTab candidateId={candidateId} />}
         {activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} />}
         {activeTab === 'verification' && <VerificationTab candidateId={candidateId} />}
