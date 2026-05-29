@@ -6,6 +6,7 @@ import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
 import { useCandidates } from '@/api/hooks/useCandidates';
 import { Avatar } from './ui/Avatar';
 import { Icon } from './ui/Icon';
+import { APP_VERSION } from '@/lib/version';
 import './Sidebar.css';
 
 const ANALYTICS_REPORTS = [
@@ -51,7 +52,10 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__brand" onClick={handleBrandClick}>
         <span>👩🏻</span>
-        <span className="sidebar__brand-name">Глафира</span>
+        <span className="sidebar__brand-name">
+          Глафира
+          <span className="sidebar__brand-version">v{APP_VERSION}</span>
+        </span>
         <span>💃</span>
       </div>
 

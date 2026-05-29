@@ -26,6 +26,17 @@
   font-weight: 700;
   font-size: 16px;
   letter-spacing: -0.01em;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.sidebar__brand-version {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  letter-spacing: 0;
 }
 
 .sidebar__brand span:first-child {
