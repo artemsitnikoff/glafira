@@ -1,15 +1,19 @@
 import { useRef } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
+import { useEvaluation } from '@/api/hooks/useEvaluation';
 import { useUploadDocument } from '@/api/mutations/candidateDetail';
+import { AIVerdictCard } from '@/components/candidates/AIVerdictCard';
 
 type Props = {
   candidateId?: string;
   candidate?: any;
   fromPool?: boolean;
+  applicationId?: string;
+  onOpenAI?: () => void;
 };
 
-export function ResumeTab({ candidateId, candidate: candidateProps, fromPool }: Props) {
+export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, applicationId, onOpenAI }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const actualCandidateId = candidateId || candidateProps?.id;
 
@@ -18,6 +22,9 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool }: 
     fromPool ? null : actualCandidateId
   );
   const candidate = fromPool ? candidateProps : candidateFromApi;
+
+  // Get evaluation for AI verdict card
+  const { data: evaluation } = useEvaluation(actualCandidateId, applicationId);
 
   const uploadMutation = useUploadDocument(actualCandidateId);
 
@@ -61,42 +68,40 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool }: 
         style={{ display: 'none' }}
       />
 
-      <h3 className="cc-sec-title">Опыт работы</h3>
-      {candidate.experience && candidate.experience.length > 0 ? (
-        <div>
+      {/* AI Verdict Card */}
+      {evaluation && <AIVerdictCard evaluation={evaluation} onOpenAI={onOpenAI} />}
+
+      {candidate.experience && candidate.experience.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">Опыт работы</h3>
           {candidate.experience.map((exp: any, index: number) => (
             <div key={index} className="job">
               <div className="job-header">
                 <div>
-                  <div className="job-title">{exp.position || 'Должность не указана'}</div>
-                  <div className="job-co">{exp.company || 'Компания не указана'}</div>
+                  <div className="job-title">{exp.position}</div>
+                  <div className="job-co">{exp.company}</div>
                 </div>
-                <div className="job-period">{exp.period || 'Период не указан'}</div>
+                <div className="job-period">{exp.period}</div>
               </div>
               {exp.description && (
                 <div className="job-desc">{exp.description}</div>
               )}
             </div>
           ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <Icon name="briefcase" size={24} className="empty-state__icon" />
-          <p className="empty-state__text">Опыт работы не указан</p>
-        </div>
+        </>
       )}
 
-      <h3 className="cc-sec-title">Навыки</h3>
-      {candidate.skills && candidate.skills.length > 0 ? (
-        <div className="skill-row">
-          {candidate.skills.map((skill: any, index: number) => (
-            <span key={index} className="skill-chip">
-              {skill}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p style={{ color: 'var(--fg-3)', margin: '8px 0' }}>Навыки не указаны</p>
+      {candidate.skills && candidate.skills.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">Навыки</h3>
+          <div className="skill-row">
+            {candidate.skills.map((skill: any, index: number) => (
+              <span key={index} className="skill-chip">
+                {skill}
+              </span>
+            ))}
+          </div>
+        </>
       )}
 
       {candidate.education && candidate.education.length > 0 && (
@@ -105,28 +110,20 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool }: 
           {candidate.education.map((edu: any, index: number) => (
             <div key={index} className="edu-row">
               <div>
-                <div className="job-title">{edu.institution || 'Учебное заведение'}</div>
-                <div className="job-co">{edu.specialization || edu.degree || 'Специальность'}</div>
+                <div className="job-title">{edu.institution}</div>
+                <div className="job-co">{edu.specialty}</div>
               </div>
-              <div className="job-period">{edu.period || edu.year || 'Год не указан'}</div>
+              <div className="job-period">{edu.years}</div>
             </div>
           ))}
         </>
       )}
 
-      {candidate.extra && (
+      {candidate.extra && candidate.extra.languages && candidate.extra.languages.length > 0 && (
         <>
           <h3 className="cc-sec-title">Дополнительно</h3>
           <div className="extra-grid">
-            {typeof candidate.extra === 'object' ? (
-              Object.entries(candidate.extra).map(([key, value]: [string, any]) => (
-                <div key={key}>
-                  <span className="extra-k">{key}:</span> {String(value)}
-                </div>
-              ))
-            ) : (
-              <div>{String(candidate.extra)}</div>
-            )}
+            <div><span className="extra-k">Языки:</span> {candidate.extra.languages.join(' · ')}</div>
           </div>
         </>
       )}

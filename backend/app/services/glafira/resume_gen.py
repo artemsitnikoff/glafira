@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .client import call_json
 from .prompts import RESUME_GEN_SYSTEM_PROMPT, RESUME_GEN_USER_TEMPLATE
 from ...core.errors import GlafiraParseError
-from ...models import Candidate, CandidateExperience, CandidateSkill
+from ...models import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +44,14 @@ async def generate_resume(
         result = await call_json(
             system=RESUME_GEN_SYSTEM_PROMPT,
             user=user_prompt,
-            max_tokens=1500
+            max_tokens=3500
         )
 
         # Валидация результата
         if not isinstance(result, dict):
             raise GlafiraParseError(details={"reason": "Invalid JSON response from AI"})
 
-        required_fields = ["summary", "experience", "skills"]
+        required_fields = ["summary", "experience", "skills", "education", "languages"]
         for field in required_fields:
             if field not in result:
                 raise GlafiraParseError(details={"reason": f"Missing field: {field}"})
@@ -74,6 +74,20 @@ async def generate_resume(
         if result.get("skills"):
             skills_text = ", ".join(result["skills"])
             resume_text_parts.append(f"\n\nНАВЫКИ: {skills_text}")
+
+        if result.get("education"):
+            resume_text_parts.append("\n\nОБРАЗОВАНИЕ:")
+            for edu in result["education"]:
+                edu_text = f"• {edu.get('institution', 'Учебное заведение не указано')}"
+                if edu.get('specialty'):
+                    edu_text += f", {edu['specialty']}"
+                if edu.get('years'):
+                    edu_text += f" ({edu['years']})"
+                resume_text_parts.append(edu_text)
+
+        if result.get("languages"):
+            languages_text = ", ".join(result["languages"])
+            resume_text_parts.append(f"\n\nЯЗЫКИ: {languages_text}")
 
         # Сохраняем resume_text
         candidate.resume_text = "\n".join(resume_text_parts)
@@ -114,6 +128,34 @@ async def generate_resume(
                     order_index=idx
                 )
                 session.add(skill)
+
+        # Создаем CandidateEducation записи
+        if result.get("education"):
+            # Удаляем старые записи образования (если есть)
+            await session.execute(
+                delete(CandidateEducation).where(
+                    CandidateEducation.candidate_id == candidate.id
+                )
+            )
+
+            for idx, edu_data in enumerate(result["education"]):
+                education = CandidateEducation(
+                    candidate_id=candidate.id,
+                    institution=edu_data.get("institution"),
+                    specialty=edu_data.get("specialty"),
+                    years=edu_data.get("years"),
+                    order_index=idx
+                )
+                session.add(education)
+
+        # Сохраняем языки в candidate.extra
+        if result.get("languages"):
+            existing_extra = candidate.extra or {}
+            existing_extra.update({
+                "demo": "true",  # Помечаем как демо-данные
+                "languages": result["languages"]
+            })
+            candidate.extra = existing_extra
 
         await session.flush()
         logger.info(f"Резюме для {candidate.full_name} успешно создано")

@@ -98,7 +98,7 @@ export function CandidatePoolDetailPage() {
 
     switch (activeTab) {
       case 'resume':
-        return <ResumeTab {...commonProps} />
+        return <ResumeTab {...commonProps} onOpenAI={() => handleTabChange('evaluation')} />
       case 'chat':
         return <ChatTab {...commonProps} />
       case 'documents':
@@ -112,7 +112,7 @@ export function CandidatePoolDetailPage() {
       case 'verification':
         return <VerificationTab {...commonProps} />
       default:
-        return <ResumeTab {...commonProps} />
+        return <ResumeTab {...commonProps} onOpenAI={() => handleTabChange('evaluation')} />
     }
   }
 

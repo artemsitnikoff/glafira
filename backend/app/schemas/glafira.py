@@ -31,7 +31,7 @@ class EvaluationOut(ORMBase):
     risks: list[str]
     requirements_match: list[RequirementMatch]  # ← НЕ dict
     forecast: str
-    questions: dict = {}
+    questions: list[str] = []
     model: str | None = None
     created_at: datetime  # ← ОБЯЗАТЕЛЬНО
 

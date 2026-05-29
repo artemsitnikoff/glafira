@@ -181,6 +181,9 @@ Email: {candidate.email or "не указан"}
             "got": response_data.get('verdict')
         })
 
+    # Extract questions (limit to 5)
+    questions = (response_data.get('questions') or [])[:5]
+
     # Create evaluation record
     now = datetime.now(timezone.utc)
     evaluation = AiEvaluation(
@@ -194,7 +197,7 @@ Email: {candidate.email or "не указан"}
         risks=response_data['risks'] or [],
         requirements_match=response_data.get('requirements_match') or [],
         forecast=response_data.get('forecast'),
-        questions=response_data.get('questions') or {},
+        questions=questions,
         model=settings.GLAFIRA_MODEL,
         created_at=now
     )

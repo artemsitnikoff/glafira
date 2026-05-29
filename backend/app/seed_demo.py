@@ -13,7 +13,7 @@ from app.models import (
     Company, User, Client, Vacancy, VacancyStage, Candidate,
     Application, StageHistory, Consent, Message, Document,
     AiEvaluation, Employee, PulsePlanItem, PulseSurvey,
-    CandidateExperience, CandidateSkill
+    CandidateExperience, CandidateSkill, CandidateEducation
 )
 from app.schemas.application import MoveRequest
 from app.services.application import move_application

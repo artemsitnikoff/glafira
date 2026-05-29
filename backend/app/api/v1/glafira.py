@@ -138,7 +138,7 @@ async def score_candidate_endpoint(
             risks=existing.risks,
             requirements_match=[RequirementMatch(**match) for match in (existing.requirements_match if isinstance(existing.requirements_match, list) else [])],
             forecast=existing.forecast or "",
-            questions=existing.questions or {},
+            questions=existing.questions or [],
             model=existing.model,
             created_at=existing.created_at
         )
@@ -166,7 +166,7 @@ async def score_candidate_endpoint(
         risks=evaluation.risks,
         requirements_match=[RequirementMatch(**match) for match in (evaluation.requirements_match if isinstance(evaluation.requirements_match, list) else [])],
         forecast=evaluation.forecast or "",
-        questions=evaluation.questions or {},
+        questions=evaluation.questions or [],
         model=evaluation.model,
         created_at=evaluation.created_at
     )
@@ -204,7 +204,7 @@ async def get_candidate_evaluation(
         risks=evaluation.risks,
         requirements_match=[RequirementMatch(**match) for match in (evaluation.requirements_match if isinstance(evaluation.requirements_match, list) else [])],
         forecast=evaluation.forecast or "",
-        questions=evaluation.questions or {},
+        questions=evaluation.questions or [],
         model=evaluation.model,
         created_at=evaluation.created_at
     )
