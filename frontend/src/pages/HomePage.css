@@ -1,5 +1,12 @@
 /* === HomePage (Главная) === */
 
+/* ============ CONTENT WRAPPER ============ */
+.content-inner {
+  padding: 14px 28px 32px;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
 /* ============ PAGE HEADER ============ */
 .page-header {
   display: flex; align-items: flex-end; justify-content: space-between;
