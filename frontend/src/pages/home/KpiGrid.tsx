@@ -1,7 +1,6 @@
 import { useUiStore } from '@/store/uiStore';
 import { useHomeKpi } from '@/api/hooks/useHomeKpi';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { Tooltip } from '@/components/ui/Tooltip';
 import { KPI_LABELS } from '@/lib/kpi-labels';
 import type { HomeKpiCard } from '@/api/aliases';
 
@@ -42,33 +41,34 @@ function KpiCard({ card, period }: KpiCardProps) {
   const meta = KPI_LABELS[card.key] ?? { label: card.key, tooltip: '' };
   const dir = card.delta_dir;
   const symbol = dir === 'up' || dir === 'up-bad' ? '▲' : dir === 'down' || dir === 'down-good' ? '▼' : '—';
-  const cls =
-    dir === 'up' || dir === 'down-good' ? 'kpi-card__delta--good' :
-    dir === 'down' || dir === 'up-bad' ? 'kpi-card__delta--bad' :
-    'kpi-card__delta--flat';
+  const deltaClass =
+    dir === 'up' ? 'up' :
+    dir === 'down' ? 'down' :
+    dir === 'up-bad' ? 'up-bad' :
+    dir === 'down-good' ? 'down-good' :
+    'flat';
   const showDelta = period !== 'all' && card.delta !== null && card.delta !== undefined;
   const value = card.value === null || card.value === undefined ? '—' : Math.round(card.value).toLocaleString('ru-RU');
 
   return (
-    <div className="kpi-card">
-      <div className="kpi-card__head">
-        <span className="kpi-card__label">{meta.label}</span>
-        <Tooltip content={meta.tooltip}>
-          <span className="kpi-card__info">i</span>
-        </Tooltip>
+    <div className="kpi" title={meta.tooltip}>
+      <div className="kpi-label">
+        {meta.label}
+        <span className="info" title={meta.tooltip}>i</span>
       </div>
-      <div className="kpi-card__value mono">
-        {value} {card.unit && <span className="kpi-card__unit">{card.unit}</span>}
+      <div className="kpi-value-row">
+        <span className="kpi-value">{value}</span>
+        {card.unit && <span className="kpi-unit">{card.unit}</span>}
       </div>
-      <div className="kpi-card__foot">
+      <div className="kpi-foot">
         {showDelta ? (
-          <span className={`kpi-card__delta ${cls}`}>
+          <span className={`delta ${deltaClass}`}>
             {symbol} {Math.abs(card.delta!).toFixed(1)}
           </span>
         ) : (
-          <span className="kpi-card__delta kpi-card__delta--flat">—</span>
+          <span className="delta flat">—</span>
         )}
-        {card.caption && <span className="kpi-card__caption">{card.caption}</span>}
+        <span className="kpi-sub">{card.caption}</span>
       </div>
     </div>
   );

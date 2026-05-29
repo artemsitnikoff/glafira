@@ -13,10 +13,10 @@ export default function HomePage() {
   const { showSources } = useUiStore();
 
   return (
-    <div className="home-page">
+    <div className="content-inner">
       <HomeHeader period={period} onPeriodChange={setPeriod} />
       <KpiGrid period={period} />
-      <div className="home-grid-2">
+      <div className="dash-grid-2">
         <AttentionList />
         <EventsFeed />
       </div>

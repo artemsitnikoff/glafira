@@ -32,24 +32,24 @@ export function HomeHeader({ period, onPeriodChange }: Props) {
   const title = greeting && firstName ? `Привет, ${firstName}` : 'Главная';
 
   return (
-    <header className="home-header">
-      <div className="home-header__left">
-        <h1 className="home-header__title">{title}</h1>
-        <div className="home-header__updated">
+    <div className="page-header">
+      <div className="left">
+        <h1>{title}</h1>
+        <div className="sub">
           Обновлено {dataUpdatedAt ? formatRelativeTime(dataUpdatedAt) : '…'} · {formatHHMM()}
         </div>
       </div>
-      <div className="home-header__period">
+      <div className="seg" role="tablist" aria-label="Период">
         {PERIODS.map(p => (
           <button
             key={p.id}
-            className={`home-header__period-btn ${p.id === period ? 'is-active' : ''}`}
+            className={period === p.id ? 'active' : ''}
             onClick={() => onPeriodChange(p.id)}
           >
             {p.label}
           </button>
         ))}
       </div>
-    </header>
+    </div>
   );
 }

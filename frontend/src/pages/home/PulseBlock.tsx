@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useHomePulseSummary } from '@/api/hooks/useHomePulseSummary';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 
 export function PulseBlock() {
@@ -11,106 +10,114 @@ export function PulseBlock() {
   if (isLoading) return <Skeleton height={300} />;
   if (!data) return null;
 
-  const total = data.risk_split.high + data.risk_split.mid + data.risk_split.low;
-  const pct = (n: number) => total > 0 ? (n / total) * 100 : 0;
 
   return (
-    <section className="block pulse-block">
-      <header className="block__head">
-        <div className="block__title">
-          Адаптация <span className="block__sub">· Пульс-Онбординг</span>
+    <div className="card-block ad-card">
+      <div className="card-block-head">
+        <div className="title">
+          Адаптация
+          <span className="ad-sub-title">· Пульс-Онбординг</span>
         </div>
-        <button className="ghost-btn" onClick={() => navigate('/pulse')}>
-          Все сотрудники →
+        <button className="btn btn-ghost btn-sm" onClick={() => navigate('/pulse')}>
+          Все сотрудники <Icon name="chevR" size={14}/>
         </button>
-      </header>
+      </div>
 
-      <div className="pulse-stats">
-        <div className="pulse-stat">
-          <div className="pulse-stat__label">На адаптации</div>
-          <div className="pulse-stat__value mono">{data.onboarding_count}</div>
-          <div className="pulse-stat__cap">
+      <div className="ad-stats">
+        <div className="ad-stat ad-stat-total">
+          <div className="ad-stat-num">{data.onboarding_count}</div>
+          <div className="ad-stat-label">на адаптации</div>
+          <div className="ad-stat-sub">
             {data.onboarding_delta >= 0 ? '+' : ''}{data.onboarding_delta} в этом месяце
           </div>
         </div>
 
-        <div className="pulse-stat">
-          <div className="pulse-stat__label">Риск ухода</div>
-          <div className="risk-bar">
-            <span style={{ width: `${pct(data.risk_split.high)}%`, background: 'var(--risk-high)' }} />
-            <span style={{ width: `${pct(data.risk_split.mid)}%`, background: 'var(--risk-mid)' }} />
-            <span style={{ width: `${pct(data.risk_split.low)}%`, background: 'var(--risk-low)' }} />
+        <div className="ad-stat ad-stat-risk">
+          <div className="ad-stat-label-top">Риск ухода</div>
+          <div className="ad-risk-bar">
+            <span className="seg seg-red" style={{flex: data.risk_split.high}}/>
+            <span className="seg seg-yellow" style={{flex: data.risk_split.mid}}/>
+            <span className="seg seg-green" style={{flex: data.risk_split.low}}/>
           </div>
-          <div className="pulse-stat__legend">
-            <span>высокий: {data.risk_split.high}</span>
-            <span>средний: {data.risk_split.mid}</span>
-            <span>низкий: {data.risk_split.low}</span>
+          <div className="ad-risk-legend">
+            <span><span className="dot dot-red"/>{data.risk_split.high} высокий</span>
+            <span><span className="dot dot-yellow"/>{data.risk_split.mid} средний</span>
+            <span><span className="dot dot-green"/>{data.risk_split.low} норма</span>
           </div>
         </div>
 
-        <div className="pulse-stat">
-          <div className="pulse-stat__label">Средняя оценка</div>
-          <div className="pulse-stat__value mono">
-            {data.satisfaction_avg !== null && data.satisfaction_avg !== undefined ? `${data.satisfaction_avg.toFixed(1)} / 5` : '—'}
+        <div className="ad-stat">
+          <div className="ad-stat-label-top">Средняя оценка</div>
+          <div className="ad-stat-row">
+            <span className="ad-stat-num-md">
+              {data.satisfaction_avg !== null && data.satisfaction_avg !== undefined ? data.satisfaction_avg.toFixed(1) : '—'}
+            </span>
+            <span className="ad-stat-unit">/ 5</span>
           </div>
-          <div className="pulse-stat__cap">
+          <div className="ad-stat-sub">
             ответили {data.answered_pct.toFixed(0)}% · {data.silent_pct.toFixed(0)}% молчат
           </div>
         </div>
 
-        <div className="pulse-stat">
-          <div className="pulse-stat__label">
-            eNPS <span className="pulse-stat__hint">90 дн.</span>
+        <div className="ad-stat">
+          <div className="ad-stat-label-top">eNPS <span className="ad-mute">90 дн.</span></div>
+          <div className="ad-stat-row">
+            <span className="ad-stat-num-md">{data.enps !== null ? data.enps : '—'}</span>
+            {data.enps_delta !== null && data.enps_delta !== undefined && (
+              <span className="delta up" style={{fontSize:11, marginLeft:6}}>
+                ▲ +{Math.abs(data.enps_delta)}
+              </span>
+            )}
           </div>
-          <div className="pulse-stat__value mono">{data.enps !== null ? data.enps : '—'}</div>
-          {data.enps_delta !== null && data.enps_delta !== undefined && (
-            <div className="pulse-stat__cap">
-              {data.enps_delta >= 0 ? '+' : ''}{data.enps_delta} к прошлому периоду
-            </div>
-          )}
+          <div className="ad-stat-sub">к прошлому периоду</div>
         </div>
       </div>
 
       {data.attention_hr.length > 0 && (
         <>
-          <div className="pulse-divider" />
-          <div className="hr-att__head">
-            <span className="hr-att__label">ТРЕБУЮТ ВНИМАНИЯ HR</span>
-            <Badge variant="error">{data.attention_hr.length}</Badge>
+          <div className="ad-divider"/>
+          <div className="ad-attention-head">
+            <span className="ad-attn-title">Требуют внимания HR</span>
+            <span className="count-pill">{data.attention_hr.length}</span>
           </div>
-          <div className="hr-att__list">
+          <div className="ad-attention-list">
             {data.attention_hr.map(item => {
-              const riskColor = item.risk_score >= 70 ? 'var(--risk-high)' :
-                               item.risk_score >= 50 ? 'var(--risk-mid)' : 'var(--risk-low)';
+              const riskType = item.risk_score >= 70 ? 'red' :
+                               item.risk_score >= 50 ? 'yellow' : 'green';
+              const flagType = item.risk_score >= 70 ? 'urgent' : 'warn';
               return (
-                <button
+                <div
                   key={item.employee_id}
-                  className="hr-att-row"
+                  className="att-row ad-att-row"
                   onClick={() => navigate(`/pulse/${item.employee_id}`)}
                 >
-                  <span className="hr-att-row__flag" style={{ color: riskColor }}>
-                    <Icon name="flag" size={14} />
-                  </span>
-                  <div className="hr-att-row__body">
-                    <div className="hr-att-row__name">
+                  <div className={`flag-icon ${flagType}`}>
+                    <Icon name={flagType === 'urgent' ? 'alert-triangle' : 'clock'} size={16}/>
+                  </div>
+                  <div className="body">
+                    <div className="name">
                       {item.full_name}
                       {item.position && (
-                        <span className="hr-att-row__pos mono"> · {item.position}</span>
+                        <span className="ad-role">· {item.position}</span>
                       )}
                     </div>
-                    <div className="hr-att-row__reason">{item.reason}</div>
+                    <div className="reason">{item.reason}</div>
                   </div>
-                  <span className="mono">день {item.adapt_day}</span>
-                  <span className="risk-pill" style={{ background: riskColor }}>
-                    риск {item.risk_score}
-                  </span>
-                  <Icon name="chevron-right" size={14} />
-                </button>
+                  <div className="ad-att-meta">
+                    <span className="ad-day t-mono">день {item.adapt_day}</span>
+                    <span className={`ad-risk-pill ${riskType}`}>
+                      риск <b className="t-mono">{item.risk_score}</b>
+                    </span>
+                  </div>
+                  <div className="arrow">
+                    <Icon name="chevR" size={16}/>
+                  </div>
+                </div>
               );
             })}
           </div>
         </>
       )}
-    </section>
+    </div>
   );
 }

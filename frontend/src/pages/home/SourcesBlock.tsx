@@ -27,30 +27,30 @@ export function SourcesBlock({ period }: Props) {
   const max = items.length > 0 ? Math.max(...items.map(i => i.count)) : 0;
 
   return (
-    <section className="block sources-block">
-      <header className="block__head">
-        <div className="block__title">Топ-источники кандидатов</div>
-        <span className="block__sub">за {periodLabel(period)}</span>
-      </header>
+    <div className="card-block">
+      <div className="card-block-head">
+        <div className="title">Топ-источники кандидатов</div>
+        <span className="t-secondary" style={{fontSize:12, color:'var(--fg-3)'}}>{periodLabel(period)}</span>
+      </div>
       {items.length === 0 ? (
         <EmptyState title="Пока нет данных" />
       ) : (
-        <div className="sources-list">
+        <div>
           {items.map(s => {
             const cfg = SOURCE_CONFIG[s.source] ?? { label: s.source, color: 'var(--fg-3)' };
             const widthPct = max > 0 ? (s.count / max) * 100 : 0;
             return (
-              <div key={s.source} className="src-row">
-                <div className="src-row__label">{cfg.label}</div>
-                <div className="src-row__bar">
+              <div key={s.source} className="sources-row">
+                <div className="label">{cfg.label}</div>
+                <div className="bar">
                   <span style={{ width: `${widthPct}%`, background: cfg.color }} />
                 </div>
-                <div className="src-row__count mono">{s.count}</div>
+                <div className="num">{s.count}</div>
               </div>
             );
           })}
         </div>
       )}
-    </section>
+    </div>
   );
 }

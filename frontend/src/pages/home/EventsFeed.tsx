@@ -1,71 +1,61 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useHomeEvents } from '@/api/hooks/useHomeEvents';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatRelativeTime } from '@/lib/time';
-import { EVENT_COLORS } from '@/lib/event-colors';
 
-function highlightGlafira(text: string): React.ReactNode {
-  const parts = text.split(/(Глафира)/g);
-  return parts.map((part, i) =>
-    part === 'Глафира' ? (
-      <span key={i} className="glafira-mention">{part}</span>
-    ) : (
-      part
-    )
-  );
+import { Icon } from '@/components/ui/Icon';
+
+const EVENT_ICON: Record<string, any> = {
+  qual: 'check',
+  new: 'sparkle',
+  score: 'star',
+  offer: 'check',
+  move: 'chevR',
+};
+
+function parseEventText(text: string): React.ReactNode {
+  // Highlight Глафира
+  let result = text.replace(/Глафира/g, '<span class="anatoly">Глафира</span>');
+
+  // Find entities (кандидат/вакансия names) and mark them for highlighting
+  result = result.replace(/([«»])([^«»]+)\1/g, '<span class="ent">$2</span>');
+  result = result.replace(/(кандидат(?:а|у)?) ([А-ЯЁ][а-яё]+ [А-ЯЁ]\.?)/g, '$1 <span class="ent">$2</span>');
+  result = result.replace(/(Заказчик) ([«»])([^«»]+)\2/g, '$1 <span class="ent">«$3»</span>');
+
+  return <span dangerouslySetInnerHTML={{ __html: result }} />;
 }
 
 export function EventsFeed() {
   const { data, isLoading } = useHomeEvents(30);
-  const navigate = useNavigate();
 
   if (isLoading) return <Skeleton height={380} />;
 
   const items = data ?? [];
 
   return (
-    <section className="block events-block">
-      <header className="block__head">
-        <div className="block__title">
-          Лента событий <span className="live-dot" />live
-        </div>
-      </header>
-      <div className="events-list">
+    <div className="card-block">
+      <div className="card-block-head">
+        <div className="title">Лента событий</div>
+        <span className="live-dot">live</span>
+      </div>
+      <div style={{maxHeight: 380, overflowY: 'auto', margin: '0 -4px', padding: '0 4px'}}>
         {items.length === 0 ? (
           <EmptyState title="Пока событий нет" />
         ) : (
           items.map(ev => (
             <div key={ev.id} className="event-row">
-              <span
-                className="event-row__dot"
-                style={{ background: EVENT_COLORS[ev.type] ?? 'var(--fg-3)' }}
-              />
-              <div className="event-row__body">
-                <div className="event-row__text">{highlightGlafira(ev.text)}</div>
-                {ev.entities && ev.entities.length > 0 && (
-                  <div className="event-row__entities">
-                    {ev.entities.map((e: any, i: number) => (
-                      <button
-                        key={i}
-                        className={`entity-chip entity-chip--${e.type}`}
-                        onClick={() => {
-                          if (e.type === 'candidate') navigate(`/candidates/${e.id}`);
-                          else if (e.type === 'vacancy') navigate(`/vacancies/${e.id}`);
-                        }}
-                      >
-                        {e.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className={`event-icon ${ev.type}`}>
+                <Icon name={EVENT_ICON[ev.type] || 'check'} size={12}/>
               </div>
-              <span className="event-row__time">{formatRelativeTime(ev.created_at)}</span>
+              <div className="body">
+                <div className="text">{parseEventText(ev.text)}</div>
+                <div className="time">{formatRelativeTime(ev.created_at)}</div>
+              </div>
             </div>
           ))
         )}
       </div>
-    </section>
+    </div>
   );
 }
