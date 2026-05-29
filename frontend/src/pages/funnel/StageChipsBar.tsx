@@ -1,3 +1,4 @@
+import React from 'react';
 import { Icon } from '@/components/ui/Icon';
 import type { components } from '@/api/types';
 
@@ -33,8 +34,8 @@ export default function StageChipsBar({ stages, currentStage, onStageSelect }: P
       </div>
 
       {/* Workflow stages */}
-      {workflowStages.map((stage, index) => (
-        <div key={stage.stage_key}>
+      {workflowStages.map((stage) => (
+        <React.Fragment key={stage.stage_key}>
           <div
             className={`funnel-chip ${currentStage === stage.stage_key ? 'active' : ''}`}
             onClick={() => onStageSelect(stage.stage_key)}
@@ -42,23 +43,19 @@ export default function StageChipsBar({ stages, currentStage, onStageSelect }: P
             <span className="stage-dot" style={{ background: stage.color }} />
             {stage.label} <span className="fc-count">{stage.count}</span>
           </div>
-          {index < workflowStages.length - 1 && (
-            <Icon name="chevR" size={12} className="funnel-arrow" />
-          )}
-        </div>
+          <Icon name="chevR" size={12} className="funnel-arrow" />
+        </React.Fragment>
       ))}
 
       {/* Hired stage */}
       {hiredStage && (
-        <>
-          <div
-            className={`funnel-chip funnel-hired ${currentStage === 'hired' ? 'active' : ''}`}
-            onClick={() => onStageSelect('hired')}
-          >
-            <Icon name="check" size={12} />
-            {hiredStage.label} <span className="fc-count">{hiredStage.count}</span>
-          </div>
-        </>
+        <div
+          className={`funnel-chip funnel-hired ${currentStage === 'hired' ? 'active' : ''}`}
+          onClick={() => onStageSelect('hired')}
+        >
+          <Icon name="check" size={12} />
+          {hiredStage.label} <span className="fc-count">{hiredStage.count}</span>
+        </div>
       )}
 
       {/* Gap before rejected */}

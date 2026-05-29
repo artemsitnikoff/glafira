@@ -14,6 +14,7 @@ import FilterDrawer from '@/pages/funnel/FilterDrawer';
 import NewCandidateModal from '@/pages/funnel/NewCandidateModal';
 import DetailHost from '@/pages/funnel/DetailHost';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Icon } from '@/components/ui/Icon';
 import type { ApplicationFilters } from '@/api/hooks/useApplications';
 
 export default function VacancyDetailPage() {
@@ -90,7 +91,7 @@ export default function VacancyDetailPage() {
 
   if (vacancyLoading || stagesLoading) {
     return (
-      <div className="vacancy-detail">
+      <div className="cnd-funnel-wrap">
         <div className="vac-header">
           <Skeleton height={60} />
         </div>
@@ -115,7 +116,7 @@ export default function VacancyDetailPage() {
   }
 
   return (
-    <div className={`vacancy-detail ${isDetailMode ? 'is-detail' : ''}`}>
+    <div className={`cnd-funnel-wrap ${isDetailMode ? 'detail-mode' : ''}`}>
       <VacancyHeader
         vacancy={vacancy}
         onEdit={() => navigate(`/vacancies/${id}/edit`)}
@@ -131,14 +132,34 @@ export default function VacancyDetailPage() {
         }}
       />
 
-      <SearchBar
-        search={filters.search}
-        onSearchChange={search => updateFilters({ ...filters, search })}
-        onFiltersOpen={() => setFiltersOpen(true)}
-        filtersCount={0} // TODO: calculate active filters count
-      />
+      <div className="cand-controls">
+        <SearchBar
+          search={filters.search}
+          onSearchChange={search => updateFilters({ ...filters, search })}
+          onFiltersOpen={() => setFiltersOpen(true)}
+          filtersCount={0} // TODO: calculate active filters count
+        />
 
-      <div className="funnel-grid">
+        {selectedIds.size > 0 && !isDetailMode && (
+          <BulkActionBar
+            selectedIds={selectedIds}
+            onClearSelection={() => setSelectedIds(new Set())}
+            vacancyId={id!}
+          />
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        <button
+          className={`btn btn-secondary btn-sm ${0 > 0 ? 'has-filters' : ''}`}
+          onClick={() => setFiltersOpen(true)}
+        >
+          <Icon name="filter" size={14} /> Фильтры
+          {0 > 0 && <span className="filter-badge">{0}</span>}
+        </button>
+      </div>
+
+      <div className="cand-body">
         <FunnelTable
           vacancyId={id!}
           filters={filters}
@@ -163,14 +184,6 @@ export default function VacancyDetailPage() {
           />
         )}
       </div>
-
-      {selectedIds.size > 0 && !isDetailMode && (
-        <BulkActionBar
-          selectedIds={selectedIds}
-          onClearSelection={() => setSelectedIds(new Set())}
-          vacancyId={id!}
-        />
-      )}
 
       {filtersOpen && (
         <FilterDrawer

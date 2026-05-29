@@ -1,5 +1,4 @@
 import { Icon } from '@/components/ui/Icon';
-import { Avatar } from '@/components/ui/Avatar';
 import type { components } from '@/api/types';
 
 type VacancyDetail = components['schemas']['VacancyDetail'];
@@ -38,20 +37,6 @@ export default function VacancyHeader({ vacancy, onEdit, onAddCandidate }: Props
           <span>{vacancy.city || 'Удалённо'}</span>
           <span className="sep">·</span>
           <span>создана {new Date(vacancy.created_at).toLocaleDateString('ru-RU')}</span>
-        </div>
-        {vacancy.salary_from && vacancy.salary_to && (
-          <div className="vh-salary">
-            {vacancy.salary_from.toLocaleString()} - {vacancy.salary_to.toLocaleString()} ₽
-          </div>
-        )}
-        <div className="vh-mode">
-          Глафира: режим {vacancy.glafira_mode}
-          {vacancy.responsible_user && (
-            <span className="vh-responsible">
-              <Avatar name={vacancy.responsible_user.full_name} size="xs" />
-              {vacancy.responsible_user.full_name}
-            </span>
-          )}
         </div>
       </div>
 

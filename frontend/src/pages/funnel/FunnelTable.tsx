@@ -1,11 +1,10 @@
 import { useApplications, type ApplicationFilters } from '@/api/hooks/useApplications';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { Avatar } from '@/components/ui/Avatar';
 import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import { StageChip } from '@/components/ui/StageChip';
 import { MessIconRound } from '@/components/ui/MessIconRound';
-import { Badge } from '@/components/ui/Badge';
+import { Icon } from '@/components/ui/Icon';
 
 type Props = {
   vacancyId: string;
@@ -49,13 +48,6 @@ export default function FunnelTable({
     onSelectionChange(newIds);
   };
 
-  const handleSelectAll = () => {
-    if (selectedIds.size === data?.items?.length) {
-      onSelectionChange(new Set());
-    } else {
-      onSelectionChange(new Set(data?.items?.map(item => item.id) || []));
-    }
-  };
 
   if (isLoading) {
     return (
@@ -72,11 +64,41 @@ export default function FunnelTable({
 
   if (!data?.items?.length) {
     return (
-      <EmptyState
-        icon="users"
-        title={`На этапе «${filters.stage || 'выбранном'}» пока никого`}
-        description="Кандидаты появятся, как только Глафира продвинет их по воронке."
-      />
+      <div className="cand-table">
+        <div className="cand-scroll">
+          <div className="cand-thead">
+            <div className="ct-profile">
+              <div className="ct-prof-label">Профиль</div>
+              <div className="ct-prof-sorts">
+                <div className="ct-prof-head ct-prof-name">
+                  <span>ФИО</span>
+                </div>
+                <div className="ct-prof-head ct-prof-ai">
+                  <span>AI</span>
+                </div>
+              </div>
+            </div>
+            {!detailMode && (
+              <div className="ct-rest">
+                <div className="ct-col" style={{ width: 200 }}>Телефон</div>
+                <div className="ct-col" style={{ width: 120 }}>ЗП</div>
+                <div className="ct-col" style={{ width: 140 }}>Город</div>
+                <div className="ct-col" style={{ width: 120 }}>Дата отбора</div>
+                <div className="ct-col" style={{ width: 200 }}>Этап</div>
+              </div>
+            )}
+          </div>
+          <div className="cand-tbody">
+            <div className="empty-pane" style={{ height: 280 }}>
+              <div className="empty-illust">
+                <Icon name="users" size={36} />
+              </div>
+              <h3>На этапе «{filters.stage || 'выбранном'}» пока никого</h3>
+              <p>Кандидаты появятся, как только Глафира продвинет их по воронке.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -85,27 +107,28 @@ export default function FunnelTable({
       <div className="cand-scroll">
         <div className="cand-thead">
           <div className="ct-profile">
-            <input
-              type="checkbox"
-              checked={selectedIds.size === data.items.length && data.items.length > 0}
-              onChange={handleSelectAll}
-            />
             <div className="ct-prof-label">Профиль</div>
             <div className="ct-prof-sorts">
-              <SortableHeader
-                label="ФИО"
-                field="full_name"
-                currentSort={filters.sort}
-                currentOrder={filters.order}
-                onSort={handleSort}
-              />
-              <SortableHeader
-                label="AI"
-                field="ai_score"
-                currentSort={filters.sort}
-                currentOrder={filters.order}
-                onSort={handleSort}
-              />
+              <div
+                className={`ct-prof-head ct-prof-name ${filters.sort === 'full_name' ? 'on' : ''}`}
+                onClick={() => handleSort('full_name')}
+              >
+                <span>ФИО</span>
+                <span className={`ct-sort ${filters.sort === 'full_name' ? 'on' : ''}`}>
+                  <span className={`ct-sort-arr ${filters.sort === 'full_name' && filters.order === 'asc' ? 'active' : ''}`}>▲</span>
+                  <span className={`ct-sort-arr ${filters.sort === 'full_name' && filters.order === 'desc' ? 'active' : ''}`}>▼</span>
+                </span>
+              </div>
+              <div
+                className={`ct-prof-head ct-prof-ai ${filters.sort === 'ai_score' ? 'on' : ''}`}
+                onClick={() => handleSort('ai_score')}
+              >
+                <span>AI</span>
+                <span className={`ct-sort ${filters.sort === 'ai_score' ? 'on' : ''}`}>
+                  <span className={`ct-sort-arr ${filters.sort === 'ai_score' && filters.order === 'asc' ? 'active' : ''}`}>▲</span>
+                  <span className={`ct-sort-arr ${filters.sort === 'ai_score' && filters.order === 'desc' ? 'active' : ''}`}>▼</span>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -152,6 +175,10 @@ export default function FunnelTable({
                 width={200}
               />
             </div>
+          )}
+
+          {detailMode && data.items.length > 0 && (
+            <div className="ct-rest cd-thead-spacer" />
           )}
         </div>
 
@@ -250,9 +277,12 @@ function FunnelRow({
             )}
             <span>{candidate.full_name}</span>
             {candidate.has_pdn && (
-              <Badge variant="success" size="sm">
-                ✓ ПдН
-              </Badge>
+              <span className="pdn-badge pdn-sm" title="Согласие на обработку персональных данных подписано">
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                ПдН
+              </span>
             )}
             {candidate.stage !== 'response' && (
               <span
