@@ -39,7 +39,7 @@ def _build_skills_text(skills: list) -> str:
     if not skills:
         return "Навыки не указаны"
 
-    skill_names = [skill.name for skill in skills if skill.name]
+    skill_names = [skill.skill for skill in skills if skill.skill]
     return ", ".join(skill_names) if skill_names else "Навыки не указаны"
 
 
@@ -194,6 +194,7 @@ Email: {candidate.email or "не указан"}
         risks=response_data['risks'] or [],
         requirements_match=response_data.get('requirements_match') or [],
         forecast=response_data.get('forecast'),
+        questions=response_data.get('questions') or {},
         model=settings.GLAFIRA_MODEL,
         created_at=now
     )

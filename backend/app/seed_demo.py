@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
@@ -11,7 +12,8 @@ from app.database import AsyncSessionLocal
 from app.models import (
     Company, User, Client, Vacancy, VacancyStage, Candidate,
     Application, StageHistory, Consent, Message, Document,
-    AiEvaluation, Employee, PulsePlanItem, PulseSurvey
+    AiEvaluation, Employee, PulsePlanItem, PulseSurvey,
+    CandidateExperience, CandidateSkill
 )
 from app.schemas.application import MoveRequest
 from app.services.application import move_application
@@ -22,10 +24,73 @@ logger = logging.getLogger(__name__)
 COMPANY_ID = uuid.UUID(settings.DEFAULT_COMPANY_ID)
 ADMIN_EMAIL = "admin@dclouds.ru"
 
+def generate_resume_text(candidate_index: int, vacancy_idx: int) -> str:
+    """Генерирует реалистичное резюме для кандидата под конкретную вакансию"""
+
+    # Шаблоны резюме по типам вакансий
+    templates = {
+        0: [  # Frontend
+            "Frontend-разработчик с опытом {years} лет. Работаю с React, TypeScript, JavaScript ES6+. Имею опыт разработки SPA, знаю Redux, React Router, Webpack. Участвовал в создании корпоративных веб-приложений и пользовательских интерфейсов. Понимаю принципы адаптивной верстки, работал с CSS-препроцессорами и компонентными библиотеками.",
+
+            "Специализируюсь на фронтенд-разработке более {years} лет. Опыт работы с Vue.js, React, Angular. Знаю современные инструменты сборки (Vite, Webpack), работал с REST API и GraphQL. Участвовал в создании интернет-магазинов и панелей администрирования. Понимаю принципы UX/UI, имею навыки кроссбраузерной разработки.",
+
+            "Frontend Developer с {years}-летним опытом. Основной стек: React, TypeScript, Next.js. Работал над микрофронтендами, интеграцией с backend API, оптимизацией производительности. Знаком с методологиями разработки Agile/Scrum. Есть опыт менторства джунов, участвовал в code review и архитектурных решениях.",
+
+            "Фронтенд-разработчик с акцентом на React-экосистему. За {years} лет работы создавал интерактивные веб-приложения, дашборды аналитики, CRM-системы. Знаю состояние менеджмент (Redux, Zustand), тестирование (Jest, RTL), CI/CD. Имею понимание современных практик разработки и архитектурных паттернов."
+        ],
+        1: [  # B2B Sales
+            "Менеджер по продажам B2B с {years}-летним опытом работы с корпоративными клиентами. Специализируюсь на продажах IT-решений и бизнес-услуг. Успешно веду переговоры с ЛПР, строю долгосрочные партнерские отношения. Имею опыт работы с CRM-системами, знаю методики SPIN, BANT. Достигал KPI по объему продаж 105-120% плана.",
+
+            "Sales manager с опытом {years} лет в B2B сегменте. Работал с ключевыми клиентами, развивал существующую базу, привлекал новых партнеров. Знаю специфику продаж в ритейле, логистике, производстве. Умею проводить презентации, переговоры на уровне топ-менеджмента. Владею техниками активных продаж и управления возражениями.",
+
+            "Коммерческий директор/менеджер по продажам с {years}-летним опытом. Специализация: комплексные B2B решения, региональные продажи. Успешно запускал новые направления, внедрял процессы продаж. Имею опыт управления командой, постановки KPI. Знаю CRM AmoCRM, Bitrix24, работал с тендерными площадками.",
+
+            "Regional Sales Manager с фокусом на B2B клиентов. За {years} лет развивал территории, работал с дистрибьюторами и прямыми клиентами. Имею опыт продаж промышленного оборудования, логистических услуг, софта. Знаю основы маркетинга, участвовал в разработке продуктовой стратегии и ценовой политики."
+        ],
+        2: [  # Кладовщик
+            "Кладовщик с {years}-летним опытом работы на складах различного типа. Знаю принципы товарооборота, инвентаризации, ведения складской документации. Работал с системами учета (1С:Склад, WMS), знаком с требованиями охраны труда. Имею навыки работы с погрузочной техникой, организации рабочих процессов на складе.",
+
+            "Специалист складского хозяйства с опытом {years} лет. Работал на распределительных центрах, складах розничных сетей. Знаю технологии приемки, размещения, отгрузки товаров. Умею работать с ТСД, знаком с принципами FIFO. Опыт проведения инвентаризаций, контроля остатков, работы с поставщиками.",
+
+            "Кладовщик-оператор с {years}-летним стажем. Специализируюсь на автоматизированных складских комплексах. Знаю WMS-системы, работал с конвейерным оборудованием. Имею навыки комплектации заказов, контроля качества товаров. Понимаю логистические процессы, работал в режиме высокой интенсивности.",
+
+            "Старший кладовщик с опытом {years} лет. Управлял небольшой командой, организовывал работу смен, контролировал выполнение планов. Знаю требования к хранению различных групп товаров, санитарные нормы. Имею опыт работы с документооборотом, ведения отчетности, взаимодействия с логистами."
+        ],
+        3: [  # iOS
+            "iOS-разработчик с {years}-летним опытом создания мобильных приложений. Работаю на Swift, знаю Objective-C. Имею опыт разработки от MVP до энтерпрайз решений. Знаком с архитектурными паттернами (MVVM, VIPER), работал с Core Data, сетевым взаимодействием. Публиковал приложения в App Store, знаю процесс review.",
+
+            "Senior iOS Developer с {years} годами опыта. Специализируюсь на нативной разработке под iOS/iPadOS. Создавал финтех приложения, социальные сети, e-commerce решения. Знаю UIKit, SwiftUI, Combine. Имею опыт интеграции с REST API, работы с push-уведомлениями, геолокацией, камерой.",
+
+            "Mobile iOS Engineer с фокусом на пользовательский опыт. За {years} лет создал более 15 приложений различной сложности. Знаю принципы Human Interface Guidelines, работаю с анимациями, кастомными UI компонентами. Имею опыт оптимизации производительности, профилирования памяти, работы с многопоточностью.",
+
+            "iOS-разработчик с {years}-летней экспертизой в мобильной разработке. Участвовал в создании приложений для банков, ритейла, медиа. Знаю современные подходы к архитектуре, тестированию, CI/CD для мобильных приложений. Имею опыт code review, менторинга, работы в кроссфункциональных командах."
+        ],
+        4: [  # Контент
+            "Контент-менеджер с {years}-летним опытом создания и управления контентом в digital среде. Работаю с веб-сайтами, социальными сетями, email-рассылками. Знаю принципы SEO-копирайтинга, имею навыки работы с CMS, аналитическими системами. Создаю контент-планы, веду редакторские календари.",
+
+            "Специалист по контенту с опытом {years} лет в области интернет-маркетинга. Создаю тексты для лендингов, социальных сетей, блогов. Знаю основы SMM, email-маркетинга, работал с инфлюенсерами. Имею навыки фотосъемки, базовой обработки изображений, создания креативов для рекламных кампаний.",
+
+            "Content Manager с {years}-летним стажем в digital агентствах и корпорациях. Разрабатываю контент-стратегии, управляю командами копирайтеров и дизайнеров. Знаю инструменты аналитики (Google Analytics, Яндекс.Метрика), работал с различными CMS. Имею опыт запуска медиа-проектов.",
+
+            "Редактор-контент менеджер с опытом {years} лет. Специализируюсь на создании образовательного и развлекательного контента. Работал с YouTube-каналами, подкастами, образовательными платформами. Знаю принципы сторителлинга, имею навыки видеомонтажа. Понимаю алгоритмы социальных платформ."
+        ]
+    }
+
+    # Определяем количество лет опыта на основе индекса
+    years_variants = [2, 3, 4, 5, 6, 3, 4, 2, 5, 3, 4, 6, 2, 3, 5]
+    years = years_variants[candidate_index % len(years_variants)]
+
+    # Выбираем шаблон
+    template_list = templates.get(vacancy_idx, templates[0])  # fallback на Frontend
+    template = template_list[candidate_index % len(template_list)]
+
+    return template.format(years=years)
+
 # Данные кандидатов
 CANDIDATES_DATA = [
     # Frontend - Vacancy 1 (8 кандидатов)
-    {"full_name": "Дмитрий Романов", "age": 28, "city": "Москва", "position": "Frontend Developer", "company": "Яндекс", "target_stage": "response", "ai_score": 45},
+    {"full_name": "Дмитрий Романов", "age": 28, "city": "Москва", "position": "Frontend Developer", "company": "Яндекс", "target_stage": "response", "ai_score": 45,
+     "resume_text": "Frontend-разработчик с опытом 3 года. Работал в Яндексе над корпоративными приложениями на React и TypeScript. Участвовал в разработке системы аналитики для внутренних команд. Знаю Vue.js, но предпочитаю React-экосистему. Опыт работы с Redux, MobX, Webpack. Есть базовые знания Node.js для написания простых API."},
     {"full_name": "Анна Лебедева", "age": 25, "city": "Подольск", "position": "React Developer", "company": "Mail.ru", "target_stage": "response", "ai_score": 67},
     {"full_name": "Максим Орлов", "age": 32, "city": "Москва", "position": "Senior Frontend", "company": "Тинькофф", "target_stage": "response", "ai_score": 88},
     {"full_name": "Екатерина Соколова", "age": 27, "city": "Зеленоград", "position": "Frontend", "company": "Avito", "target_stage": "selected", "ai_score": 72},
@@ -214,11 +279,46 @@ async def seed_vacancies(session: AsyncSession, clients: list[Client], admin: Us
 
     vacancies = []
     for i, vacancy_data in enumerate(VACANCIES_DATA):
+        # Детальные описания вакансий
+        vacancy_descriptions = [
+            # 0: Senior Frontend Developer
+            "Ищем опытного фронтенд-разработчика в команду разработки корпоративных продуктов. "
+            "Требования: React 16+, TypeScript, опыт работы с REST API и WebSocket, знание современных инструментов сборки (Webpack/Vite). "
+            "Ожидаем: создание переиспользуемых компонентов, оптимизация производительности, участие в code review, менторинг младших разработчиков. "
+            "Будет плюсом: опыт работы с микрофронтендами, знание Node.js, опыт настройки CI/CD.",
+
+            # 1: Менеджер по продажам B2B
+            "Приглашаем менеджера по продажам для развития B2B направления. "
+            "Требования: опыт продаж корпоративным клиентам от 3 лет, знание техник активных продаж, опыт работы с CRM-системами. "
+            "Обязанности: поиск и привлечение новых клиентов, ведение переговоров с ЛПР, развитие существующей клиентской базы, участие в тендерах. "
+            "Условия: высокая мотивационная часть, корпоративная мобильная связь, социальный пакет.",
+
+            # 2: Кладовщик
+            "В связи с расширением ищем ответственного кладовщика на современный автоматизированный склад. "
+            "Требования: опыт работы на складе от 2 лет, знание принципов складского учета, опыт работы с ТСД и 1С. "
+            "Обязанности: приемка и размещение товаров, комплектация заказов, проведение инвентаризаций, ведение складской документации. "
+            "Условия: сменный график 2/2, бесплатное питание, развозка, медицинское страхование.",
+
+            # 3: iOS-разработчик
+            "Ищем iOS-разработчика для создания мобильных финтех решений нового поколения. "
+            "Требования: Swift, опыт разработки от 3 лет, знание UIKit и SwiftUI, опыт публикации в App Store. "
+            "Задачи: разработка новых функций мобильного приложения, оптимизация производительности, интеграция с backend API. "
+            "Ожидаем: понимание архитектурных паттернов, опыт работы с Core Data, знание принципов безопасности в финтех.",
+
+            # 4: Контент-менеджер
+            "Приглашаем креативного контент-менеджера для развития digital-присутствия компании. "
+            "Требования: опыт создания контента от 2 лет, знание принципов SEO, навыки копирайтинга и SMM. "
+            "Обязанности: создание контент-планов, написание текстов для сайта и соцсетей, координация фото/видеосъемок, анализ эффективности контента. "
+            "Будет плюсом: опыт работы с WordPress, базовые навыки дизайна, знание инструментов аналитики."
+        ]
+
+        description = vacancy_descriptions[i] if i < len(vacancy_descriptions) else f"Demo вакансия: {vacancy_data['name']}"
+
         vacancy = Vacancy(
             company_id=COMPANY_ID,
             client_id=clients[vacancy_data["client_idx"]].id,
             name=vacancy_data["name"],
-            description=f"Demo вакансия: {vacancy_data['name']}",
+            description=description,
             city=vacancy_data["location"],
             salary_from=vacancy_data["salary_from"],
             salary_to=vacancy_data["salary_to"],
@@ -255,6 +355,13 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
     """Создаёт demo кандидатов"""
     logger.info("Creating demo candidates...")
 
+    # Соответствие кандидат -> вакансия (такое же как в seed_applications_and_move)
+    vacancy_assignments = (
+        [0] * 8 + [1] * 8 + [2] * 4        # существующие 20 (vac 0/1/2)
+        + [0] * 10 + [1] * 8 + [2] * 6     # +24 новых на активные вакансии
+        + [3] * 3 + [4] * 3                # +6 новых на архивные (idx 3,4)
+    )  # итого 50 кандидатов
+
     candidates = []
     for i, candidate_data in enumerate(CANDIDATES_DATA):
         # Разбираем ФИО
@@ -280,6 +387,10 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
         # Зарплатные ожидания — для наполнения колонки ЗП в воронке
         salary_expectation = 150000 + (i * 13000) % 250000
 
+        # Генерируем резюме на основе типа вакансии
+        vacancy_idx = vacancy_assignments[i]
+        resume_text = generate_resume_text(i, vacancy_idx)
+
         candidate = Candidate(
             company_id=COMPANY_ID,
             display_number=f"D{i+1:03d}",
@@ -291,6 +402,7 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
             salary_expectation=salary_expectation,
             last_position=candidate_data["position"],
             last_company=candidate_data["company"],
+            resume_text=resume_text,
             source="manual",
             preferred_channel="telegram",
             messengers=messengers,
@@ -302,6 +414,174 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
     await session.flush()
     logger.info(f"Created {len(candidates)} demo candidates")
     return candidates
+
+
+async def seed_experience(session: AsyncSession, candidates: list[Candidate]):
+    """Создаёт опыт работы для demo кандидатов"""
+    logger.info("Creating demo candidate experience...")
+
+    # Соответствие кандидат -> вакансия (такое же как в seed_candidates)
+    vacancy_assignments = (
+        [0] * 8 + [1] * 8 + [2] * 4        # существующие 20 (vac 0/1/2)
+        + [0] * 10 + [1] * 8 + [2] * 6     # +24 новых на активные вакансии
+        + [3] * 3 + [4] * 3                # +6 новых на архивные (idx 3,4)
+    )  # итого 50 кандидатов
+
+    experience_templates = {
+        0: [  # Frontend
+            [
+                ("Junior Frontend Developer", "Веб-студия Digit", "2021-2022", "Верстка лендингов, поддержка корпоративного сайта. HTML, CSS, JavaScript, jQuery."),
+                ("Frontend Developer", "Яндекс", "2022-2024", "Разработка корпоративных приложений на React. Создание переиспользуемых компонентов, интеграция с REST API."),
+                ("Senior Frontend", "Тинькофф", "2024-н.в.", "Ведущий разработчик в команде интернет-банкинга. Архитектурные решения, ментoring джуниоров.")
+            ],
+            [
+                ("React Developer", "Стартап AI-платформа", "2020-2022", "Создание MVP продукта с нуля. React, TypeScript, Redux. Работа в небольшой команде."),
+                ("Frontend Engineer", "Mail.ru", "2022-2024", "Разработка пользовательского интерфейса для социальной сети. Оптимизация производительности, A/B тестирование."),
+            ],
+            [
+                ("Верстальщик", "Фриланс", "2019-2021", "Верстка интернет-магазинов, корпоративных сайтов. HTML, CSS, Bootstrap, базовый JavaScript."),
+                ("Frontend Developer", "Avito", "2021-2023", "Разработка фронтенда для сервисов объявлений. React, Redux, микрофронтенды."),
+                ("Senior Frontend", "Сбер", "2023-н.в.", "Техлид направления мобильного банкинга. Vue.js, современные инструменты разработки.")
+            ]
+        ],
+        1: [  # B2B Sales
+            [
+                ("Менеджер по работе с клиентами", "Региональный дистрибьютор", "2020-2022", "Ведение базы корпоративных клиентов, развитие продаж в регионе. CRM AmoCRM."),
+                ("Senior Sales Manager", "Гермес", "2022-2024", "Ключевые клиенты, переговоры с ЛПР. Превышение плана продаж на 15-25%."),
+                ("Regional Sales Director", "Wildberries", "2024-н.в.", "Развитие B2B направления, управление командой из 8 менеджеров.")
+            ],
+            [
+                ("Sales Manager", "IT-интегратор", "2019-2021", "Продажи ПО и услуг интеграции корпоративным клиентам. Работа с тендерными площадками."),
+                ("Key Account Manager", "Леруа Мерлен", "2021-2023", "Развитие ключевых корпоративных клиентов. Переговоры по долгосрочным контрактам."),
+                ("B2B Sales Lead", "X5", "2023-н.в.", "Руководство отделом корпоративных продаж, KPI команды, стратегическое планирование.")
+            ]
+        ],
+        2: [  # Кладовщик
+            [
+                ("Комплектовщик", "Склад Магнит", "2020-2022", "Комплектация заказов, работа с ТСД, соблюдение требований по срокам отгрузки."),
+                ("Кладовщик", "Wildberries РЦ", "2022-2024", "Приемка, размещение, отгрузка товаров. Работа с 1С:Склад, проведение инвентаризаций."),
+                ("Старший кладовщик", "X5 Distribution", "2024-н.в.", "Организация работы смены, контроль качества, взаимодействие с логистами.")
+            ],
+            [
+                ("Грузчик-комплектовщик", "Лента", "2019-2021", "Разгрузка товаров, комплектация заказов для розничной сети. Опыт работы с погрузчиком."),
+                ("Кладовщик", "OZON", "2021-2024", "Обработка заказов интернет-магазина, упаковка, подготовка к отгрузке. WMS-система."),
+            ]
+        ],
+        3: [  # iOS
+            [
+                ("Junior iOS Developer", "Мобильная студия", "2021-2022", "Разработка простых приложений, изучение Swift, UIKit. Участие в командных проектах."),
+                ("iOS Developer", "Тинькофф", "2022-2024", "Разработка банковских приложений, работа с Core Data, push-уведомления, безопасность."),
+                ("Senior iOS Engineer", "VK", "2024-н.в.", "Архитектурные решения для соцсетей, performance optimization, менторинг команды.")
+            ]
+        ],
+        4: [  # Контент
+            [
+                ("Копирайтер", "Маркетинговое агентство", "2020-2022", "Создание текстов для лендингов, email-рассылок, социальных сетей. SEO-оптимизация."),
+                ("Контент-менеджер", "Avito", "2022-2024", "Управление контент-стратегией, работа с блогом компании, координация съемочных процессов."),
+                ("Content Lead", "OZON", "2024-н.в.", "Руководство командой контент-менеджеров, развитие медиа-направления компании.")
+            ]
+        ]
+    }
+
+    total_experience = 0
+    for i, candidate in enumerate(candidates):
+        vacancy_idx = vacancy_assignments[i]
+
+        # Получаем шаблон опыта для данного типа вакансии
+        templates = experience_templates.get(vacancy_idx, experience_templates[0])
+        template = templates[i % len(templates)]
+
+        # Создаем записи опыта для кандидата
+        for order_index, (position, company, period, description) in enumerate(template):
+            experience = CandidateExperience(
+                company_id=COMPANY_ID,
+                candidate_id=candidate.id,
+                position=position,
+                company=company,
+                period=period,
+                description=description,
+                order_index=order_index
+            )
+            session.add(experience)
+            total_experience += 1
+
+    await session.flush()
+    logger.info(f"Created {total_experience} experience records for {len(candidates)} candidates")
+
+
+async def seed_skills(session: AsyncSession, candidates: list[Candidate]):
+    """Создаёт навыки для demo кандидатов"""
+    logger.info("Creating demo candidate skills...")
+
+    # Соответствие кандидат -> вакансия (такое же как в seed_candidates)
+    vacancy_assignments = (
+        [0] * 8 + [1] * 8 + [2] * 4        # существующие 20 (vac 0/1/2)
+        + [0] * 10 + [1] * 8 + [2] * 6     # +24 новых на активные вакансии
+        + [3] * 3 + [4] * 3                # +6 новых на архивные (idx 3,4)
+    )  # итого 50 кандидатов
+
+    skills_templates = {
+        0: [  # Frontend
+            ["JavaScript", "React", "TypeScript", "HTML", "CSS", "Redux", "Webpack", "Git", "REST API", "Node.js", "Jest", "ESLint"],
+            ["Vue.js", "React", "JavaScript", "TypeScript", "Vuex", "Nuxt.js", "SCSS", "Vite", "GraphQL", "Docker", "Figma"],
+            ["React", "Next.js", "TypeScript", "Styled Components", "Zustand", "React Query", "Storybook", "Cypress", "CI/CD"],
+            ["Angular", "RxJS", "TypeScript", "NgRx", "Material UI", "Karma", "Protractor", "Jenkins", "JIRA", "Agile"]
+        ],
+        1: [  # B2B Sales
+            ["CRM AmoCRM", "Excel", "Переговоры", "Продажи B2B", "KPI управление", "SPIN техники", "Презентации", "Аналитика"],
+            ["Bitrix24", "Продажи", "Управление клиентами", "Тендеры", "1С", "PowerPoint", "Холодные звонки", "BANT"],
+            ["HubSpot", "Account management", "Консультативные продажи", "Работа с возражениями", "Salesforce", "Lead generation"],
+            ["Планирование продаж", "Team management", "Forecasting", "Channel sales", "Partner management", "ROI анализ"]
+        ],
+        2: [  # Кладовщик
+            ["1С Склад", "ТСД", "WMS системы", "Инвентаризация", "Товарооборот", "Складской учет", "Погрузчик", "FIFO"],
+            ["Комплектация", "Приемка товаров", "SAP WM", "Excel", "Контроль качества", "Логистика", "Упаковка"],
+            ["Управление складом", "Планирование", "Охрана труда", "Организация процессов", "Обучение персонала"],
+            ["Автоматизированные склады", "Конвейерное оборудование", "RFID", "Barcode сканеры", "Lean"]
+        ],
+        3: [  # iOS
+            ["Swift", "UIKit", "SwiftUI", "Xcode", "Core Data", "iOS SDK", "Objective-C", "Git", "REST API", "Push notifications"],
+            ["iOS", "Combine", "MVVM", "Auto Layout", "Core Animation", "TestFlight", "App Store", "CocoaPods", "SPM"],
+            ["VIPER", "RxSwift", "Realm", "Fastlane", "Alamofire", "Kingfisher", "Performance optimization", "Memory management"]
+        ],
+        4: [  # Контент
+            ["Копирайтинг", "SEO", "Content strategy", "SMM", "WordPress", "Google Analytics", "Figma", "Photoshop"],
+            ["Контент-планирование", "Email marketing", "Targetowanie", "YouTube", "Podcast", "Видеомонтаж"],
+            ["Editorial calendar", "Brand voice", "UGC", "Influencer marketing", "A/B testing", "Conversion optimization"]
+        ]
+    }
+
+    total_skills = 0
+    for i, candidate in enumerate(candidates):
+        vacancy_idx = vacancy_assignments[i]
+
+        # Получаем шаблон навыков для данного типа вакансии
+        all_skills = skills_templates.get(vacancy_idx, skills_templates[0])
+
+        # Выбираем 8-15 навыков из доступных
+        base_skills = all_skills[i % len(all_skills)]
+        num_skills = 8 + (i % 8)  # от 8 до 15 навыков
+
+        # Берем первые N навыков и перемешиваем немного для разнообразия
+        selected_skills = base_skills[:num_skills]
+        if len(all_skills) > 1:
+            # Добавляем несколько навыков из других шаблонов
+            extra_template = all_skills[(i + 1) % len(all_skills)]
+            selected_skills.extend(extra_template[:2])
+
+        # Создаем записи навыков для кандидата
+        for order_index, skill in enumerate(selected_skills[:15]):  # максимум 15
+            candidate_skill = CandidateSkill(
+                company_id=COMPANY_ID,
+                candidate_id=candidate.id,
+                skill=skill,
+                order_index=order_index
+            )
+            session.add(candidate_skill)
+            total_skills += 1
+
+    await session.flush()
+    logger.info(f"Created {total_skills} skills for {len(candidates)} candidates")
 
 
 def get_stage_transition_timestamps(target_stage: str, base_date: datetime) -> dict[str, datetime]:
@@ -533,33 +813,8 @@ async def seed_extras(session: AsyncSession, candidates: list[Candidate]):
         )
         session.add(in_message)
 
-    # Создаём AI evaluations для 3 топовых кандидатов
-    eval_candidates = [2, 5, 19]  # Орлов (88), Морозова (76), Новиков (89)
-    for idx in eval_candidates:
-        candidate = candidates[idx]
-        ai_score = CANDIDATES_DATA[idx]["ai_score"]
-
-        if ai_score >= 80:
-            verdict = "good"
-        elif ai_score >= 65:
-            verdict = "partial"
-        else:
-            verdict = "bad"
-
-        evaluation = AiEvaluation(
-            company_id=COMPANY_ID,
-            candidate_id=candidate.id,
-            score=ai_score,
-            verdict=verdict,
-            summary=f"Кандидат показал {verdict} результат по анализу резюме. Сгенерировано в seed_demo для тестирования.",
-            strengths=["Релевантный опыт", "Хорошие навыки"],
-            risks=["Требует дополнительной оценки"],
-            requirements_match={"overall": ai_score / 100},
-            forecast=f"Прогноз успеха: {ai_score}%. Сгенерировано в seed_demo для тестирования.",
-        )
-        session.add(evaluation)
-
-    logger.info("Created demo extras: 3 consents, 5 documents, 6 messages, 3 evaluations")
+    # MOK AiEvaluation удален - теперь создаётся реальным скорингом в seed_real_scoring
+    logger.info("Created demo extras: 3 consents, 5 documents, 6 messages")
 
 
 async def seed_surveys(session: AsyncSession):
@@ -631,6 +886,48 @@ async def seed_surveys(session: AsyncSession):
     logger.info("Created 2 demo pulse surveys")
 
 
+async def seed_real_scoring(session: AsyncSession, candidates: list[Candidate], applications: list[Application], admin: User):
+    """Запускает реальный AI-скоринг для всех кандидатов (только если REAL_SCORING=true)"""
+
+    if os.getenv("REAL_SCORING") != "true":
+        logger.info("REAL_SCORING not enabled, skipping real AI scoring")
+        return
+
+    logger.info("Starting REAL AI scoring for all candidates...")
+
+    # Импортируем скоринг здесь, чтобы избежать circular imports
+    from app.services.glafira.scoring import score_candidate
+
+    successful_scores = 0
+    failed_scores = 0
+
+    for i, application in enumerate(applications):
+        try:
+            logger.info(f"Scoring candidate {i+1}/{len(applications)}: {application.candidate.full_name}")
+
+            # Запускаем реальный скоринг
+            evaluation = await score_candidate(
+                session,
+                candidate_id=application.candidate_id,
+                vacancy_id=application.vacancy_id,
+                company_id=COMPANY_ID,
+                actor_user_id=admin.id
+            )
+
+            successful_scores += 1
+            logger.info(f"✓ Scored: {evaluation.score} points, verdict: {evaluation.verdict}")
+
+            # Пауза между вызовами для предотвращения rate limiting
+            await asyncio.sleep(1.2)
+
+        except Exception as e:
+            failed_scores += 1
+            logger.exception(f"✗ Failed to score candidate {application.candidate.full_name}: {e}")
+            continue
+
+    logger.info(f"Real scoring completed: {successful_scores} successful, {failed_scores} failed")
+
+
 async def main():
     """Главная функция seed_demo"""
     logger.info("Starting demo seed...")
@@ -656,6 +953,12 @@ async def main():
             # Шаг 4: Создаём кандидатов
             candidates = await seed_candidates(session)
 
+            # Шаг 4.1: Создаём опыт работы
+            await seed_experience(session, candidates)
+
+            # Шаг 4.2: Создаём навыки
+            await seed_skills(session, candidates)
+
             # Шаг 5: Создаём applications и переходы
             applications = await seed_applications_and_move(session, candidates, vacancies, admin)
 
@@ -664,6 +967,9 @@ async def main():
 
             # Шаг 7: Pulse surveys
             await seed_surveys(session)
+
+            # Шаг 8: Реальный скоринг (по флагу)
+            await seed_real_scoring(session, candidates, applications, admin)
 
             # Коммитим все изменения
             await session.commit()

@@ -61,16 +61,33 @@ function SingleEvaluation({
           </div>
         )}
 
-        {evaluation.questions && evaluation.questions.length > 0 && (
+        {evaluation.questions && Object.keys(evaluation.questions).length > 0 && (
           <div className="msg ai-msg-q">
             <span style={{ marginRight: '8px' }}>💬</span>
             <div>
-              <strong>Вопросы для интервью</strong>
-              <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
-                {evaluation.questions.map((question: string, index: number) => (
-                  <li key={index}>{question}</li>
-                ))}
-              </ul>
+              <strong>Вопросы для первого контакта</strong>
+
+              {evaluation.questions.resume && evaluation.questions.resume.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <strong style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>По резюме:</strong>
+                  <ol style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                    {evaluation.questions.resume.map((question: string, index: number) => (
+                      <li key={index} style={{ marginBottom: '4px' }}>{question}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {evaluation.questions.risks && evaluation.questions.risks.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <strong style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>По выявленным рискам:</strong>
+                  <ol style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                    {evaluation.questions.risks.map((question: string, index: number) => (
+                      <li key={index} style={{ marginBottom: '4px' }}>{question}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -40,6 +40,7 @@ class AiEvaluation(Base, TimestampMixin, CompanyMixin):
     requirements_match: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     forecast: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    questions: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     # Constraints
     __table_args__ = (
