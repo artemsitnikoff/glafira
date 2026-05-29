@@ -5,7 +5,7 @@ export default function AppLayout() {
   return (
     <div className="app-layout">
       <Sidebar />
-      <main className="app-content">
+      <main className="content">
         <Outlet />
       </main>
     </div>

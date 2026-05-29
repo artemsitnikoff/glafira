@@ -49,8 +49,27 @@ a {
   color: var(--fg-3);
 }
 
-.app-content {
-  overflow-y: auto;
-  /* Контент-обёртка задаёт padding сама (.content-inner у пересобранных экранов).
-     Этап пересборки: непересобранные страницы пока без отступа — это ожидаемо. */
+/* Эталон app.css:491 */
+.content {
+  overflow: auto;
+  min-height: 0;
+  scrollbar-gutter: stable;
+  /* padding задаёт .content-inner внутри (см. HomePage.css и далее по мере пересборки страниц) */
+}
+
+/* Эталон app.css:3204-3215 — стиль скроллбара */
+.content::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.content::-webkit-scrollbar-thumb {
+  background: var(--ark-gray-300);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.content::-webkit-scrollbar-thumb:hover {
+  background: var(--ark-gray-400);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
