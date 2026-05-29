@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Icon } from '@/components/ui/Icon';
 import { useComments } from '@/api/hooks/useComments';
 import { useAddComment } from '@/api/mutations/candidateDetail';
 
@@ -17,16 +16,9 @@ export function CommentsTab({ candidateId, candidate }: Props) {
 
   function handleAddComment() {
     if (!commentText.trim()) return;
-
     addCommentMutation.mutate(
-      {
-        body: commentText.trim(),
-      },
-      {
-        onSuccess: () => {
-          setCommentText('');
-        },
-      }
+      { body: commentText.trim() },
+      { onSuccess: () => setCommentText('') }
     );
   }
 
@@ -37,93 +29,67 @@ export function CommentsTab({ candidateId, candidate }: Props) {
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="tab-content">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Icon name="loader" size={24} />
-          <p>Загружаются комментарии...</p>
-        </div>
-      </div>
-    );
-  }
+  const fmtTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return '';
+    }
+  };
 
   return (
-    <div className="tab-content">
-      <h2 style={{ margin: '0 0 var(--space-4) 0', fontSize: '18px', fontWeight: '600' }}>
-        Комментарии
-      </h2>
+    <div className="comments-tab">
+      <div className="comments-list">
+        {isLoading ? (
+          <div className="cmt-empty">Загрузка…</div>
+        ) : comments && comments.length > 0 ? (
+          comments.map((comment: any) => {
+            const who = comment.author_name || 'Пользователь';
+            return (
+              <div className="cmt-item" key={comment.id}>
+                <div className="cmt-avatar">{who.charAt(0).toUpperCase()}</div>
+                <div className="cmt-body">
+                  <div className="cmt-head">
+                    <span className="cmt-who">{who}</span>
+                    {comment.created_at && (
+                      <span className="cmt-time">{fmtTime(comment.created_at)}</span>
+                    )}
+                  </div>
+                  <div className="cmt-text">{comment.body}</div>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="cmt-empty">Комментариев пока нет</div>
+        )}
+      </div>
 
-      {/* Add Comment Form */}
-      <div style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-4)', border: '1px solid var(--border-1)', borderRadius: 'var(--radius-md)' }}>
+      <div className="cmt-compose">
         <textarea
           value={commentText}
           onChange={(e) => setCommentText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Добавить комментарий... (Ctrl+Enter для отправки)"
-          rows={4}
-          style={{
-            width: '100%',
-            padding: 'var(--space-2) var(--space-3)',
-            border: '1px solid var(--border-1)',
-            borderRadius: 'var(--radius-md)',
-            resize: 'vertical',
-            fontFamily: 'inherit',
-            fontSize: '14px',
-            marginBottom: 'var(--space-3)',
-          }}
+          placeholder="Напишите комментарий… Используйте @ чтобы упомянуть коллегу."
+          rows={3}
         />
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="cmt-compose-actions">
+          <span className="cmt-hint">@ упомянуть · Ctrl+Enter — отправить</span>
           <button
-            className="candidate-toolbar__btn candidate-toolbar__btn--primary"
+            className="btn btn-primary btn-sm"
             onClick={handleAddComment}
             disabled={!commentText.trim() || addCommentMutation.isPending}
           >
-            <Icon name={addCommentMutation.isPending ? "loader" : "message-square"} size={16} />
-            Добавить комментарий
+            Отправить
           </button>
         </div>
-        {addCommentMutation.isError && (
-          <div style={{ marginTop: 'var(--space-2)', color: 'var(--stage-rejected)', fontSize: '14px' }}>
-            Ошибка добавления: {addCommentMutation.error?.message}
-          </div>
-        )}
       </div>
-
-      {/* Comments List */}
-      {comments && comments.length > 0 ? (
-        <div className="list-container">
-          {comments.map((comment) => (
-            <div key={comment.id} className="list-item">
-              <div className="list-item__header">
-                <h4 className="list-item__title">
-                  <Icon name="user" size={16} style={{ marginRight: 'var(--space-2)' }} />
-                  {comment.author_name || 'Пользователь'}
-                </h4>
-                <span className="list-item__meta">
-                  {new Date(comment.created_at).toLocaleDateString('ru', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
-              </div>
-              <div className="list-item__content">
-                <p style={{ margin: 0, lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                  {comment.body}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <Icon name="message-square" size={48} className="empty-state__icon" />
-          <p className="empty-state__text">Комментариев пока нет</p>
-        </div>
-      )}
     </div>
   );
 }

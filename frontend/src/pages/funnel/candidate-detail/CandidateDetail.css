@@ -1550,3 +1550,56 @@
 .cnd-funnel-wrap .cand-detail .icon-btn:hover {
   background: var(--bg-3-hover);
 }
+
+/* === Comments tab (1:1 эталон) === */
+.cnd-funnel-wrap .cand-detail .cc-content > .comments-tab { flex: 1; }
+.cnd-funnel-wrap .cand-detail .comments-tab {
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.cnd-funnel-wrap .cand-detail .comments-list { display: flex; flex-direction: column; gap: 14px; }
+.cnd-funnel-wrap .cand-detail .cmt-item { display: flex; gap: 10px; }
+.cnd-funnel-wrap .cand-detail .cmt-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--ark-blue-50);
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 13px;
+  flex: none;
+}
+.cnd-funnel-wrap .cand-detail .cmt-body { flex: 1; min-width: 0; }
+.cnd-funnel-wrap .cand-detail .cmt-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; flex-wrap: wrap; }
+.cnd-funnel-wrap .cand-detail .cmt-who { font-weight: 600; font-size: 13px; }
+.cnd-funnel-wrap .cand-detail .cmt-role { color: var(--fg-3); font-size: 12px; }
+.cnd-funnel-wrap .cand-detail .cmt-time { color: var(--fg-3); font-size: 12px; margin-left: auto; }
+.cnd-funnel-wrap .cand-detail .cmt-text { font-size: 13px; color: var(--fg-1); line-height: 1.5; }
+.cnd-funnel-wrap .cand-detail .cmt-empty { font-size: 13px; color: var(--fg-3); padding: 8px 0; }
+.cnd-funnel-wrap .cand-detail .cmt-compose {
+  margin-top: 16px;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+  padding: 8px;
+}
+.cnd-funnel-wrap .cand-detail .cmt-compose textarea {
+  width: 100%; border: 0; background: transparent; resize: vertical;
+  font: inherit; font-size: 13px; color: var(--fg-1); outline: 0;
+  min-height: 60px;
+}
+.cnd-funnel-wrap .cand-detail .cmt-compose-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.cnd-funnel-wrap .cand-detail .cmt-hint { font-size: 12px; color: var(--fg-3); }
+.cnd-funnel-wrap .cand-detail .cmt-compose-actions .btn { margin-left: auto; }
+
+/* btn-primary (кнопка «Отправить» в комментариях) */
+.cnd-funnel-wrap .cand-detail .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.cnd-funnel-wrap .cand-detail .btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}

@@ -3,6 +3,10 @@
 .cnd-funnel-wrap {
   height: 100%;
   min-height: 0;
+  /* Фикс-высота воронки: flex-колонка как .cand-list-wrap в эталоне.
+     Без неё .cand-body flex:1 не работает → карточка-оверлей клипается по высоте списка. */
+  display: flex;
+  flex-direction: column;
   /* Ширина закреплённого профиль-рельса — ЕДИНЫЙ источник.
      Используется в .ct-profile, .cand-thead .ct-profile и left карточки detailMode. */
   --profile-rail-width: 378px;
