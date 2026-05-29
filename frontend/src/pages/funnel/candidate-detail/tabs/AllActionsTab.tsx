@@ -15,6 +15,7 @@ const EVENT_LABELS = {
   offer: 'Оффер',
   move: 'Перемещение',
   verify: 'Верификация',
+  comment: 'Комментарий',
 } as const;
 
 export function AllActionsTab({ candidateId, candidate }: Props) {

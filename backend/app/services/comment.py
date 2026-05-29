@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import NotFoundError, InvalidMentionError
-from ..models import Candidate, Comment, User
+from ..models import Candidate, Comment, User, Event
 from ..schemas.comment import CommentOut, CommentCreate
 from ..services.audit import audit
 
@@ -161,6 +161,21 @@ async def create_comment(
         },
         actor_user_id=actor_user_id,
         company_id=company_id,
+    )
+
+    # Событие для ленты «Все действия» (Event != audit — лента читает таблицу events)
+    body_preview = (
+        comment_data.body[:80] + "…" if len(comment_data.body) > 80 else comment_data.body
+    )
+    session.add(
+        Event(
+            company_id=company_id,
+            type="comment",
+            actor_type="human",
+            actor_user_id=actor_user_id,
+            text=f"Комментарий: {body_preview}",
+            candidate_id=candidate_id,
+        )
     )
 
     await session.flush()
