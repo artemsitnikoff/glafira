@@ -1,37 +1,49 @@
-import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useUiStore } from '@/store/uiStore';
 import { useMe } from '@/api/hooks/useMe';
 import { useSidebar } from '@/api/hooks/useSidebar';
 import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
-import { useCandidates } from '@/api/hooks/useCandidates';
 import { Avatar } from './ui/Avatar';
-import { Icon } from './ui/Icon';
+import { Icon, type IconName } from './ui/Icon';
 import { APP_VERSION } from '@/lib/version';
 import './Sidebar.css';
 
-const ANALYTICS_REPORTS = [
-  { id: 'overview', label: 'Обзор', emoji: '📋' },
-  { id: 'speed', label: 'Скорость', emoji: '⏱' },
-  { id: 'funnel', label: 'Воронка', emoji: '🔻' },
-  { id: 'sources', label: 'Источники', emoji: '🌐' },
-  { id: 'rejections', label: 'Отказы', emoji: '❌' },
-  { id: 'turnover', label: 'Текучка', emoji: '📉' },
-  { id: 'recruiters', label: 'Рекрутёры', emoji: '👤' },
+const ANALYTICS_REPORTS: Array<{ id: string; label: string; icon: IconName }> = [
+  { id: 'overview', label: 'Обзор', icon: 'bar-chart' },
+  { id: 'speed', label: 'Скорость', icon: 'clock' },
+  { id: 'funnel', label: 'Воронка', icon: 'funnel' },
+  { id: 'sources', label: 'Источники', icon: 'link' },
+  { id: 'rejections', label: 'Отказы', icon: 'x' },
+  { id: 'turnover', label: 'Текучка', icon: 'activity' },
+  { id: 'recruiters', label: 'Рекрутёры', icon: 'user' },
 ];
 
 export function Sidebar() {
   const location = useLocation();
-  const { id: activeVacancyId } = useParams();
   const navigate = useNavigate();
 
   const { data: me } = useMe();
   const { data: sidebar } = useSidebar();
   const { count: alertsCount } = usePulseAlertsCount();
-  const { data: candidatesData } = useCandidates({});
   const ui = useUiStore();
 
+  // Определяем активный раздел по location.pathname
+  const getActiveSection = () => {
+    const path = location.pathname;
+    if (path.startsWith('/home') || path === '/') return 'home';
+    if (path.startsWith('/vacancies')) return 'vacancies';
+    if (path.startsWith('/candidates')) return 'candidates';
+    if (path.startsWith('/analytics')) return 'analytics';
+    if (path.startsWith('/pulse')) return 'pulse';
+    if (path.startsWith('/settings')) return 'settings';
+    return '';
+  };
+
+  const activeSection = getActiveSection();
+  const activeReportId = ui.analyticsReportId;
+
   // Фильтруем вакансии по поисковому запросу
-  const items = (sidebar?.items ?? []).filter((v: any) =>
+  const filteredVacancies = (sidebar?.items ?? []).filter((v: any) =>
     !ui.vacancySearch || v.name.toLowerCase().includes(ui.vacancySearch.toLowerCase())
   );
 
@@ -43,166 +55,152 @@ export function Sidebar() {
     navigate('/vacancies/new');
   };
 
+  const handleVacancySelect = (vacancyId: number) => {
+    navigate(`/vacancies/${vacancyId}`);
+  };
+
+  const handleArchiveClick = () => {
+    navigate('/vacancies/archive');
+  };
+
   const handleAnalyticsReport = (reportId: string) => {
     ui.setAnalyticsReportId(reportId);
     navigate(`/analytics?report=${reportId}`);
   };
 
+  const nav: Array<{
+    id: string;
+    label: string;
+    icon: IconName;
+    expandable?: string;
+    pip?: number;
+  }> = [
+    { id: 'home', label: 'Главная', icon: 'home' },
+    { id: 'vacancies', label: 'Вакансии', icon: 'briefcase', expandable: 'vacancies' },
+    { id: 'candidates', label: 'Кандидаты', icon: 'users' },
+    { id: 'analytics', label: 'Аналитика', icon: 'chart', expandable: 'analytics' },
+    { id: 'pulse', label: 'Пульс-Онбординг', icon: 'heart', pip: alertsCount },
+    { id: 'settings', label: 'Настройки', icon: 'settings' },
+  ];
+
+  const renderVacanciesSub = () => (
+    <div className="sub-block">
+      <button className="sub-add" onClick={handleNewVacancy}>
+        <Icon name="plus" size={14} /> Новая вакансия
+      </button>
+      <div className="sub-search">
+        <Icon name="search" size={13} style={{ color: 'var(--fg-3)', flex: 'none' }} />
+        <input
+          placeholder="Поиск…"
+          value={ui.vacancySearch}
+          onChange={(e) => ui.setVacancySearch(e.target.value)}
+        />
+      </div>
+      <div className="sub-list">
+        {filteredVacancies.length === 0 ? (
+          <div className="sub-empty">Ничего не найдено</div>
+        ) : (
+          filteredVacancies.map((v: any) => (
+            <div
+              key={v.id}
+              className={`sub-row ${
+                location.pathname === `/vacancies/${v.id}` && !location.pathname.includes('/archive')
+                  ? 'selected'
+                  : ''
+              }`}
+              onClick={() => handleVacancySelect(v.id)}
+            >
+              <span className="sub-name">{v.name}</span>
+              <span className="sub-count">{v.count}</span>
+              {v.new_count > 0 && <span className="sub-new">+{v.new_count}</span>}
+            </div>
+          ))
+        )}
+        <div className="sub-divider" />
+        <div
+          className={`sub-archive ${location.pathname.includes('/archive') ? 'selected' : ''}`}
+          onClick={handleArchiveClick}
+        >
+          <Icon name="archive" size={15} />
+          <span>Архив</span>
+          <span className="sub-count">—</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAnalyticsSub = () => (
+    <div className="sub-block">
+      <div className="sub-list">
+        {ANALYTICS_REPORTS.map((r) => (
+          <div
+            key={r.id}
+            className={`sub-row sub-row-an ${activeReportId === r.id ? 'selected' : ''}`}
+            onClick={() => handleAnalyticsReport(r.id)}
+          >
+            <Icon name={r.icon} size={14} style={{ flex: 'none', color: 'var(--fg-2)' }} />
+            <span className="sub-name">{r.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <aside className="sidebar">
-      <div className="sidebar__brand" onClick={handleBrandClick}>
-        <span>👩🏻</span>
-        <span className="sidebar__brand-name">
+    <aside className="sidebar-wide">
+      <div className="brand-wide" onClick={handleBrandClick}>
+        <div className="brand-mark">
+          <span className="brand-emoji">👩🏻</span>
+        </div>
+        <span className="brand-name">
           Глафира
-          <span className="sidebar__brand-version">v{APP_VERSION}</span>
+          <span className="brand-version">v{APP_VERSION}</span>
         </span>
-        <span>💃</span>
+        <span className="brand-dancer">💃</span>
+      </div>
+      <div className="nav-wide">
+        {nav.map((n) => {
+          const isActive = activeSection === n.id;
+          const isExpanded =
+            (n.expandable === 'vacancies' && ui.vacanciesOpen) ||
+            (n.expandable === 'analytics' && ui.analyticsOpen);
+          return (
+            <div key={n.id}>
+              <button
+                className={`nav-row ${isActive ? 'active' : ''}`}
+                onClick={() => {
+                  if (n.expandable === 'vacancies') ui.toggleVacancies();
+                  else if (n.expandable === 'analytics') ui.toggleAnalytics();
+                  else navigate(`/${n.id === 'home' ? '' : n.id}`);
+                }}
+              >
+                <Icon name={n.icon} size={18} className="nav-row-icon" />
+                <span className="nav-row-label">{n.label}</span>
+                {n.pip && n.pip > 0 ? <span className="nav-row-pip">{n.pip}</span> : null}
+                {n.expandable && (
+                  <span className={`nav-chev ${isExpanded ? 'open' : ''}`}>
+                    <Icon name="chevD" size={14} />
+                  </span>
+                )}
+              </button>
+              {n.expandable === 'vacancies' && isExpanded && renderVacanciesSub()}
+              {n.expandable === 'analytics' && isExpanded && renderAnalyticsSub()}
+            </div>
+          );
+        })}
       </div>
 
-      <nav className="sidebar__nav">
-        <NavLink
-          to="/home"
-          className={({ isActive }) => `sidebar__item ${isActive ? 'is-active' : ''}`}
-        >
-          <Icon name="home" size={18} />
-          <span>Главная</span>
-        </NavLink>
-
-        <button
-          className={`sidebar__item ${location.pathname.startsWith('/vacancies') ? 'is-active' : ''}`}
-          onClick={ui.toggleVacancies}
-        >
-          <Icon name="briefcase" size={18} />
-          <span>Вакансии</span>
-          <Icon
-            name={ui.vacanciesOpen ? 'chevron-down' : 'chevron-right'}
-            size={16}
-            className={`sidebar__chevron ${ui.vacanciesOpen ? 'open' : ''}`}
-          />
-        </button>
-
-        {ui.vacanciesOpen && (
-          <div className="sidebar__sub">
-            <button className="sidebar__new" onClick={handleNewVacancy}>
-              <Icon name="plus" size={14} />
-              Новая вакансия
-            </button>
-
-            <div className="sidebar__search">
-              <Icon name="search" size={14} style={{ color: 'var(--fg-3)', flex: 'none' }} />
-              <input
-                type="text"
-                placeholder="Поиск…"
-                value={ui.vacancySearch}
-                onChange={(e) => ui.setVacancySearch(e.target.value)}
-              />
-            </div>
-
-            <div className="sidebar__list">
-              {items.length === 0 ? (
-                <div className="sidebar__empty">
-                  {ui.vacancySearch ? 'Ничего не найдено' : 'Нет вакансий'}
-                </div>
-              ) : (
-                items.map((v: any) => (
-                  <NavLink
-                    key={v.id}
-                    to={`/vacancies/${v.id}`}
-                    className={({ isActive }) =>
-                      `sidebar__vac ${isActive || activeVacancyId === String(v.id) ? 'is-active' : ''}`
-                    }
-                  >
-                    <span className="sidebar__vac-name">{v.name}</span>
-                    <span className="mono">{v.count}</span>
-                    {v.new_count > 0 && (
-                      <span className="sidebar__new-badge">+{v.new_count}</span>
-                    )}
-                  </NavLink>
-                ))
-              )}
-
-              <NavLink
-                to="/vacancies/archive"
-                className={({ isActive }) => `sidebar__archive ${isActive ? 'is-active' : ''}`}
-              >
-                <Icon name="archive" size={14} />
-                <span>Архив</span>
-                <span className="mono">—</span>
-              </NavLink>
-            </div>
-          </div>
-        )}
-
-        <NavLink
-          to="/candidates"
-          className={({ isActive }) => `sidebar__item ${isActive ? 'is-active' : ''}`}
-        >
-          <Icon name="users" size={18} />
-          <span>Кандидаты</span>
-          {candidatesData?.pages?.[0]?.total && (
-            <span className="mono">{candidatesData.pages[0].total}</span>
-          )}
-        </NavLink>
-
-        <NavLink
-          to="/pulse"
-          className={({ isActive }) => `sidebar__item ${isActive ? 'is-active' : ''}`}
-        >
-          <Icon name="activity" size={18} />
-          <span>Пульс</span>
-          {alertsCount > 0 && <span className="sidebar__badge">{alertsCount}</span>}
-        </NavLink>
-
-        <button
-          className={`sidebar__item ${location.pathname.startsWith('/analytics') ? 'is-active' : ''}`}
-          onClick={ui.toggleAnalytics}
-        >
-          <Icon name="bar-chart" size={18} />
-          <span>Аналитика</span>
-          <Icon
-            name={ui.analyticsOpen ? 'chevron-down' : 'chevron-right'}
-            size={16}
-            className={`sidebar__chevron ${ui.analyticsOpen ? 'open' : ''}`}
-          />
-        </button>
-
-        {ui.analyticsOpen && (
-          <div className="sidebar__sub">
-            <div className="sidebar__list">
-              {ANALYTICS_REPORTS.map((r) => (
-                <button
-                  key={r.id}
-                  className={`sidebar__report ${ui.analyticsReportId === r.id ? 'is-active' : ''}`}
-                  onClick={() => handleAnalyticsReport(r.id)}
-                >
-                  <span>{r.emoji}</span>
-                  <span>{r.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <NavLink
-          to="/settings"
-          className={({ isActive }) => `sidebar__item ${isActive ? 'is-active' : ''}`}
-        >
-          <Icon name="settings" size={18} />
-          <span>Настройки</span>
-        </NavLink>
-      </nav>
-
-      <div className="sidebar__user">
+      <div className="user-card-wide">
         {me && (
           <>
-            <Avatar name={me.full_name} size="md" />
+            <Avatar name={me.full_name} size="sm" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="sidebar__user-name">{me.full_name}</div>
-              <div className="sidebar__user-role">{me.role}</div>
+              <div className="uc-name">{me.full_name}</div>
+              <div className="uc-role">{me.role}</div>
             </div>
-            <button className="sidebar__bell" aria-label="Уведомления">
+            <button className="icon-btn" aria-label="Уведомления">
               <Icon name="bell" size={16} />
-              {alertsCount > 0 && <span className="sidebar__pip" />}
+              {alertsCount > 0 && <span className="pip" />}
             </button>
           </>
         )}
