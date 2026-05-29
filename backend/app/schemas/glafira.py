@@ -13,9 +13,10 @@ class ScoreRequest(BaseModel):
 
 
 class RequirementMatch(BaseModel):
-    requirement: str  # требование из вакансии
-    status: str  # 'match'|'partial'|'miss'
-    comment: str | None
+    criterion: str  # критерий оценки
+    weight: int  # максимальный вес критерия
+    points: int  # набранные баллы (≤ weight)
+    comment: str | None  # комментарий по критерию
 
 
 class EvaluationOut(ORMBase):

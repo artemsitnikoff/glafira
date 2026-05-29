@@ -387,9 +387,13 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
         # Зарплатные ожидания — для наполнения колонки ЗП в воронке
         salary_expectation = 150000 + (i * 13000) % 250000
 
-        # Генерируем резюме на основе типа вакансии
+        # Генерируем резюме на основе типа вакансии (только в не-REAL режиме)
         vacancy_idx = vacancy_assignments[i]
-        resume_text = generate_resume_text(i, vacancy_idx)
+        if os.getenv("REAL_SCORING") == "true":
+            # В REAL режиме резюме создаст AI
+            resume_text = f"Кандидат {candidate_data['full_name']}. Резюме будет сгенерировано AI."
+        else:
+            resume_text = generate_resume_text(i, vacancy_idx)
 
         candidate = Candidate(
             company_id=COMPANY_ID,
@@ -893,14 +897,63 @@ async def seed_real_scoring(session: AsyncSession, candidates: list[Candidate], 
         logger.info("REAL_SCORING not enabled, skipping real AI scoring")
         return
 
-    logger.info("Starting REAL AI scoring for all candidates...")
+    logger.info("Starting REAL AI resume generation and scoring for all candidates...")
 
-    # Импортируем скоринг здесь, чтобы избежать circular imports
+    # Импортируем сервисы здесь, чтобы избежать circular imports
     from app.services.glafira.scoring import score_candidate
+    from app.services.glafira.resume_gen import generate_resume
 
+    # Определяем домены вакансий
+    vacancy_domains = {
+        0: "Senior Frontend Developer",
+        1: "B2B Sales Manager",
+        2: "Warehouse Worker",
+        3: "iOS Developer",
+        4: "Content Manager"
+    }
+
+    # Уровни качества в зависимости от возраста/индекса
+    def get_quality_level(candidate_index: int) -> str:
+        levels = ["junior", "middle", "senior"]
+        return levels[candidate_index % 3]
+
+    successful_resumes = 0
     successful_scores = 0
-    failed_scores = 0
+    failed_operations = 0
 
+    # Соответствие кандидат -> вакансия (такое же как в seed_candidates)
+    vacancy_assignments = (
+        [0] * 8 + [1] * 8 + [2] * 4        # существующие 20 (vac 0/1/2)
+        + [0] * 10 + [1] * 8 + [2] * 6     # +24 новых на активные вакансии
+        + [3] * 3 + [4] * 3                # +6 новых на архивные (idx 3,4)
+    )  # итого 50 кандидатов
+
+    # Шаг 1: Генерируем резюме для всех кандидатов
+    logger.info("Step 1: Generating AI resumes...")
+    for i, candidate in enumerate(candidates):
+        try:
+            vacancy_idx = vacancy_assignments[i]
+            vacancy_domain = vacancy_domains.get(vacancy_idx, "General")
+            quality_level = get_quality_level(i)
+
+            logger.info(f"Generating resume {i+1}/{len(candidates)}: {candidate.full_name} ({vacancy_domain}, {quality_level})")
+
+            await generate_resume(session, candidate, vacancy_domain, quality_level)
+            successful_resumes += 1
+
+            # Пауза между вызовами
+            await asyncio.sleep(1.2)
+
+        except Exception as e:
+            failed_operations += 1
+            logger.exception(f"✗ Failed to generate resume for {candidate.full_name}: {e}")
+            continue
+
+    await session.flush()
+    logger.info(f"Resume generation completed: {successful_resumes} successful")
+
+    # Шаг 2: Скоринг для кандидатов с applications
+    logger.info("Step 2: AI scoring for applications...")
     for i, application in enumerate(applications):
         try:
             logger.info(f"Scoring candidate {i+1}/{len(applications)}: {application.candidate.full_name}")
@@ -921,11 +974,11 @@ async def seed_real_scoring(session: AsyncSession, candidates: list[Candidate], 
             await asyncio.sleep(1.2)
 
         except Exception as e:
-            failed_scores += 1
+            failed_operations += 1
             logger.exception(f"✗ Failed to score candidate {application.candidate.full_name}: {e}")
             continue
 
-    logger.info(f"Real scoring completed: {successful_scores} successful, {failed_scores} failed")
+    logger.info(f"Real AI processing completed: {successful_resumes} resumes, {successful_scores} scores, {failed_operations} errors")
 
 
 async def main():
@@ -953,11 +1006,13 @@ async def main():
             # Шаг 4: Создаём кандидатов
             candidates = await seed_candidates(session)
 
-            # Шаг 4.1: Создаём опыт работы
-            await seed_experience(session, candidates)
+            # Шаг 4.1: Создаём опыт работы (только в не-REAL режиме)
+            if os.getenv("REAL_SCORING") != "true":
+                await seed_experience(session, candidates)
 
-            # Шаг 4.2: Создаём навыки
-            await seed_skills(session, candidates)
+            # Шаг 4.2: Создаём навыки (только в не-REAL режиме)
+            if os.getenv("REAL_SCORING") != "true":
+                await seed_skills(session, candidates)
 
             # Шаг 5: Создаём applications и переходы
             applications = await seed_applications_and_move(session, candidates, vacancies, admin)

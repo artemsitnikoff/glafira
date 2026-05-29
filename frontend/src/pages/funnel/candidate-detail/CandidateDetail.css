@@ -639,45 +639,22 @@
   border-left: 4px solid var(--accent);
 }
 
-.cnd-funnel-wrap .cand-detail .crit-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin: 16px 0;
+/* AI Score Header */
+.cnd-funnel-wrap .cand-detail .ai-score-header {
+  /* Styles are inline in component for consistency */
 }
 
-.cnd-funnel-wrap .cand-detail .crit-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* Criteria breakdown table */
+.cnd-funnel-wrap .cand-detail .crit-table {
+  /* Base styles are inline for full control */
 }
 
-.cnd-funnel-wrap .cand-detail .crit-label {
-  font-size: 13px;
-  color: var(--fg-2);
-  min-width: 120px;
+.cnd-funnel-wrap .cand-detail .crit-row:hover {
+  background: var(--bg-panel-2);
 }
 
-.cnd-funnel-wrap .cand-detail .crit-bar {
-  flex: 1;
-  height: 8px;
-  background: var(--bg-3);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.cnd-funnel-wrap .cand-detail .crit-fill {
-  height: 100%;
-  background: var(--score-green);
-  transition: width 300ms ease;
-}
-
-.cnd-funnel-wrap .cand-detail .crit-score {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-3);
-  min-width: 40px;
-  text-align: right;
+.cnd-funnel-wrap .cand-detail .crit-cell {
+  /* Base styles are inline for consistency */
 }
 
 /* === CHAT TAB === */
