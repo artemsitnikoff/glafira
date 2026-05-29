@@ -135,7 +135,7 @@ export function CandidatesPoolPage() {
   return (
     <div className="candidates-pool-page">
       {/* Sticky Header */}
-      <div className="page-header sticky">
+      <div className="cnd-page-header sticky">
         <div className="header-content">
           <div className="header-left">
             <h1>Кандидаты</h1>

@@ -5,15 +5,15 @@
   background: var(--bg-1);
 }
 
-/* Page Header */
-.page-header {
+/* Page Header (scoped к Pool, чтобы не протекать в Home/Funnel/etc.) */
+.cnd-page-header {
   background: var(--bg-2);
   border-bottom: 1px solid var(--border-1);
   padding: var(--space-6) var(--space-6);
   z-index: 10;
 }
 
-.page-header.sticky {
+.cnd-page-header.sticky {
   position: sticky;
   top: 0;
 }
