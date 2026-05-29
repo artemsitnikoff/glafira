@@ -304,7 +304,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
     experience = [CandidateExperienceOut.model_validate(exp) for exp in candidate.experience]
 
     # Build skills
-    skills = [skill.name for skill in candidate.skills]
+    skills = [skill.skill for skill in candidate.skills]
 
     # Build full name
     full_name = _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name)
