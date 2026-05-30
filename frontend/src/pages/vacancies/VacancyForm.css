@@ -381,6 +381,34 @@
 
 /* ===== ЭТАЛОННЫЕ СТИЛИ ДОБАВЛЕННЫЕ ===== */
 
+/* База прогресс-шагов мастера 1:1 эталон (на странице формы Funnel.css не подключён,
+   поэтому базовые .funnel-* стили дублируем scoped под .nv-wrap) */
+.nv-wrap .funnel-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 28px;
+  background: var(--bg-panel-2);
+  border-bottom: 1px solid var(--border-1);
+  overflow-x: auto;
+}
+.nv-wrap .funnel-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 11px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  font-size: 12px; font-weight: 500;
+  color: var(--fg-1);
+  white-space: nowrap;
+}
+.nv-wrap .funnel-chip.active {
+  background: var(--ark-gray-900);
+  color: #fff;
+  border-color: var(--ark-gray-900);
+}
+.nv-wrap .funnel-hired { border-color: var(--ark-green-500); color: var(--ark-green-600); }
+.nv-wrap .funnel-hired.active { background: var(--ark-green-500); border-color: var(--ark-green-500); color: #fff; }
+.nv-wrap .funnel-arrow { color: var(--ark-gray-400); flex: none; }
+
 /* Funnel-row override для шагов создания вакансии */
 .nv-funnel-row { position: static !important; }
 .nv-funnel-row .funnel-chip.nv-chip-readonly {
