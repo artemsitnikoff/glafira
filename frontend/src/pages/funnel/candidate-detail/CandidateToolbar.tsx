@@ -16,21 +16,22 @@ type Props = {
 };
 
 type Stage = {
-  id: string;
-  name: string;
-  order: number;
+  stage_key: string;
+  label: string;
+  color: string;
+  count: number;
   is_terminal: boolean;
 };
 
 type RejectReason = {
   id: string;
-  name: string;
   side: 'candidate' | 'company';
+  label: string;
 };
 
 export function CandidateToolbar({ application, candidate, fromPool, onClose, onTabChange }: Props) {
   const navigate = useNavigate();
-  const { vacancyId } = useParams();
+  const { id: vacancyId } = useParams();
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
 
@@ -44,7 +45,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const { data: stages } = useQuery({
     queryKey: ['vacancies', vacancyId, 'stages'],
     queryFn: async () => {
-      const response = await api.get(`/api/v1/vacancies/${vacancyId}/stages`);
+      const response = await api.get(`/vacancies/${vacancyId}/stages`);
       return response.data as Stage[];
     },
     enabled: !!vacancyId && movePopoverOpen,
@@ -54,7 +55,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const { data: rejectReasons } = useQuery({
     queryKey: ['settings', 'reject-reasons'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/settings/reject-reasons');
+      const response = await api.get('/settings/reject-reasons');
       return response.data as RejectReason[];
     },
     enabled: rejectPopoverOpen,
@@ -82,22 +83,28 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
     }
   }, [movePopoverOpen, rejectPopoverOpen]);
 
-  function handleMoveToStage(stageId: string) {
+  function handleMoveToStage(stageKey: string) {
     if (!application) return;
+
+    // Не двигать на текущий этап
+    if (stageKey === application.stage) {
+      setMovePopoverOpen(false);
+      return;
+    }
 
     moveMutation.mutate({
       id: application.id,
-      data: { to_stage: stageId }
+      data: { to_stage: stageKey }
     });
     setMovePopoverOpen(false);
   }
 
-  function handleRejectWithReason(reasonId: string) {
+  function handleRejectWithReason(reason: RejectReason) {
     if (!application) return;
 
     rejectMutation.mutate({
       id: application.id,
-      data: { reason: reasonId, side: 'company' }
+      data: { reason: reason.label, side: reason.side }
     });
     setRejectPopoverOpen(false);
   }
@@ -132,6 +139,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
 
   // Filter non-terminal stages for move popover
   const availableStages = stages?.filter(stage => !stage.is_terminal) || [];
+  const curStageIdx = availableStages.findIndex(s => s.stage_key === application?.stage);
 
   // Group reject reasons by side
   const candidateReasons = rejectReasons?.filter(r => r.side === 'candidate') || [];
@@ -165,14 +173,17 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
               <div className="cd-pop-backdrop" onClick={() => setMovePopoverOpen(false)} />
               <div className="cd-move-pop" role="menu">
                 <div className="cd-pop-head">На какой этап?</div>
-                {availableStages.map(stage => (
+                {availableStages.map((stage, i) => (
                   <button
-                    key={stage.id}
-                    className="cd-pop-item"
-                    onClick={() => handleMoveToStage(stage.id)}
+                    key={stage.stage_key}
+                    className={`cd-pop-item ${stage.stage_key === application?.stage ? 'cur' : ''} ${i === curStageIdx + 1 ? 'next' : ''}`}
+                    onClick={() => handleMoveToStage(stage.stage_key)}
                     disabled={moveMutation.isPending}
                   >
-                    <span className="cd-pop-label">{stage.name}</span>
+                    <span className="stage-dot" style={{ background: stage.color }} />
+                    <span className="cd-pop-label">{stage.label}</span>
+                    {stage.stage_key === application?.stage && <span className="cd-pop-tag">сейчас</span>}
+                    {i === curStageIdx + 1 && <span className="cd-pop-tag cd-pop-tag-next">далее</span>}
                   </button>
                 ))}
               </div>
@@ -210,11 +221,11 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
                       <button
                         key={reason.id}
                         className="cd-pop-item cd-reject-item"
-                        onClick={() => handleRejectWithReason(reason.id)}
+                        onClick={() => handleRejectWithReason(reason)}
                         disabled={rejectMutation.isPending}
                       >
                         <span className="r-bullet" />
-                        <span className="cd-pop-label">{reason.name}</span>
+                        <span className="cd-pop-label">{reason.label}</span>
                       </button>
                     ))}
                   </>
@@ -226,11 +237,11 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
                       <button
                         key={reason.id}
                         className="cd-pop-item cd-reject-item"
-                        onClick={() => handleRejectWithReason(reason.id)}
+                        onClick={() => handleRejectWithReason(reason)}
                         disabled={rejectMutation.isPending}
                       >
                         <span className="r-bullet co" />
-                        <span className="cd-pop-label">{reason.name}</span>
+                        <span className="cd-pop-label">{reason.label}</span>
                       </button>
                     ))}
                   </>
