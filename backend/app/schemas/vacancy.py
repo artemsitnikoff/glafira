@@ -1,9 +1,17 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
 from uuid import UUID
 
 from .base import ORMBase
 from .user import UserShort
+
+
+class StageInput(BaseModel):
+    """Schema for custom stage input when creating vacancy"""
+    stage_key: str = Field(..., max_length=20)
+    label: str = Field(..., max_length=60)
+    order_index: int
+    is_terminal: bool = False
 
 
 class VacancySidebarItem(ORMBase):
@@ -76,6 +84,14 @@ class VacancyCreate(BaseModel):
     auto_qa_from: str | None = None
     auto_qa_to: str | None = None
     auto_reject: bool = False
+    stages: list[StageInput] | None = None
+
+    @field_validator('stages')
+    @classmethod
+    def validate_stages(cls, v):
+        if v is not None and len(v) < 3:
+            raise ValueError('Minimum 3 stages required for custom funnel')
+        return v
 
 
 class VacancyUpdate(BaseModel):

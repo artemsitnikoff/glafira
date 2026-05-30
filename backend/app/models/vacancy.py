@@ -144,13 +144,7 @@ class VacancyStage(Base, TimestampMixin, CompanyMixin):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
-    # Constraints
-    __table_args__ = (
-        CheckConstraint(
-            "stage_key IN ('response', 'selected', 'recruiter', 'interview', 'test', 'manager', 'offer', 'hired', 'rejected', 'added')",
-            name="check_stage_key"
-        ),
-    )
+    # Constraints removed to allow custom stage keys
 
     # Relationships
     vacancy: Mapped["Vacancy"] = relationship("Vacancy", back_populates="stages")
