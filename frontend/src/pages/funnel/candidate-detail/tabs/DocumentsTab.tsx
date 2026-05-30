@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useDocuments } from '@/api/hooks/useDocuments';
 import { useUploadDocument, useDeleteDocument, useDownloadDocument } from '@/api/mutations/candidateDetail';
+import type { ApiError } from '@/api/aliases';
 
 type Props = {
   candidateId?: string;
@@ -173,7 +174,7 @@ export function DocumentsTab({ candidateId, candidate }: Props) {
 
       {uploadMutation.isError && (
         <div style={{ marginTop: '10px', color: 'var(--stage-rejected)', fontSize: '12px' }}>
-          Ошибка загрузки: {uploadMutation.error?.message}
+          {(uploadMutation.error as unknown as ApiError)?.error?.message || 'Не удалось загрузить файл'}
         </div>
       )}
     </div>

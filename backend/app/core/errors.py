@@ -104,19 +104,25 @@ class AlreadySignedError(AppError):
 
 
 class FileTooLargeError(AppError):
-    def __init__(self):
+    def __init__(self, max_mb: int | None = None):
+        message = "Файл превышает допустимый размер"
+        if max_mb:
+            message = f"Файл слишком большой. Максимальный размер — {max_mb} МБ"
         super().__init__(
             code="FILE_TOO_LARGE",
-            message="Файл превышает допустимый размер",
+            message=message,
             status_code=413
         )
 
 
 class UnsupportedFileTypeError(AppError):
-    def __init__(self):
+    def __init__(self, allowed: str | None = None):
+        message = "Неподдерживаемый тип файла"
+        if allowed:
+            message = f"Недопустимый тип файла. Разрешены: {allowed}"
         super().__init__(
             code="UNSUPPORTED_FILE_TYPE",
-            message="Неподдерживаемый тип файла",
+            message=message,
             status_code=415
         )
 

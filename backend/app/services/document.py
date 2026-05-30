@@ -19,6 +19,8 @@ from ..services.storage import storage_service
 # File validation constants
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'}
+# Человекочитаемый список разрешённых форматов для сообщений об ошибке
+ALLOWED_EXTENSIONS_LABEL = ", ".join(sorted(ext.lstrip('.').upper() for ext in ALLOWED_EXTENSIONS))
 ALLOWED_CONTENT_TYPES = {
     'application/pdf',
     'application/msword',
@@ -115,16 +117,16 @@ async def upload_document(
 
     # Validate file size
     if len(content) > MAX_FILE_SIZE:
-        raise FileTooLargeError()
+        raise FileTooLargeError(MAX_FILE_SIZE // (1024 * 1024))
 
     # Validate file extension
     file_ext = Path(file.filename or "").suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
-        raise UnsupportedFileTypeError()
+        raise UnsupportedFileTypeError(ALLOWED_EXTENSIONS_LABEL)
 
     # Validate content type
     if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise UnsupportedFileTypeError()
+        raise UnsupportedFileTypeError(ALLOWED_EXTENSIONS_LABEL)
 
     # Save to storage
     storage_path = await storage_service.save(
