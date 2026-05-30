@@ -1,6 +1,7 @@
 """Парсинг резюме и автозаполнение полей кандидата"""
 
 import logging
+import re
 from io import BytesIO
 from pathlib import Path
 from uuid import UUID
@@ -13,6 +14,39 @@ from .prompts import RESUME_PARSE_PROMPT
 from ...models import Candidate
 
 logger = logging.getLogger(__name__)
+
+
+def _to_int(value) -> int | None:
+    """Безопасно привести ответ LLM к int. LLM по промпту возвращает зарплату строкой
+    ('180 000 ₽ на руки'), а колонка — INTEGER. Берём первое число, чистим разделители."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        n = value
+    elif isinstance(value, float):
+        n = int(value)
+    elif isinstance(value, str):
+        m = re.search(r'\d[\d\s]*\d|\d', value)
+        if not m:
+            return None
+        try:
+            n = int(re.sub(r'\s', '', m.group()))
+        except ValueError:
+            return None
+    else:
+        return None
+    # Санити: отрицательные/абсурдные отбросить (PG INTEGER до ~2.1 млрд)
+    if n < 0 or n > 1_000_000_000:
+        return None
+    return n
+
+
+def _to_str(value, maxlen: int) -> str | None:
+    """Привести к строке нужной длины (обрезать под лимит колонки), пустое/None — в None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s[:maxlen] if s else None
 
 
 async def extract_resume_text(content: bytes, filename: str) -> str | None:
@@ -86,30 +120,40 @@ async def parse_and_apply_resume(
             max_tokens=1024
         )
 
-        # Update candidate fields only if they are None
-        if candidate.last_position is None and parsed_data.get("last_position"):
-            candidate.last_position = parsed_data["last_position"]
+        # Заполняем только пустые поля. Значения парсера КОЭРСИМ к типу/длине колонки
+        # (LLM возвращает зарплату строкой → INTEGER; телефон/строки могут превысить лимит
+        # колонки) — иначе flush падает DataError и отравляет сессию, роняя всю загрузку файла.
+        if candidate.last_position is None:
+            if (v := _to_str(parsed_data.get("last_position"), 255)):
+                candidate.last_position = v
 
-        if candidate.last_company is None and parsed_data.get("last_company"):
-            candidate.last_company = parsed_data["last_company"]
+        if candidate.last_company is None:
+            if (v := _to_str(parsed_data.get("last_company"), 255)):
+                candidate.last_company = v
 
-        if candidate.last_period is None and parsed_data.get("last_period"):
-            candidate.last_period = parsed_data["last_period"]
+        if candidate.last_period is None:
+            if (v := _to_str(parsed_data.get("last_period"), 120)):
+                candidate.last_period = v
 
-        if candidate.salary_expectation is None and parsed_data.get("salary_expectation"):
-            candidate.salary_expectation = parsed_data["salary_expectation"]
+        if candidate.salary_expectation is None:
+            if (v := _to_int(parsed_data.get("salary_expectation"))) is not None:
+                candidate.salary_expectation = v
 
-        if candidate.city is None and parsed_data.get("city"):
-            candidate.city = parsed_data["city"]
+        if candidate.city is None:
+            if (v := _to_str(parsed_data.get("city"), 120)):
+                candidate.city = v
 
-        if candidate.phone is None and parsed_data.get("phone"):
-            candidate.phone = parsed_data["phone"]
+        if candidate.phone is None:
+            if (v := _to_str(parsed_data.get("phone"), 20)):
+                candidate.phone = v
 
-        if candidate.email is None and parsed_data.get("email"):
-            candidate.email = parsed_data["email"]
+        if candidate.email is None:
+            if (v := _to_str(parsed_data.get("email"), 255)):
+                candidate.email = v
 
-        if hasattr(candidate, 'experience_years') and candidate.experience_years is None and parsed_data.get("experience_years"):
-            candidate.experience_years = parsed_data["experience_years"]
+        if hasattr(candidate, 'experience_years') and candidate.experience_years is None:
+            if (v := _to_int(parsed_data.get("experience_years"))) is not None:
+                candidate.experience_years = v
 
         await session.flush()
         logger.info(f"Updated candidate {candidate_id} from parsed resume")
