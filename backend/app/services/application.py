@@ -215,10 +215,14 @@ async def _write_move_event(
     company_id: UUID,
     reason: str | None = None,
 ) -> None:
+    def _label(key: str) -> str:
+        stage = STAGES.get(key)
+        return stage.label if stage else key
+
     text = (
-        f"Переведён с этапа «{from_stage}» на «{to_stage}»"
+        f"Переведён с этапа «{_label(from_stage)}» на «{_label(to_stage)}»"
         if reason is None
-        else f"Отказ ({to_stage}): {reason}"
+        else f"Отказ: {reason}"
     )
     session.add(
         Event(

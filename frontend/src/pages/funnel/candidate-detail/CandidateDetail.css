@@ -531,8 +531,7 @@
 }
 .cnd-funnel-wrap .cand-detail .chat-stream {
   flex: 1;
-  min-height: 360px;
-  max-height: calc(100vh - 380px);
+  min-height: 0;
   overflow-y: auto;
   padding: 18px 22px 12px;
   background:
