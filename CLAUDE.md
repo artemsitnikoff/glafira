@@ -38,7 +38,7 @@
 
 **VPS:** домен `glafira.dclouds.ru`, Docker compose (postgres + бек + фронт), HTTPS (certbot), nginx **общий** (на сервере много чужих сервисов — их не трогать). Путь `/var/www/glafira`. **Push в `main` = автодеплой** (см. §6).
 
-**Креды админа (demo):** `admin@dclouds.ru` / `Glafira2026!` (из `app/seed.py`).
+**Доступы:** demo-админ создаётся в `app/seed.py`; секреты — в `.env` на VPS (НЕ в git). Конкретные значения в доках НЕ хранить.
 
 ---
 
