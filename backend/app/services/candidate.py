@@ -367,6 +367,18 @@ async def create_candidate(
     # Create candidate
     full_name = _compute_full_name(candidate_data.last_name, candidate_data.first_name, candidate_data.middle_name)
 
+    # Prepare extra data
+    extra = {}
+    if candidate_data.comment:
+        extra["comment"] = candidate_data.comment
+    if candidate_data.add_type and candidate_data.add_type != "manual":
+        extra["add_type"] = candidate_data.add_type
+
+    # Prepare messengers data
+    messengers_data = []
+    if candidate_data.messengers:
+        messengers_data = [msg.model_dump() for msg in candidate_data.messengers]
+
     candidate = Candidate(
         company_id=company_id,
         last_name=candidate_data.last_name,
@@ -379,7 +391,9 @@ async def create_candidate(
         birth_date=candidate_data.birth_date,
         city=candidate_data.city,
         salary_expectation=candidate_data.salary_expectation,
-        currency=candidate_data.currency
+        currency=candidate_data.currency,
+        messengers=messengers_data,
+        extra=extra
     )
 
     session.add(candidate)

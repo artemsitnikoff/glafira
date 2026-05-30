@@ -209,3 +209,115 @@ class TestCandidates:
         assert len(applications) == 1
         assert applications[0]["client_name"] is None
         assert applications[0]["vacancy_name"] == "Test Vacancy without Client"
+
+    async def test_create_candidate_with_comment_and_add_type(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str]
+    ):
+        """Test creating candidate with comment and add_type saves to extra"""
+        response = await async_client.post(
+            "/api/v1/candidates",
+            headers=auth_headers,
+            json={
+                "last_name": "Тестов",
+                "first_name": "Тест",
+                "source": "manual",
+                "comment": "Отличный кандидат",
+                "add_type": "import"
+            }
+        )
+
+        assert response.status_code == 201
+        candidate = response.json()
+        assert candidate["last_name"] == "Тестов"
+        assert candidate["first_name"] == "Тест"
+        assert candidate["source"] == "manual"
+
+        # Check extra field contains comment and add_type
+        assert candidate["extra"] is not None
+        assert candidate["extra"]["comment"] == "Отличный кандидат"
+        assert candidate["extra"]["add_type"] == "import"
+
+    async def test_create_candidate_with_messengers(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str]
+    ):
+        """Test creating candidate with messengers"""
+        response = await async_client.post(
+            "/api/v1/candidates",
+            headers=auth_headers,
+            json={
+                "last_name": "Мессенджеров",
+                "first_name": "Тест",
+                "source": "manual",
+                "messengers": [
+                    {"type": "tg", "url": "https://t.me/testuser"},
+                    {"type": "linkedin", "url": "https://linkedin.com/in/testuser"}
+                ]
+            }
+        )
+
+        assert response.status_code == 201
+        candidate = response.json()
+        assert candidate["last_name"] == "Мессенджеров"
+        assert candidate["first_name"] == "Тест"
+        assert candidate["source"] == "manual"
+
+        # Check messengers field
+        assert len(candidate["messengers"]) == 2
+        assert candidate["messengers"][0]["type"] == "tg"
+        assert candidate["messengers"][0]["url"] == "https://t.me/testuser"
+        assert candidate["messengers"][1]["type"] == "linkedin"
+        assert candidate["messengers"][1]["url"] == "https://linkedin.com/in/testuser"
+
+    async def test_create_candidate_without_optional_fields(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str]
+    ):
+        """Test creating candidate without new optional fields works as before"""
+        response = await async_client.post(
+            "/api/v1/candidates",
+            headers=auth_headers,
+            json={
+                "last_name": "Простой",
+                "first_name": "Кандидат",
+                "source": "manual"
+            }
+        )
+
+        assert response.status_code == 201
+        candidate = response.json()
+        assert candidate["last_name"] == "Простой"
+        assert candidate["first_name"] == "Кандидат"
+        assert candidate["source"] == "manual"
+
+        # Check defaults
+        assert candidate["extra"] == {}
+        assert candidate["messengers"] == []
+
+    async def test_create_candidate_with_empty_comment(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str]
+    ):
+        """Test creating candidate with empty comment doesn't clutter extra"""
+        response = await async_client.post(
+            "/api/v1/candidates",
+            headers=auth_headers,
+            json={
+                "last_name": "Пустой",
+                "first_name": "Комментарий",
+                "source": "manual",
+                "comment": "",
+                "add_type": "manual"  # default value
+            }
+        )
+
+        assert response.status_code == 201
+        candidate = response.json()
+
+        # Check that empty comment is not stored and default add_type is not stored
+        assert candidate["extra"] == {}

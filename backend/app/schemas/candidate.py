@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime, date
 from uuid import UUID
+from typing import Literal
 
 from .base import ORMBase
 
@@ -63,7 +64,9 @@ class CandidateDetail(ORMBase):
     region: str | None = None
     phone: str | None = None
     email: str | None = None
-    messengers: list[str] = []
+    # Обе формы: старые засиженные — список строк-каналов (["telegram",...]);
+    # новые из формы добавления — объекты {type, url}. Фронт рендерит обе.
+    messengers: list[dict | str] = []
     salary_expectation: int | None = None
     currency: str = "RUB"
     last_position: str | None = None
@@ -101,6 +104,11 @@ class ApplicationHistoryItem(ORMBase):
     reject_reason: str | None = None
 
 
+class MessengerEntry(BaseModel):
+    type: Literal["tg", "wa", "max", "vk", "linkedin"]
+    url: str
+
+
 class CandidateCreate(BaseModel):
     last_name: str
     first_name: str
@@ -116,6 +124,7 @@ class CandidateCreate(BaseModel):
     add_type: str = "manual"
     vacancy_id: UUID | None = None
     comment: str | None = None
+    messengers: list[MessengerEntry] | None = None
 
 
 class CandidateUpdate(BaseModel):
