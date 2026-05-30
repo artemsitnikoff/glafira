@@ -49,10 +49,6 @@ class Application(Base, TimestampMixin, CompanyMixin):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "stage IN ('response', 'added', 'selected', 'recruiter', 'interview', 'test', 'manager', 'offer', 'hired', 'rejected')",
-            name="check_application_stage"
-        ),
-        CheckConstraint(
             "reject_side IN ('candidate', 'company')",
             name="check_reject_side"
         ),
