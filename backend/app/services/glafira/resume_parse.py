@@ -224,6 +224,23 @@ async def parse_and_apply_resume(
 
             logger.info(f"Created {edu_count} education records for candidate {candidate_id}")
 
+        # Доп. поля для блока «Дополнительно» карточки (languages/relocation/business_trips/remote)
+        # → пишем в candidate.extra (JSONB), как resume_gen. Реассайн обязателен (иначе SQLAlchemy
+        # не заметит мутацию dict). Не затираем уже заполненные ключи.
+        existing_extra = dict(candidate.extra or {})
+        extra_changed = False
+        if "languages" not in existing_extra and isinstance(parsed_data.get("languages"), list):
+            langs = [s for x in parsed_data["languages"] if (s := _to_str(x, 120))]
+            if langs:
+                existing_extra["languages"] = langs
+                extra_changed = True
+        for key in ("relocation", "business_trips", "remote"):
+            if not existing_extra.get(key) and (v := _to_str(parsed_data.get(key), 200)):
+                existing_extra[key] = v
+                extra_changed = True
+        if extra_changed:
+            candidate.extra = existing_extra
+
         await session.flush()
         logger.info(f"Successfully updated candidate {candidate_id} from parsed resume")
 

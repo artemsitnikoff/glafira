@@ -221,3 +221,44 @@ async def test_parse_handles_empty_text_gracefully(mock_extract_text, mock_call_
     # Assert - парсер не должен вызываться
     mock_call_json.assert_not_called()
     session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch('app.services.glafira.resume_parse.call_json')
+@patch('app.services.glafira.resume_parse.extract_resume_text')
+async def test_parse_populates_extra_additional_fields(mock_extract_text, mock_call_json):
+    """languages/relocation/business_trips/remote → candidate.extra (блок «Дополнительно» карточки)"""
+
+    mock_extract_text.return_value = "resume content"
+    mock_call_json.return_value = {
+        "languages": ["Русский — Родной", "Английский — B1", "", None],  # пустые должны отфильтроваться
+        "relocation": "Готов к переезду",
+        "business_trips": "Не готов к командировкам",
+        "remote": "Удалённо, на месте работодателя",
+    }
+
+    session = AsyncMock(spec=AsyncSession)
+    candidate_id = uuid.uuid4()
+    company_id = uuid.uuid4()
+    candidate = Candidate(
+        id=candidate_id, company_id=company_id,
+        first_name="Иван", last_name="Иванов", source="manual"
+    )
+    candidate.experience = []
+    candidate.skills = []
+    candidate.education = []
+    candidate.extra = {}
+
+    session.execute.return_value.scalar_one_or_none.return_value = candidate
+    session.add = AsyncMock()
+    session.flush = AsyncMock()
+
+    await parse_and_apply_resume(
+        session=session, candidate_id=candidate_id,
+        content=b"x", filename="r.pdf", company_id=company_id
+    )
+
+    assert candidate.extra["languages"] == ["Русский — Родной", "Английский — B1"]
+    assert candidate.extra["relocation"] == "Готов к переезду"
+    assert candidate.extra["business_trips"] == "Не готов к командировкам"
+    assert candidate.extra["remote"] == "Удалённо, на месте работодателя"
