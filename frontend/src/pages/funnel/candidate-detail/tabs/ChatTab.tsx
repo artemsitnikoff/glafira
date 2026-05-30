@@ -96,8 +96,8 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
                 {/* Можно убрать разделитель групп для упрощения */}
                 {group.map(m => {
                   const ch = channelMeta(m.channel || 'tg');
-                  const isMe = m.sender_type === 'user';
-                  const who = isMe ? 'Вы' : candidate?.full_name || 'Кандидат';
+                  const isMe = m.direction === 'out';
+                  const who = isMe ? (m.sender_name || 'Вы') : (candidate?.full_name || 'Кандидат');
                   return (
                     <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
                       {!isMe && <Avatar name={who} size="sm" />}
@@ -119,7 +119,7 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
                           })}
                         </div>
                       </div>
-                      {isMe && <Avatar name="Вы" size="sm" />}
+                      {isMe && <Avatar name={who} size="sm" />}
                     </div>
                   );
                 })}
@@ -128,9 +128,9 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
           ) : (
             // Плоский список (основной режим)
             messages.map(m => {
-              const ch = channelMeta(m.channel || 'tg');
-              const isMe = m.sender_type === 'user';
-              const who = isMe ? 'Вы' : candidate?.full_name || 'Кандидат';
+              const ch = channelMeta(m.channel || 'telegram');
+              const isMe = m.direction === 'out';
+              const who = isMe ? (m.sender_name || 'Вы') : (candidate?.full_name || 'Кандидат');
               return (
                 <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
                   {!isMe && <Avatar name={who} size="sm" />}
@@ -152,7 +152,7 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
                       })}
                     </div>
                   </div>
-                  {isMe && <Avatar name="Вы" size="sm" />}
+                  {isMe && <Avatar name={who} size="sm" />}
                 </div>
               );
             })
