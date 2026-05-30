@@ -188,7 +188,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
 
   // Render portaled popups
   const movePopup = movePopoverOpen && !isHired && movePopoverPosition && createPortal(
-    <div className="cnd-funnel-wrap">
+    <div className="cnd-funnel-wrap" style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, zIndex: 2147483000 }}>
       <div className="cand-detail">
         <>
           <div
@@ -209,7 +209,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
               zIndex: 1000
             }}
           >
-            <div className="cd-pop-head">На какой этап? · vid:{String(vacancyId)} st:{stages?.length ?? 'nil'} av:{availableStages.length}</div>
+            <div className="cd-pop-head">На какой этап?</div>
             {availableStages.map((stage, i) => (
               <button
                 key={stage.stage_key}
@@ -231,7 +231,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   );
 
   const rejectPopup = rejectPopoverOpen && rejectPopoverPosition && createPortal(
-    <div className="cnd-funnel-wrap">
+    <div className="cnd-funnel-wrap" style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, zIndex: 2147483000 }}>
       <div className="cand-detail">
         <>
           <div
@@ -252,7 +252,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
               zIndex: 1000
             }}
           >
-            <div className="cd-pop-head">Причина отказа · rr:{rejectReasons?.length ?? 'nil'} c:{candidateReasons.length}/{companyReasons.length}</div>
+            <div className="cd-pop-head">Причина отказа</div>
             {candidateReasons.length > 0 && (
               <>
                 <div className="cd-pop-group">От кандидата</div>
