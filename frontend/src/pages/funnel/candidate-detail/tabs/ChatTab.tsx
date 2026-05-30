@@ -11,18 +11,19 @@ type Props = {
 };
 
 // Channel options — color logos & labels (1:1 эталон)
+// id = значение канала в БД (CHECK: telegram|hh|whatsapp|max|sms|email)
 const CHANNELS = [
-  { id: 'tg', label: 'Telegram', short: 'TG', color: '#229ED9' },
+  { id: 'telegram', label: 'Telegram', short: 'TG', color: '#229ED9' },
   { id: 'hh', label: 'hh.ru', short: 'hh', color: '#D6001C' },
   { id: 'max', label: 'Max', short: 'MX', color: '#0077FF' },
-  { id: 'wa', label: 'WhatsApp', short: 'WA', color: '#25D366' },
+  { id: 'whatsapp', label: 'WhatsApp', short: 'WA', color: '#25D366' },
   { id: 'sms', label: 'SMS', short: 'SMS', color: '#7A7F87' },
   { id: 'email', label: 'E-mail', short: '@', color: '#5B6573' },
 ];
 
 export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   const actualCandidateId = candidateId || candidate?.id;
-  const [activeChannel, setActiveChannel] = useState('tg');
+  const [activeChannel, setActiveChannel] = useState('telegram');
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
   const { data: messages, isLoading } = useMessages(actualCandidateId);

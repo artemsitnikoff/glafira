@@ -5,7 +5,8 @@ import type { MessageOut } from '@/api/aliases';
 export function useMessages(candidateId: string | null) {
   return useQuery({
     queryKey: ['candidates', candidateId, 'messages'],
-    queryFn: async () => (await api.get<MessageOut[]>(`/candidates/${candidateId}/messages`)).data,
+    // Эндпоинт отдаёт Paginated{items,...} — берём items (список сообщений)
+    queryFn: async () => (await api.get<{ items: MessageOut[] }>(`/candidates/${candidateId}/messages`)).data.items,
     enabled: !!candidateId,
   });
 }
