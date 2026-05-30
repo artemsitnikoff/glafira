@@ -11,7 +11,8 @@ import SearchBar from '@/pages/funnel/SearchBar';
 import FunnelTable from '@/pages/funnel/FunnelTable';
 import BulkActionBar from '@/pages/funnel/BulkActionBar';
 import FilterDrawer from '@/pages/funnel/FilterDrawer';
-import NewCandidateModal from '@/pages/funnel/NewCandidateModal';
+import NewCandidateForm from '@/pages/funnel/NewCandidateForm';
+import '@/pages/funnel/NewCandidateForm.css';
 import DetailHost from '@/pages/funnel/DetailHost';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Icon } from '@/components/ui/Icon';
@@ -115,6 +116,16 @@ export default function VacancyDetailPage() {
     return <div>Вакансия не найдена</div>;
   }
 
+  // Show full-screen candidate form if open
+  if (createCandidateOpen) {
+    return (
+      <NewCandidateForm
+        vacancyId={id!}
+        onClose={() => setCreateCandidateOpen(false)}
+      />
+    );
+  }
+
   return (
     <div className={`cnd-funnel-wrap ${isDetailMode ? 'detail-mode' : ''}`}>
       <VacancyHeader
@@ -197,12 +208,6 @@ export default function VacancyDetailPage() {
         />
       )}
 
-      {createCandidateOpen && (
-        <NewCandidateModal
-          vacancyId={id!}
-          onClose={() => setCreateCandidateOpen(false)}
-        />
-      )}
     </div>
   );
 }
