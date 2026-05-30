@@ -209,7 +209,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
               zIndex: 1000
             }}
           >
-            <div className="cd-pop-head">На какой этап?</div>
+            <div className="cd-pop-head">На какой этап? · vid:{String(vacancyId)} st:{stages?.length ?? 'nil'} av:{availableStages.length}</div>
             {availableStages.map((stage, i) => (
               <button
                 key={stage.stage_key}
@@ -252,7 +252,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
               zIndex: 1000
             }}
           >
-            <div className="cd-pop-head">Причина отказа</div>
+            <div className="cd-pop-head">Причина отказа · rr:{rejectReasons?.length ?? 'nil'} c:{candidateReasons.length}/{companyReasons.length}</div>
             {candidateReasons.length > 0 && (
               <>
                 <div className="cd-pop-group">От кандидата</div>
