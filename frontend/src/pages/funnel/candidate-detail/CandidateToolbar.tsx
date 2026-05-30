@@ -5,8 +5,8 @@ import { Icon } from '@/components/ui/Icon';
 import type { ApplicationRow, Candidate } from '@/api/aliases';
 import { useMoveApplication, useRejectApplication, useRestoreApplication } from '@/api/mutations/applications';
 import { useRequestConsent } from '@/api/mutations/candidateDetail';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
+import { useVacancyStages } from '@/api/hooks/useVacancyStages';
+import { useRejectReasons } from '@/api/hooks/useRejectReasons';
 
 type Props = {
   application?: ApplicationRow;
@@ -14,25 +14,19 @@ type Props = {
   fromPool?: boolean;
   onClose: () => void;
   onTabChange?: (tab: string) => void;
-};
-
-type Stage = {
-  stage_key: string;
-  label: string;
-  color: string;
-  count: number;
-  is_terminal: boolean;
+  vacancyId?: string;
 };
 
 type RejectReason = {
   id: string;
-  side: 'candidate' | 'company';
+  side: string;
   label: string;
 };
 
-export function CandidateToolbar({ application, candidate, fromPool, onClose, onTabChange }: Props) {
+export function CandidateToolbar({ application, candidate, fromPool, onClose, onTabChange, vacancyId: vacancyIdProp }: Props) {
   const navigate = useNavigate();
-  const { id: vacancyId } = useParams();
+  const { id: routeVacancyId } = useParams();
+  const vacancyId = vacancyIdProp || routeVacancyId;
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
   const [movePopoverPosition, setMovePopoverPosition] = useState<{ top: number; left: number } | null>(null);
@@ -46,25 +40,10 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const isHired = application?.stage === 'hired';
   const isRejected = application?.stage === 'rejected';
 
-  // Fetch stages for move popover
-  const { data: stages } = useQuery({
-    queryKey: ['vacancies', vacancyId, 'stages'],
-    queryFn: async () => {
-      const response = await api.get(`/vacancies/${vacancyId}/stages`);
-      return response.data as Stage[];
-    },
-    enabled: !!vacancyId && movePopoverOpen,
-  });
-
-  // Fetch reject reasons
-  const { data: rejectReasons } = useQuery({
-    queryKey: ['settings', 'reject-reasons'],
-    queryFn: async () => {
-      const response = await api.get('/settings/reject-reasons');
-      return response.data as RejectReason[];
-    },
-    enabled: rejectPopoverOpen,
-  });
+  // Этапы воронки + причины отказа — те же хуки, что в BulkActionBar (грузятся на маунте,
+  // данные готовы до открытия попапа). vacancyId приходит пропом из воронки.
+  const { data: stages } = useVacancyStages(vacancyId || '');
+  const { data: rejectReasons } = useRejectReasons();
 
   const moveMutation = useMoveApplication(vacancyId);
   const rejectMutation = useRejectApplication(vacancyId);

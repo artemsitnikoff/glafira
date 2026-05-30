@@ -21,6 +21,7 @@ type Props = {
   application: ApplicationRow | null;
   onClose: () => void;
   isResolving?: boolean;
+  vacancyId?: string;
 };
 
 const TABS = [
@@ -33,7 +34,7 @@ const TABS = [
   { id: 'actions', label: 'Все действия' },
 ];
 
-export function CandidateDetail({ application, onClose, isResolving }: Props) {
+export function CandidateDetail({ application, onClose, isResolving, vacancyId }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
 
@@ -102,6 +103,7 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
         candidate={candidateDetailQuery.data || undefined}
         onClose={onClose}
         onTabChange={setActiveTab}
+        vacancyId={vacancyId}
       />
 
       <CandidateHeader

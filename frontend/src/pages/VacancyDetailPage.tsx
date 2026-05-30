@@ -184,6 +184,7 @@ export default function VacancyDetailPage() {
             application={resolvedApplication}
             onClose={closeDetail}
             isResolving={isResolvingApplication}
+            vacancyId={id!}
           />
         )}
       </div>
