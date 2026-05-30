@@ -167,37 +167,11 @@ async def get_vacancies_paginated(
     # Convert to VacancyDetail schemas
     items = []
     for vacancy in vacancies:
-        # Build team list
-        team = []
-        for team_member in vacancy.team:
-            team.append(UserShort.model_validate(team_member.user))
+        # Build VacancyDetail - field validator handles team conversion automatically
+        data = VacancyDetail.model_validate(vacancy)
 
-        # Build VacancyDetail manually to ensure client_name is set
-        data = VacancyDetail(
-            id=vacancy.id,
-            name=vacancy.name,
-            sort_order=vacancy.sort_order,
-            client_id=vacancy.client_id,
-            client_name=vacancy.client.name if vacancy.client else None,
-            city=vacancy.city,
-            deadline=vacancy.deadline,
-            positions_count=vacancy.positions_count,
-            department=vacancy.department,
-            employment_type=vacancy.employment_type,
-            is_confidential=vacancy.is_confidential,
-            salary_from=vacancy.salary_from,
-            salary_to=vacancy.salary_to,
-            currency=vacancy.currency,
-            description=vacancy.description,
-            status=vacancy.status,
-            glafira_mode=vacancy.glafira_mode,
-            responsible_user_id=vacancy.responsible_user_id,
-            responsible_user=UserShort.model_validate(vacancy.responsible_user) if vacancy.responsible_user else None,
-            team=team,
-            external_source=vacancy.external_source,
-            external_url=vacancy.external_url,
-            created_at=vacancy.created_at,
-        )
+        # Set client name manually as it's computed field
+        data.client_name = vacancy.client.name if vacancy.client else None
 
         items.append(data)
 

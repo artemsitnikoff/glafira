@@ -64,21 +64,10 @@ async def get_vacancy_by_id(
     """Get vacancy by ID"""
     vacancy = await get_vacancy(session, vacancy_id, company_id)
 
-    # Convert team and responsible user to UserShort format
-    from ...schemas.user import UserShort
-
-    # Build team list
-    team = []
-    for team_member in vacancy.team:
-        team.append(UserShort.model_validate(team_member.user))
-
-    # Build response
+    # Build response - field validator handles team conversion automatically
     data = VacancyDetail.model_validate(vacancy)
-    data.team = team
-    if vacancy.responsible_user:
-        data.responsible_user = UserShort.model_validate(vacancy.responsible_user)
 
-    # Add client name if exists
+    # Set client name manually as it's computed
     data.client_name = vacancy.client.name if vacancy.client else None
 
     return data
@@ -99,21 +88,10 @@ async def create_new_vacancy(
     from ...services.vacancy import get_vacancy
     vacancy = await get_vacancy(session, vacancy.id, company_id)
 
-    # Convert to VacancyDetail schema with all required fields
-    from ...schemas.user import UserShort
-
-    # Build team list
-    team = []
-    for team_member in vacancy.team:
-        team.append(UserShort.model_validate(team_member.user))
-
-    # Build response
+    # Build response - field validator handles team conversion automatically
     data = VacancyDetail.model_validate(vacancy)
-    data.team = team
-    if vacancy.responsible_user:
-        data.responsible_user = UserShort.model_validate(vacancy.responsible_user)
 
-    # Add client name if exists
+    # Set client name manually as it's computed
     data.client_name = vacancy.client.name if vacancy.client else None
 
     return data
@@ -131,7 +109,13 @@ async def update_vacancy_by_id(
     vacancy = await update_vacancy(session, vacancy_id, vacancy_data, company_id, current_user.id)
     await session.commit()
 
-    return VacancyDetail.model_validate(vacancy)
+    # Build response - field validator handles team conversion automatically
+    data = VacancyDetail.model_validate(vacancy)
+
+    # Set client name manually as it's computed
+    data.client_name = vacancy.client.name if vacancy.client else None
+
+    return data
 
 
 @router.post("/{vacancy_id}/archive", response_model=VacancyDetail)
@@ -146,7 +130,13 @@ async def archive_vacancy_by_id(
     vacancy = await archive_vacancy(session, vacancy_id, archive_data, company_id, current_user.id)
     await session.commit()
 
-    return VacancyDetail.model_validate(vacancy)
+    # Build response - field validator handles team conversion automatically
+    data = VacancyDetail.model_validate(vacancy)
+
+    # Set client name manually as it's computed
+    data.client_name = vacancy.client.name if vacancy.client else None
+
+    return data
 
 
 @router.get("/{vacancy_id}/stages", response_model=list[VacancyStageCount])

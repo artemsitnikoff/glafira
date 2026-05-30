@@ -61,6 +61,20 @@ class VacancyDetail(ORMBase):
     closed_at: date | None = None
     created_at: datetime
 
+    @field_validator('team', mode='before')
+    @classmethod
+    def validate_team(cls, v):
+        """Convert VacancyTeam objects to UserShort objects if needed"""
+        if not v:
+            return v
+
+        # If first element has 'user' attribute, it's a VacancyTeam object
+        if hasattr(v[0], 'user'):
+            return [team_member.user for team_member in v]
+
+        # Otherwise, assume it's already UserShort objects or compatible
+        return v
+
 
 class VacancyCreate(BaseModel):
     name: str
