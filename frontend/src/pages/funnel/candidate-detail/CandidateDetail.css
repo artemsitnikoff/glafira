@@ -498,7 +498,7 @@
   background: #fff;
   border: 1px solid var(--border-1);
   border-radius: 10px;
-  padding: 18px;
+  padding: 16px 18px;
 }
 
 /* msg - старое определение удалено, остаётся эталонное */
