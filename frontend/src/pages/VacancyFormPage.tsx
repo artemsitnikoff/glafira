@@ -1,16 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import './vacancies/VacancyForm.css';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { useCreateVacancy, useUpdateVacancy } from '@/api/mutations/vacancies';
+import {
+  useCreateVacancy,
+  useUpdateVacancy,
+  useAddVacancyStage,
+  useRenameVacancyStage,
+  useDeleteVacancyStage,
+  useReorderVacancyStages
+} from '@/api/mutations/vacancies';
 import { useVacancy } from '@/api/hooks/useVacancy';
+import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { useClients } from '@/api/hooks/useClients';
 import { useUsers } from '@/api/hooks/useUsers';
 import type { components } from '@/api/types';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
+
+// Защищённые (системные) этапы — зеркало с бэкенда
+const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
 
 // Типы этапов
 const FUNNEL_STAGE_TYPES = {
@@ -85,6 +96,8 @@ type Stage = {
   name: string;
   type: 'start' | 'system' | 'middle' | 'finalOk' | 'finalBad';
   desc: string;
+  stage_key?: string; // Добавлено для работы с API в edit-режиме
+  count?: number; // Число кандидатов на этапе (для edit-режима)
 };
 
 type StageInput = {
@@ -113,11 +126,16 @@ export default function VacancyFormPage() {
   const editMode = !!id;
 
   const { data: vacancy } = useVacancy(id || '');
+  const { data: vacancyStages } = useVacancyStages(id || '');
   const { data: clients } = useClients();
   const { data: users } = useUsers();
 
   const createMutation = useCreateVacancy();
   const updateMutation = useUpdateVacancy();
+  const addStageMutation = useAddVacancyStage();
+  const renameStageMutation = useRenameVacancyStage();
+  const deleteStageMutation = useDeleteVacancyStage();
+  const reorderStagesMutation = useReorderVacancyStages();
 
   const [activeStep, setActiveStep] = useState('desc');
   const [formData, setFormData] = useState<VacancyCreate>({
@@ -176,6 +194,60 @@ export default function VacancyFormPage() {
       });
     }
   }, [editMode, vacancy]);
+
+  // Pre-populate stages in edit mode from API
+  useEffect(() => {
+    if (editMode && vacancyStages && vacancyStages.length > 0) {
+      const apiStages: Stage[] = vacancyStages.map((vStage, index) => {
+        // Определяем тип этапа на основе позиции и is_terminal
+        let type: Stage['type'];
+        if (index === 0) {
+          type = 'start';
+        } else if (vStage.is_terminal) {
+          // Определяем тип финального этапа по stage_key или label
+          type = vStage.stage_key === 'hired' || vStage.label.toLowerCase().includes('нанят')
+            ? 'finalOk'
+            : 'finalBad';
+        } else if (PROTECTED_STAGE_KEYS.has(vStage.stage_key)) {
+          type = 'system';
+        } else {
+          type = 'middle';
+        }
+
+        return {
+          id: index + 1, // Локальный ID для React key
+          name: vStage.label,
+          type,
+          desc: getStageDescription(vStage.stage_key, type),
+          stage_key: vStage.stage_key,
+          count: vStage.count,
+        };
+      });
+
+      setStages(apiStages);
+    }
+  }, [editMode, vacancyStages]);
+
+  // Получить описание этапа по stage_key
+  const getStageDescription = (stageKey: string, type: Stage['type']): string => {
+    const descriptions: Record<string, string> = {
+      'response': 'Кандидат пришёл с источника. Глафира делает первичный скрининг и зовёт в чат.',
+      'added': 'Кандидат добавлен рекрутером вручную из общей базы. Системный этап, не удаляется.',
+      'selected': 'Глафира посчитала кандидата подходящим — ждём контакта рекрутера.',
+      'recruiter': 'Назначен/проведён звонок-знакомство.',
+      'interview': 'Техническое или профильное интервью.',
+      'manager': 'Финальная встреча с заказчиком.',
+      'offer': 'Оффер выслан и согласовывается.',
+      'hired': 'Кандидат вышел на работу. Стартует Пульс-Онбординг.',
+      'rejected': 'Завершение по причине из справочника.',
+    };
+
+    return descriptions[stageKey] ||
+           (type === 'finalOk' ? 'Успешное завершение процесса подбора.' :
+            type === 'finalBad' ? 'Завершение процесса по причине отказа.' :
+            type === 'system' ? 'Системный этап воронки.' :
+            'Этап процесса подбора.');
+  };
 
   const currentStepIndex = STEPS.findIndex(s => s.id === activeStep);
 
@@ -339,6 +411,12 @@ export default function VacancyFormPage() {
               onChange={updateFormData}
               stages={stages}
               onStagesChange={setStages}
+              editMode={editMode}
+              vacancyId={id || ''}
+              addStageMutation={addStageMutation}
+              renameStageMutation={renameStageMutation}
+              deleteStageMutation={deleteStageMutation}
+              reorderStagesMutation={reorderStagesMutation}
             />
           )}
           {activeStep === 'team' && (
@@ -547,14 +625,34 @@ function FunnelStep({
   onChange,
   stages,
   onStagesChange,
+  editMode = false,
+  vacancyId,
+  addStageMutation,
+  renameStageMutation,
+  deleteStageMutation,
+  reorderStagesMutation,
 }: {
   data: VacancyCreate;
   onChange: (updates: Partial<VacancyCreate>) => void;
   stages: Stage[];
   onStagesChange: (stages: Stage[]) => void;
+  editMode?: boolean;
+  vacancyId?: string;
+  addStageMutation?: any;
+  renameStageMutation?: any;
+  deleteStageMutation?: any;
+  reorderStagesMutation?: any;
 }) {
+  // Ошибка операции над этапом (инлайн-баннер вместо alert — паттерн проекта)
+  const [stageError, setStageError] = useState<string | null>(null);
+  // Базовое значение названия на момент фокуса — чтобы PATCH'ить только при реальном изменении
+  const renameBaseline = useRef<Record<string, string>>({});
+
   // Применить выбранный шаблон
   const applyTemplate = (templateId: string) => {
+    // В edit-режиме шаблоны не применяем — этапы управляются через API
+    if (editMode) return;
+
     const template = FUNNEL_TEMPLATES.find(t => t.id === templateId);
     if (template) {
       onStagesChange([...template.stages]); // Копируем массив
@@ -563,44 +661,136 @@ function FunnelStep({
   };
 
   // Перемещение этапа
-  const moveStage = (idx: number, dir: number) => {
-    const next = stages.slice();
+  const moveStage = async (idx: number, dir: number) => {
     const j = idx + dir;
     // Нельзя двигать в зоны 1-го и 2 последних (эталонная логика)
-    if (j < 1 || j > next.length - 2) return;
-    if (idx === 0 || idx >= next.length - 2) return;
-    [next[idx], next[j]] = [next[j], next[idx]];
-    onStagesChange(next);
+    if (j < 1 || j > stages.length - 2) return;
+    if (idx === 0 || idx >= stages.length - 2) return;
+
+    if (editMode && vacancyId && reorderStagesMutation) {
+      // В edit-режиме отправляем reorder запрос
+      setStageError(null);
+      const next = stages.slice();
+      [next[idx], next[j]] = [next[j], next[idx]];
+
+      const orderKeys = next.map(stage => stage.stage_key!);
+
+      try {
+        await reorderStagesMutation.mutateAsync({
+          vacancyId,
+          data: { order: orderKeys }
+        });
+      } catch (error: any) {
+        setStageError(error.response?.data?.error?.message || 'Ошибка при изменении порядка этапов');
+      }
+    } else {
+      // В create-режиме локальная мутация
+      const next = stages.slice();
+      [next[idx], next[j]] = [next[j], next[idx]];
+      onStagesChange(next);
+    }
   };
 
   // Удаление этапа
-  const removeStage = (idx: number) => {
+  const removeStage = async (idx: number) => {
     const s = stages[idx];
     // Нельзя удалять первый этап, финальные и системные
     if (idx === 0 || s.type === 'finalOk' || s.type === 'finalBad' || s.type === 'system') return;
-    onStagesChange(stages.filter((_, i) => i !== idx));
+
+    if (editMode && vacancyId && deleteStageMutation && s.stage_key) {
+      setStageError(null);
+      try {
+        await deleteStageMutation.mutateAsync({
+          vacancyId,
+          stageKey: s.stage_key
+        });
+      } catch (error: any) {
+        setStageError(error.response?.data?.error?.message || 'Ошибка при удалении этапа');
+      }
+    } else {
+      // В create-режиме локальная мутация
+      onStagesChange(stages.filter((_, i) => i !== idx));
+    }
   };
 
   // Добавление этапа
-  const addStage = () => {
-    const newStage: Stage = {
-      id: Date.now(),
-      name: 'Новый этап',
-      type: 'middle',
-      desc: 'Опишите, что происходит на этом этапе.',
-    };
-    // Вставляем перед двумя последними финальными
-    const idx = stages.length - 2;
-    const next = stages.slice();
-    next.splice(idx, 0, newStage);
-    onStagesChange(next);
+  const addStage = async () => {
+    if (editMode && vacancyId && addStageMutation) {
+      // В edit-режиме создаём через API
+      setStageError(null);
+      const stageKey = `stage_${Date.now()}`;
+      const orderIndex = stages.length - 2; // Перед финальными
+
+      try {
+        await addStageMutation.mutateAsync({
+          vacancyId,
+          data: {
+            stage_key: stageKey,
+            label: 'Новый этап',
+            order_index: orderIndex,
+            is_terminal: false
+          }
+        });
+      } catch (error: any) {
+        setStageError(error.response?.data?.error?.message || 'Ошибка при добавлении этапа');
+      }
+    } else {
+      // В create-режиме локальная мутация
+      const newStage: Stage = {
+        id: Date.now(),
+        name: 'Новый этап',
+        type: 'middle',
+        desc: 'Опишите, что происходит на этом этапе.',
+      };
+      // Вставляем перед двумя последними финальными
+      const idx = stages.length - 2;
+      const next = stages.slice();
+      next.splice(idx, 0, newStage);
+      onStagesChange(next);
+    }
   };
 
-  // Изменение названия этапа
+  // Изменение названия этапа — локальный апдейт (ввод работает в обоих режимах)
   const updateStageName = (idx: number, name: string) => {
     const next = stages.slice();
     next[idx] = { ...next[idx], name };
     onStagesChange(next);
+  };
+
+  // Зафиксировать переименование на сервере (edit-режим) — по blur и только если реально изменилось
+  const commitStageName = async (idx: number, name: string) => {
+    if (!editMode || !vacancyId || !renameStageMutation) return;
+    const stage = stages[idx];
+    if (!stage.stage_key) return;
+    const trimmed = name.trim().substring(0, 60); // ограничение бэка ≤60
+    if (!trimmed || trimmed === renameBaseline.current[stage.stage_key]) return;
+    setStageError(null);
+    try {
+      await renameStageMutation.mutateAsync({
+        vacancyId,
+        stageKey: stage.stage_key,
+        data: { label: trimmed }
+      });
+    } catch (error: any) {
+      setStageError(error.response?.data?.error?.message || 'Ошибка при изменении названия этапа');
+    }
+  };
+
+  // Проверка блокировки удаления
+  const getDeleteDisabledReason = (stage: Stage, idx: number): string | null => {
+    if (idx === 0) return 'Первый этап нельзя удалить';
+    if (stage.type === 'finalOk' || stage.type === 'finalBad') return 'Финальный этап нельзя удалить';
+    if (stage.type === 'system') return 'Системный этап нельзя удалить';
+    if (editMode && stage.stage_key && PROTECTED_STAGE_KEYS.has(stage.stage_key)) return 'Системный этап нельзя удалить';
+    if (editMode && stage.count && stage.count > 0) return 'Переместите кандидатов с этапа перед удалением';
+    return null;
+  };
+
+  // Проверка блокировки переименования
+  const getRenameDisabledReason = (stage: Stage): string | null => {
+    if (stage.type === 'system') return 'Системный этап нельзя переименовать';
+    if (editMode && stage.stage_key && PROTECTED_STAGE_KEYS.has(stage.stage_key)) return 'Системный этап нельзя переименовать';
+    return null;
   };
 
   return (
@@ -615,23 +805,29 @@ function FunnelStep({
         </div>
       </div>
 
-      <div className="nv-field">
-        <label className="nv-label">Шаблон воронки</label>
-        <div className="funnel-templates">
-          {FUNNEL_TEMPLATES.map(template => (
-            <label key={template.id} className="funnel-template">
-              <input
-                type="radio"
-                name="funnel_template"
-                value={template.id}
-                checked={data.funnel_template === template.id}
-                onChange={e => applyTemplate(e.target.value)}
-              />
-              <span className="funnel-template-name">{template.name}</span>
-            </label>
-          ))}
+      {!editMode && (
+        <div className="nv-field">
+          <label className="nv-label">Шаблон воронки</label>
+          <div className="funnel-templates">
+            {FUNNEL_TEMPLATES.map(template => (
+              <label key={template.id} className="funnel-template">
+                <input
+                  type="radio"
+                  name="funnel_template"
+                  value={template.id}
+                  checked={data.funnel_template === template.id}
+                  onChange={e => applyTemplate(e.target.value)}
+                />
+                <span className="funnel-template-name">{template.name}</span>
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {stageError && (
+        <div className="error-banner" role="alert">{stageError}</div>
+      )}
 
       <div className="funnel-editor">
         {stages.map((s, idx) => {
@@ -641,8 +837,14 @@ function FunnelStep({
           const isSystem = s.type === 'system';
           const locked = isFirst || isFinal || isSystem;
 
+          // Блокировки для edit-режима
+          const deleteReason = getDeleteDisabledReason(s, idx);
+          const renameReason = getRenameDisabledReason(s);
+          const deleteDisabled = deleteReason !== null;
+          const renameDisabled = renameReason !== null;
+
           return (
-            <div key={s.id} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
+            <div key={s.stage_key || s.id} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
               <div className="nv-fn-arrows">
                 <button
                   className="nv-fn-arr"
@@ -667,14 +869,23 @@ function FunnelStep({
                   <input
                     className="fn-name"
                     value={s.name}
+                    onFocus={(e) => { if (s.stage_key) renameBaseline.current[s.stage_key] = e.target.value; }}
                     onChange={(e) => updateStageName(idx, e.target.value)}
+                    onBlur={(e) => commitStageName(idx, e.target.value)}
+                    disabled={renameDisabled}
+                    title={renameDisabled ? renameReason || undefined : undefined}
                   />
                   <span className="stage-type-pill" style={{ background: t.bg, color: t.fg }}>
                     <span className="st-dot" style={{ background: t.dot }} />
                     {t.label}
                   </span>
-                  {locked && (
-                    <span className="nv-locked-pill" title="Зафиксирован">
+                  {editMode && typeof s.count === 'number' && (
+                    <span className="stage-count-badge" title="Кандидатов на этапе">
+                      {s.count}
+                    </span>
+                  )}
+                  {(locked || renameDisabled) && (
+                    <span className="nv-locked-pill" title={renameDisabled ? renameReason || 'Заблокирован' : 'Зафиксирован'}>
                       <Icon name="lock" size={11} /> закреплён
                     </span>
                   )}
@@ -683,9 +894,9 @@ function FunnelStep({
               </div>
               <button
                 className="row-icon-btn"
-                disabled={locked}
+                disabled={deleteDisabled}
                 onClick={() => removeStage(idx)}
-                title={locked ? 'Этап нельзя удалить' : 'Удалить этап'}
+                title={deleteDisabled ? deleteReason || 'Этап нельзя удалить' : 'Удалить этап'}
               >
                 <Icon name="x" size={14} />
               </button>

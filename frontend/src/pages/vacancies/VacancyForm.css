@@ -289,6 +289,14 @@
   margin-top: var(--space-1);
 }
 
+/* Счётчик кандидатов на этапе (edit-режим воронки) — идиом .fc-count из эталонной воронки */
+.stage-count-badge {
+  font-family: var(--font-mono);
+  color: var(--fg-3);
+  font-weight: 500;
+  font-size: 11px;
+}
+
 /* Salary Input */
 .salary-input {
   display: flex;
