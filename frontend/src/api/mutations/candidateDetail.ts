@@ -8,6 +8,7 @@ type CandidateUpdate = Partial<{
 type MessageCreate = {
   body: string;
   sender_type: string;
+  channel?: string;
 };
 type CommentCreate = {
   body: string;

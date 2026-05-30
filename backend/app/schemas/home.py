@@ -34,6 +34,8 @@ class EventOut(ORMBase):
     text: str
     entities: list = Field(default_factory=list)
     created_at: datetime
+    actor_type: str
+    actor_name: str | None = None
 
 
 class AttentionHrItem(BaseModel):

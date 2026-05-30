@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
+import { Avatar } from '@/components/ui/Avatar';
 import { useMessages } from '@/api/hooks/useMessages';
 import { useSendMessage } from '@/api/mutations/candidateDetail';
 
@@ -9,14 +10,28 @@ type Props = {
   fromPool?: boolean;
 };
 
+// Channel options — color logos & labels (1:1 эталон)
+const CHANNELS = [
+  { id: 'tg', label: 'Telegram', short: 'TG', color: '#229ED9' },
+  { id: 'hh', label: 'hh.ru', short: 'hh', color: '#D6001C' },
+  { id: 'max', label: 'Max', short: 'MX', color: '#0077FF' },
+  { id: 'wa', label: 'WhatsApp', short: 'WA', color: '#25D366' },
+  { id: 'sms', label: 'SMS', short: 'SMS', color: '#7A7F87' },
+  { id: 'email', label: 'E-mail', short: '@', color: '#5B6573' },
+];
+
 export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
-  // Use candidateId from props or extract from candidate
   const actualCandidateId = candidateId || candidate?.id;
-  const [messageText, setMessageText] = useState('');
+  const [activeChannel, setActiveChannel] = useState('tg');
+  const [draft, setDraft] = useState('');
+  const [open, setOpen] = useState(false);
   const { data: messages, isLoading } = useMessages(actualCandidateId);
   const sendMutation = useSendMessage(actualCandidateId);
 
-  // Группировка сообщений по vacancy_id для fromPool режима
+  const channelMeta = (id: string) => CHANNELS.find(x => x.id === id) || CHANNELS[0];
+  const active = channelMeta(activeChannel);
+
+  // Группировка сообщений по vacancy_id для fromPool режима (упрощённо - можно убрать)
   const messageGroups = fromPool && messages ? (() => {
     const groupMap = new Map<string | null, typeof messages>();
     for (const msg of messages) {
@@ -24,53 +39,45 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
       if (!groupMap.has(key)) groupMap.set(key, []);
       groupMap.get(key)!.push(msg);
     }
-
-    // Вынести null-группу в конец, остальные — в порядке Map (insertion)
     const orderedGroups: Array<[string | null, typeof messages]> = [];
     for (const [key, group] of groupMap.entries()) {
       if (key !== null) orderedGroups.push([key, group]);
     }
     if (groupMap.has(null)) orderedGroups.push([null, groupMap.get(null)!]);
-
     return orderedGroups;
   })() : null;
 
-  // Функция для определения заголовка группы
-  function getGroupTitle(group: NonNullable<typeof messages>, vacancyId: string | null): string {
-    if (vacancyId === null) return 'Общие сообщения';
-    const ctx = group.find(m => m.application_context && m.application_context.trim());
-    return ctx?.application_context || 'Вакансия';
-  }
-
-  function handleSendMessage() {
-    if (!messageText.trim()) return;
+  const send = () => {
+    if (!draft.trim()) return;
 
     sendMutation.mutate(
       {
-        body: messageText.trim(),
+        body: draft.trim(),
         sender_type: 'user',
-      },
+        channel: activeChannel,
+      } as any, // Приведение типа, т.к. channel может ещё не быть в типе
       {
         onSuccess: () => {
-          setMessageText('');
+          setDraft('');
         },
       }
     );
-  }
+  };
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  }
+  const today = new Date().toLocaleDateString('ru', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  });
 
   if (isLoading) {
     return (
-      <div className="tab-content">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Icon name="loader" size={24} />
-          <p>Загружаются сообщения...</p>
+      <div className="chat-tab">
+        <div className="chat-stream" style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--fg-3)' }}>
+            <Icon name="loader" size={16} />
+            <span style={{ fontSize: '13px' }}>Загружаются сообщения...</span>
+          </div>
         </div>
       </div>
     );
@@ -79,115 +86,140 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   return (
     <div className="chat-tab">
       <div className="chat-stream">
+        <div className="chat-day-divider"><span>{today}</span></div>
         {messages && messages.length > 0 ? (
           fromPool && messageGroups ? (
-            messageGroups.map(([vacancyId, group], groupIndex) => (
+            // Группированный режим (можно упростить до плоского)
+            messageGroups.map(([vacancyId, group]) => (
               <div key={vacancyId || 'null-group'}>
-                {/* Group divider */}
-                <div style={{
-                  padding: 'var(--space-3) 0',
-                  margin: groupIndex > 0 ? 'var(--space-4) 0 var(--space-3) 0' : '0 0 var(--space-3) 0',
-                  borderTop: groupIndex > 0 ? '1px solid var(--border-1)' : 'none',
-                  textAlign: 'center'
-                }}>
-                  <span style={{
-                    fontSize: '12px',
-                    color: 'var(--fg-3)',
-                    fontWeight: 500,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em'
-                  }}>
-                    {getGroupTitle(group, vacancyId)}
-                  </span>
-                </div>
-
-                {/* Messages */}
-                {group.map((message) => (
-                  <div key={message.id} className="chat-row">
-                    <div className="chat-avatar">
-                      <Icon name={message.sender_type === 'user' ? 'user' : 'users'} size={16} />
-                    </div>
-                    <div className="chat-bubble-wrap">
-                      <div className={`chat-bubble chat-bubble-${message.sender_type === 'user' ? 'me' : 'them'}`}>
-                        <div className="chat-body">{message.body}</div>
+                {/* Можно убрать разделитель групп для упрощения */}
+                {group.map(m => {
+                  const ch = channelMeta(m.channel || 'tg');
+                  const isMe = m.sender_type === 'user';
+                  const who = isMe ? 'Вы' : candidate?.full_name || 'Кандидат';
+                  return (
+                    <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
+                      {!isMe && <Avatar name={who} size="sm" />}
+                      <div className="chat-bubble-wrap">
                         <div className="chat-meta">
-                          {new Date(message.sent_at).toLocaleTimeString('ru', {
+                          <span className="chat-who">{who}</span>
+                          <span className={`chat-ch chat-ch-${m.channel || 'tg'}`} style={{'--ch-color': ch.color} as any}>
+                            <span className="chat-ch-dot" style={{background: ch.color}} />
+                            {ch.label}
+                          </span>
+                        </div>
+                        <div className={`chat-bubble ${isMe ? 'chat-bubble-me' : 'chat-bubble-them'}`}>
+                          {m.body}
+                        </div>
+                        <div className="chat-time t-mono">
+                          {new Date(m.sent_at).toLocaleTimeString('ru', {
                             hour: '2-digit',
                             minute: '2-digit'
                           })}
                         </div>
                       </div>
-                      {message.channel && (
-                        <div className="chat-ch">
-                          <span className="chat-ch-dot" />
-                          {message.channel}
-                        </div>
-                      )}
+                      {isMe && <Avatar name="Вы" size="sm" />}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ))
           ) : (
-            // Standard mode - flat list
-            messages.map((message) => (
-              <div key={message.id} className="chat-row">
-                <div className="chat-avatar">
-                  <Icon name={message.sender_type === 'user' ? 'user' : 'users'} size={16} />
-                </div>
-                <div className="chat-bubble-wrap">
-                  <div className={`chat-bubble chat-bubble-${message.sender_type === 'user' ? 'me' : 'them'}`}>
-                    <div className="chat-body">{message.body}</div>
+            // Плоский список (основной режим)
+            messages.map(m => {
+              const ch = channelMeta(m.channel || 'tg');
+              const isMe = m.sender_type === 'user';
+              const who = isMe ? 'Вы' : candidate?.full_name || 'Кандидат';
+              return (
+                <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
+                  {!isMe && <Avatar name={who} size="sm" />}
+                  <div className="chat-bubble-wrap">
                     <div className="chat-meta">
-                      {new Date(message.sent_at).toLocaleTimeString('ru', {
+                      <span className="chat-who">{who}</span>
+                      <span className={`chat-ch chat-ch-${m.channel || 'tg'}`} style={{'--ch-color': ch.color} as any}>
+                        <span className="chat-ch-dot" style={{background: ch.color}} />
+                        {ch.label}
+                      </span>
+                    </div>
+                    <div className={`chat-bubble ${isMe ? 'chat-bubble-me' : 'chat-bubble-them'}`}>
+                      {m.body}
+                    </div>
+                    <div className="chat-time t-mono">
+                      {new Date(m.sent_at).toLocaleTimeString('ru', {
                         hour: '2-digit',
                         minute: '2-digit'
                       })}
                     </div>
                   </div>
-                  {message.channel && (
-                    <div className="chat-ch">
-                      <span className="chat-ch-dot" />
-                      {message.channel}
-                    </div>
-                  )}
+                  {isMe && <Avatar name="Вы" size="sm" />}
                 </div>
-              </div>
-            ))
+              );
+            })
           )
         ) : (
-          <div className="empty-state">
-            <Icon name="message-circle" size={32} className="empty-state__icon" />
-            <p className="empty-state__text">Сообщений пока нет</p>
+          <div style={{ textAlign: 'center', color: 'var(--fg-3)', fontSize: '13px', padding: '40px 20px' }}>
+            Сообщений пока нет
           </div>
         )}
       </div>
 
       <div className="chat-compose">
-        <div className="chat-compose-row">
-          <textarea
-            className="chat-input"
-            value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Напишите сообщение..."
-            rows={1}
-          />
-          <button
-            className="chat-send-btn"
-            onClick={handleSendMessage}
-            disabled={!messageText.trim() || sendMutation.isPending}
-          >
-            <Icon name={sendMutation.isPending ? "loader" : "send"} size={16} />
-          </button>
+        <div className="chat-compose-head">
+          <span className="chat-compose-label">Канал ответа:</span>
+          <div className={`chat-ch-select ${open ? 'open' : ''}`}>
+            <button type="button" className="chat-ch-trigger" onClick={() => setOpen(!open)}>
+              <span className="chat-ch-dot" style={{background: active.color}} />
+              <span className="chat-ch-trigger-label">{active.label}</span>
+              <Icon name="chevD" size={14} />
+            </button>
+            {open && (
+              <div className="chat-ch-menu">
+                {CHANNELS.map(ch => (
+                  <button
+                    type="button"
+                    key={ch.id}
+                    className={`chat-ch-opt ${ch.id === activeChannel ? 'active' : ''}`}
+                    onClick={() => { setActiveChannel(ch.id); setOpen(false); }}
+                  >
+                    <span className="chat-ch-dot" style={{background: ch.color}} />
+                    <span className="chat-ch-opt-label">{ch.label}</span>
+                    {ch.id === activeChannel && <Icon name="check" size={14} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="chat-hint">
-          Enter — отправить, Shift+Enter — новая строка
+        <div className="chat-compose-body">
+          <div className="chat-input-wrap">
+            <textarea
+              className="chat-input"
+              placeholder={`Сообщение в ${active.label}…`}
+              rows={2}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); }}
+            />
+            <button
+              className="chat-send-btn"
+              onClick={send}
+              disabled={!draft.trim() || sendMutation.isPending}
+              type="button"
+              title="Отправить (Ctrl+Enter)"
+              aria-label="Отправить"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2 11 13"/>
+                <path d="M22 2 15 22l-4-9-9-4z"/>
+              </svg>
+            </button>
+          </div>
         </div>
+        <div className="chat-compose-hint">Ctrl + Enter — отправить · ответ уйдёт в <b>{active.label}</b></div>
       </div>
 
       {sendMutation.isError && (
-        <div style={{ marginTop: 'var(--space-2)', color: 'var(--stage-rejected)', fontSize: '12px' }}>
+        <div style={{ marginTop: '8px', color: 'var(--stage-rejected)', fontSize: '12px', padding: '0 16px' }}>
           Ошибка отправки: {sendMutation.error?.message}
         </div>
       )}

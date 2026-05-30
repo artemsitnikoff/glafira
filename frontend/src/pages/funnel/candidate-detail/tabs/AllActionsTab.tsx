@@ -7,17 +7,28 @@ type Props = {
   fromPool?: boolean;
 };
 
-// Event type mappings for display
-const EVENT_LABELS = {
-  qual: 'Квалификация',
-  new: 'Добавление',
-  score: 'AI-оценка',
-  offer: 'Оффер',
-  move: 'Перемещение',
-  verify: 'Верификация',
-  comment: 'Комментарий',
-  document: 'Документ',
-} as const;
+// Локальный тип для событий с полями actor_type и actor_name (которых может ещё не быть в сгенерированном типе)
+type ActionEvent = {
+  id: string;
+  type: string;
+  text: string;
+  created_at: string;
+  actor_type?: 'human' | 'ai' | 'system';
+  actor_name?: string | null;
+  entities?: any;
+};
+
+// Маппинг типа события → { icon, ai, who }
+const EVENT_MAPPING = {
+  score: { icon: 'sparkle' as const, ai: true, who: 'Глафира' },
+  verify: { icon: 'shield' as const, ai: true, who: 'Глафира' },
+  comment: { icon: 'message-square' as const, ai: false, who: null },
+  move: { icon: 'arrow-right' as const, ai: false, who: null },
+  document: { icon: 'file-text' as const, ai: false, who: null },
+  new: { icon: 'plus' as const, ai: false, who: 'Источник' },
+  offer: { icon: 'check-circle' as const, ai: false, who: null },
+  qual: { icon: 'sparkle' as const, ai: true, who: 'Глафира' },
+};
 
 export function AllActionsTab({ candidateId, candidate }: Props) {
   const actualCandidateId = candidateId || candidate?.id;
@@ -25,63 +36,86 @@ export function AllActionsTab({ candidateId, candidate }: Props) {
 
   if (isLoading) {
     return (
-      <div className="tab-content">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Icon name="loader" size={24} />
-          <p>Загружается история действий...</p>
+      <div className="card-block">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '12px 0' }}>
+          <Icon name="loader" size={16} />
+          <span style={{ fontSize: '13px', color: 'var(--fg-3)' }}>Загружается история действий...</span>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="tab-content">
-      <h2 style={{ margin: '0 0 var(--space-4) 0', fontSize: '18px', fontWeight: '600' }}>
-        История действий
-      </h2>
+  const formatTime = (isoDate: string) => {
+    const date = new Date(isoDate);
+    const dateStr = date.toLocaleDateString('ru', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+    });
+    const timeStr = date.toLocaleTimeString('ru', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return `${dateStr} · ${timeStr}`;
+  };
 
-      {events && events.length > 0 ? (
-        <div className="events-timeline">
-          {events.map((event) => (
-            <div key={event.id} className={`timeline-event timeline-event--${event.type}`}>
-              <div className="timeline-event__content">
-                <div className="timeline-event__header">
-                  <span className="timeline-event__type">
-                    {EVENT_LABELS[event.type as keyof typeof EVENT_LABELS] || event.type}
-                  </span>
-                  <span className="timeline-event__time">
-                    {new Date(event.created_at).toLocaleDateString('ru', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
+  const getEventMeta = (event: ActionEvent) => {
+    const eventData = event as any;
+    const mapping = EVENT_MAPPING[event.type as keyof typeof EVENT_MAPPING];
+
+    if (!mapping) {
+      return {
+        icon: 'open' as const,
+        ai: eventData.actor_type === 'ai',
+        who: eventData.actor_name || '—',
+      };
+    }
+
+    // Общее правило: если actor_type === 'ai' → перекрываем маппинг
+    if (eventData.actor_type === 'ai') {
+      return {
+        icon: mapping.icon,
+        ai: true,
+        who: 'Глафира',
+      };
+    }
+
+    return {
+      icon: mapping.icon,
+      ai: mapping.ai,
+      who: mapping.who || eventData.actor_name || 'Рекрутёр',
+    };
+  };
+
+  return (
+    <div className="card-block">
+      <div className="actions-feed">
+        {events && events.length > 0 ? (
+          events.map((event) => {
+            const eventTyped = event as ActionEvent;
+            const { icon, ai, who } = getEventMeta(eventTyped);
+            return (
+              <div key={event.id} className="action-row">
+                <div className={`action-icon ${ai ? 'ai' : ''}`}>
+                  <Icon name={icon} size={13} />
                 </div>
-                <p className="timeline-event__text">
-                  {event.text}
-                </p>
-                {/* Show entities if available */}
-                {event.entities && Object.keys(event.entities).length > 0 && (
-                  <details style={{ marginTop: 'var(--space-2)', fontSize: '12px', color: 'var(--fg-3)' }}>
-                    <summary style={{ cursor: 'pointer' }}>Детали события</summary>
-                    <pre style={{ marginTop: 'var(--space-1)', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                      {JSON.stringify(event.entities, null, 2)}
-                    </pre>
-                  </details>
-                )}
+                <div className="action-body">
+                  <div className="action-text">
+                    <span className={`action-who ${ai ? 'ai' : ''}`}>{who}</span>
+                    {' '}
+                    {event.text}
+                  </div>
+                  <div className="action-time t-mono">{formatTime(event.created_at)}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <Icon name="activity" size={48} className="empty-state__icon" />
-          <p className="empty-state__text">
+            );
+          })
+        ) : (
+          <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--fg-3)', fontSize: '13px' }}>
             История действий пуста
-          </p>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

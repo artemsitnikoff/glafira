@@ -76,11 +76,11 @@ export function CommentsTab({ candidateId, candidate }: Props) {
           value={commentText}
           onChange={(e) => setCommentText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Напишите комментарий… Используйте @ чтобы упомянуть коллегу."
+          placeholder="Напишите комментарий…"
           rows={3}
         />
         <div className="cmt-compose-actions">
-          <span className="cmt-hint">@ упомянуть · Ctrl+Enter — отправить</span>
+          <span className="cmt-hint">Ctrl+Enter — отправить</span>
           <button
             className="btn btn-primary btn-sm"
             onClick={handleAddComment}

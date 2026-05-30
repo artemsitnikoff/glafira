@@ -519,154 +519,218 @@
 }
 
 
-/* === CHAT TAB === */
+/* === CHAT TAB (1:1 эталон) === */
 
 .cnd-funnel-wrap .cand-detail .chat-tab {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  display: flex; flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 0;
 }
-
 .cnd-funnel-wrap .cand-detail .chat-stream {
   flex: 1;
-  min-height: 0;
+  min-height: 360px;
+  max-height: calc(100vh - 380px);
   overflow-y: auto;
-  padding: 16px;
-  background: radial-gradient(ellipse at center, rgba(42,138,240,0.03) 0%, rgba(126,92,240,0.02) 100%);
-  border-radius: 8px;
-  margin-bottom: 16px;
+  padding: 18px 22px 12px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(40,114,216,0.04), transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(136,101,216,0.04), transparent 55%),
+    var(--bg-panel-2, #f6f7f9);
+  display: flex; flex-direction: column; gap: 14px;
 }
-
+.cnd-funnel-wrap .cand-detail .chat-day-divider {
+  display: flex; justify-content: center; margin: 4px 0 6px;
+}
+.cnd-funnel-wrap .cand-detail .chat-day-divider span {
+  font-size: 11px; color: var(--fg-3);
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--border-2);
+  padding: 3px 10px; border-radius: 999px;
+  font-family: var(--font-mono);
+}
 .cnd-funnel-wrap .cand-detail .chat-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 16px;
+  display: flex; align-items: flex-end; gap: 10px;
   max-width: 78%;
 }
+.cnd-funnel-wrap .cand-detail .chat-row-them { align-self: flex-start; }
+.cnd-funnel-wrap .cand-detail .chat-row-me   { align-self: flex-end; flex-direction: row-reverse; }
+.cnd-funnel-wrap .cand-detail .chat-bubble-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cnd-funnel-wrap .cand-detail .chat-row-me .chat-bubble-wrap { align-items: flex-end; }
+.cnd-funnel-wrap .cand-detail .chat-row-them .chat-bubble-wrap { align-items: flex-start; }
 
-.cnd-funnel-wrap .cand-detail .chat-row:has(.chat-bubble-me) {
-  margin-left: auto;
-  flex-direction: row-reverse;
+.cnd-funnel-wrap .cand-detail .chat-meta {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--fg-3);
+  padding: 0 4px;
 }
-
-.cnd-funnel-wrap .cand-detail .chat-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--bg-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.cnd-funnel-wrap .cand-detail .chat-who { font-weight: 600; color: var(--fg-2); }
+.cnd-funnel-wrap .cand-detail .chat-ch {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ch-color, #888) 12%, #fff);
+  color: var(--ch-color, var(--fg-2));
+  border: 1px solid color-mix(in srgb, var(--ch-color, #888) 35%, transparent);
+  font-weight: 600;
+}
+.cnd-funnel-wrap .cand-detail .chat-ch-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
   flex: none;
-  color: var(--fg-3);
-}
-
-.cnd-funnel-wrap .cand-detail .chat-bubble-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .cnd-funnel-wrap .cand-detail .chat-bubble {
-  background: #fff;
-  border-radius: 12px;
-  padding: 10px 14px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
-  position: relative;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 13px; line-height: 1.45;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
-
+.cnd-funnel-wrap .cand-detail .chat-bubble-them {
+  background: #fff;
+  color: var(--fg-1);
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border-2);
+}
 .cnd-funnel-wrap .cand-detail .chat-bubble-me {
   background: var(--accent);
   color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.cnd-funnel-wrap .cand-detail .chat-time {
+  font-size: 10px; color: var(--fg-3);
+  padding: 0 4px;
 }
 
-.cnd-funnel-wrap .cand-detail .chat-body {
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-
-.cnd-funnel-wrap .cand-detail .chat-meta {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.cnd-funnel-wrap .cand-detail .chat-ch {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--fg-3);
-  padding-left: 8px;
-}
-
-.cnd-funnel-wrap .cand-detail .chat-ch-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--fg-3);
-}
-
+/* Compose */
 .cnd-funnel-wrap .cand-detail .chat-compose {
   border-top: 1px solid var(--border-1);
-  padding: 16px 0 0;
+  background: #fff;
+  padding: 10px 16px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cnd-funnel-wrap .cand-detail .chat-compose-head {
+  display: flex; align-items: center; gap: 10px;
+}
+.cnd-funnel-wrap .cand-detail .chat-compose-label {
+  font-size: 12px; color: var(--fg-3);
 }
 
-.cnd-funnel-wrap .cand-detail .chat-compose-row {
+/* Channel select dropdown */
+.cnd-funnel-wrap .cand-detail .chat-ch-select { position: relative; }
+.cnd-funnel-wrap .cand-detail .chat-ch-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-1);
+  background: #fff;
+  border-radius: 8px;
+  font-size: 12px; font-weight: 600;
+  color: var(--fg-1);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.cnd-funnel-wrap .cand-detail .chat-ch-trigger:hover { border-color: var(--accent); }
+.cnd-funnel-wrap .cand-detail .chat-ch-select.open .chat-ch-trigger {
+  border-color: var(--accent);
+  background: var(--bg-panel-2, #f6f7f9);
+}
+.cnd-funnel-wrap .cand-detail .chat-ch-trigger-label { font-weight: 600; }
+.cnd-funnel-wrap .cand-detail .chat-ch-menu {
+  position: absolute;
+  top: calc(100% + 4px); left: 0;
+  z-index: 30;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15,23,42,0.12);
+  padding: 4px;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.cnd-funnel-wrap .cand-detail .chat-ch-opt {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+  text-align: left;
+}
+.cnd-funnel-wrap .cand-detail .chat-ch-opt:hover { background: var(--bg-panel-2, #f6f7f9); }
+.cnd-funnel-wrap .cand-detail .chat-ch-opt.active { background: color-mix(in srgb, var(--accent) 10%, #fff); color: var(--accent); }
+.cnd-funnel-wrap .cand-detail .chat-ch-opt-label { flex: 1; font-weight: 500; }
+
+.cnd-funnel-wrap .cand-detail .chat-compose-body {
+  display: flex; align-items: stretch; gap: 8px;
+}
+.cnd-funnel-wrap .cand-detail .chat-input-wrap {
+  flex: 1;
+  position: relative;
   display: flex;
-  gap: 12px;
-  align-items: flex-end;
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color .15s, box-shadow .15s;
 }
-
+.cnd-funnel-wrap .cand-detail .chat-input-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
 .cnd-funnel-wrap .cand-detail .chat-input {
   flex: 1;
-  padding: 12px 14px;
-  border: 1px solid var(--border-1);
-  border-radius: 20px;
-  background: #fff;
   resize: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.4;
+  border: none;
+  background: transparent;
+  padding: 10px 48px 10px 14px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg-1);
   outline: none;
-  transition: border-color 150ms;
+  min-height: 40px;
+  max-height: 140px;
 }
-
-.cnd-funnel-wrap .cand-detail .chat-input:focus {
-  border-color: var(--accent);
-}
-
 .cnd-funnel-wrap .cand-detail .chat-send-btn {
-  width: 40px;
-  height: 40px;
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 34px; height: 34px;
   border-radius: 50%;
+  border: none;
   background: var(--accent);
   color: #fff;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
-  transition: background 150ms;
-  flex: none;
+  transition: background .15s, transform .12s;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent);
 }
-
+.cnd-funnel-wrap .cand-detail .chat-send-btn svg {
+  transform: translate(-1px, 1px);
+}
 .cnd-funnel-wrap .cand-detail .chat-send-btn:hover:not(:disabled) {
   background: var(--accent-hover);
+  transform: scale(1.04);
 }
-
+.cnd-funnel-wrap .cand-detail .chat-send-btn:active:not(:disabled) { transform: scale(0.95); }
 .cnd-funnel-wrap .cand-detail .chat-send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.cnd-funnel-wrap .cand-detail .chat-hint {
-  font-size: 11px;
+  background: var(--ark-gray-200, #d8dde4);
   color: var(--fg-3);
-  margin-top: 8px;
-  text-align: center;
+  cursor: not-allowed;
+  box-shadow: none;
 }
+.cnd-funnel-wrap .cand-detail .chat-compose-hint {
+  font-size: 11px; color: var(--fg-3);
+  padding: 0 4px;
+}
+.cnd-funnel-wrap .cand-detail .chat-compose-hint b { color: var(--fg-1); font-weight: 600; }
 
 /* === VERIFICATION TAB === */
 
@@ -1442,6 +1506,29 @@
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
+
+/* === ACTIONS FEED TAB (1:1 эталон) === */
+.cnd-funnel-wrap .cand-detail .actions-feed { display: flex; flex-direction: column; }
+.cnd-funnel-wrap .cand-detail .action-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-2);
+}
+.cnd-funnel-wrap .cand-detail .action-row:last-child { border-bottom: 0; }
+.cnd-funnel-wrap .cand-detail .action-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--ark-gray-100);
+  color: var(--fg-2);
+  display: flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.cnd-funnel-wrap .cand-detail .action-icon.ai { background: var(--ark-violet-100); color: var(--ark-violet-500); }
+.cnd-funnel-wrap .cand-detail .action-body { flex: 1; min-width: 0; }
+.cnd-funnel-wrap .cand-detail .action-text { font-size: 13px; line-height: 1.4; }
+.cnd-funnel-wrap .cand-detail .action-who { font-weight: 600; }
+.cnd-funnel-wrap .cand-detail .action-who.ai { color: var(--ark-violet-500); }
+.cnd-funnel-wrap .cand-detail .action-time { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
 
 /* === ЭТАЛОННЫЕ СТИЛИ FILO-CARD === */
 
