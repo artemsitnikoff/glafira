@@ -155,8 +155,8 @@
 }
 
 .cnd-funnel-wrap .cand-detail .cd-pop-tag-next {
-  background: var(--ark-green-100);
-  color: var(--ark-green-700);
+  background: var(--ark-green-100, #DEF5E5);
+  color: var(--ark-green-700, #1F7A4D);
 }
 
 .cnd-funnel-wrap .cand-detail .stage-dot {
