@@ -12,12 +12,87 @@ import type { components } from '@/api/types';
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
 
-const FUNNEL_TEMPLATES = [
-  { id: 'default', name: 'По умолчанию' },
-  { id: 'mass', name: 'Массовый подбор · короткая' },
-  { id: 'technical', name: 'Техническая · с тестовым' },
-  { id: 'sales', name: 'Продажи · 4 этапа' },
+// Типы этапов
+const FUNNEL_STAGE_TYPES = {
+  start: { label: 'Стартовый', dot: '#2A8AF0', bg: '#EAF3FE', fg: '#1865BE' },
+  system: { label: 'Системный', dot: '#7E5CF0', bg: '#F0EAFE', fg: '#5C3FBE' },
+  middle: { label: 'Промежуточный', dot: '#9AA3AE', bg: '#ECEFF2', fg: '#3A4452' },
+  finalOk: { label: 'Финальный · успех', dot: '#16A34A', bg: '#DEF5E5', fg: '#128640' },
+  finalBad: { label: 'Финальный · отказ', dot: '#DC4646', bg: '#FCE3E3', fg: '#B83030' },
+};
+
+// Дефолтные этапы (эталон)
+const NV_DEFAULT_STAGES: Stage[] = [
+  { id: 1, name: 'Отклик', type: 'start', desc: 'Кандидат пришёл с источника. Глафира делает первичный скрининг и зовёт в чат.' },
+  { id: 3, name: 'Добавлен', type: 'system', desc: 'Кандидат добавлен рекрутером вручную из общей базы. Системный этап, не удаляется.' },
+  { id: 2, name: 'Отобран', type: 'middle', desc: 'Глафира посчитала кандидата подходящим — ждём контакта рекрутера.' },
+  { id: 4, name: 'Контакт с рекрутером', type: 'middle', desc: 'Назначен/проведён звонок-знакомство.' },
+  { id: 5, name: 'Интервью', type: 'middle', desc: 'Техническое или профильное интервью.' },
+  { id: 6, name: 'Контакт с менеджером', type: 'middle', desc: 'Финальная встреча с заказчиком.' },
+  { id: 7, name: 'Оффер', type: 'middle', desc: 'Оффер выслан и согласовывается.' },
+  { id: 8, name: 'Нанят', type: 'finalOk', desc: 'Кандидат вышел на работу. Стартует Пульс-Онбординг.' },
+  { id: 9, name: 'Отказ', type: 'finalBad', desc: 'Завершение по причине из справочника.' },
 ];
+
+// Шаблоны с разными наборами этапов
+const FUNNEL_TEMPLATES = [
+  {
+    id: 'default',
+    name: 'По умолчанию',
+    stages: NV_DEFAULT_STAGES
+  },
+  {
+    id: 'mass',
+    name: 'Массовый подбор · короткая',
+    stages: [
+      { id: 1, name: 'Отклик', type: 'start', desc: 'Кандидат пришёл с источника.' },
+      { id: 2, name: 'Отобран', type: 'middle', desc: 'Подходящий кандидат.' },
+      { id: 3, name: 'Интервью', type: 'middle', desc: 'Быстрое собеседование.' },
+      { id: 4, name: 'Нанят', type: 'finalOk', desc: 'Успешно принят на работу.' },
+      { id: 5, name: 'Отказ', type: 'finalBad', desc: 'Не подошёл.' },
+    ] as Stage[]
+  },
+  {
+    id: 'technical',
+    name: 'Техническая · с тестовым',
+    stages: [
+      { id: 1, name: 'Отклик', type: 'start', desc: 'Кандидат пришёл с источника.' },
+      { id: 2, name: 'Отобран', type: 'middle', desc: 'Прошёл первичный скрининг.' },
+      { id: 3, name: 'Тест', type: 'middle', desc: 'Выполняет тестовое задание.' },
+      { id: 4, name: 'Техническое интервью', type: 'middle', desc: 'Разбор решения с техлидом.' },
+      { id: 5, name: 'Встреча с командой', type: 'middle', desc: 'Знакомство с будущими коллегами.' },
+      { id: 6, name: 'Оффер', type: 'middle', desc: 'Обсуждение условий.' },
+      { id: 7, name: 'Нанят', type: 'finalOk', desc: 'Принят в команду.' },
+      { id: 8, name: 'Отказ', type: 'finalBad', desc: 'Не подошёл.' },
+    ] as Stage[]
+  },
+  {
+    id: 'sales',
+    name: 'Продажи · 4 этапа',
+    stages: [
+      { id: 1, name: 'Отклик', type: 'start', desc: 'Кандидат откликнулся.' },
+      { id: 2, name: 'Скрининг', type: 'middle', desc: 'Проверка опыта продаж.' },
+      { id: 3, name: 'Ролевая игра', type: 'middle', desc: 'Симуляция продажи.' },
+      { id: 4, name: 'Нанят', type: 'finalOk', desc: 'Принят в отдел продаж.' },
+      { id: 5, name: 'Отказ', type: 'finalBad', desc: 'Не подошёл.' },
+    ] as Stage[]
+  },
+];
+
+// Типы для редактора
+type Stage = {
+  id: number;
+  name: string;
+  type: 'start' | 'system' | 'middle' | 'finalOk' | 'finalBad';
+  desc: string;
+};
+
+type StageInput = {
+  stage_key: string;
+  label: string;
+  order_index: number;
+  is_terminal: boolean;
+};
 
 const EMPLOYMENT_TYPES = [
   { id: 'full', label: 'Полная' },
@@ -70,6 +145,9 @@ export default function VacancyFormPage() {
     auto_reject: false,
   });
 
+  // Состояние этапов воронки
+  const [stages, setStages] = useState<Stage[]>(NV_DEFAULT_STAGES);
+
   // Pre-populate form in edit mode
   useEffect(() => {
     if (editMode && vacancy) {
@@ -106,6 +184,9 @@ export default function VacancyFormPage() {
     if (activeStep === 'desc') {
       return formData.name.trim().length > 0;
     }
+    if (activeStep === 'funnel') {
+      return stages.length >= 3;
+    }
     return true;
   };
 
@@ -134,12 +215,61 @@ export default function VacancyFormPage() {
         await updateMutation.mutateAsync({ id, data: updateData });
         navigate(`/vacancies/${id}`);
       } else {
-        const result = await createMutation.mutateAsync(formData);
+        // Генерируем StageInput из stages для отправки на бэк
+        const stageInputs: StageInput[] = stages.map((stage, index) => ({
+          stage_key: getStageKey(stage),
+          label: stage.name.substring(0, 60), // Ограничение бэка: ≤60 симв
+          order_index: index,
+          is_terminal: stage.type === 'finalOk' || stage.type === 'finalBad',
+        }));
+
+        // Добавляем stages в payload с приведением типа
+        const payload = {
+          ...formData,
+          stages: stageInputs,
+        } as VacancyCreate & { stages: StageInput[] };
+
+        const result = await createMutation.mutateAsync(payload);
         navigate(`/vacancies/${result.id}`);
       }
     } catch (error) {
       // Удаляем console.log согласно заданию
     }
+  };
+
+  // Генерирует stage_key для этапа
+  const getStageKey = (stage: Stage): string => {
+    // Канонические ключи для стандартных этапов (важно для hired/rejected)
+    const canonicalKeys: Record<string, string> = {
+      'Отклик': 'response',
+      'Добавлен': 'added',
+      'Отобран': 'selected',
+      'Контакт с рекрутером': 'recruiter',
+      'Интервью': 'interview',
+      'Тест': 'test',
+      'Контакт с менеджером': 'manager',
+      'Оффер': 'offer',
+      'Нанят': 'hired',
+      'Отказ': 'rejected',
+      'Скрининг': 'screening',
+      'Ролевая игра': 'roleplay',
+      'Техническое интервью': 'tech_interview',
+      'Встреча с командой': 'team_meet',
+    };
+
+    const canonicalKey = canonicalKeys[stage.name];
+    if (canonicalKey) {
+      return canonicalKey;
+    }
+
+    // Для кастомных этапов генерируем slug
+    const slug = stage.name
+      .toLowerCase()
+      .replace(/[^а-яё\w\s]/g, '')
+      .replace(/\s+/g, '_')
+      .substring(0, 20);
+
+    return slug || `stage_${stage.id}`;
   };
 
   const updateFormData = (updates: Partial<VacancyCreate>) => {
@@ -149,7 +279,7 @@ export default function VacancyFormPage() {
   // Прогресс для чипов
   const completion: Record<string, boolean> = {
     desc: formData.name.trim().length > 0,
-    funnel: true, // Всегда проходим
+    funnel: stages.length >= 3,
     team: formData.team.length > 0,
     automation: true, // Всегда проходим
   };
@@ -207,6 +337,8 @@ export default function VacancyFormPage() {
             <FunnelStep
               data={formData}
               onChange={updateFormData}
+              stages={stages}
+              onStagesChange={setStages}
             />
           )}
           {activeStep === 'team' && (
@@ -413,10 +545,64 @@ function DescriptionStep({
 function FunnelStep({
   data,
   onChange,
+  stages,
+  onStagesChange,
 }: {
   data: VacancyCreate;
   onChange: (updates: Partial<VacancyCreate>) => void;
+  stages: Stage[];
+  onStagesChange: (stages: Stage[]) => void;
 }) {
+  // Применить выбранный шаблон
+  const applyTemplate = (templateId: string) => {
+    const template = FUNNEL_TEMPLATES.find(t => t.id === templateId);
+    if (template) {
+      onStagesChange([...template.stages]); // Копируем массив
+    }
+    onChange({ funnel_template: templateId });
+  };
+
+  // Перемещение этапа
+  const moveStage = (idx: number, dir: number) => {
+    const next = stages.slice();
+    const j = idx + dir;
+    // Нельзя двигать в зоны 1-го и 2 последних (эталонная логика)
+    if (j < 1 || j > next.length - 2) return;
+    if (idx === 0 || idx >= next.length - 2) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    onStagesChange(next);
+  };
+
+  // Удаление этапа
+  const removeStage = (idx: number) => {
+    const s = stages[idx];
+    // Нельзя удалять первый этап, финальные и системные
+    if (idx === 0 || s.type === 'finalOk' || s.type === 'finalBad' || s.type === 'system') return;
+    onStagesChange(stages.filter((_, i) => i !== idx));
+  };
+
+  // Добавление этапа
+  const addStage = () => {
+    const newStage: Stage = {
+      id: Date.now(),
+      name: 'Новый этап',
+      type: 'middle',
+      desc: 'Опишите, что происходит на этом этапе.',
+    };
+    // Вставляем перед двумя последними финальными
+    const idx = stages.length - 2;
+    const next = stages.slice();
+    next.splice(idx, 0, newStage);
+    onStagesChange(next);
+  };
+
+  // Изменение названия этапа
+  const updateStageName = (idx: number, name: string) => {
+    const next = stages.slice();
+    next[idx] = { ...next[idx], name };
+    onStagesChange(next);
+  };
+
   return (
     <div className="nv-step-body">
       <div className="nv-h1">Воронка подбора</div>
@@ -439,7 +625,7 @@ function FunnelStep({
                 name="funnel_template"
                 value={template.id}
                 checked={data.funnel_template === template.id}
-                onChange={e => onChange({ funnel_template: e.target.value })}
+                onChange={e => applyTemplate(e.target.value)}
               />
               <span className="funnel-template-name">{template.name}</span>
             </label>
@@ -447,18 +633,68 @@ function FunnelStep({
         </div>
       </div>
 
-      <div className="nv-field">
-        <div style={{
-          padding: '16px 20px',
-          background: 'var(--bg-panel-2)',
-          border: '1px solid var(--border-1)',
-          borderRadius: '8px',
-          color: 'var(--fg-2)',
-          fontSize: '13px',
-          fontStyle: 'italic'
-        }}>
-          Полный редактор этапов воронки — скоро
-        </div>
+      <div className="funnel-editor">
+        {stages.map((s, idx) => {
+          const t = FUNNEL_STAGE_TYPES[s.type] || { label: 'Промежуточный', dot: '#9AA3AE', bg: '#ECEFF2', fg: '#3A4452' };
+          const isFinal = s.type === 'finalOk' || s.type === 'finalBad';
+          const isFirst = idx === 0;
+          const isSystem = s.type === 'system';
+          const locked = isFirst || isFinal || isSystem;
+
+          return (
+            <div key={s.id} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
+              <div className="nv-fn-arrows">
+                <button
+                  className="nv-fn-arr"
+                  disabled={locked || idx <= 1}
+                  title={locked ? 'Этап зафиксирован' : 'Выше'}
+                  onClick={() => moveStage(idx, -1)}
+                >
+                  ▲
+                </button>
+                <button
+                  className="nv-fn-arr"
+                  disabled={locked || idx >= stages.length - 3}
+                  title={locked ? 'Этап зафиксирован' : 'Ниже'}
+                  onClick={() => moveStage(idx, 1)}
+                >
+                  ▼
+                </button>
+              </div>
+              <div className="fn-num">{idx + 1}</div>
+              <div className="fn-body">
+                <div className="fn-row1">
+                  <input
+                    className="fn-name"
+                    value={s.name}
+                    onChange={(e) => updateStageName(idx, e.target.value)}
+                  />
+                  <span className="stage-type-pill" style={{ background: t.bg, color: t.fg }}>
+                    <span className="st-dot" style={{ background: t.dot }} />
+                    {t.label}
+                  </span>
+                  {locked && (
+                    <span className="nv-locked-pill" title="Зафиксирован">
+                      <Icon name="lock" size={11} /> закреплён
+                    </span>
+                  )}
+                </div>
+                <div className="fn-desc">{s.desc}</div>
+              </div>
+              <button
+                className="row-icon-btn"
+                disabled={locked}
+                onClick={() => removeStage(idx)}
+                title={locked ? 'Этап нельзя удалить' : 'Удалить этап'}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+          );
+        })}
+        <button className="fn-add" onClick={addStage}>
+          <Icon name="plus" size={14} /> Добавить этап
+        </button>
       </div>
     </div>
   );
