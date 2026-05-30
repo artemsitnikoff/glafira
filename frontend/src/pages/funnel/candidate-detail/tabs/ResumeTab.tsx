@@ -84,7 +84,11 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
                 <div className="job-period">{exp.period}</div>
               </div>
               {exp.description && (
-                <div className="job-desc">{exp.description}</div>
+                <div className="job-desc">
+                  {exp.description.split('\n\n').filter((para: string) => para.trim()).map((paragraph: string, pIndex: number) => (
+                    <p key={pIndex} className="job-desc-p">{paragraph.trim()}</p>
+                  ))}
+                </div>
               )}
             </div>
           ))}

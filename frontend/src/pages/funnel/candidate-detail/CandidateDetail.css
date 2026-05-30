@@ -1747,6 +1747,16 @@
   color: var(--fg-1);
   margin-top: 8px;
   line-height: 1.5;
+  max-width: 640px;
+}
+
+.cnd-funnel-wrap .cand-detail .job-desc-p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.cnd-funnel-wrap .cand-detail .job-desc-p:last-child {
+  margin-bottom: 0;
 }
 
 .cnd-funnel-wrap .cand-detail .skill-row {

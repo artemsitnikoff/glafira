@@ -946,7 +946,11 @@ async def seed_real_scoring(session: AsyncSession, candidates: list[Candidate], 
 
         except Exception as e:
             failed_operations += 1
-            logger.exception(f"✗ Failed to generate resume for {candidate.full_name}: {e}")
+            error_details = getattr(e, "details", None)
+            if error_details:
+                logger.exception(f"✗ Failed to generate resume for {candidate.full_name}: {e} | Details: {error_details}")
+            else:
+                logger.exception(f"✗ Failed to generate resume for {candidate.full_name}: {e}")
             continue
 
     await session.flush()
@@ -975,7 +979,11 @@ async def seed_real_scoring(session: AsyncSession, candidates: list[Candidate], 
 
         except Exception as e:
             failed_operations += 1
-            logger.exception(f"✗ Failed to score candidate {application.candidate.full_name}: {e}")
+            error_details = getattr(e, "details", None)
+            if error_details:
+                logger.exception(f"✗ Failed to score candidate {application.candidate.full_name}: {e} | Details: {error_details}")
+            else:
+                logger.exception(f"✗ Failed to score candidate {application.candidate.full_name}: {e}")
             continue
 
     logger.info(f"Real AI processing completed: {successful_resumes} resumes, {successful_scores} scores, {failed_operations} errors")
