@@ -16,6 +16,7 @@ const EVENT_LABELS = {
   move: 'Перемещение',
   verify: 'Верификация',
   comment: 'Комментарий',
+  document: 'Документ',
 } as const;
 
 export function AllActionsTab({ candidateId, candidate }: Props) {

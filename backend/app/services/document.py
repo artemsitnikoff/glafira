@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import NotFoundError, FileTooLargeError, UnsupportedFileTypeError
-from ..models import Candidate, Document, User
+from ..models import Candidate, Document, User, Event
 
 logger = logging.getLogger(__name__)
 from ..schemas.document import DocumentOut
@@ -165,6 +165,18 @@ async def upload_document(
         },
         actor_user_id=actor_user_id,
         company_id=company_id,
+    )
+
+    # Событие для ленты «Все действия» (Event != audit — лента читает таблицу events)
+    session.add(
+        Event(
+            company_id=company_id,
+            type="document",
+            actor_type="human",
+            actor_user_id=actor_user_id,
+            text=f"Загружен файл: {file.filename or 'без имени'}",
+            candidate_id=candidate_id,
+        )
     )
 
     await session.flush()
