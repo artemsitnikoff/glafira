@@ -104,12 +104,10 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
         onTabChange={setActiveTab}
       />
 
-      <div className="cd-header">
-        <CandidateHeader
-          candidateId={candidateId}
-          application={application}
-        />
-      </div>
+      <CandidateHeader
+        candidateId={candidateId}
+        application={application}
+      />
 
       <div className="cc-tabs">
         {TABS.map(tab => (
