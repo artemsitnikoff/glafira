@@ -7,18 +7,24 @@ type Props = {
 export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
   if (!evaluation) return null;
 
-  // Verdict text based on score
-  const verdict = evaluation.score >= 80
-    ? 'Хорошо подходит. Релевантный опыт, ключевые навыки совпадают с требованиями вакансии.'
-    : evaluation.score >= 50
-    ? 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.'
-    : 'Не подходит. Опыт не совпадает с требованиями вакансии.';
-
   // Score color
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'score-green';
     if (score >= 60) return 'score-yellow';
     return 'score-red';
+  };
+
+  // Use real AI summary or fallback based on score
+  const getSummaryText = () => {
+    if (evaluation.summary) {
+      return evaluation.summary;
+    }
+    // Fallback based on score
+    return evaluation.score >= 80
+      ? 'Хорошо подходит. Релевантный опыт, ключевые навыки совпадают с требованиями вакансии.'
+      : evaluation.score >= 50
+      ? 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.'
+      : 'Не подходит. Опыт не совпадает с требованиями вакансии.';
   };
 
   return (
@@ -30,7 +36,7 @@ export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
           </div>
           <div>
             <div className="filo-title">Оценка от Глафиры</div>
-            <div className="filo-sub">{verdict}</div>
+            <div className="filo-sub">{getSummaryText()}</div>
           </div>
         </div>
         <span className={`score-badge score-xl ${getScoreColor(evaluation.score)}`}>

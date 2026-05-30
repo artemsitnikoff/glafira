@@ -28,7 +28,8 @@ from ..schemas.candidate import (
     CandidateCardVacancy,
     ApplicationHistoryItem,
     TagOut,
-    CandidateExperienceOut
+    CandidateExperienceOut,
+    CandidateEducationOut
 )
 from ..schemas.base import Paginated
 from ..services.audit import audit
@@ -280,6 +281,7 @@ async def get_candidate(session: AsyncSession, candidate_id: UUID, company_id: U
         .options(
             selectinload(Candidate.tags).selectinload(CandidateTag.tag),
             selectinload(Candidate.experience),
+            selectinload(Candidate.education),
             selectinload(Candidate.skills)
         )
         .where(Candidate.id == candidate_id, Candidate.company_id == company_id, Candidate.deleted_at.is_(None))
@@ -302,6 +304,9 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
 
     # Build experience
     experience = [CandidateExperienceOut.model_validate(exp) for exp in candidate.experience]
+
+    # Build education
+    education = [CandidateEducationOut.model_validate(e) for e in candidate.education]
 
     # Build skills
     skills = [skill.skill for skill in candidate.skills]
@@ -341,6 +346,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         is_anonymized=candidate.is_anonymized,
         tags=tags,
         experience=experience,
+        education=education,
         skills=skills,
         extra=candidate.extra,
         created_at=candidate.created_at

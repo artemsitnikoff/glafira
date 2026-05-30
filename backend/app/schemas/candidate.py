@@ -18,6 +18,12 @@ class CandidateExperienceOut(ORMBase):
     description: str | None = None
 
 
+class CandidateEducationOut(ORMBase):
+    institution: str | None = None
+    specialty: str | None = None
+    years: str | None = None
+
+
 class CandidateCardVacancy(BaseModel):
     application_id: UUID
     vacancy_id: UUID
@@ -74,6 +80,7 @@ class CandidateDetail(ORMBase):
     is_anonymized: bool = False
     tags: list[TagOut] = []
     experience: list[CandidateExperienceOut] = []
+    education: list[CandidateEducationOut] = []
     skills: list[str] = []
     extra: dict | None = None
     created_at: datetime

@@ -123,11 +123,27 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
         </>
       )}
 
-      {candidate.extra && candidate.extra.languages && candidate.extra.languages.length > 0 && (
+      {candidate.extra && (
+        candidate.extra.languages?.length > 0 ||
+        candidate.extra.relocation ||
+        candidate.extra.business_trips ||
+        candidate.extra.remote
+      ) && (
         <>
           <h3 className="cc-sec-title">Дополнительно</h3>
           <div className="extra-grid">
-            <div><span className="extra-k">Языки:</span> {candidate.extra.languages.join(' · ')}</div>
+            {candidate.extra.languages?.length > 0 && (
+              <div><span className="extra-k">Языки:</span> {candidate.extra.languages.join(' · ')}</div>
+            )}
+            {candidate.extra.relocation && (
+              <div><span className="extra-k">Переезд:</span> {candidate.extra.relocation}</div>
+            )}
+            {candidate.extra.business_trips && (
+              <div><span className="extra-k">Командировки:</span> {candidate.extra.business_trips}</div>
+            )}
+            {candidate.extra.remote && (
+              <div><span className="extra-k">Удалёнка:</span> {candidate.extra.remote}</div>
+            )}
           </div>
         </>
       )}

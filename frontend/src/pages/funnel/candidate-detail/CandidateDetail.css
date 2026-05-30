@@ -454,157 +454,9 @@
   margin: 0 0 12px;
 }
 
-.cnd-funnel-wrap .cand-detail .job {
-  padding: 12px 0;
-  border-top: 1px solid var(--border-1);
-}
+/* Старые job-*, skill-*, edu-*, extra-* классы удалены - остаются эталонные */
 
-.cnd-funnel-wrap .cand-detail .job:first-child {
-  border-top: none;
-  padding-top: 0;
-}
-
-.cnd-funnel-wrap .cand-detail .job-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 8px;
-}
-
-.cnd-funnel-wrap .cand-detail .job-title {
-  font-weight: 600;
-  color: var(--fg-1);
-  margin: 0 0 4px;
-}
-
-.cnd-funnel-wrap .cand-detail .job-co {
-  color: var(--fg-2);
-  margin: 0 0 4px;
-}
-
-.cnd-funnel-wrap .cand-detail .job-period {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-3);
-  white-space: nowrap;
-}
-
-.cnd-funnel-wrap .cand-detail .job-desc {
-  color: var(--fg-2);
-  line-height: 1.5;
-}
-
-.cnd-funnel-wrap .cand-detail .skill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 8px 0;
-}
-
-.cnd-funnel-wrap .cand-detail .skill-chip {
-  background: var(--ark-gray-100);
-  color: var(--fg-1);
-  padding: 3px 10px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  border: 1px solid var(--border-1);
-}
-
-.cnd-funnel-wrap .cand-detail .edu-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 8px 0;
-}
-
-.cnd-funnel-wrap .cand-detail .extra-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 8px 0;
-}
-
-.cnd-funnel-wrap .cand-detail .extra-k {
-  font-weight: 600;
-  color: var(--fg-2);
-}
-
-/* === FILO CARD (AI Verdict) === */
-
-.cnd-funnel-wrap .cand-detail .filo-card {
-  background: linear-gradient(135deg, #FFD2E8 0%, #FFB1D6 100%);
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 20px;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-head-left {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  flex: 1;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-ai-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #FFE7EC 0%, #FFD2E8 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  transition: transform 200ms cubic-bezier(.2,.8,.2,1);
-}
-
-.cnd-funnel-wrap .cand-detail .filo-ai-mark:hover {
-  transform: scale(1.05);
-}
-
-.cnd-funnel-wrap .cand-detail .glafira-emoji {
-  font-size: 20px;
-  line-height: 1;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--fg-1);
-  margin: 0 0 4px;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-sub {
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--fg-2);
-  margin: 0;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-link-row {
-  margin-top: 12px;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-link {
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--brand-accent) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.cnd-funnel-wrap .cand-detail .filo-link:hover {
-  text-decoration: underline;
-}
+/* === FILO CARD (AI Verdict) - СТАРЫЕ СТИЛИ УДАЛЕНЫ === */
 
 /* === AI EVALUATION === */
 
@@ -615,14 +467,7 @@
   padding: 18px;
 }
 
-.cnd-funnel-wrap .cand-detail .msg {
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 12px;
-  display: flex;
-  align-items: flex-start;
-  line-height: 1.4;
-}
+/* msg - старое определение удалено, остаётся эталонное */
 
 .cnd-funnel-wrap .cand-detail .ai-msg-good {
   background: var(--risk-low-soft);

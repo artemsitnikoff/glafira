@@ -148,14 +148,21 @@ async def generate_resume(
                 )
                 session.add(education)
 
-        # Сохраняем языки в candidate.extra
+        # Сохраняем языки и дополнительные поля в candidate.extra
+        existing_extra = candidate.extra or {}
+        extra_updates = {"demo": "true"}  # Помечаем как демо-данные
+
         if result.get("languages"):
-            existing_extra = candidate.extra or {}
-            existing_extra.update({
-                "demo": "true",  # Помечаем как демо-данные
-                "languages": result["languages"]
-            })
-            candidate.extra = existing_extra
+            extra_updates["languages"] = result["languages"]
+        if result.get("relocation"):
+            extra_updates["relocation"] = result["relocation"]
+        if result.get("business_trips"):
+            extra_updates["business_trips"] = result["business_trips"]
+        if result.get("remote"):
+            extra_updates["remote"] = result["remote"]
+
+        existing_extra.update(extra_updates)
+        candidate.extra = existing_extra
 
         await session.flush()
         logger.info(f"Резюме для {candidate.full_name} успешно создано")
