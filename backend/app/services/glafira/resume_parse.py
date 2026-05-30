@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .client import call_json
@@ -103,9 +104,17 @@ async def parse_and_apply_resume(
         logger.info(f"No text extracted from {filename}")
         return
 
-    # Get candidate
+    # Get candidate с eager-загрузкой связей — иначе доступ к candidate.experience/skills/
+    # education в async-режиме триггерит ленивый SELECT вне greenlet → "greenlet_spawn has
+    # not been called" и парс падает.
     result = await session.execute(
-        select(Candidate).where(
+        select(Candidate)
+        .options(
+            selectinload(Candidate.experience),
+            selectinload(Candidate.skills),
+            selectinload(Candidate.education),
+        )
+        .where(
             Candidate.id == candidate_id,
             Candidate.company_id == company_id,
             Candidate.deleted_at.is_(None)
