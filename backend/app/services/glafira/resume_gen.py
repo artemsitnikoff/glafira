@@ -91,6 +91,9 @@ async def generate_resume(
 
         # Сохраняем resume_text
         candidate.resume_text = "\n".join(resume_text_parts)
+        # «Обо мне» (resume_summary) — чтобы секция отображалась и у демо-кандидатов
+        # (реальный парсер пишет сюда раздел «Обо мне» резюме; для демо берём AI-summary)
+        candidate.resume_summary = (result["summary"] or "")[:5000]
 
         # Создаем CandidateExperience записи
         if result.get("experience"):

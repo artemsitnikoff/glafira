@@ -134,7 +134,9 @@ async def parse_and_apply_resume(
         parsed_data = await call_json(
             system=RESUME_PARSE_PROMPT,
             user=text,
-            max_tokens=8000
+            # 16000: полное резюме + дословное «Обо мне» не должны упереться в лимит и обрезать
+            # JSON (обрезка по finish_reason=length роняет весь парс — см. client.py)
+            max_tokens=16000
         )
 
         # Заполняем только пустые поля. Значения парсера КОЭРСИМ к типу/длине колонки
@@ -169,6 +171,11 @@ async def parse_and_apply_resume(
         if candidate.email is None:
             if (v := _to_str(parsed_data.get("email"), 255)):
                 candidate.email = v
+
+        # «Обо мне» — самоописание кандидата (раздел резюме) → resume_summary (свободно под это)
+        if candidate.resume_summary is None:
+            if (v := _to_str(parsed_data.get("about"), 5000)):
+                candidate.resume_summary = v
 
         if hasattr(candidate, 'experience_years') and candidate.experience_years is None:
             if (v := _to_int(parsed_data.get("experience_years"))) is not None:

@@ -71,6 +71,16 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
       {/* AI Verdict Card */}
       {evaluation && <AIVerdictCard evaluation={evaluation} onOpenAI={onOpenAI} />}
 
+      {/* About Me Section */}
+      {(candidate as any).resume_summary && (
+        <>
+          <h3 className="cc-sec-title">Обо мне</h3>
+          <div className="job-desc" style={{ whiteSpace: 'pre-line' }}>
+            {(candidate as any).resume_summary}
+          </div>
+        </>
+      )}
+
       {candidate.experience && candidate.experience.length > 0 && (
         <>
           <h3 className="cc-sec-title">Опыт работы</h3>

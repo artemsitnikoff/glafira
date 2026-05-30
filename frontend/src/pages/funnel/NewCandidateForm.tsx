@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useCreateCandidate } from '@/api/mutations/candidates';
+import { useEvaluate } from '@/api/mutations/candidateDetail';
 import { useVacancies } from '@/api/hooks/useVacancies';
 import { api } from '@/api/client';
+import { useQueryClient } from '@tanstack/react-query';
 import type { components } from '@/api/types';
 
 // Local type to include messengers field not yet in generated types
@@ -140,6 +142,8 @@ function parseDate(dateStr: string): string | null {
 export default function NewCandidateForm({ vacancyId, onClose }: Props) {
   const createMutation = useCreateCandidate(vacancyId);
   const { data: vacanciesData } = useVacancies({ status: 'active' });
+  const evaluateMutation = useEvaluate();
+  const queryClient = useQueryClient();
 
   const [openDD, setOpenDD] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -219,8 +223,11 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
       // Create candidate
       const newCandidate = await createMutation.mutateAsync(payload as any);
 
-      // Upload resume if file selected
+      // Upload resume if file selected. Авто-разбор резюме на бэке работает только для PDF —
+      // только тогда профиль (опыт/навыки/«Обо мне») реально заполняется.
+      let resumeParsed = false;
       if (selectedFile && newCandidate.id) {
+        const isPdf = selectedFile.name.toLowerCase().endsWith('.pdf');
         try {
           const formDataUpload = new FormData();
           formDataUpload.append('file', selectedFile);
@@ -229,10 +236,36 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
           await api.post(`/candidates/${newCandidate.id}/documents`, formDataUpload, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
+          resumeParsed = isPdf;
         } catch {
           // Кандидат уже создан — это главное действие. Загрузка резюме
           // вспомогательна: при сбое его можно приложить позже во вкладке
           // «Документы» карточки. Не роняем успешное создание.
+        }
+      }
+
+      // Авто-оценка Глафиры — fire-and-forget, ТОЛЬКО если резюме реально распарсилось (PDF
+      // загружен успешно). Иначе оценка посчиталась бы по пустому профилю и закэшировалась:
+      // повторная /glafira/score дедупит, и переоценить после добавления резюме уже нельзя.
+      if (newCandidate.id && resumeParsed) {
+        try {
+          evaluateMutation.mutate(
+            { candidate_id: newCandidate.id, vacancy_id: formData.target_vacancy },
+            {
+              onSuccess: () => {
+                // Invalidate evaluation queries to refresh AI tab when user visits it
+                queryClient.invalidateQueries({
+                  queryKey: ['candidates', newCandidate.id, 'evaluation']
+                });
+              },
+              onError: () => {
+                // Оценка некритична: не запустилась — пользователь увидит «не оценён»
+                // и сможет запустить вручную из таба «Оценка AI». Создание кандидата не рушим.
+              }
+            }
+          );
+        } catch {
+          // Оценка некритична — не мешаем созданию кандидата
         }
       }
 
