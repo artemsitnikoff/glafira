@@ -18,6 +18,50 @@ export function DocumentsTab({ candidateId, candidate }: Props) {
   const deleteMutation = useDeleteDocument();
   const downloadMutation = useDownloadDocument();
 
+  function getFileTypeLabel(filename: string, file_type?: string): string {
+    // Получаем расширение из имени файла
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+
+    // Приоритет file_type, если есть
+    if (file_type) {
+      const type = file_type.toLowerCase();
+      if (type.includes('pdf')) return 'PDF';
+      if (type.includes('image') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(type)) return 'IMG';
+      if (type.includes('word') || type.includes('document')) return 'DOC';
+      if (type.includes('spreadsheet') || type.includes('excel')) return 'XLS';
+    }
+
+    // Определяем по расширению
+    if (ext === 'pdf') return 'PDF';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'IMG';
+    if (['doc', 'docx'].includes(ext)) return 'DOC';
+    if (['xls', 'xlsx'].includes(ext)) return 'XLS';
+
+    // Если расширение не более 4 символов, возвращаем в UPPERCASE
+    if (ext && ext.length <= 4) {
+      return ext.toUpperCase();
+    }
+
+    return 'FILE';
+  }
+
+  function formatFileMeta(doc: any): string {
+    const parts: string[] = [];
+
+    // Размер
+    if (doc.size_bytes) {
+      parts.push(`${Math.round(doc.size_bytes / 1024)} КБ`);
+    }
+
+    // Дата
+    parts.push(new Date(doc.created_at).toLocaleDateString('ru'));
+
+    // Источник
+    parts.push(doc.source || '—');
+
+    return parts.join(' · ');
+  }
+
   function handleUploadClick() {
     fileInputRef.current?.click();
   }
@@ -72,107 +116,64 @@ export function DocumentsTab({ candidateId, candidate }: Props) {
 
   if (isLoading) {
     return (
-      <div className="tab-content">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Icon name="loader" size={24} />
-          <p>Загружаются документы...</p>
+      <div className="card-block">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '16px' }}>
+          <Icon name="loader" size={16} />
+          <span style={{ fontSize: '13px', color: 'var(--fg-2)' }}>Загружаются документы...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="tab-content">
-      <h2 style={{ margin: '0 0 var(--space-4) 0', fontSize: '18px', fontWeight: '600' }}>
-        Документы
-      </h2>
-
-      {/* Upload Zone */}
-      <div
-        className={`upload-zone ${dragOver ? 'upload-zone--dragover' : ''}`}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <div className="upload-zone__icon">
-          <Icon name="upload" size={32} />
-        </div>
-        <p className="upload-zone__text">
-          Перетащите файлы сюда или нажмите кнопку для выбора
-        </p>
-        <button
-          className="upload-zone__btn"
+    <div className="card-block">
+      <div className="docs-grid">
+        {documents?.map((doc) => (
+          <div key={doc.id} className="doc-tile">
+            <div className="file-icon">{getFileTypeLabel(doc.filename, doc.file_type)}</div>
+            <div className="file-info">
+              <div className="file-name">{doc.filename}</div>
+              <div className="file-meta">{formatFileMeta(doc)}</div>
+            </div>
+            <button
+              className="icon-btn"
+              onClick={() => handleDownload(doc.id, doc.filename)}
+              disabled={downloadMutation.isPending}
+            >
+              <Icon name={downloadMutation.isPending ? "loader" : "download"} size={16} />
+            </button>
+            <button
+              className="icon-btn"
+              onClick={() => handleDelete(doc.id)}
+              disabled={deleteMutation.isPending}
+            >
+              <Icon name={deleteMutation.isPending ? "loader" : "trash"} size={16} />
+            </button>
+          </div>
+        ))}
+        <div
+          className={`doc-tile doc-drop ${dragOver ? 'doc-drop-dragover' : ''}`}
           onClick={handleUploadClick}
-          disabled={uploadMutation.isPending}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
-          <Icon name={uploadMutation.isPending ? "loader" : "plus"} size={16} />
-          Выбрать файлы
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          onChange={handleFileChange}
-          className="upload-zone__input"
-        />
+          <Icon name="plus" size={20} />
+          <span>Перетащите файл или нажмите</span>
+        </div>
       </div>
 
-      {uploadMutation.isError && (
-        <div style={{ marginBottom: 'var(--space-4)', color: 'var(--stage-rejected)', fontSize: '14px' }}>
-          Ошибка загрузки: {uploadMutation.error?.message}
-        </div>
-      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
 
-      {/* Documents List */}
-      {documents && documents.length > 0 ? (
-        <div className="list-container">
-          {documents.map((doc) => (
-            <div key={doc.id} className="list-item">
-              <div className="list-item__header">
-                <h4 className="list-item__title">
-                  <Icon name="file" size={16} style={{ marginRight: 'var(--space-2)' }} />
-                  {doc.filename}
-                </h4>
-                <span className="list-item__meta">
-                  {doc.source && (
-                    <span style={{ marginRight: 'var(--space-2)', textTransform: 'uppercase', fontSize: '10px' }}>
-                      {doc.source}
-                    </span>
-                  )}
-                  {new Date(doc.created_at).toLocaleDateString('ru')}
-                </span>
-              </div>
-              <div className="list-item__content">
-                <p style={{ margin: 0, color: 'var(--fg-3)', fontSize: '14px' }}>
-                  {doc.size_bytes ? `${Math.round(doc.size_bytes / 1024)} КБ` : 'Размер неизвестен'}
-                  {doc.file_type && ` • ${doc.file_type}`}
-                </p>
-              </div>
-              <div className="list-item__actions">
-                <button
-                  className="list-item__btn"
-                  onClick={() => handleDownload(doc.id, doc.filename)}
-                  disabled={downloadMutation.isPending}
-                >
-                  <Icon name={downloadMutation.isPending ? "loader" : "download"} size={12} />
-                  Скачать
-                </button>
-                <button
-                  className="list-item__btn list-item__btn--danger"
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={deleteMutation.isPending}
-                >
-                  <Icon name={deleteMutation.isPending ? "loader" : "trash"} size={12} />
-                  Удалить
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <Icon name="file" size={48} className="empty-state__icon" />
-          <p className="empty-state__text">Документов пока нет</p>
+      {uploadMutation.isError && (
+        <div style={{ marginTop: '10px', color: 'var(--stage-rejected)', fontSize: '12px' }}>
+          Ошибка загрузки: {uploadMutation.error?.message}
         </div>
       )}
     </div>

@@ -96,9 +96,8 @@ export function useUploadDocument(candidateId: string) {
       if (kind) {
         formData.append('kind', kind);
       }
-      return (await api.post(`/documents`, formData, {
+      return (await api.post(`/candidates/${candidateId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        params: { candidate_id: candidateId },
       })).data;
     },
     onSuccess: () => {

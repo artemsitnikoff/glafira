@@ -1965,3 +1965,74 @@
   background: var(--ark-violet-100);
   align-self: flex-start;
 }
+
+/* === Documents tab (1:1 эталон) === */
+.cnd-funnel-wrap .cand-detail .card-block {
+  /* Базовый блок уже может быть определён выше */
+}
+
+.cnd-funnel-wrap .cand-detail .docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.cnd-funnel-wrap .cand-detail .doc-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cnd-funnel-wrap .cand-detail .file-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--ark-blue-50);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.cnd-funnel-wrap .cand-detail .file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cnd-funnel-wrap .cand-detail .file-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cnd-funnel-wrap .cand-detail .file-meta {
+  font-size: 11px;
+  color: var(--fg-3);
+  margin-top: 2px;
+}
+
+.cnd-funnel-wrap .cand-detail .doc-drop {
+  border-style: dashed;
+  background: var(--bg-panel-2);
+  color: var(--fg-3);
+  font-size: 12px;
+  flex-direction: column;
+  justify-content: center;
+  cursor: pointer;
+  min-height: 64px;
+}
+
+.cnd-funnel-wrap .cand-detail .doc-drop:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
