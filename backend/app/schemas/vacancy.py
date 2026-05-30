@@ -134,3 +134,21 @@ class VacancyUpdate(BaseModel):
 
 class VacancyArchive(BaseModel):
     result: str  # hired|cancelled|frozen
+
+
+class VacancyStageCreate(BaseModel):
+    """Schema for creating a new stage"""
+    stage_key: str = Field(..., max_length=20, pattern=r"^[a-z0-9_]+$")
+    label: str = Field(..., max_length=60)
+    order_index: int
+    is_terminal: bool = False
+
+
+class VacancyStageUpdate(BaseModel):
+    """Schema for updating stage (only label can be changed)"""
+    label: str = Field(..., max_length=60)
+
+
+class VacancyStageReorder(BaseModel):
+    """Schema for reordering stages"""
+    order: list[str] = Field(..., description="List of stage_keys in new order")

@@ -6,11 +6,14 @@ from datetime import date, datetime, timedelta, timezone
 import math
 
 from ..models import Vacancy, VacancyTeam, VacancyStage, User, Application, Client
-from ..schemas.vacancy import VacancyCreate, VacancyUpdate, VacancyArchive, VacancySidebar, VacancySidebarItem, VacancyStageCount, VacancyDetail
+from ..schemas.vacancy import (
+    VacancyCreate, VacancyUpdate, VacancyArchive, VacancySidebar, VacancySidebarItem,
+    VacancyStageCount, VacancyDetail, VacancyStageCreate, VacancyStageUpdate, VacancyStageReorder
+)
 from ..schemas.base import Paginated
 from ..schemas.user import UserShort
-from ..core.stages import get_stages_for_template
-from ..core.errors import NotFoundError, ForbiddenError
+from ..core.stages import get_stages_for_template, PROTECTED_STAGE_KEYS
+from ..core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
 from ..services.audit import audit
 
 
@@ -496,3 +499,229 @@ async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id
         ))
 
     return stages
+
+
+async def add_vacancy_stage(
+    session: AsyncSession,
+    vacancy_id: UUID,
+    stage_data: VacancyStageCreate,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> VacancyStage:
+    """Add new stage to vacancy"""
+    # Get vacancy to ensure it exists and belongs to company
+    vacancy = await get_vacancy(session, vacancy_id, company_id)
+
+    # Check stage_key uniqueness within vacancy
+    existing_stage = await session.execute(
+        select(VacancyStage).where(
+            VacancyStage.vacancy_id == vacancy_id,
+            VacancyStage.stage_key == stage_data.stage_key
+        )
+    )
+    if existing_stage.scalar_one_or_none() is not None:
+        raise ConflictError(f"Этап с ключом '{stage_data.stage_key}' уже существует")
+
+    # Create new stage
+    stage = VacancyStage(
+        company_id=company_id,
+        vacancy_id=vacancy_id,
+        stage_key=stage_data.stage_key,
+        label=stage_data.label,
+        order_index=stage_data.order_index,
+        is_terminal=stage_data.is_terminal
+    )
+
+    session.add(stage)
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="stage_create",
+        entity_type="vacancy_stage",
+        entity_id=stage.id,
+        after={
+            "vacancy_id": str(vacancy_id),
+            "stage_key": stage.stage_key,
+            "label": stage.label,
+            "order_index": stage.order_index,
+            "is_terminal": stage.is_terminal,
+        },
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    return stage
+
+
+async def rename_vacancy_stage(
+    session: AsyncSession,
+    vacancy_id: UUID,
+    stage_key: str,
+    stage_data: VacancyStageUpdate,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> VacancyStage:
+    """Rename stage (update only label, stage_key is immutable)"""
+    # Get vacancy to ensure it exists and belongs to company
+    await get_vacancy(session, vacancy_id, company_id)
+
+    # Get stage
+    result = await session.execute(
+        select(VacancyStage).where(
+            VacancyStage.vacancy_id == vacancy_id,
+            VacancyStage.company_id == company_id,
+            VacancyStage.stage_key == stage_key
+        )
+    )
+    stage = result.scalar_one_or_none()
+    if stage is None:
+        raise NotFoundError("Этап")
+
+    # Save old value for audit
+    before = {"label": stage.label}
+
+    # Update label only
+    stage.label = stage_data.label
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="stage_rename",
+        entity_type="vacancy_stage",
+        entity_id=stage.id,
+        before=before,
+        after={
+            "label": stage.label,
+        },
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    return stage
+
+
+async def delete_vacancy_stage(
+    session: AsyncSession,
+    vacancy_id: UUID,
+    stage_key: str,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> None:
+    """Delete stage with guards: must not be protected and must be empty"""
+    # Get vacancy to ensure it exists and belongs to company
+    await get_vacancy(session, vacancy_id, company_id)
+
+    # Check if stage is protected
+    if stage_key in PROTECTED_STAGE_KEYS:
+        raise ValidationError("Системный этап нельзя удалить")
+
+    # Get stage with count (reuse existing function)
+    stages_with_counts = await get_vacancy_stages(session, vacancy_id, company_id)
+    stage_to_delete = None
+    for stage_count in stages_with_counts:
+        if stage_count.stage_key == stage_key:
+            stage_to_delete = stage_count
+            break
+
+    if stage_to_delete is None:
+        raise NotFoundError("Этап")
+
+    # Check if stage is empty
+    if stage_to_delete.count > 0:
+        raise ValidationError("Переместите кандидатов с этапа перед удалением")
+
+    # Get the actual stage record for deletion and audit
+    result = await session.execute(
+        select(VacancyStage).where(
+            VacancyStage.vacancy_id == vacancy_id,
+            VacancyStage.company_id == company_id,
+            VacancyStage.stage_key == stage_key
+        )
+    )
+    stage = result.scalar_one()
+
+    # Save for audit before deletion
+    stage_data = {
+        "vacancy_id": str(vacancy_id),
+        "stage_key": stage.stage_key,
+        "label": stage.label,
+        "order_index": stage.order_index,
+        "is_terminal": stage.is_terminal,
+    }
+
+    # Delete stage
+    await session.delete(stage)
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="stage_delete",
+        entity_type="vacancy_stage",
+        entity_id=stage.id,
+        before=stage_data,
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+
+async def reorder_vacancy_stages(
+    session: AsyncSession,
+    vacancy_id: UUID,
+    reorder_data: VacancyStageReorder,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> list[VacancyStage]:
+    """Reorder stages by updating order_index"""
+    # Get vacancy to ensure it exists and belongs to company
+    await get_vacancy(session, vacancy_id, company_id)
+
+    # Get all existing stages
+    result = await session.execute(
+        select(VacancyStage).where(
+            VacancyStage.vacancy_id == vacancy_id,
+            VacancyStage.company_id == company_id
+        ).order_by(VacancyStage.order_index)
+    )
+    existing_stages = result.scalars().all()
+
+    # Validate that provided order matches existing stage_keys
+    existing_keys = {stage.stage_key for stage in existing_stages}
+    provided_keys = set(reorder_data.order)
+
+    if existing_keys != provided_keys:
+        raise ValidationError("Переданные этапы не соответствуют этапам вакансии")
+
+    # Save old order for audit
+    before = {stage.stage_key: stage.order_index for stage in existing_stages}
+
+    # Update order_index based on position in new order
+    stages_by_key = {stage.stage_key: stage for stage in existing_stages}
+    updated_stages = []
+
+    for i, stage_key in enumerate(reorder_data.order, 1):
+        stage = stages_by_key[stage_key]
+        stage.order_index = i
+        updated_stages.append(stage)
+
+    await session.flush()
+
+    # Save new order for audit
+    after = {stage.stage_key: stage.order_index for stage in updated_stages}
+
+    # Audit log
+    await audit(
+        session,
+        action="stage_reorder",
+        entity_type="vacancy",
+        entity_id=vacancy_id,
+        before={"stages_order": before},
+        after={"stages_order": after},
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    return updated_stages

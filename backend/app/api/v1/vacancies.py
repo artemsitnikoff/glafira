@@ -10,7 +10,10 @@ from ...schemas.vacancy import (
     VacancyUpdate,
     VacancyArchive,
     VacancySidebar,
-    VacancyStageCount
+    VacancyStageCount,
+    VacancyStageCreate,
+    VacancyStageUpdate,
+    VacancyStageReorder
 )
 from ...schemas.base import Paginated
 from ...services.vacancy import (
@@ -20,7 +23,11 @@ from ...services.vacancy import (
     update_vacancy,
     archive_vacancy,
     get_vacancy_sidebar,
-    get_vacancy_stages
+    get_vacancy_stages,
+    add_vacancy_stage,
+    rename_vacancy_stage,
+    delete_vacancy_stage,
+    reorder_vacancy_stages
 )
 from ...models import User
 
@@ -147,3 +154,59 @@ async def get_vacancy_stages_with_counts(
 ):
     """Get vacancy stages with application counts"""
     return await get_vacancy_stages(session, vacancy_id, company_id)
+
+
+@router.post("/{vacancy_id}/stages", status_code=201)
+async def add_stage_to_vacancy(
+    vacancy_id: UUID,
+    stage_data: VacancyStageCreate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Add new stage to vacancy"""
+    await add_vacancy_stage(session, vacancy_id, stage_data, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Этап создан"}
+
+
+@router.patch("/{vacancy_id}/stages/{stage_key}")
+async def rename_stage(
+    vacancy_id: UUID,
+    stage_key: str,
+    stage_data: VacancyStageUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Rename stage (update only label)"""
+    await rename_vacancy_stage(session, vacancy_id, stage_key, stage_data, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Этап переименован"}
+
+
+@router.delete("/{vacancy_id}/stages/{stage_key}", status_code=204)
+async def delete_stage_from_vacancy(
+    vacancy_id: UUID,
+    stage_key: str,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Delete stage (only if not protected and empty)"""
+    await delete_vacancy_stage(session, vacancy_id, stage_key, company_id, current_user.id)
+    await session.commit()
+
+
+@router.put("/{vacancy_id}/stages/reorder")
+async def reorder_stages(
+    vacancy_id: UUID,
+    reorder_data: VacancyStageReorder,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Reorder stages"""
+    await reorder_vacancy_stages(session, vacancy_id, reorder_data, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Этапы переупорядочены"}

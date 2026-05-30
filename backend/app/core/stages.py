@@ -13,6 +13,9 @@ class StageDefinition:
     is_terminal: bool = False
 
 
+# Protected stage keys that cannot be deleted
+PROTECTED_STAGE_KEYS = {"hired", "rejected", "added", "response"}
+
 # Default stages for all vacancies
 STAGES: Dict[str, StageDefinition] = {
     "response": StageDefinition("response", "Отклик", "#5B6573", 1),
