@@ -87,6 +87,14 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
 
         # Extract text from response
         text = choices[0].get("message", {}).get("content", "")
+        finish_reason = choices[0].get("finish_reason")
+
+    # Обрезка по лимиту токенов → JSON заведомо невалиден, даём явную причину вместо JSONDecodeError
+    if finish_reason == "length":
+        raise GlafiraParseError(details={
+            "reason": "Ответ обрезан по лимиту токенов (finish_reason=length) — увеличьте max_tokens",
+            "raw": text[-300:]
+        })
 
     # Clean markdown fences
     cleaned = _FENCE_RE.sub("", text).strip()

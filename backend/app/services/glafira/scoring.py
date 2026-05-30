@@ -155,7 +155,7 @@ Email: {candidate.email or "не указан"}
     response_data = await call_json(
         system=SCORING_SYSTEM_PROMPT,
         user=user_prompt,
-        max_tokens=2048
+        max_tokens=8000  # богатая рубрика (до 14 критериев + комментарии + 5 вопросов) не влезала в 2048 → обрыв JSON
     )
 
     # Validate required fields - no fallbacks, strict validation
