@@ -64,6 +64,7 @@ Thumbs.db
 storage/ (backend file uploads)
 backend/storage/
 
-# приватный пример резюме — не коммитить
+# приватные примеры резюме (ПдН) — не коммитить
 Solution architect (1).doc
 *.doc
+*.pdf
