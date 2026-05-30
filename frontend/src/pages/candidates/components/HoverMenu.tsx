@@ -37,8 +37,7 @@ export function HoverMenu({ candidate, onMenuClick }: Props) {
   }
 
   const handleMerge = () => {
-    // TODO: Implement merge functionality when backend is ready
-    console.log('Merge functionality not implemented yet')
+    // Disabled - feature coming soon
   }
 
   const handleDelete = async () => {
@@ -85,9 +84,9 @@ export function HoverMenu({ candidate, onMenuClick }: Props) {
             onClick={handleMerge}
             className="menu-item disabled"
             disabled
-            title="Функция в разработке"
+            title="Скоро"
           >
-            Объединить дубли
+            Объединить дубли · скоро
           </button>
           <div className="menu-separator" />
           <button

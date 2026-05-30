@@ -1,0 +1,469 @@
+/* ============================================================
+   CANDIDATES POOL — пересборка по эталону project/
+   ============================================================ */
+
+.cp-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-panel-2);
+}
+
+/* ---- Sticky шапка раздела ---- */
+.cp-header {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px 12px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-2);
+}
+
+.cp-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.cp-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--fg-1);
+}
+
+.cp-counter {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.cp-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- Sticky панель управления ---- */
+.cp-controls {
+  position: sticky;
+  top: 53px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 28px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-2);
+}
+
+.cp-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 360px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+}
+
+.cp-search input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--fg-1);
+}
+
+.cp-search input::placeholder {
+  color: var(--fg-3);
+}
+
+.cp-sort {
+  position: relative;
+}
+
+.cp-sort-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 240px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 30;
+}
+
+.cp-sort-opt {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+
+.cp-sort-opt:hover {
+  background: var(--bg-3);
+}
+
+.cp-sort-opt.active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Filter button with badge */
+.btn.has-filters {
+  background: var(--bg-selected);
+  border-color: var(--ark-blue-100);
+  color: var(--accent);
+  position: relative;
+}
+
+.filter-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+
+/* ---- Сетка карточек ---- */
+.cp-grid {
+  flex: 1;
+  padding: 18px 28px 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.cp-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--fg-2);
+}
+
+.cp-empty h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.cp-empty p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
+.empty-illust {
+  color: var(--fg-3);
+}
+
+/* ---- Pool card ---- */
+.pool-card {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+  display: flex;
+  flex-direction: column;
+}
+
+.pool-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-1);
+}
+
+.pc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pc-name-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.pc-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+}
+
+.pc-meta-2l {
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  line-height: 1.35;
+}
+
+.pc-meta-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.t-clip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+}
+
+.pc-divider {
+  margin: 10px 0 8px;
+  border-top: 1px dashed var(--border-2);
+}
+
+.pc-vac {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pc-vac-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.pc-vac-icon {
+  color: var(--fg-3);
+  flex: none;
+}
+
+.pc-vac-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-1);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pc-vac-title:hover {
+  color: var(--accent);
+}
+
+.pc-vac-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 6px;
+  background: var(--bg-panel);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.pc-vac-more:hover {
+  background: var(--bg-3);
+  color: var(--fg-1);
+}
+
+.pc-vac-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-3);
+  font-style: italic;
+}
+
+.pc-vac-empty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ark-gray-400);
+  flex: none;
+}
+
+.pc-dup-flag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--ark-yellow-100);
+  color: var(--ark-yellow-600);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Skeleton states */
+.pool-card.skeleton {
+  pointer-events: none;
+  cursor: default;
+}
+
+.pool-card.skeleton:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border-2);
+}
+
+.skeleton-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  animation: skeleton-shimmer 1.5s ease-in-out infinite alternate;
+}
+
+.skeleton-name {
+  width: 80px;
+  height: 14px;
+  background: var(--bg-3);
+  border-radius: 3px;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite alternate;
+}
+
+.skeleton-meta {
+  width: 120px;
+  height: 11px;
+  background: var(--bg-3);
+  border-radius: 3px;
+  margin-top: 4px;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite alternate;
+}
+
+.skeleton-score {
+  width: 40px;
+  height: 28px;
+  background: var(--bg-3);
+  border-radius: 6px;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite alternate;
+}
+
+.skeleton-vac {
+  width: 100%;
+  height: 20px;
+  background: var(--bg-3);
+  border-radius: 3px;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes skeleton-shimmer {
+  0% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* Hover menu positioning */
+.pool-card {
+  position: relative;
+}
+
+.hover-menu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.pool-card:hover .hover-menu {
+  opacity: 1;
+}
+
+/* Временный мост фильтров (заменяется эталонным .fdr drawer в Заходе B) */
+.cp-filters-temp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: flex-end;
+}
+.cp-filters-temp-panel {
+  width: 400px;
+  max-width: 90vw;
+  height: 100%;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-2);
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+  overflow-y: auto;
+}
+.cp-filters-temp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.cp-filters-temp-head h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0;
+}
+.cp-filters-temp-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-3);
+  display: flex;
+  padding: 4px;
+}
+.cp-filters-temp-close:hover {
+  color: var(--fg-1);
+}

@@ -1,16 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
-import './CandidatesPool.css'
-import { useSearchParams } from 'react-router-dom'
-import { CandidateFilters } from './components/CandidateFilters'
-import { CandidateGrid } from './components/CandidateGrid'
-import { useCandidates } from '../../api/hooks/useCandidates'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useDebounce } from '../../hooks/useDebounce'
-// import { scoreSegmentToRange } from '../../lib/score-segments' // Used for URL filtering
+import { useCandidates } from '../../api/hooks/useCandidates'
+import { useVacancies } from '../../api/hooks/useVacancies'
+import { CandidateFilters } from './components/CandidateFilters'
+import { Icon } from '../../components/ui/Icon'
+import { Avatar } from '../../components/ui/Avatar'
+import { ScoreBadge } from '../../components/ui/ScoreBadge'
+import { StageChip } from '../../components/ui/StageChip'
+import { HoverMenu } from './components/HoverMenu'
+import NewCandidateForm from '../funnel/NewCandidateForm'
 import type { CandidateFilters as FilterType } from '../../api/hooks/useCandidates'
+import type { CandidateGridItem } from '../../api/aliases'
+import './CandidatesPoolPage.css'
 
 export function CandidatesPoolPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
+  const [showFilters, setShowFilters] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [sortOpen, setSortOpen] = useState(false)
 
   // Debounce search input
   const debouncedSearch = useDebounce(searchInput, 200)
@@ -27,7 +36,6 @@ export function CandidatesPoolPage() {
     const exp = searchParams.get('exp')
     if (exp) params.exp = Number(exp)
 
-    // Handle score segment
     const scoreMin = searchParams.get('score_min')
     const scoreMax = searchParams.get('score_max')
     if (scoreMin) params.score_min = Number(scoreMin)
@@ -75,7 +83,6 @@ export function CandidatesPoolPage() {
       newParams.delete('search')
     }
 
-    // Only update if different to avoid infinite loops
     if (newParams.toString() !== searchParams.toString()) {
       setSearchParams(newParams)
     }
@@ -99,14 +106,18 @@ export function CandidatesPoolPage() {
 
   const totalCount = data?.pages?.[0]?.total ?? 0
   const hasActiveFilters = Array.from(searchParams.entries()).some(([key, value]) =>
-    key !== 'sort' && key !== 'order' && value
+    key !== 'sort' && key !== 'order' && key !== 'search' && value
   )
+
+  // Count active filters for badge
+  const activeFilterCount = Array.from(searchParams.entries()).filter(([key, value]) =>
+    key !== 'sort' && key !== 'order' && key !== 'search' && value
+  ).length
 
   const handleSortChange = (sort: string) => {
     const newParams = new URLSearchParams(searchParams)
     if (sort) {
       newParams.set('sort', sort)
-      // Set default order based on sort type
       if (sort === 'name') {
         newParams.set('order', 'asc')
       } else {
@@ -117,6 +128,7 @@ export function CandidatesPoolPage() {
       newParams.delete('order')
     }
     setSearchParams(newParams)
+    setSortOpen(false)
   }
 
   const getCurrentSort = () => {
@@ -125,90 +137,379 @@ export function CandidatesPoolPage() {
 
   const getSortLabel = (sort: string) => {
     switch (sort) {
-      case 'name': return 'По ФИО А-Я'
+      case 'name': return 'По ФИО А–Я'
       case 'score': return 'По AI-скорингу'
-      case 'activity': return 'По дате активности'
-      default: return 'По дате добавления (новые)'
+      case 'activity': return 'По последней активности'
+      default: return 'По дате добавления'
     }
   }
 
-  return (
-    <div className="candidates-pool-page">
-      {/* Sticky Header */}
-      <div className="cnd-page-header sticky">
-        <div className="header-content">
-          <div className="header-left">
-            <h1>Кандидаты</h1>
-            <div className="header-subtitle">
-              {hasActiveFilters && totalCount > 0
-                ? `Показано ${allCandidates.length} из ${totalCount}`
-                : `${totalCount} кандидатов в базе`
-              }
-            </div>
-          </div>
-          <div className="header-actions">
-            <button className="btn btn-primary">
-              + Добавить кандидата
-            </button>
-            <button
-              className="btn btn-secondary"
-              disabled
-              title="Функция в разработке"
-            >
-              Импорт из файла
-            </button>
-          </div>
-        </div>
-      </div>
+  const SORT_OPTIONS = [
+    { id: 'created_at', label: 'По дате добавления' },
+    { id: 'score', label: 'По AI-скорингу' },
+    { id: 'name', label: 'По ФИО А–Я' },
+    { id: 'activity', label: 'По последней активности' },
+  ]
 
-      {/* Sticky Control Panel */}
-      <div className="control-panel sticky">
-        <div className="panel-left">
-          <div className="search-container">
-            <div className="search-input-wrapper">
-              <span className="search-icon">🔍</span>
-              <input
-                type="text"
-                placeholder="Поиск по ФИО"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="search-input"
-              />
-            </div>
-          </div>
-        </div>
+  const handleAddCandidate = () => {
+    setShowAddForm(true)
+  }
 
-        <div className="panel-right">
-          <div className="sort-container">
-            <label htmlFor="sort-select" className="sort-label">
-              Сортировка:
-            </label>
-            <select
-              id="sort-select"
-              value={getCurrentSort()}
-              onChange={(e) => handleSortChange(e.target.value)}
-              className="sort-select"
-            >
-              <option value="created_at">{getSortLabel('created_at')}</option>
-              <option value="score">{getSortLabel('score')}</option>
-              <option value="name">{getSortLabel('name')}</option>
-              <option value="activity">{getSortLabel('activity')}</option>
-            </select>
-          </div>
-        </div>
-      </div>
+  const handleImportFile = () => {
+    // Disabled for now - "Скоро"
+  }
 
-      {/* Filters */}
-      <CandidateFilters />
+  const handleFiltersClick = () => {
+    setShowFilters(true)
+  }
 
-      {/* Grid */}
-      <CandidateGrid
-        candidates={allCandidates}
-        isLoading={isLoading}
-        isFetchingNextPage={isFetchingNextPage}
-        hasNextPage={hasNextPage ?? false}
-        onLoadMore={() => fetchNextPage()}
+  if (showAddForm) {
+    return (
+      <CandidateFormWrapper
+        onClose={() => setShowAddForm(false)}
       />
+    )
+  }
+
+  return (
+    <div className="cp-page">
+      {/* ====== Sticky Header ====== */}
+      <div className="cp-header">
+        <div className="cp-header-left">
+          <h1 className="cp-title">Кандидаты</h1>
+          <div className="cp-counter">
+            {hasActiveFilters || searchInput
+              ? <>Показано <span className="t-mono">{allCandidates.length}</span> из <span className="t-mono">{totalCount}</span></>
+              : <><span className="t-mono">{totalCount}</span> кандидатов в базе</>
+            }
+          </div>
+        </div>
+        <div className="cp-header-actions">
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled
+            title="Скоро"
+            onClick={handleImportFile}
+          >
+            <Icon name="download" size={14}/> Импорт из файла
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleAddCandidate}
+          >
+            <Icon name="plus" size={14}/> Добавить кандидата
+          </button>
+        </div>
+      </div>
+
+      {/* ====== Sticky Control Panel ====== */}
+      <div className="cp-controls">
+        <div className="cp-search">
+          <Icon name="search" size={14} style={{color:'var(--fg-3)', flex:'none'}}/>
+          <input
+            placeholder="Поиск по ФИО, телефону, email…"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+          />
+        </div>
+        <div style={{flex:1}}/>
+
+        <div className={`cp-sort ${sortOpen ? 'open' : ''}`}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setSortOpen(o => !o)}
+          >
+            <Icon name="chevron-up-down" size={14}/> {getSortLabel(getCurrentSort())} <Icon name="chevD" size={12}/>
+          </button>
+          {sortOpen && (
+            <div className="cp-sort-menu" onMouseLeave={() => setSortOpen(false)}>
+              {SORT_OPTIONS.map(({id, label}) => (
+                <button key={id}
+                  className={`cp-sort-opt ${getCurrentSort() === id ? 'active' : ''}`}
+                  onClick={() => handleSortChange(id)}>
+                  {label}
+                  {getCurrentSort() === id && <Icon name="check" size={14}/>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button
+          className={`btn btn-secondary btn-sm ${activeFilterCount > 0 ? 'has-filters' : ''}`}
+          onClick={handleFiltersClick}
+        >
+          <Icon name="filter" size={14}/> Фильтры
+          {activeFilterCount > 0 && <span className="filter-badge">{activeFilterCount}</span>}
+        </button>
+      </div>
+
+      {/* ====== Grid ====== */}
+      <div className="cp-grid">
+        {allCandidates.map(candidate => (
+          <PoolCard
+            key={candidate.id}
+            candidate={candidate}
+          />
+        ))}
+
+        {/* Loading skeletons */}
+        {(isLoading || isFetchingNextPage) && (
+          Array.from({ length: isLoading ? 12 : 4 }, (_, i) => (
+            <div key={`skeleton-${i}`} className="pool-card skeleton">
+              <div className="pc-head">
+                <div className="skeleton-avatar"></div>
+                <div className="pc-name-wrap">
+                  <div className="skeleton-name"></div>
+                  <div className="skeleton-meta"></div>
+                </div>
+                <div className="skeleton-score"></div>
+              </div>
+              <div className="pc-divider"/>
+              <div className="skeleton-vac"></div>
+            </div>
+          ))
+        )}
+
+        {/* Empty state */}
+        {!isLoading && allCandidates.length === 0 && !hasActiveFilters && !searchInput && (
+          <div className="cp-empty">
+            <div className="empty-illust"><Icon name="users" size={36}/></div>
+            <h3>В базе пока нет кандидатов</h3>
+            <p>Добавьте первого кандидата, чтобы начать работу</p>
+            <button className="btn btn-primary btn-sm" onClick={handleAddCandidate}>
+              <Icon name="plus" size={14}/> Добавить кандидата
+            </button>
+          </div>
+        )}
+
+        {/* Not found state */}
+        {!isLoading && allCandidates.length === 0 && (hasActiveFilters || searchInput) && (
+          <div className="cp-empty">
+            <div className="empty-illust"><Icon name="users" size={36}/></div>
+            <h3>Никого не найдено по заданным параметрам</h3>
+            <p>Попробуйте изменить фильтры или сбросьте их.</p>
+            <button className="btn btn-secondary btn-sm" onClick={() => {
+              const newParams = new URLSearchParams()
+              const search = searchParams.get('search')
+              const sort = searchParams.get('sort')
+              const order = searchParams.get('order')
+              if (search) newParams.set('search', search)
+              if (sort) newParams.set('sort', sort)
+              if (order) newParams.set('order', order)
+              setSearchParams(newParams)
+            }}>Сбросить фильтры</button>
+          </div>
+        )}
+
+        {/* Infinite scroll sentinel */}
+        {hasNextPage && (
+          <InfiniteScrollSentinel
+            onLoadMore={() => fetchNextPage()}
+            isLoading={isFetchingNextPage}
+          />
+        )}
+      </div>
+
+      {/* Временный мост фильтров: эталонный .fdr drawer собирается в Заходе B.
+          Сейчас открываем существующий CandidateFilters (стейт/URL/API работают). */}
+      {showFilters && (
+        <div className="cp-filters-temp-overlay" onClick={() => setShowFilters(false)}>
+          <div className="cp-filters-temp-panel" onClick={e => e.stopPropagation()}>
+            <div className="cp-filters-temp-head">
+              <h3>Фильтры</h3>
+              <button className="cp-filters-temp-close" onClick={() => setShowFilters(false)}>
+                <Icon name="x" size={18}/>
+              </button>
+            </div>
+            <CandidateFilters />
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+// ====== Pool Card Component ======
+interface PoolCardProps {
+  candidate: CandidateGridItem
+}
+
+function PoolCard({ candidate }: PoolCardProps) {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [isHovered, setIsHovered] = useState(false)
+
+  const handleCardClick = () => {
+    // Save current filters for back navigation
+    sessionStorage.setItem('pool:filters', searchParams.toString())
+    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
+    navigate(`/candidates/${candidate.id}`)
+  }
+
+  const handleScoreBadgeClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    sessionStorage.setItem('pool:filters', searchParams.toString())
+    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
+    navigate(`/candidates/${candidate.id}?tab=evaluation`)
+  }
+
+  const handleVacancyClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (candidate.last_vacancy) {
+      navigate(`/vacancies/${candidate.last_vacancy.vacancy_id}`)
+    }
+  }
+
+  const handleOtherVacanciesClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    sessionStorage.setItem('pool:filters', searchParams.toString())
+    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
+    navigate(`/candidates/${candidate.id}?history=open`)
+  }
+
+  // Format age and experience display
+  const formatAge = (age: number | null | undefined) => age ? `${age} лет` : ''
+  const formatExperience = () => {
+    const parts = []
+    if (candidate.last_position) parts.push(candidate.last_period || 'опыт')
+    if (candidate.last_company) parts.push(candidate.last_company)
+    return parts.join(' · ')
+  }
+
+  return (
+    <div
+      className="pool-card"
+      onClick={handleCardClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div className="pc-head">
+        <Avatar name={candidate.full_name} size="sm"/>
+        <div className="pc-name-wrap">
+          <div className="pc-name" title={candidate.full_name}>
+            {candidate.full_name}
+          </div>
+          <div className="pc-meta-2l">
+            <div className="pc-meta-line">{formatAge(candidate.age)}</div>
+            <div className="pc-meta-line t-clip" title={formatExperience()}>
+              {formatExperience()}
+            </div>
+          </div>
+        </div>
+        <div onClick={handleScoreBadgeClick}>
+          <ScoreBadge value={candidate.ai_score ?? null} size="lg"/>
+        </div>
+      </div>
+
+      {candidate.is_duplicate && <span className="pc-dup-flag">Дубль</span>}
+
+      <div className="pc-divider"/>
+
+      {candidate.last_vacancy ? (
+        <div className="pc-vac">
+          <div className="pc-vac-head">
+            <Icon name="briefcase" size={13} className="pc-vac-icon"/>
+            <span
+              className="pc-vac-title"
+              title={candidate.last_vacancy.vacancy_name}
+              onClick={handleVacancyClick}
+            >
+              {candidate.last_vacancy.vacancy_name}
+            </span>
+            {candidate.other_vacancies_count > 0 && (
+              <span
+                className="pc-vac-more"
+                title={`Ещё в ${candidate.other_vacancies_count} вакансиях`}
+                onClick={handleOtherVacanciesClick}
+              >
+                +{candidate.other_vacancies_count}
+              </span>
+            )}
+          </div>
+          <StageChip stage={candidate.last_vacancy.stage} size="sm"/>
+        </div>
+      ) : (
+        <div className="pc-vac pc-vac-empty">
+          <span className="pc-vac-empty-dot"/>
+          В базе · не привязан к вакансии
+        </div>
+      )}
+
+      {/* Hover Menu */}
+      {isHovered && (
+        <HoverMenu
+          candidate={candidate}
+          onMenuClick={(e) => e.stopPropagation()}
+        />
+      )}
+    </div>
+  )
+}
+
+// ====== Infinite Scroll Sentinel ======
+interface InfiniteScrollSentinelProps {
+  onLoadMore: () => void
+  isLoading: boolean
+}
+
+function InfiniteScrollSentinel({ onLoadMore, isLoading }: InfiniteScrollSentinelProps) {
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isLoading) {
+          onLoadMore()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    const sentinel = document.getElementById('infinite-scroll-sentinel')
+    if (sentinel) observer.observe(sentinel)
+
+    return () => observer.disconnect()
+  }, [onLoadMore, isLoading])
+
+  return <div id="infinite-scroll-sentinel" style={{ height: 1 }} />
+}
+
+// ====== Wrapper for NewCandidateForm without preset vacancy ======
+interface CandidateFormWrapperProps {
+  onClose: () => void
+}
+
+function CandidateFormWrapper({ onClose }: CandidateFormWrapperProps) {
+  const { data: vacanciesData } = useVacancies({ status: 'active' })
+
+  // Use first available vacancy as default or empty string if none
+  const defaultVacancyId = vacanciesData?.items?.[0]?.id || ''
+
+  // If no vacancies loaded yet, show loading
+  if (!vacanciesData) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        Загрузка вакансий...
+      </div>
+    )
+  }
+
+  // If no active vacancies, show message
+  if (!vacanciesData.items?.length) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <h3>Нет активных вакансий</h3>
+        <p>Создайте вакансию, чтобы добавлять кандидатов</p>
+        <button className="btn btn-secondary" onClick={onClose}>
+          Назад
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <NewCandidateForm
+      vacancyId={defaultVacancyId}
+      onClose={onClose}
+    />
   )
 }
