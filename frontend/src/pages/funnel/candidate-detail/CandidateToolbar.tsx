@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import type { ApplicationRow, Candidate } from '@/api/aliases';
@@ -34,9 +35,13 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const { id: vacancyId } = useParams();
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
+  const [movePopoverPosition, setMovePopoverPosition] = useState<{ top: number; left: number } | null>(null);
+  const [rejectPopoverPosition, setRejectPopoverPosition] = useState<{ top: number; left: number } | null>(null);
 
   const moveRef = useRef<HTMLDivElement>(null);
   const rejectRef = useRef<HTMLDivElement>(null);
+  const moveBtnRef = useRef<HTMLButtonElement>(null);
+  const rejectBtnRef = useRef<HTMLButtonElement>(null);
 
   const isHired = application?.stage === 'hired';
   const isRejected = application?.stage === 'rejected';
@@ -66,20 +71,69 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const restoreMutation = useRestoreApplication(vacancyId);
   const consentMutation = useRequestConsent(candidate?.id || '');
 
-  // Close popover on outside click
+  // Calculate popover position
+  function calculatePopoverPosition(btnRef: React.RefObject<HTMLButtonElement>) {
+    if (!btnRef.current) return null;
+
+    const rect = btnRef.current.getBoundingClientRect();
+    return {
+      top: rect.bottom + 6,
+      left: rect.left
+    };
+  }
+
+  // Open move popover with positioning
+  function openMovePopover() {
+    const position = calculatePopoverPosition(moveBtnRef);
+    if (position) {
+      setMovePopoverPosition(position);
+      setMovePopoverOpen(true);
+    }
+  }
+
+  // Open reject popover with positioning
+  function openRejectPopover() {
+    const position = calculatePopoverPosition(rejectBtnRef);
+    if (position) {
+      setRejectPopoverPosition(position);
+      setRejectPopoverOpen(true);
+    }
+  }
+
+  // Close popover on outside click, scroll, and resize
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (moveRef.current && !moveRef.current.contains(event.target as Node)) {
         setMovePopoverOpen(false);
+        setMovePopoverPosition(null);
       }
       if (rejectRef.current && !rejectRef.current.contains(event.target as Node)) {
         setRejectPopoverOpen(false);
+        setRejectPopoverPosition(null);
+      }
+    }
+
+    function handleScrollOrResize() {
+      if (movePopoverOpen) {
+        setMovePopoverOpen(false);
+        setMovePopoverPosition(null);
+      }
+      if (rejectPopoverOpen) {
+        setRejectPopoverOpen(false);
+        setRejectPopoverPosition(null);
       }
     }
 
     if (movePopoverOpen || rejectPopoverOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScrollOrResize, true);
+      window.addEventListener('resize', handleScrollOrResize);
+
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('scroll', handleScrollOrResize, true);
+        window.removeEventListener('resize', handleScrollOrResize);
+      };
     }
   }, [movePopoverOpen, rejectPopoverOpen]);
 
@@ -89,6 +143,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
     // Не двигать на текущий этап
     if (stageKey === application.stage) {
       setMovePopoverOpen(false);
+      setMovePopoverPosition(null);
       return;
     }
 
@@ -97,6 +152,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
       data: { to_stage: stageKey }
     });
     setMovePopoverOpen(false);
+    setMovePopoverPosition(null);
   }
 
   function handleRejectWithReason(reason: RejectReason) {
@@ -107,6 +163,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
       data: { reason: reason.label, side: reason.side }
     });
     setRejectPopoverOpen(false);
+    setRejectPopoverPosition(null);
   }
 
   function handleRestore() {
@@ -150,8 +207,117 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
     return null;
   }
 
+  // Render portaled popups
+  const movePopup = movePopoverOpen && !isHired && movePopoverPosition && createPortal(
+    <div className="cnd-funnel-wrap">
+      <div className="cand-detail">
+        <>
+          <div
+            className="cd-pop-backdrop"
+            onClick={() => {
+              setMovePopoverOpen(false);
+              setMovePopoverPosition(null);
+            }}
+          />
+          <div
+            ref={moveRef}
+            className="cd-move-pop"
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: movePopoverPosition.top,
+              left: movePopoverPosition.left,
+              zIndex: 1000
+            }}
+          >
+            <div className="cd-pop-head">На какой этап?</div>
+            {availableStages.map((stage, i) => (
+              <button
+                key={stage.stage_key}
+                className={`cd-pop-item ${stage.stage_key === application?.stage ? 'cur' : ''} ${i === curStageIdx + 1 ? 'next' : ''}`}
+                onClick={() => handleMoveToStage(stage.stage_key)}
+                disabled={moveMutation.isPending}
+              >
+                <span className="stage-dot" style={{ background: stage.color }} />
+                <span className="cd-pop-label">{stage.label}</span>
+                {stage.stage_key === application?.stage && <span className="cd-pop-tag">сейчас</span>}
+                {i === curStageIdx + 1 && <span className="cd-pop-tag cd-pop-tag-next">далее</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      </div>
+    </div>,
+    document.body
+  );
+
+  const rejectPopup = rejectPopoverOpen && rejectPopoverPosition && createPortal(
+    <div className="cnd-funnel-wrap">
+      <div className="cand-detail">
+        <>
+          <div
+            className="cd-pop-backdrop"
+            onClick={() => {
+              setRejectPopoverOpen(false);
+              setRejectPopoverPosition(null);
+            }}
+          />
+          <div
+            ref={rejectRef}
+            className="cd-move-pop cd-reject-pop"
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: rejectPopoverPosition.top,
+              left: rejectPopoverPosition.left,
+              zIndex: 1000
+            }}
+          >
+            <div className="cd-pop-head">Причина отказа</div>
+            {candidateReasons.length > 0 && (
+              <>
+                <div className="cd-pop-group">От кандидата</div>
+                {candidateReasons.map(reason => (
+                  <button
+                    key={reason.id}
+                    className="cd-pop-item cd-reject-item"
+                    onClick={() => handleRejectWithReason(reason)}
+                    disabled={rejectMutation.isPending}
+                  >
+                    <span className="r-bullet" />
+                    <span className="cd-pop-label">{reason.label}</span>
+                  </button>
+                ))}
+              </>
+            )}
+            {companyReasons.length > 0 && (
+              <>
+                <div className="cd-pop-group">Со стороны компании</div>
+                {companyReasons.map(reason => (
+                  <button
+                    key={reason.id}
+                    className="cd-pop-item cd-reject-item"
+                    onClick={() => handleRejectWithReason(reason)}
+                    disabled={rejectMutation.isPending}
+                  >
+                    <span className="r-bullet co" />
+                    <span className="cd-pop-label">{reason.label}</span>
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      </div>
+    </div>,
+    document.body
+  );
+
   return (
-    <div className="cd-toolbar">
+    <>
+      {movePopup}
+      {rejectPopup}
+      <div className="cd-toolbar">
       {/* Move/Create Employee Button */}
       {!isRejected && (
         <div className="cd-move-wrap" ref={moveRef}>
@@ -161,34 +327,17 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
               Создать сотрудника
             </button>
           ) : (
-            <button className="btn btn-success btn-sm" onClick={() => setMovePopoverOpen(!movePopoverOpen)}>
+            <button
+              ref={moveBtnRef}
+              className="btn btn-success btn-sm"
+              onClick={openMovePopover}
+            >
               <Icon name="arrow-right" size={14} />
               Перевести
               <Icon name="chevron-down" size={12} />
             </button>
           )}
 
-          {movePopoverOpen && !isHired && (
-            <>
-              <div className="cd-pop-backdrop" onClick={() => setMovePopoverOpen(false)} />
-              <div className="cd-move-pop" role="menu">
-                <div className="cd-pop-head">На какой этап?</div>
-                {availableStages.map((stage, i) => (
-                  <button
-                    key={stage.stage_key}
-                    className={`cd-pop-item ${stage.stage_key === application?.stage ? 'cur' : ''} ${i === curStageIdx + 1 ? 'next' : ''}`}
-                    onClick={() => handleMoveToStage(stage.stage_key)}
-                    disabled={moveMutation.isPending}
-                  >
-                    <span className="stage-dot" style={{ background: stage.color }} />
-                    <span className="cd-pop-label">{stage.label}</span>
-                    {stage.stage_key === application?.stage && <span className="cd-pop-tag">сейчас</span>}
-                    {i === curStageIdx + 1 && <span className="cd-pop-tag cd-pop-tag-next">далее</span>}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
         </div>
       )}
 
@@ -203,52 +352,16 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
         </button>
       ) : (
         <div className="cd-move-wrap" ref={rejectRef}>
-          <button className="btn btn-secondary btn-sm" onClick={() => setRejectPopoverOpen(!rejectPopoverOpen)}>
+          <button
+            ref={rejectBtnRef}
+            className="btn btn-secondary btn-sm"
+            onClick={openRejectPopover}
+          >
             <Icon name="x" size={14} />
             Отклонить
             <Icon name="chevron-down" size={12} />
           </button>
 
-          {rejectPopoverOpen && (
-            <>
-              <div className="cd-pop-backdrop" onClick={() => setRejectPopoverOpen(false)} />
-              <div className="cd-move-pop cd-reject-pop" role="menu">
-                <div className="cd-pop-head">Причина отказа</div>
-                {candidateReasons.length > 0 && (
-                  <>
-                    <div className="cd-pop-group">От кандидата</div>
-                    {candidateReasons.map(reason => (
-                      <button
-                        key={reason.id}
-                        className="cd-pop-item cd-reject-item"
-                        onClick={() => handleRejectWithReason(reason)}
-                        disabled={rejectMutation.isPending}
-                      >
-                        <span className="r-bullet" />
-                        <span className="cd-pop-label">{reason.label}</span>
-                      </button>
-                    ))}
-                  </>
-                )}
-                {companyReasons.length > 0 && (
-                  <>
-                    <div className="cd-pop-group">Со стороны компании</div>
-                    {companyReasons.map(reason => (
-                      <button
-                        key={reason.id}
-                        className="cd-pop-item cd-reject-item"
-                        onClick={() => handleRejectWithReason(reason)}
-                        disabled={rejectMutation.isPending}
-                      >
-                        <span className="r-bullet co" />
-                        <span className="cd-pop-label">{reason.label}</span>
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-            </>
-          )}
         </div>
       )}
 
@@ -284,6 +397,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
       <button className="icon-btn" onClick={onClose} title="Закрыть">
         <Icon name="x" size={18} />
       </button>
-    </div>
+      </div>
+    </>
   );
 }
