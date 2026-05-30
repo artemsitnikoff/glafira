@@ -12,8 +12,7 @@ import VacancyFormPage from '@/pages/VacancyFormPage';
 import VacancyDetailPage from '@/pages/VacancyDetailPage';
 import { CandidatesPoolPage } from '@/pages/candidates/CandidatesPoolPage';
 import { CandidatePoolDetailPage } from '@/pages/candidates/CandidatePoolDetailPage';
-import { PulsePage } from '@/pages/pulse/PulsePage';
-import { PulseEmployeePage } from '@/pages/pulse/PulseEmployeePage';
+import { PulseComingSoon } from '@/pages/pulse/PulseComingSoon';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import SettingsPage from '@/pages/SettingsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
@@ -78,8 +77,8 @@ export default function App() {
         <Route path="vacancies/:id/candidates/:cid" element={<VacancyDetailPage />} />
         <Route path="candidates" element={<CandidatesPoolPage />} />
         <Route path="candidates/:id" element={<CandidatePoolDetailPage />} />
-        <Route path="pulse" element={<PulsePage />} />
-        <Route path="pulse/:employeeId" element={<PulseEmployeePage />} />
+        <Route path="pulse" element={<PulseComingSoon />} />
+        <Route path="pulse/:employeeId" element={<PulseComingSoon />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
