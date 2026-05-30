@@ -63,3 +63,7 @@ frontend/.vite/
 Thumbs.db
 storage/ (backend file uploads)
 backend/storage/
+
+# приватный пример резюме — не коммитить
+Solution architect (1).doc
+*.doc
