@@ -2,6 +2,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
 import { MessIconRound } from '@/components/ui/MessIconRound';
+import { messengerChannel } from '@/lib/messengers';
 import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import { PdnBadge } from '@/components/PdnBadge';
 
@@ -124,9 +125,10 @@ export function CandidateHeader({ candidateId, application }: Props) {
             <span className="cb-label">Телефон:</span>
             <span className="t-mono cb-strong">{candidate.phone || 'Не указан'}</span>
             <div className="mess-icons-row">
-              {candidate.messengers?.map(messenger => (
-                <MessIconRound key={messenger} channel={messenger as any} size="sm" />
-              ))}
+              {candidate.messengers?.map((m: any, i: number) => {
+                const ch = messengerChannel(m); // messengers: строки (seed) ИЛИ {type,url} (форма)
+                return <MessIconRound key={`${ch}-${i}`} channel={ch} size="sm" />;
+              })}
             </div>
           </div>
           <div className="cb-row">

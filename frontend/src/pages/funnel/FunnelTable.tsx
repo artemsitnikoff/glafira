@@ -3,6 +3,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Avatar } from '@/components/ui/Avatar';
 import { StageChip } from '@/components/ui/StageChip';
 import { MessIconRound } from '@/components/ui/MessIconRound';
+import { messengerChannel } from '@/lib/messengers';
 import { Icon } from '@/components/ui/Icon';
 
 // Score-бейдж 1:1 по эталону: светлый пастельный фон + тёмный текст, фикс-бокс по score-{size}.
@@ -324,9 +325,10 @@ function FunnelRow({
             <div className="phone-cell">
               <span className="t-mono">{candidate.phone || 'Не указан'}</span>
               <div className="mess-row">
-                {candidate.messengers?.map((messenger: string) => (
-                  <MessIconRound key={messenger} channel={messenger as any /* messenger from API as valid channel */} size="sm" />
-                ))}
+                {candidate.messengers?.map((m: any, i: number) => {
+                  const ch = messengerChannel(m); // messengers: строки (seed) ИЛИ {type,url} (форма)
+                  return <MessIconRound key={`${ch}-${i}`} channel={ch} size="sm" />;
+                })}
               </div>
             </div>
           </div>

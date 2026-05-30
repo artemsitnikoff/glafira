@@ -25,7 +25,10 @@ const iconNames: Record<Channel, IconName> = {
 };
 
 interface MessIconRoundProps {
-  channel: Channel;
+  // Строкой, т.к. источник — Candidate.messengers (нормализованный канал),
+  // где помимо чат-каналов могут быть соцсети (vk/linkedin). Неизвестные —
+  // деградируют в нейтральную иконку, а не ломают рендер undefined-иконкой.
+  channel: string;
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -33,13 +36,16 @@ export function MessIconRound({ channel, size = 'md' }: MessIconRoundProps) {
   const dimensions = size === 'sm' ? 20 : size === 'lg' ? 32 : 24;
   const iconSize = size === 'sm' ? 10 : size === 'lg' ? 16 : 12;
 
+  const background = colors[channel as Channel] ?? 'var(--fg-3)';
+  const iconName = iconNames[channel as Channel] ?? 'message-circle';
+
   return (
     <div
       style={{
         width: dimensions,
         height: dimensions,
         borderRadius: '50%',
-        background: colors[channel],
+        background,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -48,7 +54,7 @@ export function MessIconRound({ channel, size = 'md' }: MessIconRoundProps) {
         flexShrink: 0,
       }}
     >
-      <Icon name={iconNames[channel]} size={iconSize} />
+      <Icon name={iconName} size={iconSize} />
     </div>
   );
 }

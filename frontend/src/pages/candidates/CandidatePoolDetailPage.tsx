@@ -4,6 +4,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCandidate, useCandidateApplications } from '../../api/hooks/useCandidates'
 import { ApplicationsHistoryBlock } from './components/ApplicationsHistoryBlock'
 import { AssignToVacancyModal } from './components/AssignToVacancyModal'
+import { messengerChannel } from '@/lib/messengers'
 
 // Import existing tabs with fromPool prop support
 import { ResumeTab } from '../funnel/candidate-detail/tabs/ResumeTab'
@@ -208,16 +209,19 @@ export function CandidatePoolDetailPage() {
             )}
             {candidate.messengers && candidate.messengers.length > 0 && (
               <div className="messenger-badges">
-                {candidate.messengers.map((messenger) => (
-                  <span
-                    key={messenger}
-                    className={`messenger-badge ${messenger}`}
-                    onClick={() => handleTabChange('chat')}
-                    title={`Открыть чат в ${messenger}`}
-                  >
-                    {messenger}
-                  </span>
-                ))}
+                {candidate.messengers.map((m: any, i: number) => {
+                  const ch = messengerChannel(m); // messengers: строки (seed) ИЛИ {type,url} (форма)
+                  return (
+                    <span
+                      key={`${ch}-${i}`}
+                      className={`messenger-badge ${ch}`}
+                      onClick={() => handleTabChange('chat')}
+                      title={`Открыть чат в ${ch}`}
+                    >
+                      {ch}
+                    </span>
+                  );
+                })}
               </div>
             )}
             {candidate.email && (
