@@ -7,6 +7,7 @@ import { AIVerdictCard } from '@/components/candidates/AIVerdictCard';
 type Props = {
   candidateId?: string;
   applicationId?: string;
+  vacancyId?: string;
   candidate?: any;
   fromPool?: boolean;
 };
@@ -149,6 +150,7 @@ function EvaluationPerVacancy({
     evaluateMutation.mutate({
       candidate_id: candidateId,
       vacancy_id: application.vacancy_id,
+      force: true, // переоценить заново, игнорируя закэшированную оценку
     });
   };
 
@@ -201,7 +203,7 @@ function EvaluationPerVacancy({
   );
 }
 
-export function EvaluationTab({ candidateId, applicationId, candidate, fromPool }: Props) {
+export function EvaluationTab({ candidateId, applicationId, vacancyId, candidate, fromPool }: Props) {
   const actualCandidateId = candidateId || candidate?.id;
 
   // Get all applications if fromPool mode
@@ -220,7 +222,10 @@ export function EvaluationTab({ candidateId, applicationId, candidate, fromPool 
   function handleReEvaluate() {
     evaluateMutation.mutate({
       candidate_id: actualCandidateId,
-      vacancy_id: null, // Will be resolved from application
+      // оцениваем для ТЕКУЩЕЙ вакансии — иначе создастся «общая» оценка (application_id NULL),
+      // которую таб (читает по applicationId) не покажет, и кнопка будет выглядеть нерабочей
+      vacancy_id: vacancyId ?? null,
+      force: true, // переоценить заново, игнорируя закэшированную оценку
     });
   }
 

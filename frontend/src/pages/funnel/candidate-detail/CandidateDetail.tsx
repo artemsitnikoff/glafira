@@ -125,7 +125,7 @@ export function CandidateDetail({ application, onClose, isResolving, vacancyId }
 
       <div className="cc-content" style={{ position: 'relative' }}>
         {candidateId && activeTab === 'resume' && <ResumeTab candidateId={candidateId} applicationId={applicationId} onOpenAI={() => setActiveTab('evaluation')} />}
-        {candidateId && applicationId && activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} />}
+        {candidateId && applicationId && activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} vacancyId={vacancyId} />}
         {candidateId && activeTab === 'verification' && <VerificationTab candidateId={candidateId} />}
         {candidateId && activeTab === 'chat' && <ChatTab candidateId={candidateId} />}
         {candidateId && activeTab === 'docs' && <DocumentsTab candidateId={candidateId} />}

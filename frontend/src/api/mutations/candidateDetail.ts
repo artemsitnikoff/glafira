@@ -62,7 +62,8 @@ export function useEvaluate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: ScoreRequest) => {
+    // force — переоценить заново (openapi ещё без него → локальное расширение типа)
+    mutationFn: async (data: ScoreRequest & { force?: boolean }) => {
       return (await api.post('/glafira/score', data)).data;
     },
     onSuccess: (_, variables) => {

@@ -119,8 +119,9 @@ async def score_candidate_endpoint(
         if application:
             application_id = application.id
 
-    # Check if evaluation already exists for this candidate/application pair
-    existing = await _find_existing_evaluation(
+    # Check if evaluation already exists for this candidate/application pair.
+    # При force=True пропускаем дедуп и считаем заново (переоценка с нуля).
+    existing = None if data.force else await _find_existing_evaluation(
         session, data.candidate_id, application_id, current_user.company_id
     )
 

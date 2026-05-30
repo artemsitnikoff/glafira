@@ -10,6 +10,7 @@ from .base import ORMBase
 class ScoreRequest(BaseModel):
     candidate_id: UUID
     vacancy_id: UUID | None = None  # ← ОПЦИОНАЛЬНО (общая оценка резюме)
+    force: bool = False  # ← True: переоценить заново, игнорируя закэшированную оценку
 
 
 class RequirementMatch(BaseModel):
