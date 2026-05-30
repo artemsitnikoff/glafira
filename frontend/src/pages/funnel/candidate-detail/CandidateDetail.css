@@ -95,6 +95,11 @@
   animation: cdPopIn .12s cubic-bezier(.2,.8,.2,1);
 }
 
+.cnd-funnel-wrap .cand-detail .cd-reject-pop {
+  min-width: 260px;
+  max-height: 380px;
+}
+
 .cnd-funnel-wrap .cand-detail .cd-pop-head {
   padding: 8px 10px 6px;
   font-size: 11px;

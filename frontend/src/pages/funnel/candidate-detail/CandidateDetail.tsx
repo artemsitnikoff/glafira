@@ -97,14 +97,12 @@ export function CandidateDetail({ application, onClose, isResolving }: Props) {
 
   return (
     <div className="candidate-detail">
-      <div className="cd-toolbar">
-        <CandidateToolbar
-          application={application || undefined}
-          candidate={candidateDetailQuery.data || undefined}
-          onClose={onClose}
-          onTabChange={setActiveTab}
-        />
-      </div>
+      <CandidateToolbar
+        application={application || undefined}
+        candidate={candidateDetailQuery.data || undefined}
+        onClose={onClose}
+        onTabChange={setActiveTab}
+      />
 
       <div className="cd-header">
         <CandidateHeader
