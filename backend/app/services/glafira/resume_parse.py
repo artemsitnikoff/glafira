@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .client import call_json
 from .prompts import RESUME_PARSE_PROMPT
-from ...models import Candidate
+from ...models import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,9 @@ async def extract_resume_text(content: bytes, filename: str) -> str | None:
 
     if file_ext in {'.txt', '.md'}:
         try:
-            return content.decode('utf-8', errors='ignore')
+            text = content.decode('utf-8', errors='ignore')
+            logger.info(f"Extracted {len(text)} characters from text file {filename}")
+            return text if text.strip() else None
         except Exception:
             return None
 
@@ -68,13 +70,19 @@ async def extract_resume_text(content: bytes, filename: str) -> str | None:
                 page_text = page.extract_text()
                 if page_text:
                     text_parts.append(page_text)
-            return "\n".join(text_parts) if text_parts else None
+            text = "\n".join(text_parts) if text_parts else None
+            if text:
+                logger.info(f"Extracted {len(text)} characters from PDF {filename}")
+            else:
+                logger.warning(f"No text extracted from PDF {filename} (возможно скан/картинка)")
+            return text
         except Exception as e:
             logger.warning(f"Failed to extract PDF text: {e}")
             return None
 
     elif file_ext in {'.doc', '.docx'}:
         # TODO: Future implementation for Word documents
+        logger.info(f"DOC/DOCX format not yet supported: {filename}")
         return None
 
     return None
@@ -113,16 +121,18 @@ async def parse_and_apply_resume(
         candidate.resume_text = text
 
     try:
-        # Call Claude to parse structured data
+        # Call Claude to parse structured data with increased token limit for full resumes
         parsed_data = await call_json(
             system=RESUME_PARSE_PROMPT,
             user=text,
-            max_tokens=1024
+            max_tokens=8000
         )
 
         # Заполняем только пустые поля. Значения парсера КОЭРСИМ к типу/длине колонки
         # (LLM возвращает зарплату строкой → INTEGER; телефон/строки могут превысить лимит
         # колонки) — иначе flush падает DataError и отравляет сессию, роняя всю загрузку файла.
+
+        # Скаляры (как раньше) — только если поле пустое
         if candidate.last_position is None:
             if (v := _to_str(parsed_data.get("last_position"), 255)):
                 candidate.last_position = v
@@ -155,8 +165,67 @@ async def parse_and_apply_resume(
             if (v := _to_int(parsed_data.get("experience_years"))) is not None:
                 candidate.experience_years = v
 
+        # Структурные записи — создаём только если у кандидата их ещё НЕТ (не затираем ручные правки)
+
+        # Опыт работы
+        if not candidate.experience and parsed_data.get("experience"):
+            exp_count = 0
+            for idx, exp_data in enumerate(parsed_data["experience"]):
+                # position обязателен — пропускаем записи без position
+                if not (position := _to_str(exp_data.get("position"), 255)):
+                    continue
+
+                experience = CandidateExperience(
+                    candidate_id=candidate.id,
+                    company_id=company_id,
+                    position=position,
+                    company=_to_str(exp_data.get("company"), 255),
+                    period=_to_str(exp_data.get("period"), 120),
+                    description=_to_str(exp_data.get("description"), 10000),  # Text колонка, большой лимит
+                    order_index=idx
+                )
+                session.add(experience)
+                exp_count += 1
+
+            logger.info(f"Created {exp_count} experience records for candidate {candidate_id}")
+
+        # Навыки
+        if not candidate.skills and parsed_data.get("skills"):
+            skill_count = 0
+            for idx, skill_data in enumerate(parsed_data["skills"]):
+                if not (skill := _to_str(skill_data, 120)):
+                    continue
+
+                candidate_skill = CandidateSkill(
+                    candidate_id=candidate.id,
+                    company_id=company_id,
+                    skill=skill,
+                    order_index=idx
+                )
+                session.add(candidate_skill)
+                skill_count += 1
+
+            logger.info(f"Created {skill_count} skill records for candidate {candidate_id}")
+
+        # Образование
+        if not candidate.education and parsed_data.get("education"):
+            edu_count = 0
+            for idx, edu_data in enumerate(parsed_data["education"]):
+                education = CandidateEducation(
+                    candidate_id=candidate.id,
+                    company_id=company_id,
+                    institution=_to_str(edu_data.get("institution"), 255),
+                    specialty=_to_str(edu_data.get("specialty"), 255),
+                    years=_to_str(edu_data.get("years"), 40),
+                    order_index=idx
+                )
+                session.add(education)
+                edu_count += 1
+
+            logger.info(f"Created {edu_count} education records for candidate {candidate_id}")
+
         await session.flush()
-        logger.info(f"Updated candidate {candidate_id} from parsed resume")
+        logger.info(f"Successfully updated candidate {candidate_id} from parsed resume")
 
     except Exception as e:
         logger.warning(f"Resume parsing failed for {filename}: {e}")
