@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,6 +99,7 @@ async def _find_evaluation_for_filter(
 @router.post("/score", response_model=EvaluationOut, status_code=201)
 async def score_candidate_endpoint(
     data: ScoreRequest,
+    response: Response,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
 ):
@@ -126,7 +127,8 @@ async def score_candidate_endpoint(
     )
 
     if existing:
-        # Return existing evaluation with 200 status
+        # Оценка не создавалась (вернули существующую) → 200, а не 201
+        response.status_code = 200
         return EvaluationOut(
             id=existing.id,
             candidate_id=existing.candidate_id,

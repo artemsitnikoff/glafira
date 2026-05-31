@@ -1,6 +1,6 @@
 """Чат-скрининг кандидатов"""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, and_
@@ -317,7 +317,9 @@ async def reply_screening(
         sender_type='ai',
         sender_user_id=None,
         body=ai_response,
-        sent_at=now,
+        # Ответ AI на 1с позже входящего — детерминированный порядок истории диалога
+        # (иначе одинаковый sent_at с incoming_msg → недетерминированная сортировка).
+        sent_at=now + timedelta(seconds=1),
         created_at=now
     )
 

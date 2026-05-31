@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import type { components } from '@/api/types';
 
@@ -10,12 +11,15 @@ type Props = {
 };
 
 export default function VacancyHeader({ vacancy, onEdit, onAddCandidate }: Props) {
+  const [copied, setCopied] = useState(false);
+
   const handleShare = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
-      alert('Ссылка скопирована'); // TODO: replace with proper toast
-    } catch (error) {
-      console.error('Failed to copy link:', error);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard может быть недоступен (нет https/прав) — тихо игнорируем
     }
   };
 
@@ -42,7 +46,7 @@ export default function VacancyHeader({ vacancy, onEdit, onAddCandidate }: Props
 
       <div className="vh-actions">
         <button className="btn btn-secondary btn-sm" onClick={handleShare}>
-          <Icon name="open" size={14} /> Поделиться
+          <Icon name={copied ? "check" : "open"} size={14} /> {copied ? 'Скопировано' : 'Поделиться'}
         </button>
 
         <button

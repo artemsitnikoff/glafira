@@ -3,6 +3,7 @@ import { useEvaluation } from '@/api/hooks/useEvaluation';
 import { useEvaluate } from '@/api/mutations/candidateDetail';
 import { useCandidateApplications } from '@/api/hooks/useCandidates';
 import { AIVerdictCard } from '@/components/candidates/AIVerdictCard';
+import type { ApiError } from '@/api/aliases';
 
 type Props = {
   candidateId?: string;
@@ -188,6 +189,11 @@ function EvaluationPerVacancy({
             <Icon name={evaluateMutation.isPending ? "loader" : "zap"} size={16} />
             Запустить оценку
           </button>
+          {evaluateMutation.isError && (
+            <p className="empty-state__text" style={{ color: 'var(--ark-red-600)', marginTop: 'var(--space-2)' }} role="alert">
+              {(evaluateMutation.error as unknown as ApiError)?.error?.message || 'Не удалось запустить оценку'}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -328,6 +334,11 @@ export function EvaluationTab({ candidateId, applicationId, vacancyId, candidate
             <Icon name={evaluateMutation.isPending ? "loader" : "zap"} size={16} />
             Запустить оценку
           </button>
+          {evaluateMutation.isError && (
+            <p className="empty-state__text" style={{ color: 'var(--ark-red-600)', marginTop: 'var(--space-2)' }} role="alert">
+              {(evaluateMutation.error as unknown as ApiError)?.error?.message || 'Не удалось запустить оценку'}
+            </p>
+          )}
         </div>
       </div>
     );

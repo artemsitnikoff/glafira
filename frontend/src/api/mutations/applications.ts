@@ -20,6 +20,8 @@ export function useMoveApplication(vacancyId?: string) {
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'applications'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'stages'] });
       }
+      // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }
@@ -37,6 +39,8 @@ export function useRejectApplication(vacancyId?: string) {
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'applications'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'stages'] });
       }
+      // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }
@@ -54,6 +58,8 @@ export function useRestoreApplication(vacancyId?: string) {
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'applications'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'stages'] });
       }
+      // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }
@@ -71,6 +77,8 @@ export function useBulkMove(vacancyId?: string) {
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'applications'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'stages'] });
       }
+      // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }
@@ -88,6 +96,8 @@ export function useBulkReject(vacancyId?: string) {
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'applications'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'stages'] });
       }
+      // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useComments } from '@/api/hooks/useComments';
 import { useAddComment } from '@/api/mutations/candidateDetail';
+import type { ApiError } from '@/api/aliases';
 
 type Props = {
   candidateId?: string;
@@ -89,6 +90,11 @@ export function CommentsTab({ candidateId, candidate }: Props) {
             Отправить
           </button>
         </div>
+        {addCommentMutation.isError && (
+          <div className="cmt-hint" style={{ color: 'var(--ark-red-600)' }} role="alert">
+            {(addCommentMutation.error as unknown as ApiError)?.error?.message || 'Не удалось добавить комментарий'}
+          </div>
+        )}
       </div>
     </div>
   );

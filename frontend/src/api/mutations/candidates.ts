@@ -19,6 +19,8 @@ export function useCreateCandidate(vacancyId?: string) {
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'applications'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies', vacancyId, 'stages'] });
       }
+      // KPI/«Требуют внимания»/лента на Главной устаревают после добавления кандидата
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from .base import ORMBase
@@ -33,7 +34,7 @@ class MoveRequest(BaseModel):
 
 class RejectRequest(BaseModel):
     reason: str
-    side: str  # candidate|company
+    side: Literal['candidate', 'company']  # невалидное значение → 422, а не молчаливое сохранение
 
 
 class BulkMoveRequest(BaseModel):
