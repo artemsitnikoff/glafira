@@ -26,6 +26,7 @@ import {
 import { useClients } from '@/api/hooks/useClients';
 import { useUsers } from '@/api/hooks/useUsers';
 import type { components } from '@/api/types';
+import type { ApiError } from '@/api/aliases';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
@@ -256,6 +257,8 @@ export default function VacancyFormPage() {
 
   // Состояние этапов воронки
   const [stages, setStages] = useState<Stage[]>(NV_DEFAULT_STAGES);
+  // Ошибка сабмита (кнопка создания/сохранения вакансии)
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Pre-populate form in edit mode
   useEffect(() => {
@@ -372,6 +375,7 @@ export default function VacancyFormPage() {
   };
 
   const handleSubmit = async () => {
+    setSubmitError(null);
     try {
       if (editMode && id) {
         const updateData: VacancyUpdate = { ...formData };
@@ -405,7 +409,8 @@ export default function VacancyFormPage() {
         navigate(`/vacancies/${result.id}`);
       }
     } catch (error) {
-      // Удаляем console.log согласно заданию
+      const e = error as ApiError;
+      setSubmitError(e.error?.message || 'Не удалось сохранить вакансию');
     }
   };
 
@@ -534,6 +539,10 @@ export default function VacancyFormPage() {
           )}
           {activeStep === 'automation' && (
             <AutomationStep />
+          )}
+
+          {submitError && (
+            <div className="error-banner" role="alert">{submitError}</div>
           )}
 
           <div className="nv-card-foot">
@@ -820,7 +829,8 @@ function FunnelStep({
           data: { order: orderKeys }
         });
       } catch (error: any) {
-        setStageError(error.response?.data?.error?.message || 'Ошибка при изменении порядка этапов');
+        const e = error as ApiError;
+        setStageError(e.error?.message || 'Ошибка при изменении порядка этапов');
       }
     } else {
       // В create-режиме локальная мутация
@@ -844,7 +854,8 @@ function FunnelStep({
           stageKey: s.stage_key
         });
       } catch (error: any) {
-        setStageError(error.response?.data?.error?.message || 'Ошибка при удалении этапа');
+        const e = error as ApiError;
+        setStageError(e.error?.message || 'Ошибка при удалении этапа');
       }
     } else {
       // В create-режиме локальная мутация
@@ -871,7 +882,8 @@ function FunnelStep({
           }
         });
       } catch (error: any) {
-        setStageError(error.response?.data?.error?.message || 'Ошибка при добавлении этапа');
+        const e = error as ApiError;
+        setStageError(e.error?.message || 'Ошибка при добавлении этапа');
       }
     } else {
       // В create-режиме локальная мутация
@@ -911,7 +923,8 @@ function FunnelStep({
         data: { label: trimmed }
       });
     } catch (error: any) {
-      setStageError(error.response?.data?.error?.message || 'Ошибка при изменении названия этапа');
+      const e = error as ApiError;
+      setStageError(e.error?.message || 'Ошибка при изменении названия этапа');
     }
   };
 

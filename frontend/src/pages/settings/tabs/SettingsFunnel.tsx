@@ -7,6 +7,7 @@ import { useFunnelTemplates } from '@/api/hooks/useFunnelTemplates';
 import { useFunnelTemplateStages } from '@/api/hooks/useFunnelTemplateStages';
 import { useRejectReasons, type RejectReasonOut } from '@/api/hooks/useRejectReasons';
 import { PageHead, Card } from '../components/FormComponents';
+import type { ApiError } from '@/api/aliases';
 
 // Защищённые (системные) этапы — зеркало с бэкенда (core/stages.py PROTECTED_STAGE_KEYS).
 const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
@@ -229,7 +230,8 @@ export function SettingsFunnel() {
       }
       setDirty(false);
     } catch (e: any) {
-      setError(e?.response?.data?.error?.message || 'Не удалось сохранить изменения');
+      const error = e as ApiError;
+      setError(error.error?.message || 'Не удалось сохранить изменения');
     } finally {
       setSaving(false);
     }
@@ -247,7 +249,8 @@ export function SettingsFunnel() {
       await queryClient.invalidateQueries({ queryKey: ['settings', 'funnel-templates'] });
       setSelected(res.data.id);
     } catch (e: any) {
-      setError(e?.response?.data?.error?.message || 'Не удалось создать шаблон');
+      const error = e as ApiError;
+      setError(error.error?.message || 'Не удалось создать шаблон');
     }
   };
   const renameTemplate = async (id: string, name: string) => {
@@ -257,7 +260,8 @@ export function SettingsFunnel() {
       await api.patch(`/settings/funnel-templates/${id}`, { name: trimmed });
       await queryClient.invalidateQueries({ queryKey: ['settings', 'funnel-templates'] });
     } catch (e: any) {
-      setError(e?.response?.data?.error?.message || 'Не удалось переименовать шаблон');
+      const error = e as ApiError;
+      setError(error.error?.message || 'Не удалось переименовать шаблон');
     }
   };
   const deleteTemplate = async (id: string) => {
@@ -267,7 +271,8 @@ export function SettingsFunnel() {
       setSelected('default');
       setDirty(false);
     } catch (e: any) {
-      setError(e?.response?.data?.error?.message || 'Не удалось удалить шаблон');
+      const error = e as ApiError;
+      setError(error.error?.message || 'Не удалось удалить шаблон');
     }
   };
 

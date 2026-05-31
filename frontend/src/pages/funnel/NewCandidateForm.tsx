@@ -6,6 +6,7 @@ import { useVacancies } from '@/api/hooks/useVacancies';
 import { api } from '@/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import type { components } from '@/api/types';
+import type { ApiError } from '@/api/aliases';
 
 // Local type to include messengers field not yet in generated types
 type CandidateCreateLocal = components['schemas']['CandidateCreate'] & {
@@ -271,8 +272,9 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
 
       onClose();
     } catch (error: any) {
-      if (error.response?.status === 422) {
-        const details = error.response?.data?.details || [];
+      const e = error as ApiError;
+      if (e.error?.code === 'VALIDATION_ERROR') {
+        const details = e.error?.details || [];
         const fieldErrors: Record<string, string> = {};
         details.forEach((detail: any) => {
           if (detail.field) {
@@ -281,7 +283,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
         });
         setErrors(fieldErrors);
       } else {
-        setErrors({ general: error.response?.data?.message || 'Произошла ошибка при создании кандидата' });
+        setErrors({ general: e.error?.message || 'Произошла ошибка при создании кандидата' });
       }
     } finally {
       setIsSubmitting(false);

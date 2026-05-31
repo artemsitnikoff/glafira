@@ -114,7 +114,10 @@ export function useAssignToVacancy() {
         queryKey: ['candidates', variables.candidateId, 'applications']
       })
       queryClient.invalidateQueries({
-        queryKey: ['vacancies', variables.data.vacancy_id, 'candidates']
+        queryKey: ['vacancies', variables.data.vacancy_id, 'applications']
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['vacancies', variables.data.vacancy_id, 'stages']
       })
 
       // Navigate to funnel view - using data from request since ApplicationRow doesn't have vacancy_id

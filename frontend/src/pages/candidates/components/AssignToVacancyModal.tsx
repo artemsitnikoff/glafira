@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from '../../../hooks/useDebounce'
-import type { CandidateGridItem } from '../../../api/aliases'
+import type { CandidateGridItem, ApiError } from '../../../api/aliases'
 import { useAssignToVacancy } from '../../../api/hooks/useCandidates'
 import { useVacancies } from '../../../api/hooks/useVacancies'
 
@@ -69,13 +69,12 @@ export function AssignToVacancyModal({ candidate, isOpen, onClose }: Props) {
       navigate(`/vacancies/${selectedVacancyId}/candidates/${candidate.id}`)
       onClose()
     } catch (error: any) {
-      console.error('Failed to assign candidate:', error)
-
-      // Handle 409 conflict error (already assigned)
-      if (error?.response?.status === 409) {
+      // Handle conflict error (already assigned)
+      const e = error as ApiError;
+      if (e.error?.code === 'CONFLICT') {
         setApiError('Кандидат уже назначен на эту вакансию')
       } else {
-        setApiError('Произошла ошибка при назначении кандидата')
+        setApiError(e.error?.message || 'Произошла ошибка при назначении кандидата')
       }
     }
   }
