@@ -14,6 +14,14 @@ class StageInput(BaseModel):
     is_terminal: bool = False
 
 
+class RejectReasonInput(BaseModel):
+    """Schema for reject reason input when creating vacancy (форма «Воронка»)"""
+    side: str = Field(..., max_length=20)  # 'candidate' | 'company'
+    label: str = Field(..., max_length=120)
+    order_index: int = 0
+    is_system: bool = False
+
+
 class VacancySidebarItem(ORMBase):
     id: UUID
     name: str
@@ -99,6 +107,7 @@ class VacancyCreate(BaseModel):
     auto_qa_to: str | None = None
     auto_reject: bool = False
     stages: list[StageInput] | None = None
+    reject_reasons: list[RejectReasonInput] | None = None
 
     @field_validator('stages')
     @classmethod

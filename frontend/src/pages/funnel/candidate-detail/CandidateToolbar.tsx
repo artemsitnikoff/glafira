@@ -5,7 +5,7 @@ import type { ApplicationRow, Candidate } from '@/api/aliases';
 import { useMoveApplication, useRejectApplication, useRestoreApplication } from '@/api/mutations/applications';
 import { useRequestConsent } from '@/api/mutations/candidateDetail';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
-import { useRejectReasons } from '@/api/hooks/useRejectReasons';
+import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
 
 type Props = {
   application?: ApplicationRow;
@@ -32,9 +32,9 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const isHired = application?.stage === 'hired';
   const isRejected = application?.stage === 'rejected';
 
-  // Этапы воронки + причины отказа — те же хуки, что в BulkActionBar (грузятся на маунте).
+  // Этапы воронки + причины отказа вакансии (привязаны к вакансии, не общие компании).
   const { data: stages } = useVacancyStages(vacancyId || '');
-  const { data: rejectReasons } = useRejectReasons();
+  const { data: rejectReasons } = useVacancyRejectReasons(vacancyId);
 
   const moveMutation = useMoveApplication(vacancyId);
   const rejectMutation = useRejectApplication(vacancyId);

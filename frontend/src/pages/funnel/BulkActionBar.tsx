@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useBulkMove, useBulkReject } from '@/api/mutations/applications';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
-import { useRejectReasons } from '@/api/hooks/useRejectReasons';
+import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
 
 type Props = {
   selectedIds: Set<string>;
@@ -14,7 +14,7 @@ export default function BulkActionBar({ selectedIds, onClearSelection, vacancyId
   const [rejectOpen, setRejectOpen] = useState(false);
 
   const { data: stages } = useVacancyStages(vacancyId);
-  const { data: rejectReasons } = useRejectReasons();
+  const { data: rejectReasons } = useVacancyRejectReasons(vacancyId);
 
   const bulkMoveMutation = useBulkMove(vacancyId);
   const bulkRejectMutation = useBulkReject(vacancyId);

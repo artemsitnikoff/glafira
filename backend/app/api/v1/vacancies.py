@@ -16,6 +16,13 @@ from ...schemas.vacancy import (
     VacancyStageReorder
 )
 from ...schemas.base import Paginated
+from ...schemas.settings import RejectReasonOut, RejectReasonCreate, RejectReasonUpdate
+from ...services.settings.reject_reasons import (
+    ensure_vacancy_reject_reasons,
+    create_reject_reason,
+    update_reject_reason,
+    delete_reject_reason,
+)
 from ...services.vacancy import (
     get_vacancies,
     get_vacancy,
@@ -210,3 +217,66 @@ async def reorder_stages(
     await reorder_vacancy_stages(session, vacancy_id, reorder_data, company_id, current_user.id)
     await session.commit()
     return {"message": "Этапы переупорядочены"}
+
+
+# ---- Причины отказа, привязанные к вакансии ----
+
+@router.get("/{vacancy_id}/reject-reasons", response_model=list[RejectReasonOut])
+async def get_vacancy_reject_reasons(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Причины отказа вакансии. Если их нет — копируются из дефолтов компании (инвариант непустоты)."""
+    await get_vacancy(session, vacancy_id, company_id)  # проверка владения (NotFound при чужой/несущ.)
+    reasons = await ensure_vacancy_reject_reasons(session, company_id, vacancy_id)
+    out = [RejectReasonOut.model_validate(r) for r in reasons]  # собрать ДО commit (greenlet)
+    await session.commit()
+    return out
+
+
+@router.post("/{vacancy_id}/reject-reasons", response_model=RejectReasonOut, status_code=201)
+async def add_vacancy_reject_reason(
+    vacancy_id: UUID,
+    data: RejectReasonCreate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Добавить причину отказа в вакансию"""
+    await get_vacancy(session, vacancy_id, company_id)
+    reason = await create_reject_reason(session, company_id, data, current_user.id, vacancy_id=vacancy_id)
+    out = RejectReasonOut.model_validate(reason)
+    await session.commit()
+    return out
+
+
+@router.patch("/{vacancy_id}/reject-reasons/{reason_id}", response_model=RejectReasonOut)
+async def update_vacancy_reject_reason(
+    vacancy_id: UUID,
+    reason_id: UUID,
+    data: RejectReasonUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Переименовать причину отказа вакансии"""
+    await get_vacancy(session, vacancy_id, company_id)
+    reason = await update_reject_reason(session, reason_id, company_id, data, current_user.id, vacancy_id=vacancy_id)
+    out = RejectReasonOut.model_validate(reason)
+    await session.commit()
+    return out
+
+
+@router.delete("/{vacancy_id}/reject-reasons/{reason_id}", status_code=204)
+async def delete_vacancy_reject_reason(
+    vacancy_id: UUID,
+    reason_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Удалить причину отказа вакансии (системную нельзя)"""
+    await get_vacancy(session, vacancy_id, company_id)
+    await delete_reject_reason(session, reason_id, company_id, current_user.id, vacancy_id=vacancy_id)
+    await session.commit()

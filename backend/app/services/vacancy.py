@@ -305,6 +305,28 @@ async def create_vacancy(
 
     await session.flush()
 
+    # Reject reasons (привязанные к вакансии), как и этапы:
+    # 1. из формы (если переданы) → привязать к вакансии;
+    # 2. иначе — копия дефолтов компании (с сохранением системных).
+    from ..models import RejectReason
+    from .settings.reject_reasons import copy_default_reasons_to_vacancy
+    if vacancy_data.reject_reasons:
+        for r in vacancy_data.reject_reasons:
+            session.add(
+                RejectReason(
+                    company_id=company_id,
+                    vacancy_id=vacancy.id,
+                    side=r.side,
+                    label=r.label.strip()[:120],
+                    order_index=r.order_index,
+                    is_system=r.is_system,
+                    is_active=True,
+                )
+            )
+        await session.flush()
+    else:
+        await copy_default_reasons_to_vacancy(session, company_id, vacancy.id)
+
     # Audit log
     await audit(
         session,

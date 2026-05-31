@@ -9,10 +9,23 @@ from ...services.audit import audit
 
 
 async def list_reject_reasons(
-    session: AsyncSession, company_id: UUID, side: Optional[str] = None, include_inactive: bool = False
+    session: AsyncSession,
+    company_id: UUID,
+    side: Optional[str] = None,
+    include_inactive: bool = False,
+    vacancy_id: Optional[UUID] = None,
 ) -> list[RejectReason]:
-    """List reject reasons for company"""
+    """List reject reasons.
+
+    vacancy_id=None → дефолты компании (шаблон из Настроек, vacancy_id IS NULL).
+    vacancy_id=X    → причины, привязанные к вакансии X.
+    """
     query = select(RejectReason).where(RejectReason.company_id == company_id)
+
+    if vacancy_id is None:
+        query = query.where(RejectReason.vacancy_id.is_(None))
+    else:
+        query = query.where(RejectReason.vacancy_id == vacancy_id)
 
     if side:
         query = query.where(RejectReason.side == side)
@@ -26,10 +39,47 @@ async def list_reject_reasons(
     return list(result.scalars().all())
 
 
+async def copy_default_reasons_to_vacancy(
+    session: AsyncSession, company_id: UUID, vacancy_id: UUID
+) -> None:
+    """Копирует активные дефолты компании (vacancy_id IS NULL) в вакансию.
+    Системность (is_system) сохраняется → у вакансии тоже ≥1 системная на сторону."""
+    defaults = await list_reject_reasons(session, company_id, include_inactive=False, vacancy_id=None)
+    for d in defaults:
+        session.add(
+            RejectReason(
+                company_id=company_id,
+                vacancy_id=vacancy_id,
+                side=d.side,
+                label=d.label,
+                order_index=d.order_index,
+                is_system=d.is_system,
+                is_active=True,
+            )
+        )
+    await session.flush()
+
+
+async def ensure_vacancy_reject_reasons(
+    session: AsyncSession, company_id: UUID, vacancy_id: UUID
+) -> list[RejectReason]:
+    """Инвариант: у вакансии всегда есть причины отказа.
+
+    Если у вакансии их нет (старая вакансия до фичи / не скопированы) — копирует дефолты
+    компании. Идемпотентна. Вызывающий обязан закоммитить (на GET — после сборки ответа).
+    """
+    existing = await list_reject_reasons(session, company_id, include_inactive=False, vacancy_id=vacancy_id)
+    if existing:
+        return existing
+    await copy_default_reasons_to_vacancy(session, company_id, vacancy_id)
+    return await list_reject_reasons(session, company_id, include_inactive=False, vacancy_id=vacancy_id)
+
+
 async def create_reject_reason(
-    session: AsyncSession, company_id: UUID, data, actor_user_id: UUID
+    session: AsyncSession, company_id: UUID, data, actor_user_id: UUID,
+    vacancy_id: Optional[UUID] = None,
 ) -> RejectReason:
-    """Create new reject reason"""
+    """Create new reject reason (vacancy_id=None → дефолт компании; X → привязка к вакансии)"""
     if not data.label or not data.label.strip():
         raise ValidationError("label не может быть пустым")
 
@@ -38,6 +88,7 @@ async def create_reject_reason(
 
     reason = RejectReason(
         company_id=company_id,
+        vacancy_id=vacancy_id,
         side=data.side,
         label=data.label.strip(),
         order_index=data.order_index or 0,
@@ -61,14 +112,20 @@ async def create_reject_reason(
 
 
 async def update_reject_reason(
-    session: AsyncSession, reason_id: UUID, company_id: UUID, data, actor_user_id: UUID
+    session: AsyncSession, reason_id: UUID, company_id: UUID, data, actor_user_id: UUID,
+    vacancy_id: Optional[UUID] = None,
 ) -> RejectReason:
-    """Update reject reason"""
-    result = await session.execute(
+    """Update reject reason (scoped: vacancy_id=None → дефолт компании; X → причина вакансии X)"""
+    query = (
         select(RejectReason)
         .where(RejectReason.id == reason_id)
         .where(RejectReason.company_id == company_id)
     )
+    if vacancy_id is None:
+        query = query.where(RejectReason.vacancy_id.is_(None))
+    else:
+        query = query.where(RejectReason.vacancy_id == vacancy_id)
+    result = await session.execute(query)
     reason = result.scalar_one_or_none()
 
     if not reason:
@@ -109,14 +166,20 @@ async def update_reject_reason(
 
 
 async def delete_reject_reason(
-    session: AsyncSession, reason_id: UUID, company_id: UUID, actor_user_id: UUID
+    session: AsyncSession, reason_id: UUID, company_id: UUID, actor_user_id: UUID,
+    vacancy_id: Optional[UUID] = None,
 ) -> RejectReason:
-    """Soft delete reject reason (set is_active=false)"""
-    result = await session.execute(
+    """Soft delete reject reason (scoped: vacancy_id=None → дефолт компании; X → причина вакансии X)"""
+    query = (
         select(RejectReason)
         .where(RejectReason.id == reason_id)
         .where(RejectReason.company_id == company_id)
     )
+    if vacancy_id is None:
+        query = query.where(RejectReason.vacancy_id.is_(None))
+    else:
+        query = query.where(RejectReason.vacancy_id == vacancy_id)
+    result = await session.execute(query)
     reason = result.scalar_one_or_none()
 
     if not reason:

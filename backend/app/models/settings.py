@@ -22,6 +22,13 @@ class RejectReason(Base, CompanyMixin):
         nullable=False,
         server_default=text("'00000000-0000-0000-0000-000000000001'")
     )
+    # NULL = дефолт компании (шаблон из Настроек). Заполнен = причина, привязанная к вакансии
+    # (копия дефолтов на момент создания, далее правится независимо). CASCADE с вакансией.
+    vacancy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vacancies.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     side: Mapped[str] = mapped_column(String(20), nullable=False)
     label: Mapped[str] = mapped_column(String(120), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
