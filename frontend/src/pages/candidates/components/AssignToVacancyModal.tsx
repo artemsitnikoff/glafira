@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from '../../../hooks/useDebounce'
 import type { CandidateGridItem, ApiError } from '../../../api/aliases'
 import { useAssignToVacancy } from '../../../api/hooks/useCandidates'
 import { useVacancies } from '../../../api/hooks/useVacancies'
+import { useVacancyStages } from '../../../api/hooks/useVacancyStages'
 
 interface Props {
   candidate: CandidateGridItem
@@ -12,19 +13,9 @@ interface Props {
   onClose: () => void
 }
 
-const SYSTEM_STAGES = [
-  { value: 'response', label: 'Отклик' },
-  { value: 'added', label: 'Добавлен' },
-  { value: 'selected', label: 'Отобран' },
-  { value: 'recruiter', label: 'Контакт с рекрутером' },
-  { value: 'interview', label: 'Интервью' },
-  { value: 'manager', label: 'Контакт с менеджером' },
-  { value: 'offer', label: 'Оффер' }
-]
-
 export function AssignToVacancyModal({ candidate, isOpen, onClose }: Props) {
   const [selectedVacancyId, setSelectedVacancyId] = useState('')
-  const [selectedStage, setSelectedStage] = useState('response')
+  const [selectedStage, setSelectedStage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [apiError, setApiError] = useState<string | null>(null)
 
@@ -43,6 +34,22 @@ export function AssignToVacancyModal({ candidate, isOpen, onClose }: Props) {
   const filteredVacancies = useMemo(() => {
     return vacanciesData?.items || []
   }, [vacanciesData])
+
+  // Этапы ВЫБРАННОЙ вакансии (без терминальных hired/rejected — в них не назначают).
+  // useVacancyStages сам не фетчит при пустом id.
+  const { data: vacancyStages } = useVacancyStages(selectedVacancyId)
+  const availableStages = useMemo(() => {
+    return (vacancyStages || [])
+      .filter((s) => !s.is_terminal)
+      .map((s) => ({ value: s.stage_key, label: s.label }))
+  }, [vacancyStages])
+
+  // При смене вакансии — выставить первый доступный этап (или сбросить, если этапов нет/не загружены).
+  useEffect(() => {
+    if (!availableStages.some((s) => s.value === selectedStage)) {
+      setSelectedStage(availableStages[0]?.value || '')
+    }
+  }, [availableStages, selectedStage])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -155,15 +162,22 @@ export function AssignToVacancyModal({ candidate, isOpen, onClose }: Props) {
                 value={selectedStage}
                 onChange={(e) => setSelectedStage(e.target.value)}
                 className="stage-select"
+                disabled={!selectedVacancyId || assignMutation.isPending}
               >
-                {SYSTEM_STAGES.map((stage) => (
-                  <option key={stage.value} value={stage.value}>
-                    {stage.label}
-                  </option>
-                ))}
+                {!selectedVacancyId ? (
+                  <option value="">Сначала выберите вакансию</option>
+                ) : availableStages.length === 0 ? (
+                  <option value="">Загрузка этапов…</option>
+                ) : (
+                  availableStages.map((stage) => (
+                    <option key={stage.value} value={stage.value}>
+                      {stage.label}
+                    </option>
+                  ))
+                )}
               </select>
               <div className="help-text">
-                По умолчанию кандидат будет добавлен в стадию «Отклик»
+                Кандидат будет добавлен в выбранную стадию воронки
               </div>
             </div>
 
@@ -185,7 +199,7 @@ export function AssignToVacancyModal({ candidate, isOpen, onClose }: Props) {
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={!selectedVacancyId || assignMutation.isPending}
+                disabled={!selectedVacancyId || !selectedStage || assignMutation.isPending}
               >
                 {assignMutation.isPending ? 'Назначение...' : 'Назначить'}
               </button>

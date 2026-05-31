@@ -41,7 +41,8 @@ from ..models import (
     Consent,
     Tag,
     User,
-    Vacancy
+    Vacancy,
+    VacancyStage
 )
 from ..schemas.candidate import (
     CandidateCreate,
@@ -885,9 +886,18 @@ async def assign_candidate_to_vacancy(
     if not vacancy:
         raise NotFoundError("Вакансия")
 
-    # Check if stage is valid
+    # Check if stage is valid (either system stage or custom stage for this vacancy)
     if stage not in STAGES:
-        raise ValidationError(f"Неверная стадия: {stage}")
+        # Check if it's a custom stage for this vacancy
+        custom_stage_result = await session.execute(
+            select(VacancyStage).where(
+                VacancyStage.vacancy_id == vacancy_id,
+                VacancyStage.stage_key == stage
+            )
+        )
+        custom_stage = custom_stage_result.scalar_one_or_none()
+        if not custom_stage:
+            raise ValidationError(f"Неверная стадия: {stage}")
 
     # Check if application already exists
     existing_result = await session.execute(

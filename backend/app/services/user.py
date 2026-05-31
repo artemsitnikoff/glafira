@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 import math
 import secrets
@@ -8,7 +9,7 @@ from ..models import User
 from ..schemas.user import UserCreate, UserUpdate, UserShort
 from ..schemas.base import Paginated
 from ..core.security import get_password_hash
-from ..core.errors import NotFoundError
+from ..core.errors import NotFoundError, ConflictError
 from ..services.audit import audit
 
 
@@ -70,6 +71,14 @@ async def create_user(
     actor_user_id: UUID
 ) -> tuple[User, str]:
     """Create new user"""
+    # Check if email already exists globally (unique constraint is global)
+    existing_user_result = await session.execute(
+        select(User).where(User.email == user_data.email)
+    )
+    existing_user = existing_user_result.scalar_one_or_none()
+    if existing_user:
+        raise ConflictError("Пользователь с таким email уже существует")
+
     # Generate temp password (should be changed on first login)
     temp_password = secrets.token_urlsafe(16)
 
@@ -83,7 +92,11 @@ async def create_user(
     )
 
     session.add(user)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Defense-in-depth: catch race condition
+        raise ConflictError("Пользователь с таким email уже существует")
 
     # Audit log
     await audit(
