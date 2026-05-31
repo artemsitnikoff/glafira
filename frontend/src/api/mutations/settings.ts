@@ -93,6 +93,19 @@ export function useDeleteRejectReason() {
   });
 }
 
+export function useReorderRejectReasons() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (reasonIds: string[]) => {
+      const response = await api.put('/settings/reject-reasons/reorder', { reason_ids: reasonIds });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'reject-reasons'] });
+    },
+  });
+}
+
 // Email templates mutations
 export function useCreateEmailTemplate() {
   const queryClient = useQueryClient();

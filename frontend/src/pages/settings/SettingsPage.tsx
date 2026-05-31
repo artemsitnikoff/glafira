@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SettingsTopTabs } from './components/SettingsTopTabs';
-import { DirtyBanner } from './components/DirtyBanner';
-import { ProfileTab } from './tabs/ProfileTab';
-import { TeamTab } from './tabs/TeamTab';
-import { IntegrationsTab } from './tabs/IntegrationsTab';
-import { GlafiraTab } from './tabs/GlafiraTab';
-import { TemplatesTab } from './tabs/TemplatesTab';
-import { FunnelTab } from './tabs/FunnelTab';
-import { BillingTab } from './tabs/BillingTab';
-import { OtherTab } from './tabs/OtherTab';
+import { SettingsProfile } from './tabs/SettingsProfile';
+import { SettingsGeneral } from './tabs/SettingsGeneral';
+import { SettingsFunnel } from './tabs/SettingsFunnel';
+import { SettingsAccess } from './tabs/SettingsAccess';
+import { SettingsTags } from './tabs/SettingsTags';
+import { SettingsIntegrations } from './tabs/SettingsIntegrations';
 import './Settings.css';
 
-type SettingsTab = 'profile' | 'team' | 'integrations' | 'glafira' | 'templates' | 'funnel' | 'billing' | 'other';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations';
+
+const SET_SECTIONS = [
+  { id: 'profile', label: 'Профиль', adminOnly: false },
+  { id: 'general', label: 'Общие', adminOnly: true },
+  { id: 'funnel', label: 'Воронка по умолчанию', adminOnly: true },
+  { id: 'access', label: 'Права доступа', adminOnly: true },
+  { id: 'tags', label: 'Теги', adminOnly: false },
+  { id: 'integrations', label: 'Интеграции', adminOnly: true },
+] as const;
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -23,10 +29,8 @@ export default function SettingsPage() {
   const urlTab = searchParams.get('tab') as SettingsTab;
   const [activeTab, setActiveTab] = useState<SettingsTab>(urlTab || 'profile');
 
-  // Dirty tracking for all forms
-  const [isDirty, setIsDirty] = useState(false);
-  const [dirtyHandler, setDirtyHandler] = useState<(() => Promise<void>) | null>(null);
-  const [discardHandler, setDiscardHandler] = useState<(() => void) | null>(null);
+  // Admin check - TODO: get from auth context
+  const isAdmin = true;
 
   // Update URL when tab changes
   useEffect(() => {
@@ -48,49 +52,28 @@ export default function SettingsPage() {
   };
 
   const renderActiveTab = () => {
-    const tabProps = {
-      onDirtyChange: setIsDirty,
-      onSaveHandler: setDirtyHandler,
-      onDiscardHandler: setDiscardHandler,
-    };
-
     switch (activeTab) {
       case 'profile':
-        return <ProfileTab {...tabProps} />;
-      case 'team':
-        return <TeamTab {...tabProps} />;
-      case 'integrations':
-        return <IntegrationsTab {...tabProps} />;
-      case 'glafira':
-        return <GlafiraTab {...tabProps} />;
-      case 'templates':
-        return <TemplatesTab {...tabProps} />;
+        return <SettingsProfile />;
+      case 'general':
+        return <SettingsGeneral />;
       case 'funnel':
-        return <FunnelTab {...tabProps} />;
-      case 'billing':
-        return <BillingTab {...tabProps} />;
-      case 'other':
-        return <OtherTab {...tabProps} />;
+        return <SettingsFunnel />;
+      case 'access':
+        return <SettingsAccess />;
+      case 'tags':
+        return <SettingsTags />;
+      case 'integrations':
+        return <SettingsIntegrations />;
       default:
-        return <ProfileTab {...tabProps} />;
+        return <SettingsProfile />;
     }
   };
 
   return (
-    <div className="settings-page">
-      <div className="settings-header">
-        <h1 className="settings-title">Настройки</h1>
-        <SettingsTopTabs active={activeTab} onChange={handleTabChange} />
-      </div>
-
-      {isDirty && (
-        <DirtyBanner
-          onSave={dirtyHandler ? () => dirtyHandler() : undefined}
-          onDiscard={discardHandler ? () => discardHandler() : undefined}
-        />
-      )}
-
-      <div className="settings-content">
+    <div className="settings-shell">
+      <div className="set-content">
+        <SettingsTopTabs active={activeTab} onChange={handleTabChange} isAdmin={isAdmin} sections={SET_SECTIONS} />
         {renderActiveTab()}
       </div>
     </div>

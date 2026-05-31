@@ -1,34 +1,28 @@
-import { Icon } from '@/components/ui/Icon';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations';
 
-type SettingsTab = 'profile' | 'team' | 'integrations' | 'glafira' | 'templates' | 'funnel' | 'billing' | 'other';
-
-const TABS = [
-  { id: 'profile', label: 'Профиль', icon: 'user' },
-  { id: 'team', label: 'Команда', icon: 'users' },
-  { id: 'integrations', label: 'Интеграции', icon: 'link' },
-  { id: 'glafira', label: 'Глафира', icon: 'bot' },
-  { id: 'templates', label: 'Шаблоны', icon: 'mail' },
-  { id: 'funnel', label: 'Воронка', icon: 'funnel' },
-  { id: 'billing', label: 'Биллинг', icon: 'x' },
-  { id: 'other', label: 'Прочее', icon: 'settings' },
-] as const;
+type Section = {
+  id: SettingsTab;
+  label: string;
+  adminOnly: boolean;
+};
 
 type Props = {
   active: SettingsTab;
   onChange: (tab: SettingsTab) => void;
+  isAdmin: boolean;
+  sections: readonly Section[];
 };
 
-export function SettingsTopTabs({ active, onChange }: Props) {
+export function SettingsTopTabs({ active, onChange, isAdmin, sections }: Props) {
+  const visibleSections = sections.filter(s => isAdmin || !s.adminOnly);
+
   return (
-    <div className="settings-tabs">
-      {TABS.map((tab) => (
-        <button
-          key={tab.id}
-          className={`settings-tab ${active === tab.id ? 'active' : ''}`}
-          onClick={() => onChange(tab.id as SettingsTab)}
-        >
-          <Icon name={tab.icon} size={16} />
-          {tab.label}
+    <div className="set-toptabs">
+      {visibleSections.map(s => (
+        <button key={s.id}
+          className={`set-toptab ${active === s.id ? 'active' : ''}`}
+          onClick={() => onChange(s.id)}>
+          {s.label}
         </button>
       ))}
     </div>
