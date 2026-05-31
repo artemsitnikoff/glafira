@@ -97,12 +97,6 @@
   color: var(--fg-2);
 }
 
-.cfp-h-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
 
 /* Контакты */
 .cfp-contact-row {

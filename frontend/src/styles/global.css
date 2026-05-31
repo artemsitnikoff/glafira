@@ -42,12 +42,6 @@ a {
   height: 100vh;
 }
 
-.app-sidebar {
-  background: var(--bg-2);
-  border-right: 1px solid var(--border-1);
-  padding: var(--space-4);
-  color: var(--fg-3);
-}
 
 /* Эталон app.css:459 — промежуточная grid-ячейка между .app-layout и .content.
    Без min-width:0 + min-height:0 grid-child схлопывается/расширяется неверно. */

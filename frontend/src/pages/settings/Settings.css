@@ -38,17 +38,6 @@
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
-.set-toptab .admin-badge {
-  flex: none;
-  width: 16px; height: 16px;
-  border-radius: 4px;
-  background: var(--ark-gray-200);
-  color: var(--fg-2);
-  font-size: 9px; font-weight: 700;
-  font-family: var(--font-mono);
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.set-toptab.active .admin-badge { background: var(--ark-blue-50); color: var(--accent); }
 
 /* ---------------- Content scroll area ---------------- */
 .set-content {
@@ -480,9 +469,6 @@
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .reason-chip:hover { background: var(--bg-panel-2); border-color: var(--border-2); }
-.reason-chip-cand .r-bullet,
-.reason-chip-co .r-bullet { width: 6px; height: 6px; border-radius: 50%; background: var(--ark-blue-500); flex: none; }
-.reason-chip-co .r-bullet.co { background: var(--ark-yellow-500); }
 .reason-chip-x {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px;

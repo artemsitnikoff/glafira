@@ -230,29 +230,6 @@
   font-size: 13px;
 }
 
-/* Auto Controls */
-.nv-auto-controls {
-  margin-top: var(--space-3);
-  padding: var(--space-3);
-  background: var(--bg-2);
-  border-radius: var(--radius-md);
-}
-
-.nv-auto-controls label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 14px;
-  color: var(--fg-2);
-}
-
-.nv-auto-controls input[type="number"] {
-  width: 80px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-}
 
 /* Footer */
 .nv-card-foot {
@@ -297,19 +274,6 @@
   font-size: 11px;
 }
 
-/* Salary Input */
-.salary-input {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.salary-input input {
-  flex: 1;
-}
-
-.currency-select {
-  min-width: 80px;
-}
 
 /* Modal (for NewCandidate) */
 .modal-overlay {
@@ -380,12 +344,6 @@
   overflow-y: auto;
 }
 
-.modal-footer {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border-top: 1px solid var(--border-1);
-}
 
 /* ===== ЭТАЛОННЫЕ СТИЛИ ДОБАВЛЕННЫЕ ===== */
 
@@ -477,7 +435,6 @@
   color: var(--fg-1);
 }
 .nv-select:hover { border-color: var(--border-1); }
-.nv-select .nv-ph { color: var(--fg-3); }
 
 .nv-switch {
   position: relative;

@@ -257,32 +257,6 @@
   font-weight: 600;
 }
 
-/* Stage pill (in table) */
-.cnd-funnel-wrap .stage-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: 4px;
-  background: var(--ark-gray-100);
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.cnd-funnel-wrap .stage-pill.stage-sm {
-  padding: 2px 7px;
-  font-size: 11px;
-}
-
-.cnd-funnel-wrap .stage-response   { background: var(--ark-gray-200); color: var(--ark-gray-700); }
-.cnd-funnel-wrap .stage-selected   { background: var(--ark-gray-200); color: var(--ark-gray-700); }
-.cnd-funnel-wrap .stage-recruiter  { background: var(--ark-blue-100); color: var(--ark-blue-700); }
-.cnd-funnel-wrap .stage-interview  { background: var(--ark-blue-100); color: var(--ark-blue-700); }
-.cnd-funnel-wrap .stage-manager    { background: var(--ark-violet-100); color: var(--ark-violet-500); }
-.cnd-funnel-wrap .stage-offer      { background: var(--ark-yellow-100); color: var(--ark-yellow-600); }
-.cnd-funnel-wrap .stage-hired      { background: var(--ark-green-100); color: var(--ark-green-600); }
-.cnd-funnel-wrap .stage-rejected   { background: var(--ark-red-100); color: var(--ark-red-600); }
 
 /* Score badges */
 .cnd-funnel-wrap .score-badge {
@@ -299,22 +273,11 @@
 .cnd-funnel-wrap .score-md { width: 36px; height: 26px; font-size: 13px; }
 .cnd-funnel-wrap .score-lg { width: 42px; height: 32px; font-size: 15px; }
 .cnd-funnel-wrap .score-xl { width: 56px; height: 56px; font-size: 22px; border-radius: 8px; }
-.cnd-funnel-wrap .score-huge { width: 84px; height: 84px; font-size: 32px; border-radius: 12px; }
 
 .cnd-funnel-wrap .score-green  { background: var(--ark-green-100);  color: var(--ark-green-600); }
 .cnd-funnel-wrap .score-yellow { background: var(--ark-yellow-100); color: var(--ark-yellow-600); }
 .cnd-funnel-wrap .score-red    { background: var(--ark-red-100);    color: var(--ark-red-600); }
 
-.cnd-funnel-wrap .score-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.cnd-funnel-wrap .score-dot.score-green  { background: var(--ark-green-500); }
-.cnd-funnel-wrap .score-dot.score-yellow { background: var(--ark-yellow-500); }
-.cnd-funnel-wrap .score-dot.score-red    { background: var(--ark-red-500); }
 
 /* Mess icons */
 .cnd-funnel-wrap .mess-row {
@@ -660,11 +623,6 @@
   font-size: 10px;
 }
 
-.cnd-funnel-wrap .pdn-md {
-  padding: 2px 8px 2px 6px;
-  font-size: 11px;
-  border-radius: 5px;
-}
 
 .cnd-funnel-wrap .cand-row.open .pdn-badge {
   background: #D6ECDD;

@@ -29,8 +29,6 @@ def encrypt_config(config: dict) -> dict:
     return {k: (encrypt_text(str(v)) if k in SENSITIVE_KEYS and v is not None else v) for k, v in config.items()}
 
 
-def decrypt_config(config: dict) -> dict:
-    return {k: (decrypt_text(v) if k in SENSITIVE_KEYS and v is not None else v) for k, v in config.items()}
 
 
 def mask_config(config: dict) -> dict:

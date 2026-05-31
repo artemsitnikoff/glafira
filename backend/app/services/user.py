@@ -12,15 +12,6 @@ from ..core.errors import NotFoundError
 from ..services.audit import audit
 
 
-async def get_users(session: AsyncSession, company_id: UUID) -> list[User]:
-    """Get all users for company"""
-    result = await session.execute(
-        select(User)
-        .where(User.company_id == company_id)
-        .order_by(User.full_name)
-    )
-    return result.scalars().all()
-
 
 async def get_users_paginated(
     session: AsyncSession,

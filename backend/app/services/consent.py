@@ -9,31 +9,6 @@ from ..schemas.consent import ConsentOut, ConsentRequest
 from ..services.audit import audit
 
 
-async def get_candidate_consents(
-    session: AsyncSession,
-    candidate_id: UUID,
-    company_id: UUID
-) -> list[ConsentOut]:
-    """Get consent history for candidate"""
-    # Verify candidate exists and belongs to company
-    candidate_result = await session.execute(
-        select(Candidate).where(
-            Candidate.id == candidate_id,
-            Candidate.company_id == company_id,
-            Candidate.deleted_at.is_(None)
-        )
-    )
-    if not candidate_result.scalar_one_or_none():
-        raise NotFoundError("Кандидат")
-
-    result = await session.execute(
-        select(Consent)
-        .where(Consent.candidate_id == candidate_id)
-        .order_by(Consent.created_at.desc())
-    )
-    consents = result.scalars().all()
-
-    return [ConsentOut.model_validate(consent) for consent in consents]
 
 
 async def get_candidate_consent(

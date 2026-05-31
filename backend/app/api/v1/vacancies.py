@@ -24,7 +24,6 @@ from ...services.settings.reject_reasons import (
     delete_reject_reason,
 )
 from ...services.vacancy import (
-    get_vacancies,
     get_vacancy,
     create_vacancy,
     update_vacancy,

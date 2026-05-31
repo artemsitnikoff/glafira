@@ -76,37 +76,6 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID) -> Vacanc
     return VacancySidebar(items=items, archived_count=archived_count)
 
 
-async def get_vacancies(
-    session: AsyncSession,
-    company_id: UUID,
-    status: str | None = None,
-    search: str | None = None,
-    sort: str | None = None,
-    order: str = "desc"
-) -> list[Vacancy]:
-    """Get list of vacancies"""
-    query = select(Vacancy).where(Vacancy.company_id == company_id)
-
-    if status:
-        query = query.where(Vacancy.status == status)
-
-    if search:
-        query = query.where(Vacancy.name.ilike(f"%{search}%"))
-
-    # Apply sorting
-    sort_column = Vacancy.created_at  # default
-    if sort == "name":
-        sort_column = Vacancy.name
-    elif sort == "deadline":
-        sort_column = Vacancy.deadline
-
-    if order == "asc":
-        query = query.order_by(asc(sort_column))
-    else:
-        query = query.order_by(desc(sort_column))
-
-    result = await session.execute(query)
-    return result.scalars().all()
 
 
 async def get_vacancies_paginated(

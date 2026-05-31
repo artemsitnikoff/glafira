@@ -94,9 +94,6 @@
   background: var(--bg-3);
 }
 
-.filter-spacer {
-  flex: 1;
-}
 
 /* Archive Grid */
 .archive-grid {

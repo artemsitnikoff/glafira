@@ -6,7 +6,7 @@ from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
 from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate
 from ...schemas.base import Paginated
-from ...services.user import get_users, get_user, create_user, update_user
+from ...services.user import get_user, create_user, update_user
 from ...models import User
 from ...core.errors import ForbiddenError
 
