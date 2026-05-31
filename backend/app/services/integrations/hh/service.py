@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....models import HhIntegration, HhOauthState
+from ....models import HhIntegration, HhOauthState, Vacancy, Application, Candidate
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError, NotFoundError
@@ -340,8 +340,6 @@ async def link_vacancy(session: AsyncSession, vacancy_id: UUID, hh_vacancy_id: s
         NotFoundError: если вакансия не найдена
         ValidationError: при ошибках валидации
     """
-    from ....models import Vacancy
-
     result = await session.execute(
         select(Vacancy).where(
             Vacancy.id == vacancy_id,
@@ -380,8 +378,6 @@ async def unlink_vacancy(session: AsyncSession, vacancy_id: UUID, company_id: UU
     Raises:
         NotFoundError: если вакансия не найдена
     """
-    from ....models import Vacancy
-
     result = await session.execute(
         select(Vacancy).where(
             Vacancy.id == vacancy_id,
@@ -429,8 +425,6 @@ async def publish_vacancy_to_hh(session: AsyncSession, vacancy_id: UUID, company
         NotFoundError: если вакансия не найдена
         ValidationError: при ошибках валидации или отсутствии маппинга
     """
-    from ....models import Vacancy
-
     result = await session.execute(
         select(Vacancy).where(
             Vacancy.id == vacancy_id,
@@ -507,8 +501,6 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     Returns:
         bool: True если создан новый Application, False если пропущен (дедуп)
     """
-    from ....models import Application, Candidate
-    from datetime import datetime, timezone
 
     # Дедуп по hh_negotiation_id
     nid = str(item["id"])

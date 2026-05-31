@@ -4,6 +4,7 @@ from uuid import UUID
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
+from ...services.integrations.hh import service as hh_service
 from ...schemas.vacancy import (
     VacancyDetail,
     VacancyCreate,
@@ -297,8 +298,6 @@ async def link_vacancy_to_hh(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Привязать вакансию Глафиры к вакансии hh.ru"""
-    from ...services.integrations.hh import service as hh_service
-
     await hh_service.link_vacancy(
         session, vacancy_id, data.hh_vacancy_id, company_id, current_user.id
     )
@@ -315,8 +314,6 @@ async def unlink_vacancy_from_hh(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Отвязать вакансию Глафиры от hh.ru"""
-    from ...services.integrations.hh import service as hh_service
-
     await hh_service.unlink_vacancy(session, vacancy_id, company_id, current_user.id)
     await session.commit()
 
@@ -336,8 +333,6 @@ async def publish_vacancy_to_hh(
     ⚠️  НЕ проверено без реального токена hh.ru
     ⚠️  Требует маппинга города → hh area_id (TODO)
     """
-    from ...services.integrations.hh import service as hh_service
-
     hh_vacancy_id = await hh_service.publish_vacancy_to_hh(
         session, vacancy_id, company_id, current_user.id
     )
