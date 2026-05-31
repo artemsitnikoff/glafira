@@ -365,11 +365,30 @@ async def get_candidates_paginated(
     for app_row in apps_rows:
         apps_by_candidate[app_row.candidate_id].append(app_row)
 
+    # Batch-запрос опыта страницы — мета «последнее место»/стаж выводится из реального опыта,
+    # а не из устаревших last_* (как и в детальной карточке).
+    exp_stmt = select(
+        CandidateExperience.candidate_id,
+        CandidateExperience.position,
+        CandidateExperience.company,
+        CandidateExperience.period,
+    ).where(CandidateExperience.candidate_id.in_(candidate_ids))
+    exp_by_candidate = defaultdict(list)
+    for e in (await session.execute(exp_stmt)).all():
+        exp_by_candidate[e.candidate_id].append(e)
+
     # Build items
     items = []
     for row in rows:
         full_name = _compute_full_name(row.last_name, row.first_name, row.middle_name)
         age = _compute_age(row.birth_date)
+
+        # Последнее место — из самой свежей записи опыта (fallback на сохранённые last_*).
+        latest_exp = pick_latest_experience(exp_by_candidate[row.id])
+        row_last_position = (latest_exp.position if latest_exp else None) or row.last_position
+        row_last_company = (latest_exp.company if latest_exp else None) or row.last_company
+        row_last_period = (latest_exp.period if latest_exp else None) or row.last_period
+        row_last_tenure = format_duration(_period_to_months(row_last_period))
 
         # Получаем applications этого кандидата
         candidate_apps = apps_by_candidate[row.id]
@@ -398,10 +417,10 @@ async def get_candidates_paginated(
             display_number=row.display_number,
             full_name=full_name,
             age=age,
-            last_position=row.last_position,
-            last_company=row.last_company,
-            last_period=row.last_period,
-            last_tenure=format_duration(_period_to_months(row.last_period)),
+            last_position=row_last_position,
+            last_company=row_last_company,
+            last_period=row_last_period,
+            last_tenure=row_last_tenure,
             ai_score=row.ai_score,
             avatar_url=None,  # No avatar_url field in Candidate model
             is_duplicate=row.is_duplicate,
