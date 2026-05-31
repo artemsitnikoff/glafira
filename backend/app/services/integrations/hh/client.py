@@ -155,6 +155,124 @@ async def get_me(access_token: str) -> dict:
             raise ValidationError(f"Ошибка получения данных пользователя hh.ru: {e}")
 
 
+async def get_employer_vacancies(access_token: str, employer_id: str, page: int = 0, per_page: int = 50) -> dict:
+    """
+    Получает активные вакансии работодателя
+
+    Args:
+        access_token: access token
+        employer_id: ID работодателя на hh.ru
+        page: страница (0-based)
+        per_page: количество записей на странице
+
+    Returns:
+        dict: список вакансий {items: [...], pages, page, ...}
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/vacancies",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={
+                    "employer_id": employer_id,
+                    "page": page,
+                    "per_page": per_page
+                }
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru /vacancies")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения вакансий hh.ru: {e}")
+
+
+async def get_negotiation_responses(access_token: str, vacancy_id: str, page: int = 0, per_page: int = 100) -> dict:
+    """
+    Получает отклики работодателя по вакансии
+
+    ⚠️  Требует ПЛАТНОГО доступа работодателя (emp_paid) на hh.ru
+
+    Args:
+        access_token: access token
+        vacancy_id: ID вакансии на hh.ru
+        page: страница (0-based)
+        per_page: количество записей на странице
+
+    Returns:
+        dict: список откликов {items: [{id, resume: {...}, ...}], pages}
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/negotiations/response",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={
+                    "vacancy_id": vacancy_id,
+                    "page": page,
+                    "per_page": per_page
+                }
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru /negotiations/response")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения откликов hh.ru: {e}")
+
+
+async def publish_vacancy(access_token: str, payload: dict) -> dict:
+    """
+    Публикует вакансию на hh.ru
+
+    ⚠️  НЕ проверено без реального токена hh.ru
+
+    Args:
+        access_token: access token
+        payload: данные вакансии в формате hh.ru API
+
+    Returns:
+        dict: ответ с id созданной вакансии
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.post(
+                f"{settings.HH_API_BASE}/vacancies",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=payload
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru POST /vacancies")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка публикации вакансии hh.ru: {e}")
+
+
 def build_authorize_url(state: str) -> str:
     """
     Строит URL для авторизации через hh.ru

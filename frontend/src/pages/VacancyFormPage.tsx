@@ -27,6 +27,8 @@ import { useClients } from '@/api/hooks/useClients';
 import { useUsers } from '@/api/hooks/useUsers';
 import type { components } from '@/api/types';
 import type { ApiError } from '@/api/aliases';
+import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
+import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api/mutations/hhIntegration';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
@@ -538,7 +540,7 @@ export default function VacancyFormPage() {
             />
           )}
           {activeStep === 'automation' && (
-            <AutomationStep />
+            <AutomationStep editMode={editMode} vacancyId={id} vacancy={vacancy} />
           )}
 
           {submitError && (
@@ -1261,7 +1263,7 @@ function TeamStep({
   );
 }
 
-function AutomationStep() {
+function AutomationStep({ editMode = false, vacancyId, vacancy }: { editMode?: boolean; vacancyId?: string; vacancy?: any }) {
   return (
     <div className="nv-step-body">
       <div className="nv-h1">Автоматизация</div>
@@ -1361,6 +1363,188 @@ function AutomationStep() {
           </div>
         </div>
       </div>
+
+      <HhPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
+    </div>
+  );
+}
+
+function HhPublicationBlock({ editMode, vacancyId, vacancy }: { editMode: boolean; vacancyId?: string; vacancy?: any }) {
+  const [hhError, setHhError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const { data: hhStatus, isLoading: hhStatusLoading } = useHhStatus();
+  const { data: hhVacancies, isLoading: hhVacanciesLoading } = useHhVacancies(hhStatus?.connected && editMode && !!vacancyId);
+
+  const hhLinkMutation = useHhLinkVacancy();
+  const hhUnlinkMutation = useHhUnlinkVacancy();
+  const hhPublishMutation = useHhPublishVacancy();
+
+  const [selectedHhVacancyId, setSelectedHhVacancyId] = useState('');
+
+  const isConnected = hhStatus?.connected;
+  const isLinked = vacancy && vacancy.hh_vacancy_id;
+  const canManage = editMode && vacancyId; // Вакансия сохранена
+
+  const handleLink = async () => {
+    if (!selectedHhVacancyId || !vacancyId) return;
+    setHhError(null);
+    try {
+      await hhLinkMutation.mutateAsync({ vacancyId, hhVacancyId: selectedHhVacancyId });
+      setSuccessMessage('Вакансия успешно привязана к hh.ru');
+      setSelectedHhVacancyId('');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setHhError(e.error?.message || 'Ошибка при привязке к hh.ru');
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!vacancyId) return;
+    setHhError(null);
+    try {
+      await hhUnlinkMutation.mutateAsync(vacancyId);
+      setSuccessMessage('Вакансия отвязана от hh.ru');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setHhError(e.error?.message || 'Ошибка при отвязке от hh.ru');
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!vacancyId) return;
+    setHhError(null);
+    try {
+      const result = await hhPublishMutation.mutateAsync(vacancyId);
+      setSuccessMessage(`Вакансия создана на hh.ru с ID: ${result.hh_vacancy_id}`);
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setHhError(e.error?.message || 'Ошибка при создании вакансии на hh.ru');
+    }
+  };
+
+  return (
+    <div className="nv-hh-block">
+      <div className="nv-h3" style={{ marginBottom: '8px', marginTop: '24px' }}>Публикация на hh.ru</div>
+
+      {hhError && (
+        <div className="error-banner" role="alert" style={{ marginBottom: '12px' }}>
+          {hhError}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="info-banner" style={{
+          marginBottom: '12px',
+          background: 'var(--success-bg)',
+          borderColor: 'var(--success-border)',
+          color: 'var(--success-fg)'
+        }}>
+          <Icon name="check" size={16} />
+          <div>{successMessage}</div>
+        </div>
+      )}
+
+      {hhStatusLoading ? (
+        <div style={{ padding: '16px', color: 'var(--fg-3)', textAlign: 'center' }}>
+          Загрузка статуса hh.ru...
+        </div>
+      ) : !isConnected ? (
+        <div className="nv-hh-disabled">
+          <Icon name="x" size={16} style={{ color: 'var(--fg-3)' }} />
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '4px' }}>
+              hh.ru не подключён
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+              Подключите hh.ru в <a href="/settings?tab=integrations" style={{ color: 'var(--accent)' }}>Настройках → Интеграции</a>
+            </div>
+          </div>
+        </div>
+      ) : !canManage ? (
+        <div className="nv-hh-disabled">
+          <Icon name="lock" size={16} style={{ color: 'var(--fg-3)' }} />
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '4px' }}>
+              Сначала сохраните вакансию
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+              Привязка к hh.ru доступна только для сохранённых вакансий
+            </div>
+          </div>
+        </div>
+      ) : isLinked ? (
+        <div className="nv-hh-linked">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Icon name="link" size={16} style={{ color: 'var(--success-fg)' }} />
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                <strong>Привязана к hh:</strong> {vacancy.hh_vacancy_id}
+              </div>
+            </div>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleUnlink}
+            disabled={hhUnlinkMutation.isPending}
+          >
+            {hhUnlinkMutation.isPending ? 'Отвязка...' : 'Отвязать'}
+          </button>
+        </div>
+      ) : (
+        <div className="nv-hh-controls">
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', color: 'var(--fg-2)', marginBottom: '8px' }}>
+              Привязать к существующей вакансии на hh.ru
+            </label>
+            {hhVacanciesLoading ? (
+              <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>Загрузка вакансий...</div>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <select
+                  value={selectedHhVacancyId}
+                  onChange={(e) => setSelectedHhVacancyId(e.target.value)}
+                  style={{
+                    minWidth: '200px',
+                    padding: '6px 8px',
+                    fontSize: '13px',
+                    border: '1px solid var(--border-1)',
+                    borderRadius: '6px',
+                    background: 'var(--bg-1)'
+                  }}
+                >
+                  <option value="">Выберите вакансию...</option>
+                  {hhVacancies?.map(hv => (
+                    <option key={hv.id} value={hv.id}>
+                      {hv.name} {hv.area ? `(${hv.area})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleLink}
+                  disabled={!selectedHhVacancyId || hhLinkMutation.isPending}
+                >
+                  {hhLinkMutation.isPending ? 'Привязка...' : 'Привязать'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border-2)', paddingTop: '16px' }}>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '8px' }}>
+              Или создать новую вакансию на hh.ru
+            </div>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handlePublish}
+              disabled={hhPublishMutation.isPending}
+            >
+              {hhPublishMutation.isPending ? 'Создание...' : 'Создать на hh.ru'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

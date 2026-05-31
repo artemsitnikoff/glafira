@@ -873,3 +873,40 @@
 }
 .nv-rr-add:hover { background: var(--ark-blue-50); border-color: var(--ark-blue-500); }
 @media (max-width: 720px) { .nv-rr-grid { grid-template-columns: 1fr; } }
+
+/* hh.ru блок */
+.nv-hh-block {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+}
+
+.nv-h3 {
+  font-size: var(--fs-16);
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 0;
+}
+
+.nv-hh-disabled {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--border-2);
+  border-radius: 6px;
+  background: var(--bg-3);
+}
+
+.nv-hh-linked {
+  padding: 12px;
+  border: 1px solid var(--success-border);
+  border-radius: 6px;
+  background: var(--success-bg);
+}
+
+.nv-hh-controls {
+  /* стили для контролов уже в инлайне */
+}

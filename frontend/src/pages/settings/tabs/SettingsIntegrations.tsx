@@ -1,5 +1,10 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Textarea, Select, Switch } from '../components/FormComponents';
+import { useHhStatus } from '@/api/hooks/useHhIntegration';
+import { useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import type { ApiError } from '@/api/aliases';
 
 function IntegrationCard({
   ico,
@@ -43,10 +48,90 @@ function IntegrationCard({
 }
 
 export function SettingsIntegrations() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const { data: hhStatus, isLoading: hhStatusLoading } = useHhStatus();
+  const hhAuthorizeMutation = useHhAuthorize();
+  const hhDisconnectMutation = useHhDisconnect();
+
+  // Обработка OAuth-возврата
+  useEffect(() => {
+    const hhParam = searchParams.get('hh');
+    if (hhParam) {
+      let message = '';
+      let type: 'success' | 'error' = 'success';
+
+      switch (hhParam) {
+        case 'connected':
+          message = 'hh.ru успешно подключён';
+          type = 'success';
+          break;
+        case 'denied':
+          message = 'Подключение hh.ru отклонено';
+          type = 'error';
+          break;
+        case 'error':
+          message = 'Ошибка при подключении hh.ru';
+          type = 'error';
+          break;
+      }
+
+      if (message) {
+        setNotification({ type, message });
+        // Убираем параметр из URL
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('hh');
+        setSearchParams(newParams);
+      }
+    }
+  }, [searchParams, setSearchParams]);
+
+  const handleHhConnect = async () => {
+    try {
+      const response = await hhAuthorizeMutation.mutateAsync();
+      window.location.href = response.authorize_url;
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({
+        type: 'error',
+        message: e.error?.message || 'Ошибка при подключении к hh.ru'
+      });
+    }
+  };
+
+  const handleHhDisconnect = async () => {
+    try {
+      await hhDisconnectMutation.mutateAsync();
+      setNotification({
+        type: 'success',
+        message: 'hh.ru успешно отключён'
+      });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({
+        type: 'error',
+        message: e.error?.message || 'Ошибка при отключении hh.ru'
+      });
+    }
+  };
+
   return (
     <div className="set-content-inner">
       <PageHead title="Интеграции"
         subtitle="Внешние сервисы, с которыми работает Глафира"/>
+
+      {notification && (
+        <div className={notification.type === 'success' ? 'info-banner' : 'error-banner'}
+             style={{
+               background: notification.type === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
+               borderColor: notification.type === 'success' ? 'var(--success-border)' : 'var(--error-border)',
+               color: notification.type === 'success' ? 'var(--success-fg)' : 'var(--error-fg)'
+             }}>
+          <Icon name={notification.type === 'success' ? 'check' : 'x'} size={16} />
+          <div>{notification.message}</div>
+        </div>
+      )}
 
       <div className="info-banner">
         <Icon name="bell" size={16} />
@@ -56,6 +141,59 @@ export function SettingsIntegrations() {
       </div>
 
       <div className="integ-list">
+        {/* HH.RU */}
+        <IntegrationCard
+          ico={<span className="integ-emoji">🔍</span>}
+          iconBg="#FFF1C8"
+          name="hh.ru"
+          desc="Публикация вакансий и привязка существующих вакансий с hh.ru"
+          status={hhStatusLoading ? 'bad' : (hhStatus?.connected ? 'ok' : 'bad')}>
+          <div className="integ-section">
+            <div className="integ-section-title">Подключение и управление</div>
+
+            {hhStatusLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : hhStatus?.connected ? (
+              <div>
+                <div style={{ marginBottom: '12px' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                    <strong>Подключён</strong> как работодатель ID: {hhStatus.hh_employer_id}
+                  </div>
+                  {hhStatus.connected_at && (
+                    <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                      Подключён: {new Date(hhStatus.connected_at).toLocaleString('ru')}
+                    </div>
+                  )}
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleHhDisconnect}
+                    disabled={hhDisconnectMutation.isPending}
+                  >
+                    {hhDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Подключите ваш аккаунт работодателя hh.ru для публикации вакансий и привязки существующих.
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleHhConnect}
+                    disabled={hhAuthorizeMutation.isPending}
+                  >
+                    {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить hh.ru'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </IntegrationCard>
+
         {/* TELEGRAM */}
         <IntegrationCard
           ico={<span className="integ-emoji">🤖</span>}

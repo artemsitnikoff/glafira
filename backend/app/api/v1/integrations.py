@@ -75,3 +75,13 @@ async def disconnect_hh(
     await hh_service.disconnect(session, current_user.company_id, current_user.id)
 
     return {"message": "Интеграция hh.ru отключена"}
+
+
+@router.get("/hh/vacancies")
+async def list_hh_vacancies(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Получить список вакансий с hh.ru"""
+    vacancies = await hh_service.list_hh_vacancies(session, current_user.company_id)
+    return vacancies

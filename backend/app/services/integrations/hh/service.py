@@ -267,3 +267,307 @@ async def get_status(session: AsyncSession, company_id: UUID) -> dict:
         "connected_at": integration.created_at,
         "expires_at": integration.expires_at
     }
+
+
+async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dict]:
+    """
+    Получает список вакансий с hh.ru
+
+    Args:
+        session: DB session
+        company_id: ID компании
+
+    Returns:
+        list: упрощённый список вакансий [{id, name, area}, ...]
+
+    Raises:
+        ValidationError: если hh не подключён или ошибка API
+    """
+    integration = await get_integration(session, company_id)
+    if not integration:
+        raise ValidationError("Интеграция hh.ru не подключена")
+
+    if not integration.hh_employer_id:
+        raise ValidationError("Отсутствует hh_employer_id в интеграции")
+
+    access_token = await get_valid_access_token(session, company_id)
+
+    # Получаем все страницы (начинаем с первой)
+    all_items = []
+    page = 0
+
+    while True:
+        data = await hh_client.get_employer_vacancies(
+            access_token, integration.hh_employer_id, page=page, per_page=50
+        )
+
+        items = data.get("items", [])
+        if not items:
+            break
+
+        all_items.extend(items)
+
+        # Проверяем, есть ли ещё страницы
+        if page >= data.get("pages", 1) - 1:
+            break
+
+        page += 1
+
+    # Возвращаем упрощённый список
+    result = []
+    for item in all_items:
+        result.append({
+            "id": str(item["id"]),
+            "name": item.get("name", ""),
+            "area": item.get("area", {}).get("name") if item.get("area") else None
+        })
+
+    return result
+
+
+async def link_vacancy(session: AsyncSession, vacancy_id: UUID, hh_vacancy_id: str, company_id: UUID, user_id: UUID):
+    """
+    Привязывает вакансию Глафиры к вакансии hh.ru
+
+    Args:
+        session: DB session
+        vacancy_id: ID вакансии в Глафире
+        hh_vacancy_id: ID вакансии на hh.ru
+        company_id: ID компании
+        user_id: ID пользователя
+
+    Raises:
+        NotFoundError: если вакансия не найдена
+        ValidationError: при ошибках валидации
+    """
+    from ....models import Vacancy
+
+    result = await session.execute(
+        select(Vacancy).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id
+        )
+    )
+    vacancy = result.scalar_one_or_none()
+
+    if not vacancy:
+        raise NotFoundError("Вакансия не найдена")
+
+    vacancy.hh_vacancy_id = hh_vacancy_id
+
+    # Запись в аудит
+    await audit(
+        session,
+        action="hh_vacancy_linked",
+        entity_type="vacancy",
+        entity_id=vacancy_id,
+        after={"hh_vacancy_id": hh_vacancy_id},
+        actor_user_id=user_id,
+        company_id=company_id
+    )
+
+
+async def unlink_vacancy(session: AsyncSession, vacancy_id: UUID, company_id: UUID, user_id: UUID):
+    """
+    Отвязывает вакансию Глафиры от hh.ru
+
+    Args:
+        session: DB session
+        vacancy_id: ID вакансии в Глафире
+        company_id: ID компании
+        user_id: ID пользователя
+
+    Raises:
+        NotFoundError: если вакансия не найдена
+    """
+    from ....models import Vacancy
+
+    result = await session.execute(
+        select(Vacancy).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id
+        )
+    )
+    vacancy = result.scalar_one_or_none()
+
+    if not vacancy:
+        raise NotFoundError("Вакансия не найдена")
+
+    old_hh_vacancy_id = vacancy.hh_vacancy_id
+    vacancy.hh_vacancy_id = None
+
+    # Запись в аудит
+    await audit(
+        session,
+        action="hh_vacancy_unlinked",
+        entity_type="vacancy",
+        entity_id=vacancy_id,
+        after={"hh_vacancy_id": None},
+        before={"hh_vacancy_id": old_hh_vacancy_id},
+        actor_user_id=user_id,
+        company_id=company_id
+    )
+
+
+async def publish_vacancy_to_hh(session: AsyncSession, vacancy_id: UUID, company_id: UUID, user_id: UUID) -> str:
+    """
+    Публикует вакансию Глафиры на hh.ru
+
+    ⚠️  НЕ проверено без реального токена hh.ru
+    ⚠️  Требует маппинга города → hh area_id (TODO)
+
+    Args:
+        session: DB session
+        vacancy_id: ID вакансии в Глафире
+        company_id: ID компании
+        user_id: ID пользователя
+
+    Returns:
+        str: hh_vacancy_id созданной вакансии
+
+    Raises:
+        NotFoundError: если вакансия не найдена
+        ValidationError: при ошибках валидации или отсутствии маппинга
+    """
+    from ....models import Vacancy
+
+    result = await session.execute(
+        select(Vacancy).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id
+        )
+    )
+    vacancy = result.scalar_one_or_none()
+
+    if not vacancy:
+        raise NotFoundError("Вакансия не найдена")
+
+    access_token = await get_valid_access_token(session, company_id)
+
+    # Собираем payload из данных вакансии
+    payload = {
+        "name": vacancy.name,
+        "description": vacancy.description or "",
+    }
+
+    # Зарплата
+    if vacancy.salary_from or vacancy.salary_to:
+        salary = {}
+        if vacancy.salary_from:
+            salary["from"] = vacancy.salary_from
+        if vacancy.salary_to:
+            salary["to"] = vacancy.salary_to
+        salary["currency"] = vacancy.currency
+        payload["salary"] = salary
+
+    # Город (требует маппинга)
+    if vacancy.city:
+        # TODO: маппинг город → hh area_id
+        raise ValidationError(f"Требуется маппинг города '{vacancy.city}' в hh area_id")
+
+    # TODO: обязательные поля hh.ru (type, professional_roles, employment, schedule)
+    # Точный состав зависит от менеджера/региона и не проверен без реального токена
+
+    # Публикуем вакансию
+    result = await hh_client.publish_vacancy(access_token, payload)
+
+    hh_vacancy_id = str(result.get("id"))
+    if not hh_vacancy_id:
+        raise ValidationError("hh.ru не вернул id созданной вакансии")
+
+    # Сохраняем связь
+    vacancy.hh_vacancy_id = hh_vacancy_id
+
+    # Запись в аудит
+    await audit(
+        session,
+        action="hh_vacancy_published",
+        entity_type="vacancy",
+        entity_id=vacancy_id,
+        after={"hh_vacancy_id": hh_vacancy_id},
+        actor_user_id=user_id,
+        company_id=company_id
+    )
+
+    return hh_vacancy_id
+
+
+async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vacancy", item: dict) -> bool:
+    """
+    Импортирует один отклик с hh.ru
+
+    ⚠️  Точные имена полей resume НЕ проверены без реального hh.ru токена
+
+    Args:
+        session: DB session
+        company_id: ID компании
+        vacancy: объект вакансии
+        item: данные отклика с hh.ru
+
+    Returns:
+        bool: True если создан новый Application, False если пропущен (дедуп)
+    """
+    from ....models import Application, Candidate
+    from datetime import datetime, timezone
+
+    # Дедуп по hh_negotiation_id
+    nid = str(item["id"])
+
+    existing_result = await session.execute(
+        select(Application).where(
+            Application.hh_negotiation_id == nid,
+            Application.company_id == company_id
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+
+    if existing:
+        return False  # Уже импортирован
+
+    # Извлекаем данные кандидата из resume (с фолбэками)
+    resume = item.get("resume", {})
+    first_name = resume.get("first_name", "")
+    last_name = resume.get("last_name", "")
+    area_name = None
+    if resume.get("area"):
+        area_name = resume["area"].get("name")
+
+    # Создаём кандидата
+    candidate = Candidate(
+        company_id=company_id,
+        first_name=first_name or "Неизвестно",
+        last_name=last_name or "",
+        source="hh",
+        city=area_name
+    )
+    session.add(candidate)
+    await session.flush()  # Получаем candidate.id
+
+    # Создаём Application
+    now = datetime.now(timezone.utc)
+    application = Application(
+        company_id=company_id,
+        candidate_id=candidate.id,
+        vacancy_id=vacancy.id,
+        stage="added",
+        hh_negotiation_id=nid,
+        created_at=now,
+        selected_at=now
+    )
+    session.add(application)
+
+    # Запись в аудит
+    await audit(
+        session,
+        action="hh_response_imported",
+        entity_type="application",
+        entity_id=application.id,
+        after={
+            "candidate_name": f"{first_name} {last_name}".strip(),
+            "hh_negotiation_id": nid
+        },
+        actor_type="system",
+        company_id=company_id
+    )
+
+    return True

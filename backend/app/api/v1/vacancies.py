@@ -279,3 +279,68 @@ async def delete_vacancy_reject_reason(
     await get_vacancy(session, vacancy_id, company_id)
     await delete_reject_reason(session, reason_id, company_id, current_user.id, vacancy_id=vacancy_id)
     await session.commit()
+
+
+# ---- Интеграция с hh.ru ----
+
+from pydantic import BaseModel
+
+class HhVacancyLinkRequest(BaseModel):
+    hh_vacancy_id: str
+
+@router.post("/{vacancy_id}/hh/link")
+async def link_vacancy_to_hh(
+    vacancy_id: UUID,
+    data: HhVacancyLinkRequest,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Привязать вакансию Глафиры к вакансии hh.ru"""
+    from ...services.integrations.hh import service as hh_service
+
+    await hh_service.link_vacancy(
+        session, vacancy_id, data.hh_vacancy_id, company_id, current_user.id
+    )
+    await session.commit()
+
+    return {"message": "Вакансия привязана к hh.ru"}
+
+
+@router.delete("/{vacancy_id}/hh/link")
+async def unlink_vacancy_from_hh(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Отвязать вакансию Глафиры от hh.ru"""
+    from ...services.integrations.hh import service as hh_service
+
+    await hh_service.unlink_vacancy(session, vacancy_id, company_id, current_user.id)
+    await session.commit()
+
+    return {"message": "Вакансия отвязана от hh.ru"}
+
+
+@router.post("/{vacancy_id}/hh/publish")
+async def publish_vacancy_to_hh(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """
+    Опубликовать вакансию Глафиры на hh.ru
+
+    ⚠️  НЕ проверено без реального токена hh.ru
+    ⚠️  Требует маппинга города → hh area_id (TODO)
+    """
+    from ...services.integrations.hh import service as hh_service
+
+    hh_vacancy_id = await hh_service.publish_vacancy_to_hh(
+        session, vacancy_id, company_id, current_user.id
+    )
+    await session.commit()
+
+    return {"hh_vacancy_id": hh_vacancy_id}

@@ -65,6 +65,7 @@ class VacancyDetail(ORMBase):
     team: list[UserShort] = Field(default_factory=list)
     external_source: str | None = None
     external_url: str | None = None
+    hh_vacancy_id: str | None = None
     archive_result: str | None = None
     closed_at: date | None = None
     created_at: datetime
