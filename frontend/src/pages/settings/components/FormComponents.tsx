@@ -161,9 +161,11 @@ type PageHeadProps = {
   subtitle?: string;
   dirty?: boolean;
   onSave?: () => void;
+  onDiscard?: () => void;
+  saving?: boolean;
 };
 
-export function PageHead({ title, subtitle, dirty, onSave }: PageHeadProps) {
+export function PageHead({ title, subtitle, dirty, onSave, onDiscard, saving }: PageHeadProps) {
   return (
     <div className="set-page-head">
       <div>
@@ -172,12 +174,17 @@ export function PageHead({ title, subtitle, dirty, onSave }: PageHeadProps) {
       </div>
       <div className="set-head-actions">
         {dirty && <span className="dirty-pill">Есть несохранённые изменения</span>}
+        {onDiscard && dirty && (
+          <button className="btn btn-secondary" disabled={saving} onClick={onDiscard}>
+            Отменить
+          </button>
+        )}
         <button
           className={`btn ${dirty ? 'btn-primary' : 'btn-secondary'}`}
-          disabled={!dirty}
+          disabled={!dirty || saving}
           onClick={onSave}
         >
-          Сохранить изменения
+          {saving ? 'Сохранение…' : 'Сохранить изменения'}
         </button>
       </div>
     </div>
