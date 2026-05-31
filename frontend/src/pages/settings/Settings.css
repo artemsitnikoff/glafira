@@ -512,6 +512,29 @@
 }
 .reason-chip-add:hover { background: var(--ark-blue-50); border-color: var(--ark-blue-500); }
 
+/* Переключатель шаблонов воронок */
+.tpl-switch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.tpl-chip {
+  padding: 6px 12px; border: 1px solid var(--border-1); border-radius: 999px;
+  background: var(--bg-panel); font-size: 13px; color: var(--fg-2); cursor: pointer;
+}
+.tpl-chip:hover:not(:disabled) { border-color: var(--border-2); }
+.tpl-chip.active { background: var(--ark-blue-50); border-color: var(--accent); color: var(--ark-blue-700); font-weight: 500; }
+.tpl-add {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 10px; border: 1px dashed var(--border-2); background: transparent;
+  border-radius: 999px; color: var(--ark-blue-700); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.tpl-add:hover:not(:disabled) { background: var(--ark-blue-50); border-color: var(--accent); }
+.tpl-chip:disabled, .tpl-add:disabled { opacity: 0.5; cursor: not-allowed; }
+.tpl-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+.tpl-name {
+  flex: 1; max-width: 320px; padding: 8px 10px;
+  border: 1px solid var(--border-1); border-radius: 8px;
+  background: var(--bg-elevated); font: inherit; font-size: 14px; color: var(--fg-1);
+}
+.tpl-name:focus { border-color: var(--accent); outline: none; }
+
 /* ---------------- Roles ---------------- */
 .roles-grid {
   display: grid;
