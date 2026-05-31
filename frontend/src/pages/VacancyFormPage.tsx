@@ -16,6 +16,8 @@ import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { useDefaultFunnel, type DefaultFunnelStage } from '@/api/hooks/useDefaultFunnel';
 import { useRejectReasons, type RejectReasonOut } from '@/api/hooks/useRejectReasons';
 import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
+import { useFunnelTemplates } from '@/api/hooks/useFunnelTemplates';
+import { api } from '@/api/client';
 import {
   useAddVacancyRejectReason,
   useUpdateVacancyRejectReason,
@@ -758,24 +760,43 @@ function FunnelStep({
   // Базовое значение названия на момент фокуса — чтобы PATCH'ить только при реальном изменении
   const renameBaseline = useRef<Record<string, string>>({});
 
+  // Шаблоны воронок из Настроек (БД). Пусто (до seed) → хардкод-пресеты как fallback.
+  const { data: backendTemplates } = useFunnelTemplates();
+  const templateOptions = useMemo<{ id: string; name: string; backend: boolean }[]>(() => {
+    const base = [{ id: 'default', name: 'По умолчанию', backend: false }];
+    if (backendTemplates && backendTemplates.length > 0) {
+      return [...base, ...backendTemplates.map(t => ({ id: t.id, name: t.name, backend: true }))];
+    }
+    return [...base, ...FUNNEL_TEMPLATES.filter(t => t.id !== 'default').map(t => ({ id: t.id, name: t.name, backend: false }))];
+  }, [backendTemplates]);
+
   // Применить выбранный шаблон
-  const applyTemplate = (templateId: string) => {
+  const applyTemplate = async (opt: { id: string; backend: boolean }) => {
     // В edit-режиме шаблоны не применяем — этапы управляются через API
     if (editMode) return;
 
-    if (templateId === 'default') {
+    if (opt.id === 'default') {
       // «По умолчанию» = воронка из Настроек (company_default_stages). Пусто → хардкод-эталон.
       const base = companyDefaultStages && companyDefaultStages.length > 0
         ? companyDefaultStages
         : NV_DEFAULT_STAGES;
       onStagesChange(base.map(s => ({ ...s })));
+    } else if (opt.backend) {
+      // Шаблон из БД — тянем его этапы
+      try {
+        const res = await api.get(`/settings/funnel-templates/${opt.id}/stages`);
+        onStagesChange(mapDefaultFunnelToStages(res.data as DefaultFunnelStage[]));
+      } catch {
+        setStageError('Не удалось загрузить шаблон воронки');
+      }
     } else {
-      const template = FUNNEL_TEMPLATES.find(t => t.id === templateId);
+      // Fallback-пресет (хардкод, пока в БД пусто)
+      const template = FUNNEL_TEMPLATES.find(t => t.id === opt.id);
       if (template) {
-        onStagesChange(template.stages.map(s => ({ ...s }))); // Копируем (глубоко по этапам)
+        onStagesChange(template.stages.map(s => ({ ...s })));
       }
     }
-    onChange({ funnel_template: templateId });
+    onChange({ funnel_template: opt.id });
   };
 
   // Перемещение этапа
@@ -927,16 +948,16 @@ function FunnelStep({
         <div className="nv-field">
           <label className="nv-label">Шаблон воронки</label>
           <div className="funnel-templates">
-            {FUNNEL_TEMPLATES.map(template => (
-              <label key={template.id} className="funnel-template">
+            {templateOptions.map(opt => (
+              <label key={opt.id} className="funnel-template">
                 <input
                   type="radio"
                   name="funnel_template"
-                  value={template.id}
-                  checked={data.funnel_template === template.id}
-                  onChange={e => applyTemplate(e.target.value)}
+                  value={opt.id}
+                  checked={data.funnel_template === opt.id}
+                  onChange={() => applyTemplate(opt)}
                 />
-                <span className="funnel-template-name">{template.name}</span>
+                <span className="funnel-template-name">{opt.name}</span>
               </label>
             ))}
           </div>
