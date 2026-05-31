@@ -848,6 +848,13 @@
   color: var(--score-green);
 }
 
+/* «В разработке» — реальная проверка по госреестрам не подключена (интеграция позже),
+   поэтому статус блока не выдаём за результат, а честно помечаем нейтральной плашкой. */
+.cnd-funnel-wrap .cand-detail .vf-st-dev {
+  background: var(--bg-3);
+  color: var(--fg-3);
+}
+
 .cnd-funnel-wrap .cand-detail .vf-body {
   padding: 16px 18px;
 }

@@ -173,11 +173,11 @@ export function VerificationTab({ candidateId, candidate }: Props) {
                     </div>
                   </div>
                 </div>
-                <span className="vf-status vf-st-clean">
-                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                    <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  Чисто
+                {/* Реальная проверка по госреестрам не подключена (интеграция позже).
+                    НЕ выдаём mock-статус за вердикт — честная плашка «В разработке». */}
+                <span className="vf-status vf-st-dev">
+                  <Icon name="clock" size={11} />
+                  В разработке
                 </span>
               </header>
               <div className="vf-body">
