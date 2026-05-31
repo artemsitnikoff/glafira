@@ -47,7 +47,10 @@ export function CandidatePoolDetailPage() {
   } = useCandidateApplications(candidateId!)
 
   const handleBackToPool = () => {
-    navigate(-1)
+    // К СПИСКУ кандидатов (не navigate(-1) — иначе ходит по истории смены табов),
+    // восстанавливая сохранённые фильтры пула.
+    const savedFilters = sessionStorage.getItem('pool:filters')
+    navigate(savedFilters ? `/candidates?${savedFilters}` : '/candidates')
   }
 
   const handleTabChange = (tabKey: TabKey) => {
@@ -57,7 +60,8 @@ export function CandidatePoolDetailPage() {
     } else {
       newParams.set('tab', tabKey)
     }
-    setSearchParams(newParams)
+    // replace — смена таба не плодит записи истории (чтобы Назад вёл к списку, а не по табам)
+    setSearchParams(newParams, { replace: true })
   }
 
   const formatContactInfo = () => {

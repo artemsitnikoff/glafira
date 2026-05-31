@@ -301,14 +301,20 @@ export function CandidatesPoolPage() {
           </div>
         )}
 
-        {/* Infinite scroll sentinel */}
-        {hasNextPage && (
-          <InfiniteScrollSentinel
-            onLoadMore={() => fetchNextPage()}
-            isLoading={isFetchingNextPage}
-          />
-        )}
       </div>
+
+      {/* Пагинатор «Показать ещё» (в эталоне нет — добавлен: подгрузка следующих кандидатов) */}
+      {hasNextPage && (
+        <div className="cp-pager">
+          <button
+            className="btn btn-secondary"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+          >
+            {isFetchingNextPage ? 'Загрузка…' : `Показать ещё (${Math.max(0, totalCount - allCandidates.length)})`}
+          </button>
+        </div>
+      )}
 
       {/* Эталонный FilterDrawer (.fdr) — замена временного моста */}
       {showFilters && (
@@ -423,32 +429,6 @@ function PoolCard({ candidate }: PoolCardProps) {
 
     </div>
   )
-}
-
-// ====== Infinite Scroll Sentinel ======
-interface InfiniteScrollSentinelProps {
-  onLoadMore: () => void
-  isLoading: boolean
-}
-
-function InfiniteScrollSentinel({ onLoadMore, isLoading }: InfiniteScrollSentinelProps) {
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isLoading) {
-          onLoadMore()
-        }
-      },
-      { threshold: 0.1 }
-    )
-
-    const sentinel = document.getElementById('infinite-scroll-sentinel')
-    if (sentinel) observer.observe(sentinel)
-
-    return () => observer.disconnect()
-  }, [onLoadMore, isLoading])
-
-  return <div id="infinite-scroll-sentinel" style={{ height: 1 }} />
 }
 
 // ====== Wrapper for NewCandidateForm without preset vacancy ======
