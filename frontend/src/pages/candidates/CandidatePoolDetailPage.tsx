@@ -1,34 +1,33 @@
 import { useState } from 'react'
-import './CandidatesPool.css'
+import './CandidatePoolDetailPage.css'
+import '../funnel/candidate-detail/CandidateDetail.css'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCandidate, useCandidateApplications } from '../../api/hooks/useCandidates'
-import { ApplicationsHistoryBlock } from './components/ApplicationsHistoryBlock'
 import { AssignToVacancyModal } from './components/AssignToVacancyModal'
 import { messengerChannel } from '@/lib/messengers'
+import { Icon } from '@/components/ui/Icon'
+import { Avatar } from '@/components/ui/Avatar'
+import { ScoreBadge } from '@/components/ui/ScoreBadge'
+import { StageChip } from '@/components/ui/StageChip'
+import { MessIconRound } from '@/components/ui/MessIconRound'
 
 // Import existing tabs with fromPool prop support
 import { ResumeTab } from '../funnel/candidate-detail/tabs/ResumeTab'
 import { ChatTab } from '../funnel/candidate-detail/tabs/ChatTab'
 import { DocumentsTab } from '../funnel/candidate-detail/tabs/DocumentsTab'
 import { EvaluationTab } from '../funnel/candidate-detail/tabs/EvaluationTab'
-import { CommentsTab } from '../funnel/candidate-detail/tabs/CommentsTab'
-import { AllActionsTab } from '../funnel/candidate-detail/tabs/AllActionsTab'
-import { VerificationTab } from '../funnel/candidate-detail/tabs/VerificationTab'
 
 const TABS = [
   { key: 'resume', label: 'Резюме' },
   { key: 'chat', label: 'Чат' },
   { key: 'documents', label: 'Документы' },
-  { key: 'evaluation', label: 'Оценка AI' },
-  { key: 'comments', label: 'Комментарии' },
-  { key: 'actions', label: 'Все действия' },
-  { key: 'verification', label: 'Верификация' }
+  { key: 'evaluation', label: 'Оценка AI' }
 ] as const
 
 type TabKey = typeof TABS[number]['key']
 
 export function CandidatePoolDetailPage() {
-  const { candidateId } = useParams<{ candidateId: string }>()
+  const { id: candidateId } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -48,12 +47,7 @@ export function CandidatePoolDetailPage() {
   } = useCandidateApplications(candidateId!)
 
   const handleBackToPool = () => {
-    const savedFilters = sessionStorage.getItem('pool:filters')
-    const targetUrl = savedFilters
-      ? `/candidates?${savedFilters}`
-      : '/candidates'
-
-    navigate(targetUrl)
+    navigate(-1)
   }
 
   const handleTabChange = (tabKey: TabKey) => {
@@ -71,23 +65,26 @@ export function CandidatePoolDetailPage() {
 
     const parts = []
     if (candidate.age) parts.push(`${candidate.age} лет`)
-    if (candidate.last_position) parts.push(candidate.last_position)
+    if (candidate.last_position && candidate.last_period) parts.push(`${candidate.last_position}/${candidate.last_period}`)
+    else if (candidate.last_position) parts.push(candidate.last_position)
     if (candidate.last_company) parts.push(candidate.last_company)
-    if (candidate.last_period) parts.push(candidate.last_period)
 
-    return parts.join(' / ')
-  }
-
-  const getScoreBadgeClass = (score: number | null | undefined) => {
-    if (score === null || score === undefined) return 'score-badge large neutral'
-    if (score >= 80) return 'score-badge large green'
-    if (score >= 50) return 'score-badge large yellow'
-    return 'score-badge large red'
+    return parts.join(' · ')
   }
 
   const handleScoreBadgeClick = () => {
     handleTabChange('evaluation')
   }
+
+  const formatSalary = () => {
+    if (!candidate?.salary_expectation) return null
+    const amount = candidate.salary_expectation.toLocaleString()
+    const currency = candidate.currency || '₽'
+    return `${amount} ${currency}`
+  }
+
+  const fmtDate = (iso: string | null | undefined) =>
+    iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 
   const renderTabContent = () => {
     if (!candidate) return null
@@ -106,12 +103,6 @@ export function CandidatePoolDetailPage() {
         return <DocumentsTab {...commonProps} />
       case 'evaluation':
         return <EvaluationTab {...commonProps} />
-      case 'comments':
-        return <CommentsTab {...commonProps} />
-      case 'actions':
-        return <AllActionsTab {...commonProps} />
-      case 'verification':
-        return <VerificationTab {...commonProps} />
       default:
         return <ResumeTab {...commonProps} onOpenAI={() => handleTabChange('evaluation')} />
     }
@@ -140,107 +131,94 @@ export function CandidatePoolDetailPage() {
   }
 
   return (
-    <div className="candidate-pool-detail-page">
-      {/* Back Navigation */}
-      <div className="back-navigation">
-        <button
-          onClick={handleBackToPool}
-          className="back-button"
-          aria-label="Назад к кандидатам"
-        >
-          ← Назад к кандидатам
+    <div className="cfp-page">
+      {/* Назад */}
+      <div className="cfp-back-row">
+        <button className="cfp-back" onClick={handleBackToPool}>
+          <Icon name="chevron-left" size={14} /> Назад к кандидатам
         </button>
       </div>
 
-      {/* Candidate Header */}
-      <div className="candidate-header sticky">
-        <div className="header-row-1">
-          <div className="name-and-actions">
-            <h1 className="candidate-name">{candidate.full_name}</h1>
-            <div className="header-actions">
-              <button
-                className="btn btn-secondary"
-                onClick={() => handleTabChange('chat')}
-              >
-                Написать
-              </button>
-              {candidate.phone ? (
-                <a
-                  href={`tel:${candidate.phone}`}
-                  className="btn btn-secondary"
-                  style={{ textDecoration: 'none' }}
-                >
-                  Позвонить
-                </a>
-              ) : null}
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowAssignModal(true)}
-              >
-                Назначить на вакансию
-              </button>
-              <div className="more-menu">
-                <button className="btn btn-ghost">⋯</button>
+      {/* Шапка кандидата */}
+      <div className="cfp-header">
+        <div className="cfp-h-top">
+          <div className="cfp-h-id">
+            <Avatar name={candidate.full_name} size="md" src={null} />
+            <div className="cfp-name-wrap">
+              <div className="cfp-name-row">
+                <h1 className="cfp-name">{candidate.full_name}</h1>
+                {candidate.display_number && (
+                  <span className="cfp-num">№{candidate.display_number}</span>
+                )}
+                {candidate.is_duplicate && (
+                  <span className="cfp-dup">Дубль</span>
+                )}
               </div>
+              {formatContactInfo() && (
+                <div className="cfp-meta-line">{formatContactInfo()}</div>
+              )}
             </div>
           </div>
           <div
-            className={getScoreBadgeClass(candidate.ai_score)}
             onClick={handleScoreBadgeClick}
-            title="Перейти к оценке AI"
             style={{ cursor: 'pointer' }}
+            title="Перейти к оценке AI"
           >
-            {candidate.ai_score ?? '—'}
+            <ScoreBadge value={candidate.ai_score ?? null} size="xl" />
           </div>
         </div>
 
-        <div className="header-row-2">
-          <div className="info-line">
-            {formatContactInfo()}
-          </div>
-        </div>
-
-        <div className="header-row-3">
-          <div className="contacts">
-            {candidate.phone && (
-              <a href={`tel:${candidate.phone}`} className="contact-link phone">
+        {/* Контакты */}
+        <div className="cfp-contact-row">
+          {candidate.phone && (
+            <div className="cfp-contact-item">
+              <span className="cfp-contact-k">Телефон:</span>
+              <a href={`tel:${candidate.phone}`} className="cfp-phone">
                 {candidate.phone}
               </a>
-            )}
-            {candidate.messengers && candidate.messengers.length > 0 && (
-              <div className="messenger-badges">
-                {candidate.messengers.map((m: any, i: number) => {
-                  const ch = messengerChannel(m); // messengers: строки (seed) ИЛИ {type,url} (форма)
-                  return (
-                    <span
-                      key={`${ch}-${i}`}
-                      className={`messenger-badge ${ch}`}
-                      onClick={() => handleTabChange('chat')}
-                      title={`Открыть чат в ${ch}`}
-                    >
-                      {ch}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-            {candidate.email && (
-              <a href={`mailto:${candidate.email}`} className="contact-link email">
+              {candidate.messengers && candidate.messengers.length > 0 && (
+                <div className="cfp-mess-row">
+                  {candidate.messengers.map((m: any, i: number) => {
+                    const ch = messengerChannel(m);
+                    return (
+                      <MessIconRound
+                        key={`${ch}-${i}`}
+                        channel={ch}
+                        size="sm"
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          {candidate.email && (
+            <div className="cfp-contact-item">
+              <span className="cfp-contact-k">E-mail:</span>
+              <a href={`mailto:${candidate.email}`} className="cfp-email">
                 {candidate.email}
               </a>
-            )}
-          </div>
+            </div>
+          )}
+          {candidate.city && (
+            <div className="cfp-contact-item">
+              <span className="cfp-contact-k">Город:</span>
+              <span>{candidate.city}</span>
+            </div>
+          )}
+          {formatSalary() && (
+            <div className="cfp-contact-item">
+              <span className="cfp-contact-k">Ожидания:</span>
+              <span>{formatSalary()}</span>
+            </div>
+          )}
         </div>
 
-        <div className="header-row-4">
-          <div className="location">
-            Город: {candidate.city} {candidate.region && `(${candidate.region})`}
-          </div>
-        </div>
-
-        <div className="header-row-5">
-          <div className="tags">
-            {candidate.tags?.map((tag) => (
+        {/* Теги */}
+        {candidate.tags && candidate.tags.length > 0 && (
+          <div className="cfp-tags-row">
+            <span className="cfp-tags-k">Теги:</span>
+            {candidate.tags.map((tag) => (
               <span
                 key={tag.id}
                 className="tag-chip"
@@ -249,36 +227,98 @@ export function CandidatePoolDetailPage() {
                 {tag.name}
               </span>
             ))}
-            <button className="add-tag-button" title="Добавить тег">+</button>
+            {/* Добавление тегов из карточки-пула пока не реализовано → честно disabled */}
+            <button className="add-tag-button" disabled title="Скоро">
+              + Добавить тег
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* История участия в вакансиях */}
+      <div className="cfp-history">
+        <div className="cfp-section-head">
+          <h2 className="cfp-section-title">История участия в вакансиях</h2>
+          <span className="cfp-section-count">{applications?.length || 0}</span>
+        </div>
+
+        {applicationsLoading ? (
+          <div className="cfp-mini-empty">Загрузка истории...</div>
+        ) : !applications || applications.length === 0 ? (
+          <div className="cfp-history-empty">
+            <span>Кандидат пока ни в одной вакансии</span>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowAssignModal(true)}
+            >
+              <Icon name="briefcase" size={14} /> Назначить на вакансию
+            </button>
+          </div>
+        ) : (
+          <div className="cfp-history-list">
+            {applications.map((app, i) => (
+              <div key={i} className="cfp-h-row">
+                <div className="cfp-h-row-main">
+                  <div className="cfp-h-vac">
+                    <Icon name="briefcase" size={14} style={{ color: 'var(--fg-3)', flex: 'none' }} />
+                    <span className="cfp-h-vac-title">{app.vacancy_name}</span>
+                    <span className={`cfp-vac-status ${app.vacancy_status === 'active' ? 'on' : 'off'}`}>
+                      {app.vacancy_status === 'active' ? 'Активна' : 'В архиве'}
+                    </span>
+                  </div>
+                  <div className="cfp-h-stage">
+                    <StageChip stage={app.stage} size="sm" />
+                  </div>
+                </div>
+                <div className="cfp-h-row-meta">
+                  <span>Заказчик: <b>{app.client_name}</b></span>
+                  <span className="sep">·</span>
+                  <span>Рекрутер: {app.recruiter_name}</span>
+                  <span className="sep">·</span>
+                  <span className="t-mono">
+                    Отбор: {fmtDate(app.selected_at)}
+                    {app.stage_changed_at && ['hired', 'rejected'].includes(app.stage) &&
+                      ` → ${app.stage === 'hired' ? 'Нанят' : 'Отказ'}: ${fmtDate(app.stage_changed_at)}`}
+                  </span>
+                  <span className="sep">·</span>
+                  <span>Скоринг: <ScoreBadge value={app.ai_score ?? null} size="sm" /></span>
+                </div>
+                {app.reject_reason && (
+                  <div className="cfp-h-reject">Причина отказа: {app.reject_reason}</div>
+                )}
+                <button
+                  className="cfp-h-go"
+                  title="Перейти к карточке внутри вакансии"
+                  onClick={() => navigate(`/vacancies/${app.vacancy_id}`)}
+                >
+                  <Icon name="arrow-right" size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Табы */}
+      <div className="cfp-tabs">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            className={`cfp-tab ${activeTab === tab.key ? 'active' : ''}`}
+            onClick={() => handleTabChange(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Контент табов с proper scoping для CandidateDetail CSS */}
+      <div className="cfp-tab-content">
+        <div className="cnd-funnel-wrap">
+          <div className="cand-detail">
+            {renderTabContent()}
           </div>
         </div>
-      </div>
-
-      {/* Applications History */}
-      <ApplicationsHistoryBlock
-        applications={applications || []}
-        isLoading={applicationsLoading}
-        onAssignClick={() => setShowAssignModal(true)}
-      />
-
-      {/* Tabs Navigation */}
-      <div className="tabs-navigation">
-        <div className="tabs-list">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              className={`tab-button ${activeTab === tab.key ? 'active' : ''}`}
-              onClick={() => handleTabChange(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tab Content */}
-      <div className="tab-content">
-        {renderTabContent()}
       </div>
 
       {/* Assign Modal */}
