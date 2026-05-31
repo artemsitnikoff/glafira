@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import './funnel/Funnel.css';
 import './funnel/FilterDrawer.css';
@@ -22,6 +22,19 @@ export default function VacancyDetailPage() {
   const { id, cid } = useParams<{ id: string; cid?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  // searchParamsRef — чтобы onCandidateSelect оставался стабильным (не зависел от меняющегося
+  // searchParams). Иначе useCallback(onOpenRow,[onCandidateSelect]) в FunnelTable пересоздаётся
+  // на каждый ре-рендер (напр. toggle чекбокса) → React.memo на FunnelRow проваливается у всех строк.
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+
+  const handleCandidateSelect = useCallback((candidateId: string) => {
+    navigate({
+      pathname: `/vacancies/${id}/candidates/${candidateId}`,
+      search: searchParamsRef.current.toString(),
+    });
+  }, [navigate, id]);
 
   const { data: vacancy, isLoading: vacancyLoading } = useVacancy(id!);
   const { data: stages, isLoading: stagesLoading } = useVacancyStages(id!);
@@ -203,12 +216,7 @@ export default function VacancyDetailPage() {
           onSelectionChange={setSelectedIds}
           activeCandidateId={cid}
           detailMode={isDetailMode}
-          onCandidateSelect={candidateId =>
-            navigate({
-              pathname: `/vacancies/${id}/candidates/${candidateId}`,
-              search: searchParams.toString(),
-            })
-          }
+          onCandidateSelect={handleCandidateSelect}
         />
 
         {isDetailMode && (
