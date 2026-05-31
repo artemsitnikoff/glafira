@@ -7,7 +7,7 @@ import { AssignToVacancyModal } from './components/AssignToVacancyModal'
 import { messengerChannel } from '@/lib/messengers'
 import { Icon } from '@/components/ui/Icon'
 import { Avatar } from '@/components/ui/Avatar'
-import { ScoreBadge } from '@/components/ui/ScoreBadge'
+import { ScoreLabel } from '@/components/ui/ScoreLabel'
 import { StageChip } from '@/components/ui/StageChip'
 import { MessIconRound } from '@/components/ui/MessIconRound'
 
@@ -168,7 +168,7 @@ export function CandidatePoolDetailPage() {
             style={{ cursor: 'pointer' }}
             title="Перейти к оценке AI"
           >
-            <ScoreBadge value={candidate.ai_score ?? null} size="xl" />
+            <ScoreLabel value={candidate.ai_score ?? null} size="xl" />
           </div>
         </div>
 
@@ -285,7 +285,7 @@ export function CandidatePoolDetailPage() {
                       ` → ${app.stage === 'hired' ? 'Нанят' : 'Отказ'}: ${fmtDate(app.stage_changed_at)}`}
                   </span>
                   <span className="sep">·</span>
-                  <span>Скоринг: <ScoreBadge value={app.ai_score ?? null} size="sm" /></span>
+                  <span>Скоринг: <ScoreLabel value={app.ai_score ?? null} size="sm" /></span>
                 </div>
                 {app.reject_reason && (
                   <div className="cfp-h-reject">Причина отказа: {app.reject_reason}</div>

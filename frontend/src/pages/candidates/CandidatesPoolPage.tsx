@@ -6,7 +6,7 @@ import { useVacancies } from '../../api/hooks/useVacancies'
 import { FilterDrawer } from './components/FilterDrawer'
 import { Icon } from '../../components/ui/Icon'
 import { Avatar } from '../../components/ui/Avatar'
-import { ScoreBadge } from '../../components/ui/ScoreBadge'
+import { ScoreLabel } from '../../components/ui/ScoreLabel'
 import { StageChip } from '../../components/ui/StageChip'
 import NewCandidateForm from '../funnel/NewCandidateForm'
 import type { CandidateFilters as FilterType } from '../../api/hooks/useCandidates'
@@ -389,7 +389,7 @@ function PoolCard({ candidate }: PoolCardProps) {
           </div>
         </div>
         <div onClick={handleScoreBadgeClick}>
-          <ScoreBadge value={candidate.ai_score ?? null} size="lg"/>
+          <ScoreLabel value={candidate.ai_score ?? null} size="lg"/>
         </div>
       </div>
 
