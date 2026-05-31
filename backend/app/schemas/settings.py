@@ -200,3 +200,19 @@ class CompanyDefaultStageUpdate(BaseModel):
 
 class CompanyDefaultStageReorder(BaseModel):
     order: list[str]  # List of stage_keys in new order
+
+
+# Funnel Template schemas (настраиваемые пресеты воронок для формы вакансии)
+class FunnelTemplateOut(ORMBase):
+    id: UUID
+    name: str
+    order_index: int
+    is_default: bool = False  # синтетический флаг (true только у строки «По умолчанию»)
+
+
+class FunnelTemplateCreate(BaseModel):
+    name: str
+
+
+class FunnelTemplateUpdate(BaseModel):
+    name: str

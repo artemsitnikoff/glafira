@@ -8,7 +8,7 @@ from sqlalchemy.future import select
 from app.config import settings
 from app.core.security import get_password_hash
 from app.database import AsyncSessionLocal
-from app.models import Company, GlafiraSettings, RejectReason, User, CompanyDefaultStage
+from app.models import Company, GlafiraSettings, RejectReason, User, CompanyDefaultStage, FunnelTemplate, FunnelTemplateStage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -167,6 +167,64 @@ async def seed_company_default_stages(session: AsyncSession) -> None:
     logger.info("Created %d default stages for company", len(STAGES))
 
 
+# Доп. пресеты воронок (кроме «По умолчанию») для формы вакансии. (stage_key, label, is_terminal)
+FUNNEL_TEMPLATE_SEEDS = [
+    ("Массовый подбор · короткая", [
+        ("response", "Отклик", False),
+        ("selected", "Отобран", False),
+        ("interview", "Интервью", False),
+        ("hired", "Нанят", True),
+        ("rejected", "Отказ", True),
+    ]),
+    ("Техническая · с тестовым", [
+        ("response", "Отклик", False),
+        ("selected", "Отобран", False),
+        ("test", "Тест", False),
+        ("tech_interview", "Техническое интервью", False),
+        ("team_meet", "Встреча с командой", False),
+        ("offer", "Оффер", False),
+        ("hired", "Нанят", True),
+        ("rejected", "Отказ", True),
+    ]),
+    ("Продажи · 4 этапа", [
+        ("response", "Отклик", False),
+        ("screening", "Скрининг", False),
+        ("roleplay", "Ролевая игра", False),
+        ("hired", "Нанят", True),
+        ("rejected", "Отказ", True),
+    ]),
+]
+
+
+async def seed_funnel_templates(session: AsyncSession) -> None:
+    """Доп. шаблоны воронок (Массовый/Технический/Продажи). Идемпотентно (по наличию)."""
+    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+    existing = (
+        await session.execute(
+            select(FunnelTemplate).where(FunnelTemplate.company_id == company_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        logger.info("Funnel templates already exist for company %s", company_id)
+        return
+
+    for t_idx, (name, stages) in enumerate(FUNNEL_TEMPLATE_SEEDS, start=1):
+        template = FunnelTemplate(company_id=company_id, name=name, order_index=t_idx)
+        session.add(template)
+        await session.flush()
+        for s_idx, (key, label, terminal) in enumerate(stages, start=1):
+            session.add(
+                FunnelTemplateStage(
+                    template_id=template.id,
+                    stage_key=key,
+                    label=label,
+                    order_index=s_idx,
+                    is_terminal=terminal,
+                )
+            )
+    logger.info("Created %d funnel templates for company", len(FUNNEL_TEMPLATE_SEEDS))
+
+
 async def main() -> None:
     logger.info("Seeding database")
 
@@ -178,6 +236,7 @@ async def main() -> None:
             await seed_reject_reasons(session)
             await seed_glafira_settings(session)
             await seed_company_default_stages(session)
+            await seed_funnel_templates(session)
             await session.commit()
             logger.info("Seed completed")
         except Exception:

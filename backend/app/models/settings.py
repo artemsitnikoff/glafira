@@ -153,6 +153,50 @@ class Integration(Base, TimestampMixin, CompanyMixin):
     )
 
 
+class FunnelTemplate(Base, CompanyMixin):
+    """Именованный шаблон воронки (пресет) для формы создания вакансии.
+
+    «По умолчанию» — НЕ здесь: это company_default_stages (отдельная воронка по умолчанию).
+    Здесь — дополнительные пресеты (Массовый/Технический/Продажи и любые свои).
+    Этапы шаблона — в funnel_template_stages.
+    """
+    __tablename__ = "funnel_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        server_default=text("'00000000-0000-0000-0000-000000000001'")
+    )
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+
+class FunnelTemplateStage(Base):
+    """Этап именованного шаблона воронки (см. FunnelTemplate)."""
+    __tablename__ = "funnel_template_stages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("funnel_templates.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stage_key: Mapped[str] = mapped_column(String(20), nullable=False)
+    label: Mapped[str] = mapped_column(String(60), nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+
+
 class CompanyDefaultStage(Base, CompanyMixin):
     __tablename__ = "company_default_stages"
 

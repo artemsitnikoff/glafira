@@ -28,6 +28,8 @@ from .settings import (
     GlafiraSettings,
     Integration,
     CompanyDefaultStage,
+    FunnelTemplate,
+    FunnelTemplateStage,
 )
 
 __all__ = [
@@ -59,6 +61,8 @@ __all__ = [
     "Event",
     "AuditLog",
     "RejectReason",
+    "FunnelTemplate",
+    "FunnelTemplateStage",
     "EmailTemplate",
     "SurveyTemplate",
     "GlafiraSettings",

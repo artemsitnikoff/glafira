@@ -31,6 +31,9 @@ from ...schemas.settings import (
     CompanyDefaultStageCreate,
     CompanyDefaultStageUpdate,
     CompanyDefaultStageReorder,
+    FunnelTemplateOut,
+    FunnelTemplateCreate,
+    FunnelTemplateUpdate,
 )
 from ...services.settings import (
     profile,
@@ -41,6 +44,7 @@ from ...services.settings import (
     integrations,
     billing,
     default_funnel,
+    funnel_templates as funnel_templates_svc,
 )
 from ...services import candidate as candidate_service
 
@@ -433,5 +437,143 @@ async def reorder_default_stages(
 ):
     """Reorder default funnel stages"""
     await default_funnel.reorder_default_stages(session, company_id, data, current_user.id)
+    await session.commit()
+    return {"message": "Этапы переупорядочены"}
+
+
+# ---- Настраиваемые шаблоны воронок (пресеты формы вакансии) ----
+# «По умолчанию» здесь НЕ отдаётся — это /default-funnel; форма добавляет его сама.
+
+def _template_stage_color(stage_key: str) -> str:
+    from ...core.stages import STAGES
+    s = STAGES.get(stage_key)
+    return s.color if s else "#9AA3AE"
+
+
+@router.get("/funnel-templates", response_model=list[FunnelTemplateOut])
+async def list_funnel_templates(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Список доп. шаблонов воронок компании (без «По умолчанию»)."""
+    templates = await funnel_templates_svc.list_templates(session, company_id)
+    return [FunnelTemplateOut.model_validate(t) for t in templates]
+
+
+@router.post("/funnel-templates", response_model=FunnelTemplateOut, status_code=201)
+async def create_funnel_template(
+    data: FunnelTemplateCreate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Создать шаблон (наполняется базовыми этапами)."""
+    t = await funnel_templates_svc.create_template(session, company_id, data.name, current_user.id)
+    out = FunnelTemplateOut.model_validate(t)
+    await session.commit()
+    return out
+
+
+@router.patch("/funnel-templates/{template_id}", response_model=FunnelTemplateOut)
+async def rename_funnel_template(
+    template_id: UUID,
+    data: FunnelTemplateUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Переименовать шаблон."""
+    t = await funnel_templates_svc.rename_template(session, template_id, company_id, data.name, current_user.id)
+    out = FunnelTemplateOut.model_validate(t)
+    await session.commit()
+    return out
+
+
+@router.delete("/funnel-templates/{template_id}", response_model=MessageResult)
+async def delete_funnel_template(
+    template_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Удалить шаблон (с этапами, каскад)."""
+    await funnel_templates_svc.delete_template(session, template_id, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Шаблон удалён"}
+
+
+@router.get("/funnel-templates/{template_id}/stages", response_model=list[CompanyDefaultStageOut])
+async def get_funnel_template_stages(
+    template_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Этапы шаблона."""
+    stages = await funnel_templates_svc.list_template_stages(session, template_id, company_id)
+    result = []
+    for s in stages:
+        out = CompanyDefaultStageOut.model_validate(s)
+        out.color = _template_stage_color(s.stage_key)
+        result.append(out)
+    return result
+
+
+@router.post("/funnel-templates/{template_id}/stages", response_model=CompanyDefaultStageOut, status_code=201)
+async def add_funnel_template_stage(
+    template_id: UUID,
+    data: CompanyDefaultStageCreate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Добавить этап в шаблон."""
+    s = await funnel_templates_svc.add_template_stage(session, template_id, company_id, data, current_user.id)
+    out = CompanyDefaultStageOut.model_validate(s)
+    out.color = _template_stage_color(s.stage_key)
+    await session.commit()
+    return out
+
+
+@router.patch("/funnel-templates/{template_id}/stages/{stage_key}", response_model=CompanyDefaultStageOut)
+async def rename_funnel_template_stage(
+    template_id: UUID,
+    stage_key: str,
+    data: CompanyDefaultStageUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Переименовать этап шаблона (только label)."""
+    s = await funnel_templates_svc.rename_template_stage(session, template_id, stage_key, company_id, data, current_user.id)
+    out = CompanyDefaultStageOut.model_validate(s)
+    out.color = _template_stage_color(s.stage_key)
+    await session.commit()
+    return out
+
+
+@router.delete("/funnel-templates/{template_id}/stages/{stage_key}", response_model=MessageResult)
+async def delete_funnel_template_stage(
+    template_id: UUID,
+    stage_key: str,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Удалить этап шаблона (защищённые нельзя)."""
+    await funnel_templates_svc.delete_template_stage(session, template_id, stage_key, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Этап удалён"}
+
+
+@router.put("/funnel-templates/{template_id}/stages/reorder", response_model=MessageResult)
+async def reorder_funnel_template_stages(
+    template_id: UUID,
+    data: CompanyDefaultStageReorder,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Переупорядочить этапы шаблона."""
+    await funnel_templates_svc.reorder_template_stages(session, template_id, company_id, data.order, current_user.id)
     await session.commit()
     return {"message": "Этапы переупорядочены"}
