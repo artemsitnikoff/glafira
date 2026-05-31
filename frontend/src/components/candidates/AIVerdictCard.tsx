@@ -1,3 +1,5 @@
+import { scoreBand, scoreClass } from '@/lib/score';
+
 type Props = {
   evaluation: any;
   hideLink?: boolean;
@@ -7,24 +9,20 @@ type Props = {
 export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
   if (!evaluation) return null;
 
-  // Score color
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'score-green';
-    if (score >= 60) return 'score-yellow';
-    return 'score-red';
-  };
+  // Score color — единый порог 80/50 (раньше тут было 60 → расходилось с текстом ниже)
+  const getScoreColor = (score: number) => scoreClass(score);
 
-  // Use real AI summary or fallback based on score
+  // Use real AI summary or fallback based on score (порог из того же scoreBand)
   const getSummaryText = () => {
     if (evaluation.summary) {
       return evaluation.summary;
     }
-    // Fallback based on score
-    return evaluation.score >= 80
+    const band = scoreBand(evaluation.score);
+    return band === 'green'
       ? 'Хорошо подходит. Релевантный опыт, ключевые навыки совпадают с требованиями вакансии.'
-      : evaluation.score >= 50
-      ? 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.'
-      : 'Не подходит. Опыт не совпадает с требованиями вакансии.';
+      : band === 'red'
+      ? 'Не подходит. Опыт не совпадает с требованиями вакансии.'
+      : 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.';
   };
 
   return (

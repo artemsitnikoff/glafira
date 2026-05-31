@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCandidate, useCandidateApplications } from '../../api/hooks/useCandidates'
 import { AssignToVacancyModal } from './components/AssignToVacancyModal'
 import { messengerChannel } from '@/lib/messengers'
+import { formatSalary as fmtSalary } from '@/lib/format'
 import { Icon } from '@/components/ui/Icon'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScoreLabel } from '@/components/ui/ScoreLabel'
@@ -82,12 +83,10 @@ export function CandidatePoolDetailPage() {
     handleTabChange('evaluation')
   }
 
-  const formatSalary = () => {
-    if (!candidate?.salary_expectation) return null
-    const amount = candidate.salary_expectation.toLocaleString()
-    const currency = candidate.currency || '₽'
-    return `${amount} ${currency}`
-  }
+  const formatSalary = () =>
+    candidate?.salary_expectation
+      ? fmtSalary(candidate.salary_expectation, candidate.currency)
+      : null
 
   const fmtDate = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''

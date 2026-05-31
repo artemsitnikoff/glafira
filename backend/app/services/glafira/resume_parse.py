@@ -1,5 +1,6 @@
 """Парсинг резюме и автозаполнение полей кандидата"""
 
+import asyncio
 import logging
 import re
 from io import BytesIO
@@ -50,6 +51,19 @@ def _to_str(value, maxlen: int) -> str | None:
     return s[:maxlen] if s else None
 
 
+def _extract_pdf_text(content: bytes) -> str | None:
+    """Синхронный парсинг PDF (выносится в asyncio.to_thread, чтобы не блокировать event loop
+    на время извлечения текста — на больших/многостраничных резюме это секунды)."""
+    from pypdf import PdfReader
+    reader = PdfReader(BytesIO(content))
+    text_parts = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text_parts.append(page_text)
+    return "\n".join(text_parts) if text_parts else None
+
+
 async def extract_resume_text(content: bytes, filename: str) -> str | None:
     """Extract text content from resume file"""
     file_ext = Path(filename).suffix.lower()
@@ -64,14 +78,7 @@ async def extract_resume_text(content: bytes, filename: str) -> str | None:
 
     elif file_ext == '.pdf':
         try:
-            from pypdf import PdfReader
-            reader = PdfReader(BytesIO(content))
-            text_parts = []
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_parts.append(page_text)
-            text = "\n".join(text_parts) if text_parts else None
+            text = await asyncio.to_thread(_extract_pdf_text, content)
             if text:
                 logger.info(f"Extracted {len(text)} characters from PDF {filename}")
             else:

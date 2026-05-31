@@ -84,27 +84,22 @@ async def get_candidate_comments(
         filters.append(Comment.application_id == application_id)
 
     from sqlalchemy import and_
+    # Автор берётся одним запросом (JOIN), без отдельного SELECT на каждый комментарий (N+1).
     result = await session.execute(
-        select(Comment)
+        select(Comment, User.full_name, User.role)
         .join(User, Comment.author_user_id == User.id)
         .where(and_(*filters))
         .order_by(Comment.created_at.desc())
     )
-    comments = result.scalars().all()
+    rows = result.all()
 
     # Convert to CommentOut
     items = []
-    for comment in comments:
-        # Get author info
-        author_result = await session.execute(
-            select(User.full_name, User.role).where(User.id == comment.author_user_id)
-        )
-        author = author_result.one()
-
+    for comment, author_name, author_role in rows:
         items.append(CommentOut(
             id=comment.id,
-            author_name=author.full_name,
-            author_role=author.role,
+            author_name=author_name,
+            author_role=author_role,
             body=comment.body,
             mentions=comment.mentions or [],
             created_at=comment.created_at

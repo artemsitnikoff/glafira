@@ -1,21 +1,20 @@
+import { scoreBand } from '@/lib/score';
+
 interface ScoreBadgeProps {
   value: number | null;
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export function ScoreBadge({ value, size = 'md' }: ScoreBadgeProps) {
-  let bg: string;
-  const text = String(value ?? '—');
+const BAND_BG = {
+  green: 'var(--score-green)',
+  yellow: 'var(--score-yellow)',
+  red: 'var(--score-red)',
+  none: 'var(--bg-3)',
+} as const;
 
-  if (value === null) {
-    bg = 'var(--bg-3)';
-  } else if (value >= 80) {
-    bg = 'var(--score-green)';
-  } else if (value >= 50) {
-    bg = 'var(--score-yellow)';
-  } else {
-    bg = 'var(--score-red)';
-  }
+export function ScoreBadge({ value, size = 'md' }: ScoreBadgeProps) {
+  const text = String(value ?? '—');
+  const bg = BAND_BG[scoreBand(value)];
 
   const sizes = {
     sm: { fs: 11, p: '2px 6px' },

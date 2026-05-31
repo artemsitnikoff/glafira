@@ -61,24 +61,17 @@ async def get_candidate_documents(
     if not candidate_result.scalar_one_or_none():
         raise NotFoundError("Кандидат")
 
-    # Get documents
+    # Get documents — имя загрузившего одним запросом (outerjoin User), без SELECT на каждый документ (N+1).
     result = await session.execute(
-        select(Document)
+        select(Document, User.full_name)
+        .outerjoin(User, Document.uploaded_by == User.id)
         .where(Document.candidate_id == candidate_id)
         .order_by(Document.created_at.desc())
     )
-    documents = result.scalars().all()
+    rows = result.all()
 
-    # Get uploader names
     items = []
-    for doc in documents:
-        uploaded_by_name = None
-        if doc.uploaded_by:
-            user_result = await session.execute(
-                select(User.full_name).where(User.id == doc.uploaded_by)
-            )
-            uploaded_by_name = user_result.scalar_one_or_none()
-
+    for doc, uploaded_by_name in rows:
         items.append(DocumentOut(
             id=doc.id,
             filename=doc.filename,

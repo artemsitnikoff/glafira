@@ -5,20 +5,15 @@ import { StageChip } from '@/components/ui/StageChip';
 import { MessIconRound } from '@/components/ui/MessIconRound';
 import { messengerChannel } from '@/lib/messengers';
 import { Icon } from '@/components/ui/Icon';
+import { scoreClass } from '@/lib/score';
+import { formatSalary } from '@/lib/format';
 
 // Score-бейдж 1:1 по эталону: светлый пастельный фон + тёмный текст, фикс-бокс по score-{size}.
 // Использует scoped-классы .score-badge/.score-green/.score-lg из Funnel.css.
 // Общий components/ui/ScoreBadge — другой стиль (сплошной фон + белый текст), его НЕ трогаем (юзают другие экраны).
-function scoreColorClass(s: number | null | undefined): string {
-  if (s == null) return '';
-  if (s >= 80) return 'score-green';
-  if (s >= 50) return 'score-yellow';
-  return 'score-red';
-}
-
 function ScoreBadge({ value, size = 'lg' }: { value: number | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
   return (
-    <span className={`score-badge ${scoreColorClass(value)} score-${size}`} title="Почему такая оценка">
+    <span className={`score-badge ${scoreClass(value)} score-${size}`} title="Почему такая оценка">
       {value == null ? '—' : value}
     </span>
   );
@@ -275,9 +270,6 @@ function FunnelRow({
   onSelect: () => void;
   onOpen: () => void;
 }) {
-  const formatSalary = (amount: number) => {
-    return amount.toLocaleString('ru-RU').replace(/,/g, ' ');
-  };
 
   return (
     <div
@@ -341,7 +333,7 @@ function FunnelRow({
 
           <div className="ct-col t-mono" style={{ width: 120 }}>
             {candidate.salary_expectation
-              ? `${formatSalary(candidate.salary_expectation)} ₽`
+              ? formatSalary(candidate.salary_expectation, candidate.currency)
               : '—'}
           </div>
 

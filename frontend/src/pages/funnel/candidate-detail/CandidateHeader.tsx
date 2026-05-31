@@ -1,4 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
+import { formatSalary } from '@/lib/format';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
 import { MessIconRound } from '@/components/ui/MessIconRound';
@@ -61,11 +62,6 @@ export function CandidateHeader({ candidateId, application }: Props) {
     }
   };
 
-  // Format salary with narrow non-breaking spaces like in etalon
-  const fmtSalary = (n: number) => {
-    return n.toLocaleString('ru-RU').replace(/\s/g, ' ');
-  };
-
   const sourceInfo = getSourceInfo();
   const formattedDate = (application as any)?.created_at ? formatDate((application as any).created_at) : null;
 
@@ -113,7 +109,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
           </div>
           <div className="cd-salary-line">
             <span className="cd-salary t-mono">
-              {candidate.salary_expectation ? `${fmtSalary(candidate.salary_expectation)} ₽` : '—'}
+              {candidate.salary_expectation ? formatSalary(candidate.salary_expectation, candidate.currency) : '—'}
             </span>
             <span className="cd-salary-label">ожидания</span>
           </div>
