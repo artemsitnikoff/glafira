@@ -1,3 +1,4 @@
+import React, { useCallback, useRef } from 'react';
 import { useApplications, type ApplicationFilters } from '@/api/hooks/useApplications';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Avatar } from '@/components/ui/Avatar';
@@ -47,15 +48,24 @@ export default function FunnelTable({
     });
   };
 
-  const handleRowSelect = (id: string) => {
-    const newIds = new Set(selectedIds);
-    if (newIds.has(id)) {
-      newIds.delete(id);
+  // Ref для стабильности коллбэков
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+
+  // Стабильные коллбэки для FunnelRow
+  const onToggleRow = useCallback((id: string) => {
+    const next = new Set(selectedIdsRef.current);
+    if (next.has(id)) {
+      next.delete(id);
     } else {
-      newIds.add(id);
+      next.add(id);
     }
-    onSelectionChange(newIds);
-  };
+    onSelectionChange(next);
+  }, [onSelectionChange]);
+
+  const onOpenRow = useCallback((candidateId: string) => {
+    onCandidateSelect(candidateId);
+  }, [onCandidateSelect]);
 
 
   if (isLoading) {
@@ -199,8 +209,8 @@ export default function FunnelTable({
               isSelected={selectedIds.has(candidate.id)}
               isActive={candidate.candidate_id === activeCandidateId}
               detailMode={detailMode}
-              onSelect={() => handleRowSelect(candidate.id)}
-              onOpen={() => onCandidateSelect(candidate.candidate_id)}
+              onToggleRow={onToggleRow}
+              onOpenRow={onOpenRow}
             />
           ))}
         </div>
@@ -245,34 +255,34 @@ function SortableHeader({
   );
 }
 
-function FunnelRow({
+const FunnelRow = React.memo(function FunnelRow({
   candidate,
   isSelected,
   isActive,
   detailMode,
-  onSelect,
-  onOpen,
+  onToggleRow,
+  onOpenRow,
 }: {
   candidate: any;
   isSelected: boolean;
   isActive: boolean;
   detailMode: boolean;
-  onSelect: () => void;
-  onOpen: () => void;
+  onToggleRow: (id: string) => void;
+  onOpenRow: (candidateId: string) => void;
 }) {
 
   return (
     <div
       className={`cand-row ${isSelected ? 'selected' : ''} ${isActive ? 'open' : ''}`}
       style={{ '--stage-color': candidate.stage_color } as React.CSSProperties}
-      onClick={onOpen}
+      onClick={() => onOpenRow(candidate.candidate_id)}
     >
       <div className="ct-profile">
         <input
           type="checkbox"
           className="row-check"
           checked={isSelected}
-          onChange={onSelect}
+          onChange={() => onToggleRow(candidate.id)}
           onClick={e => e.stopPropagation()}
         />
         <Avatar name={candidate.full_name} size="md" src={candidate.avatar_url} />
@@ -344,4 +354,4 @@ function FunnelRow({
       )}
     </div>
   );
-}
+});

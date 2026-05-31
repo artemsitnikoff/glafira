@@ -1,21 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuthStore, selectIsAuthenticated } from '@/store/authStore';
 import { api } from '@/api/client';
 import type { UserMe } from '@/api/aliases';
 import AppLayout from '@/components/AppLayout';
 import LoginPage from '@/pages/LoginPage';
-import HomePage from '@/pages/HomePage';
-import VacanciesPage from '@/pages/VacanciesPage';
-import VacanciesArchivePage from '@/pages/VacanciesArchivePage';
-import VacancyFormPage from '@/pages/VacancyFormPage';
-import VacancyDetailPage from '@/pages/VacancyDetailPage';
-import { CandidatesPoolPage } from '@/pages/candidates/CandidatesPoolPage';
-import { CandidatePoolDetailPage } from '@/pages/candidates/CandidatePoolDetailPage';
-import { PulseComingSoon } from '@/pages/pulse/PulseComingSoon';
-import AnalyticsPage from '@/pages/AnalyticsPage';
-import SettingsPage from '@/pages/SettingsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+
+// Lazy-загружаемые страницы
+const HomePage = lazy(() => import('@/pages/HomePage'));
+const VacanciesPage = lazy(() => import('@/pages/VacanciesPage'));
+const VacanciesArchivePage = lazy(() => import('@/pages/VacanciesArchivePage'));
+const VacancyFormPage = lazy(() => import('@/pages/VacancyFormPage'));
+const VacancyDetailPage = lazy(() => import('@/pages/VacancyDetailPage'));
+const CandidatesPoolPage = lazy(() => import('@/pages/candidates/CandidatesPoolPage').then(m => ({ default: m.CandidatesPoolPage })));
+const CandidatePoolDetailPage = lazy(() => import('@/pages/candidates/CandidatePoolDetailPage').then(m => ({ default: m.CandidatePoolDetailPage })));
+const PulseComingSoon = lazy(() => import('@/pages/pulse/PulseComingSoon').then(m => ({ default: m.PulseComingSoon })));
+const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);

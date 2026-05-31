@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useCandidates } from '../../api/hooks/useCandidates'
@@ -15,10 +15,15 @@ import './CandidatesPoolPage.css'
 
 export function CandidatesPoolPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [showFilters, setShowFilters] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
+
+  // Ref для стабильности коллбэков - используем актуальные searchParams без пересоздания коллбэков
+  const searchParamsRef = useRef(searchParams)
+  searchParamsRef.current = searchParams
 
   // Debounce search input
   const debouncedSearch = useDebounce(searchInput, 200)
@@ -162,6 +167,29 @@ export function CandidatesPoolPage() {
     setShowFilters(true)
   }
 
+  // Стабильные коллбэки для PoolCard - снимаем хуки из дочерних карточек
+  const onOpenCard = useCallback((candidateId: string) => {
+    sessionStorage.setItem('pool:filters', searchParamsRef.current.toString())
+    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
+    navigate(`/candidates/${candidateId}`)
+  }, [navigate])
+
+  const onOpenEvaluation = useCallback((candidateId: string) => {
+    sessionStorage.setItem('pool:filters', searchParamsRef.current.toString())
+    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
+    navigate(`/candidates/${candidateId}?tab=evaluation`)
+  }, [navigate])
+
+  const onOpenVacancy = useCallback((vacancyId: string) => {
+    navigate(`/vacancies/${vacancyId}`)
+  }, [navigate])
+
+  const onOpenHistory = useCallback((candidateId: string) => {
+    sessionStorage.setItem('pool:filters', searchParamsRef.current.toString())
+    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
+    navigate(`/candidates/${candidateId}?history=open`)
+  }, [navigate])
+
   if (showAddForm) {
     return (
       <CandidateFormWrapper
@@ -249,6 +277,10 @@ export function CandidatesPoolPage() {
           <PoolCard
             key={candidate.id}
             candidate={candidate}
+            onOpenCard={onOpenCard}
+            onOpenEvaluation={onOpenEvaluation}
+            onOpenVacancy={onOpenVacancy}
+            onOpenHistory={onOpenHistory}
           />
         ))}
 
@@ -327,38 +359,38 @@ export function CandidatesPoolPage() {
 // ====== Pool Card Component ======
 interface PoolCardProps {
   candidate: CandidateGridItem
+  onOpenCard: (candidateId: string) => void
+  onOpenEvaluation: (candidateId: string) => void
+  onOpenVacancy: (vacancyId: string) => void
+  onOpenHistory: (candidateId: string) => void
 }
 
-function PoolCard({ candidate }: PoolCardProps) {
-  const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-
+const PoolCard = React.memo(function PoolCard({
+  candidate,
+  onOpenCard,
+  onOpenEvaluation,
+  onOpenVacancy,
+  onOpenHistory
+}: PoolCardProps) {
   const handleCardClick = () => {
-    // Save current filters for back navigation
-    sessionStorage.setItem('pool:filters', searchParams.toString())
-    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
-    navigate(`/candidates/${candidate.id}`)
+    onOpenCard(candidate.id)
   }
 
   const handleScoreBadgeClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    sessionStorage.setItem('pool:filters', searchParams.toString())
-    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
-    navigate(`/candidates/${candidate.id}?tab=evaluation`)
+    onOpenEvaluation(candidate.id)
   }
 
   const handleVacancyClick = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (candidate.last_vacancy) {
-      navigate(`/vacancies/${candidate.last_vacancy.vacancy_id}`)
+      onOpenVacancy(candidate.last_vacancy.vacancy_id)
     }
   }
 
   const handleOtherVacanciesClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    sessionStorage.setItem('pool:filters', searchParams.toString())
-    sessionStorage.setItem('pool:scrollY', String(window.scrollY))
-    navigate(`/candidates/${candidate.id}?history=open`)
+    onOpenHistory(candidate.id)
   }
 
   // Format age and experience display
@@ -431,7 +463,7 @@ function PoolCard({ candidate }: PoolCardProps) {
 
     </div>
   )
-}
+});
 
 // ====== Wrapper for NewCandidateForm without preset vacancy ======
 interface CandidateFormWrapperProps {
