@@ -27,6 +27,7 @@ from .settings import (
     SurveyTemplate,
     GlafiraSettings,
     Integration,
+    CompanyDefaultStage,
 )
 
 __all__ = [
@@ -62,4 +63,5 @@ __all__ = [
     "SurveyTemplate",
     "GlafiraSettings",
     "Integration",
+    "CompanyDefaultStage",
 ]

@@ -8,7 +8,7 @@ from sqlalchemy.future import select
 from app.config import settings
 from app.core.security import get_password_hash
 from app.database import AsyncSessionLocal
-from app.models import Company, GlafiraSettings, RejectReason, User
+from app.models import Company, GlafiraSettings, RejectReason, User, CompanyDefaultStage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -124,6 +124,38 @@ async def seed_glafira_settings(session: AsyncSession) -> None:
     logger.info("Created default Glafira settings")
 
 
+async def seed_company_default_stages(session: AsyncSession) -> None:
+    """Create default stages for company from core/stages.py STAGES"""
+    from app.core.stages import STAGES
+
+    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+
+    # Check if any stages exist
+    existing = (
+        await session.execute(
+            select(CompanyDefaultStage).where(CompanyDefaultStage.company_id == company_id).limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        logger.info("Company default stages already exist for company %s", company_id)
+        return
+
+    # Create stages from STAGES definition
+    for stage_def in STAGES.values():
+        session.add(
+            CompanyDefaultStage(
+                company_id=company_id,
+                stage_key=stage_def.key,
+                label=stage_def.label,
+                order_index=stage_def.order_index,
+                is_terminal=stage_def.is_terminal,
+            )
+        )
+
+    logger.info("Created %d default stages for company", len(STAGES))
+
+
 async def main() -> None:
     logger.info("Seeding database")
 
@@ -134,6 +166,7 @@ async def main() -> None:
             await seed_admin_user(session)
             await seed_reject_reasons(session)
             await seed_glafira_settings(session)
+            await seed_company_default_stages(session)
             await session.commit()
             logger.info("Seed completed")
         except Exception:

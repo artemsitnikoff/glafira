@@ -251,9 +251,12 @@ async def create_vacancy(
         )
         session.add(team_member)
 
-    # Create stages - either custom or from template
+    # Create stages with new priority order:
+    # 1. Custom from form (if specified)
+    # 2. Company default stages (if exist)
+    # 3. Template stages (fallback for backward compatibility)
     if vacancy_data.stages is not None and len(vacancy_data.stages) > 0:
-        # Use custom stages
+        # 1. Use custom stages from form
         for stage_input in vacancy_data.stages:
             stage = VacancyStage(
                 company_id=company_id,
@@ -265,18 +268,40 @@ async def create_vacancy(
             )
             session.add(stage)
     else:
-        # Use template stages for backward compatibility
-        stages = get_stages_for_template(vacancy_data.funnel_template)
-        for stage_def in stages:
-            stage = VacancyStage(
-                company_id=company_id,
-                vacancy_id=vacancy.id,
-                stage_key=stage_def.key,
-                label=stage_def.label,
-                order_index=stage_def.order_index,
-                is_terminal=stage_def.is_terminal
-            )
-            session.add(stage)
+        # 2. Try to use company default stages
+        from ..models import CompanyDefaultStage
+        company_stages_result = await session.execute(
+            select(CompanyDefaultStage)
+            .where(CompanyDefaultStage.company_id == company_id)
+            .order_by(CompanyDefaultStage.order_index)
+        )
+        company_stages = list(company_stages_result.scalars().all())
+
+        if company_stages:
+            # Use company default stages
+            for company_stage in company_stages:
+                stage = VacancyStage(
+                    company_id=company_id,
+                    vacancy_id=vacancy.id,
+                    stage_key=company_stage.stage_key,
+                    label=company_stage.label,
+                    order_index=company_stage.order_index,
+                    is_terminal=company_stage.is_terminal
+                )
+                session.add(stage)
+        else:
+            # 3. Fallback to template stages for backward compatibility
+            stages = get_stages_for_template(vacancy_data.funnel_template)
+            for stage_def in stages:
+                stage = VacancyStage(
+                    company_id=company_id,
+                    vacancy_id=vacancy.id,
+                    stage_key=stage_def.key,
+                    label=stage_def.label,
+                    order_index=stage_def.order_index,
+                    is_terminal=stage_def.is_terminal
+                )
+                session.add(stage)
 
     await session.flush()
 

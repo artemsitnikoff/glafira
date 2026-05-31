@@ -17,6 +17,7 @@ from ...schemas.settings import (
     RejectReasonOut,
     RejectReasonCreate,
     RejectReasonUpdate,
+    RejectReasonReorder,
     EmailTemplateOut,
     EmailTemplateCreate,
     EmailTemplateUpdate,
@@ -26,6 +27,10 @@ from ...schemas.settings import (
     IntegrationOut,
     IntegrationUpdate,
     BillingOut,
+    CompanyDefaultStageOut,
+    CompanyDefaultStageCreate,
+    CompanyDefaultStageUpdate,
+    CompanyDefaultStageReorder,
 )
 from ...services.settings import (
     profile,
@@ -35,6 +40,7 @@ from ...services.settings import (
     survey_templates,
     integrations,
     billing,
+    default_funnel,
 )
 from ...services import candidate as candidate_service
 
@@ -155,6 +161,19 @@ async def delete_reject_reason(
     await reject_reasons.delete_reject_reason(session, reason_id, company_id, current_user.id)
     await session.commit()
     return {"message": "Причина отказа удалена"}
+
+
+@router.put("/reject-reasons/reorder", response_model=MessageResult)
+async def reorder_reject_reasons(
+    data: RejectReasonReorder,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Reorder reject reasons by side"""
+    await reject_reasons.reorder_reject_reasons(session, company_id, data.side, data.reason_ids, current_user.id)
+    await session.commit()
+    return {"message": "Причины отказа переупорядочены"}
 
 
 # Email Templates endpoints
@@ -326,3 +345,87 @@ async def list_tags(
     """Get all tags for the company"""
     tags = await candidate_service.list_company_tags(session, company_id)
     return [TagOut.model_validate(tag) for tag in tags]
+
+
+# Company Default Funnel endpoints
+@router.get("/default-funnel", response_model=list[CompanyDefaultStageOut])
+async def get_default_funnel(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Get company default funnel stages"""
+    from ...core.stages import STAGES
+    stages = await default_funnel.list_default_stages(session, company_id)
+    result = []
+    for stage in stages:
+        # Add color from STAGES
+        color = STAGES.get(stage.stage_key, type('obj', (object,), {"color": "#9AA3AE"})()).color
+        stage_data = CompanyDefaultStageOut.model_validate(stage)
+        stage_data.color = color
+        result.append(stage_data)
+    return result
+
+
+@router.post("/default-funnel", response_model=CompanyDefaultStageOut, status_code=201)
+async def create_default_stage(
+    data: CompanyDefaultStageCreate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Create new default funnel stage"""
+    stage = await default_funnel.create_default_stage(session, company_id, data, current_user.id)
+    await session.commit()
+
+    # Add color from STAGES
+    from ...core.stages import STAGES
+    color = STAGES.get(stage.stage_key, type('obj', (object,), {"color": "#9AA3AE"})()).color
+    stage_data = CompanyDefaultStageOut.model_validate(stage)
+    stage_data.color = color
+    return stage_data
+
+
+@router.patch("/default-funnel/{stage_key}", response_model=CompanyDefaultStageOut)
+async def update_default_stage(
+    stage_key: str,
+    data: CompanyDefaultStageUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Update default funnel stage (only label)"""
+    stage = await default_funnel.update_default_stage(session, stage_key, company_id, data, current_user.id)
+    await session.commit()
+
+    # Add color from STAGES
+    from ...core.stages import STAGES
+    color = STAGES.get(stage.stage_key, type('obj', (object,), {"color": "#9AA3AE"})()).color
+    stage_data = CompanyDefaultStageOut.model_validate(stage)
+    stage_data.color = color
+    return stage_data
+
+
+@router.delete("/default-funnel/{stage_key}", response_model=MessageResult)
+async def delete_default_stage(
+    stage_key: str,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Delete default funnel stage (if not protected)"""
+    await default_funnel.delete_default_stage(session, stage_key, company_id, current_user.id)
+    await session.commit()
+    return {"message": "Этап удален"}
+
+
+@router.put("/default-funnel/reorder", response_model=MessageResult)
+async def reorder_default_stages(
+    data: CompanyDefaultStageReorder,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Reorder default funnel stages"""
+    await default_funnel.reorder_default_stages(session, company_id, data, current_user.id)
+    await session.commit()
+    return {"message": "Этапы переупорядочены"}

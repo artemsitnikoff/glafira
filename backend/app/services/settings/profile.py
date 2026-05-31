@@ -28,6 +28,8 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
         "phone": user.phone,
         "position": user.position,
         "timezone": user.timezone,
+        "language": user.language,
+        "date_format": user.date_format,
         "avatar_url": user.avatar_url,
     }
 
@@ -42,6 +44,10 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
         user.position = data.position
     if data.timezone is not None:
         user.timezone = data.timezone
+    if data.language is not None:
+        user.language = data.language
+    if data.date_format is not None:
+        user.date_format = data.date_format
     if data.avatar_url is not None:
         user.avatar_url = data.avatar_url
 
@@ -54,6 +60,8 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
         "phone": user.phone,
         "position": user.position,
         "timezone": user.timezone,
+        "language": user.language,
+        "date_format": user.date_format,
         "avatar_url": user.avatar_url,
     }
 

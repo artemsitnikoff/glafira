@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -14,6 +14,8 @@ class ProfileOut(ORMBase):
     phone: Optional[str]
     position: Optional[str]
     timezone: str
+    language: str
+    date_format: str
     avatar_url: Optional[str]
     role: str
 
@@ -24,6 +26,8 @@ class ProfileUpdate(BaseModel):
     phone: Optional[str] = None
     position: Optional[str] = None
     timezone: Optional[str] = None
+    language: Optional[str] = None
+    date_format: Optional[str] = None
     avatar_url: Optional[str] = None
 
 
@@ -79,6 +83,11 @@ class RejectReasonUpdate(BaseModel):
     label: Optional[str] = None
     order_index: Optional[int] = None
     is_active: Optional[bool] = None
+
+
+class RejectReasonReorder(BaseModel):
+    side: str = Field(..., description="Side: 'candidate' or 'company'")
+    reason_ids: list[UUID] = Field(..., description="List of reason IDs in new order")
 
 
 # Email Templates schemas
@@ -166,3 +175,27 @@ class BillingOut(BaseModel):
     current_candidates: int      # РЕАЛЬНЫЙ count (deleted_at IS NULL)
     current_vacancies: int       # РЕАЛЬНЫЙ count (status='active' AND deleted_at IS NULL)
     billing_until: Optional[datetime]
+
+
+# Company Default Stage schemas
+class CompanyDefaultStageOut(ORMBase):
+    stage_key: str
+    label: str
+    order_index: int
+    is_terminal: bool
+    color: Optional[str] = None  # Computed from STAGES
+
+
+class CompanyDefaultStageCreate(BaseModel):
+    stage_key: str
+    label: str
+    order_index: int = 0
+    is_terminal: bool = False
+
+
+class CompanyDefaultStageUpdate(BaseModel):
+    label: str
+
+
+class CompanyDefaultStageReorder(BaseModel):
+    order: list[str]  # List of stage_keys in new order

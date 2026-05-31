@@ -38,6 +38,16 @@ class User(Base, TimestampMixin, CompanyMixin):
         nullable=False,
         server_default=text("'Europe/Moscow'")
     )
+    language: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        server_default=text("'ru'")
+    )
+    date_format: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default=text("'DD.MM.YYYY'")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
     # Constraints
