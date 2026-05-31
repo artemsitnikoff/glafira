@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, Cookie
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
 
 from ...config import settings
 from ...database import get_db
@@ -53,7 +55,30 @@ async def refresh_token(
         user_id = payload.get("sub")
         if user_id is None:
             raise InvalidCredentialsError()
+
+        # Check that this is a refresh token, not an access token
+        if payload.get("type") != "refresh":
+            raise InvalidCredentialsError()
+
+        # Convert to UUID safely
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            raise InvalidCredentialsError()
+
     except ValueError:
+        raise InvalidCredentialsError()
+
+    # Load user from database and check if active
+    result = await session.execute(
+        select(User).where(User.id == user_uuid)
+    )
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise InvalidCredentialsError()
+
+    if not user.is_active:
         raise InvalidCredentialsError()
 
     # Create new tokens

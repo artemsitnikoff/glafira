@@ -24,12 +24,23 @@ async def get_current_user(
         user_id = payload.get("sub")
         if user_id is None:
             raise InvalidCredentialsError()
+
+        # Check that this is an access token, not a refresh token
+        if payload.get("type") != "access":
+            raise InvalidCredentialsError()
+
+        # Convert to UUID safely
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            raise InvalidCredentialsError()
+
     except ValueError:
         raise InvalidCredentialsError()
 
     # Query user from database
     result = await session.execute(
-        select(User).where(User.id == UUID(user_id))
+        select(User).where(User.id == user_uuid)
     )
     user = result.scalar_one_or_none()
 
