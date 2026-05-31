@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+import asyncio
 import uuid
 
 
@@ -27,8 +28,13 @@ class LocalStorageService(StorageService):
     async def save(self, content: bytes, *, company_id, candidate_id, filename: str) -> str:
         rel = Path(str(company_id)) / str(candidate_id) / f"{uuid.uuid4()}_{filename}"
         full = self.root / rel
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_bytes(content)
+
+        # Синхронный дисковый I/O (до 10 МБ) выносим в поток, чтобы не блокировать event loop.
+        def _write() -> None:
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_bytes(content)
+
+        await asyncio.to_thread(_write)
         return str(rel)
 
     def get_path(self, storage_path: str) -> Path:
@@ -36,8 +42,12 @@ class LocalStorageService(StorageService):
 
     async def delete(self, storage_path: str) -> None:
         p = self.get_path(storage_path)
-        if p.exists():
-            p.unlink()
+
+        def _delete() -> None:
+            if p.exists():
+                p.unlink()
+
+        await asyncio.to_thread(_delete)
 
 
 # Global instance

@@ -275,11 +275,33 @@ async def list_employees_paginated(
     candidate_ids = [emp.candidate_id for emp in employees if emp.candidate_id]
     candidates_data = {}
 
+    # Батч сигналов риска за последнюю неделю — без N+1 на compute_risk_level в цикле.
+    # Сигнал = пропущенный опрос (answered_at IS NULL) ИЛИ опрос с низкой оценкой (overall_score < 3),
+    # 1:1 с логикой compute_risk_level (skipped + low_score, независимо).
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    risk_rows = (await session.execute(
+        select(
+            PulseSurvey.employee_id,
+            PulseSurvey.answered_at,
+            PulseSurvey.overall_score
+        ).where(
+            PulseSurvey.employee_id.in_(employee_ids),
+            PulseSurvey.sent_at >= week_ago
+        )
+    )).all()
+    risk_signals = defaultdict(int)
+    for r in risk_rows:
+        if r.answered_at is None:
+            risk_signals[r.employee_id] += 1
+        if r.overall_score is not None and r.overall_score < 3:
+            risk_signals[r.employee_id] += 1
+
     # Convert to response format with computed fields
     items = []
     for employee in employees:
-        # Compute risk level if needed
-        risk_level = await compute_risk_level(session, employee)
+        # Уровень риска из предпосчитанных сигналов (порог 1:1 с compute_risk_level)
+        signals = risk_signals[employee.id]
+        risk_level = 'high' if signals >= 2 else ('mid' if signals == 1 else 'low')
         adapt_day = compute_adapt_day(employee.start_date)
         manager_full_name = employee.manager_user.full_name if employee.manager_user else None
 
