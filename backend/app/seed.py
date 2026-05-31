@@ -33,6 +33,12 @@ REJECT_REASONS_CANDIDATE = [
     "Слишком далеко от дома",
 ]
 
+# Системные (защищённые) причины — по одной на сторону, нельзя удалить (инвариант непустоты).
+SYSTEM_REJECT_REASONS = {
+    "company": "Несоответствие опыта",
+    "candidate": "Не вышел на связь",
+}
+
 
 async def seed_company(session: AsyncSession) -> None:
     company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
@@ -75,6 +81,7 @@ async def seed_reject_reasons(session: AsyncSession) -> None:
 
     for side, labels in (("company", REJECT_REASONS_COMPANY), ("candidate", REJECT_REASONS_CANDIDATE)):
         for idx, label in enumerate(labels, start=1):
+            is_system = label == SYSTEM_REJECT_REASONS.get(side)
             existing = (
                 await session.execute(
                     select(RejectReason).where(
@@ -85,6 +92,9 @@ async def seed_reject_reasons(session: AsyncSession) -> None:
                 )
             ).scalar_one_or_none()
             if existing:
+                # Идемпотентно подтягиваем флаг системности на уже посеянных причинах.
+                if is_system and not existing.is_system:
+                    existing.is_system = True
                 continue
             session.add(
                 RejectReason(
@@ -92,6 +102,7 @@ async def seed_reject_reasons(session: AsyncSession) -> None:
                     side=side,
                     label=label,
                     order_index=idx,
+                    is_system=is_system,
                 )
             )
 

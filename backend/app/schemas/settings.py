@@ -71,6 +71,7 @@ class RejectReasonOut(ORMBase):
     label: str
     order_index: int
     is_active: bool
+    is_system: bool = False
 
 
 class RejectReasonCreate(BaseModel):

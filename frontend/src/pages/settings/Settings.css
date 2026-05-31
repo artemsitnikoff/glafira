@@ -490,6 +490,16 @@
   color: var(--fg-3); border-radius: 50%;
 }
 .reason-chip-x:hover { background: var(--ark-red-100); color: var(--ark-red-600); }
+.reason-chip-input {
+  border: none; background: transparent; padding: 1px 2px;
+  font: inherit; font-size: 13px; color: inherit; line-height: 1.2;
+  outline: none; min-width: 36px; border-radius: 4px;
+}
+.reason-chip-input:focus { background: var(--bg-2); }
+.reason-chip-lock {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; color: var(--fg-3); flex: none;
+}
 .reason-chip-add {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 6px 10px;

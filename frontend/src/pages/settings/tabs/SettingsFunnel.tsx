@@ -10,6 +10,7 @@ import {
 import { useRejectReasons } from '@/api/hooks/useRejectReasons';
 import {
   useCreateRejectReason,
+  useUpdateRejectReason,
   useDeleteRejectReason
 } from '@/api/mutations/settings';
 import { PageHead, Card } from '../components/FormComponents';
@@ -187,6 +188,7 @@ function FunnelEditor() {
 function RejectReasons() {
   const { data: reasons = [], isLoading } = useRejectReasons();
   const createReasonMutation = useCreateRejectReason();
+  const updateReasonMutation = useUpdateRejectReason();
   const deleteReasonMutation = useDeleteRejectReason();
 
   const candidateReasons = reasons.filter(r => r.side === 'candidate');
@@ -199,6 +201,12 @@ function RejectReasons() {
       order_index: side === 'candidate' ? candidateReasons.length : companyReasons.length
     });
   }, [candidateReasons.length, companyReasons.length, createReasonMutation]);
+
+  const handleRenameReason = useCallback((id: string, label: string) => {
+    const trimmed = label.trim().substring(0, 120); // ограничение бэка ≤120
+    if (!trimmed) return;
+    updateReasonMutation.mutate({ id, data: { label: trimmed } });
+  }, [updateReasonMutation]);
 
   const handleDeleteReason = useCallback((id: string) => {
     deleteReasonMutation.mutate(id);
@@ -213,14 +221,30 @@ function RejectReasons() {
       {reasonsList.map((reason) => (
         <span key={reason.id} className={`reason-chip reason-chip-${side === 'candidate' ? 'cand' : 'co'}`}>
           <span className={`r-bullet ${side === 'company' ? 'co' : ''}`} />
-          <span>{reason.label}</span>
-          <button
-            className="reason-chip-x"
-            aria-label="Удалить"
-            onClick={() => handleDeleteReason(reason.id)}
-          >
-            <Icon name="x" size={11} />
-          </button>
+          <input
+            className="reason-chip-input"
+            defaultValue={reason.label}
+            key={`${reason.id}-${reason.label}`}
+            size={Math.max(reason.label.length, 4)}
+            onBlur={(e) => {
+              if (e.target.value.trim() && e.target.value !== reason.label) {
+                handleRenameReason(reason.id, e.target.value);
+              }
+            }}
+          />
+          {reason.is_system ? (
+            <span className="reason-chip-lock" title="Системная причина — нельзя удалить">
+              <Icon name="lock" size={11} />
+            </span>
+          ) : (
+            <button
+              className="reason-chip-x"
+              aria-label="Удалить"
+              onClick={() => handleDeleteReason(reason.id)}
+            >
+              <Icon name="x" size={11} />
+            </button>
+          )}
         </span>
       ))}
       <button

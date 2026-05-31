@@ -162,7 +162,7 @@ async def test_reorder_nonexistent_reason(
         }
     )
 
-    assert response.status_code == 422  # ValidationError
+    assert response.status_code == 400  # бизнес-ValidationError → 400 (core/errors.py)
 
 
 @pytest.mark.asyncio
@@ -180,4 +180,4 @@ async def test_reorder_empty_list(
         }
     )
 
-    assert response.status_code == 422  # ValidationError
+    assert response.status_code == 400  # бизнес-ValidationError → 400 (core/errors.py)

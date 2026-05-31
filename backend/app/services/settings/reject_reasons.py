@@ -122,6 +122,10 @@ async def delete_reject_reason(
     if not reason:
         raise NotFoundError("Причина отказа")
 
+    # Системную причину удалять нельзя — гарантия непустоты (≥1 на каждую сторону).
+    if reason.is_system:
+        raise ValidationError("Системную причину отказа нельзя удалить")
+
     # Store original values for audit
     before = {"is_active": reason.is_active}
 

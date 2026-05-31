@@ -26,6 +26,9 @@ class RejectReason(Base, CompanyMixin):
     label: Mapped[str] = mapped_column(String(120), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # Системная причина — нельзя удалить (гарантия непустоты: ≥1 на каждую сторону).
+    # Переименовать можно. По одной системной на side ('company' / 'candidate').
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     # Constraints
     __table_args__ = (
