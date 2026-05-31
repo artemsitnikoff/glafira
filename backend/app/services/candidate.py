@@ -453,12 +453,15 @@ async def create_candidate(
     if candidate_data.vacancy_id:
         from ..models import Application  # Avoid circular import
 
+        now = datetime.now(timezone.utc)
         application = Application(
             company_id=company_id,
             candidate_id=candidate.id,
             vacancy_id=candidate_data.vacancy_id,
             stage="added",
-            created_at=datetime.now(timezone.utc)
+            created_at=now,
+            # «Дата отбора» = дата привязки кандидата к вакансии (ручное создание).
+            selected_at=now,
         )
         session.add(application)
 

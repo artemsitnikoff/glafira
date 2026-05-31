@@ -2,13 +2,13 @@ import math
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 
-from sqlalchemy import and_, asc, desc, exists, func, or_, select
+from sqlalchemy import and_, asc, desc, exists, func, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..core.errors import NotFoundError, ValidationError
 from ..core.stages import STAGES
-from ..models import Application, Candidate, Consent, Event, StageHistory, User
+from ..models import Application, Candidate, Consent, Event, StageHistory, User, VacancyStage
 from ..schemas.application import (
     ApplicationRow,
     BulkMoveRequest,
@@ -142,19 +142,38 @@ async def get_applications_for_vacancy_paginated(
         .where(and_(*base_filters))
     )
 
-    sort_column = Application.created_at
-    if sort == "score":
+    # Поля сортировки 1:1 с фронтом (имена колонок ApplicationRow). Числовые/дата сортируются
+    # по значению, строки — лексикографически, этап — по порядку воронки (VacancyStage.order_index).
+    sort_column = Application.created_at  # дефолт
+    if sort == "ai_score":
         sort_column = Application.ai_score
-    elif sort == "name":
+    elif sort == "full_name":
         sort_column = Candidate.last_name
-    elif sort == "salary":
+    elif sort == "phone":
+        sort_column = Candidate.phone
+    elif sort == "salary_expectation":
         sort_column = Candidate.salary_expectation
     elif sort == "city":
         sort_column = Candidate.city
-    elif sort == "date":
-        sort_column = Application.created_at
+    elif sort == "selected_at":
+        sort_column = Application.selected_at
+    elif sort == "stage":
+        # Порядок этапов из настроек вакансии, а НЕ алфавит строки stage.
+        stmt = stmt.outerjoin(
+            VacancyStage,
+            and_(
+                VacancyStage.vacancy_id == Application.vacancy_id,
+                VacancyStage.stage_key == Application.stage,
+            ),
+        )
+        sort_column = VacancyStage.order_index
 
-    stmt = stmt.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+    direction = asc if order == "asc" else desc
+    # NULL всегда внизу — иначе кандидаты без AI/ЗП/даты «всплывают» наверх при desc.
+    ordering = [nullslast(direction(sort_column))]
+    if sort == "full_name":
+        ordering.append(nullslast(direction(Candidate.first_name)))  # вторичный ключ для одинаковых фамилий
+    stmt = stmt.order_by(*ordering)
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
 
     rows = (await session.execute(stmt)).all()
@@ -255,6 +274,9 @@ async def move_application(
     now = datetime.now(timezone.utc)
     application.stage = to_stage
     application.stage_changed_at = now
+    # «Дата отбора» проставляется при попадании на этап «Отобран», если ещё пусто.
+    if to_stage == "selected" and application.selected_at is None:
+        application.selected_at = now
 
     session.add(
         StageHistory(

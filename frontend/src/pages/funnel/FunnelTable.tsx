@@ -47,8 +47,14 @@ export default function FunnelTable({
 }: Props) {
   const { data, isLoading } = useApplications(vacancyId, filters);
 
+  // Строки (ФИО/Город) и этап начинают с возрастания (А-Я / порядок воронки);
+  // числовые (AI/Телефон/ЗП) и дата — с убывания. Повторный клик — переключает направление.
+  const ASC_FIRST = new Set(['full_name', 'city', 'stage']);
   const handleSort = (field: string) => {
-    const newOrder = filters.sort === field && filters.order === 'desc' ? 'asc' : 'desc';
+    const firstOrder = ASC_FIRST.has(field) ? 'asc' : 'desc';
+    const newOrder = filters.sort === field
+      ? (filters.order === 'asc' ? 'desc' : 'asc')
+      : firstOrder;
     onFiltersChange({
       ...filters,
       sort: field,
