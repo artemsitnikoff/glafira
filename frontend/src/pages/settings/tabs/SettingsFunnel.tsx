@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { Icon } from '@/components/ui/Icon';
-import { useDefaultFunnel } from '@/api/hooks/useDefaultFunnel';
+import { useDefaultFunnel, type DefaultFunnelStage } from '@/api/hooks/useDefaultFunnel';
 import {
   useAddDefaultFunnelStage,
   useRenameDefaultFunnelStage,
@@ -11,17 +11,57 @@ import { useRejectReasons } from '@/api/hooks/useRejectReasons';
 import {
   useCreateRejectReason,
   useDeleteRejectReason
-  // useReorderRejectReasons
 } from '@/api/mutations/settings';
 import { PageHead, Card } from '../components/FormComponents';
 
-const FUNNEL_STAGE_TYPES = {
+// Защищённые (системные) этапы — зеркало с бэкенда (core/stages.py PROTECTED_STAGE_KEYS).
+const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
+
+type StageTypeKey = 'start' | 'system' | 'middle' | 'finalOk' | 'finalBad';
+
+// Цвета пилюль типов этапов — 1:1 с формой вакансии (VacancyFormPage FUNNEL_STAGE_TYPES).
+const FUNNEL_STAGE_TYPES: Record<StageTypeKey, { label: string; dot: string; bg: string; fg: string }> = {
   start: { label: 'Стартовый', dot: '#2A8AF0', bg: '#EAF3FE', fg: '#1865BE' },
   system: { label: 'Системный', dot: '#7E5CF0', bg: '#F0EAFE', fg: '#5C3FBE' },
   middle: { label: 'Промежуточный', dot: '#9AA3AE', bg: '#ECEFF2', fg: '#3A4452' },
   finalOk: { label: 'Финальный · успех', dot: '#16A34A', bg: '#DEF5E5', fg: '#128640' },
   finalBad: { label: 'Финальный · отказ', dot: '#DC4646', bg: '#FCE3E3', fg: '#B83030' },
 };
+
+const MIDDLE_FALLBACK = FUNNEL_STAGE_TYPES.middle;
+
+// Тип этапа выводится из позиции + is_terminal + stage_key — та же логика, что в форме вакансии.
+function deriveStageType(stage: DefaultFunnelStage, index: number): StageTypeKey {
+  if (index === 0) return 'start';
+  if (stage.is_terminal) {
+    return stage.stage_key === 'hired' || stage.label.toLowerCase().includes('нанят')
+      ? 'finalOk'
+      : 'finalBad';
+  }
+  if (PROTECTED_STAGE_KEYS.has(stage.stage_key)) return 'system';
+  return 'middle';
+}
+
+// Описания канонических этапов (как в форме вакансии). Для кастомных — по типу.
+const STAGE_DESCRIPTIONS: Record<string, string> = {
+  response: 'Кандидат пришёл с источника. Глафира делает первичный скрининг и зовёт в чат.',
+  added: 'Кандидат добавлен рекрутером вручную из общей базы. Системный этап, не удаляется.',
+  selected: 'Глафира посчитала кандидата подходящим — ждём контакта рекрутера.',
+  recruiter: 'Назначен/проведён звонок-знакомство.',
+  interview: 'Техническое или профильное интервью.',
+  manager: 'Финальная встреча с заказчиком.',
+  offer: 'Оффер выслан и согласовывается.',
+  hired: 'Кандидат вышел на работу. Стартует Пульс-Онбординг.',
+  rejected: 'Завершение по причине из справочника.',
+};
+
+function stageDescription(stageKey: string, type: StageTypeKey): string {
+  return STAGE_DESCRIPTIONS[stageKey] ||
+    (type === 'finalOk' ? 'Успешное завершение процесса подбора.' :
+     type === 'finalBad' ? 'Завершение процесса по причине отказа.' :
+     type === 'system' ? 'Системный этап воронки.' :
+     'Этап процесса подбора.');
+}
 
 function FunnelEditor() {
   const { data: stages = [], isLoading } = useDefaultFunnel();
@@ -31,22 +71,21 @@ function FunnelEditor() {
   const reorderStagesMutation = useReorderDefaultFunnelStages();
 
   const handleMove = useCallback((index: number, direction: number) => {
-    const newIndex = index + direction;
-    if (newIndex < 1 || newIndex >= stages.length - 2) return; // Protect first and last 2 stages
+    const j = index + direction;
+    // Нельзя двигать первый этап и два последних финальных (эталонная логика).
+    if (j < 1 || j > stages.length - 2) return;
+    if (index === 0 || index >= stages.length - 2) return;
 
-    const newOrder = [...stages];
-    [newOrder[index], newOrder[newIndex]] = [newOrder[newIndex], newOrder[index]];
+    const next = stages.slice();
+    [next[index], next[j]] = [next[j], next[index]];
 
-    reorderStagesMutation.mutate({
-      stage_keys: newOrder.map(s => s.key)
-    });
+    reorderStagesMutation.mutate({ order: next.map(s => s.stage_key) });
   }, [stages, reorderStagesMutation]);
 
-  const handleRename = useCallback((stageKey: string, name: string) => {
-    renameStageMutation.mutate({
-      stageKey,
-      data: { name }
-    });
+  const handleRename = useCallback((stageKey: string, label: string) => {
+    const trimmed = label.trim().substring(0, 60); // ограничение бэка ≤60
+    if (!trimmed) return;
+    renameStageMutation.mutate({ stageKey, data: { label: trimmed } });
   }, [renameStageMutation]);
 
   const handleDelete = useCallback((stageKey: string) => {
@@ -55,11 +94,12 @@ function FunnelEditor() {
 
   const handleAddStage = useCallback(() => {
     addStageMutation.mutate({
-      name: 'Новый этап',
-      type: 'middle',
-      description: 'Опишите, что происходит на этом этапе.'
+      stage_key: `stage_${Date.now()}`,
+      label: 'Новый этап',
+      order_index: Math.max(stages.length - 2, 1), // перед двумя финальными
+      is_terminal: false,
     });
-  }, [addStageMutation]);
+  }, [stages.length, addStageMutation]);
 
   if (isLoading) {
     return <div>Загрузка...</div>;
@@ -68,13 +108,14 @@ function FunnelEditor() {
   return (
     <div className="funnel-editor">
       {stages.map((stage, idx) => {
-        const stageType = FUNNEL_STAGE_TYPES[stage.type];
-        const isFinal = stage.type === 'finalOk' || stage.type === 'finalBad';
+        const type = deriveStageType(stage, idx);
+        const stageType = FUNNEL_STAGE_TYPES[type] || MIDDLE_FALLBACK;
+        const isFinal = type === 'finalOk' || type === 'finalBad';
         const isFirst = idx === 0;
-        const isProtected = stage.protected || isFirst || isFinal;
+        const isProtected = PROTECTED_STAGE_KEYS.has(stage.stage_key) || isFirst || isFinal;
 
         return (
-          <div key={stage.id} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
+          <div key={stage.stage_key} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
             <div className="nv-fn-arrows">
               <button
                 className="nv-fn-arr"
@@ -98,10 +139,11 @@ function FunnelEditor() {
               <div className="fn-row1">
                 <input
                   className="fn-name"
-                  defaultValue={stage.name}
+                  defaultValue={stage.label}
+                  key={`${stage.stage_key}-${stage.label}`}
                   onBlur={(e) => {
-                    if (e.target.value !== stage.name) {
-                      handleRename(stage.key, e.target.value);
+                    if (e.target.value.trim() && e.target.value !== stage.label) {
+                      handleRename(stage.stage_key, e.target.value);
                     }
                   }}
                   disabled={isProtected}
@@ -120,14 +162,12 @@ function FunnelEditor() {
                   </span>
                 )}
               </div>
-              {stage.description && (
-                <div className="fn-desc">{stage.description}</div>
-              )}
+              <div className="fn-desc">{stageDescription(stage.stage_key, type)}</div>
             </div>
             <button
               className="row-icon-btn"
               disabled={isProtected}
-              onClick={() => handleDelete(stage.key)}
+              onClick={() => handleDelete(stage.stage_key)}
               title={isProtected ? 'Этап нельзя удалить' : 'Удалить этап'}
             >
               <Icon name="x" size={14} />
@@ -148,7 +188,6 @@ function RejectReasons() {
   const { data: reasons = [], isLoading } = useRejectReasons();
   const createReasonMutation = useCreateRejectReason();
   const deleteReasonMutation = useDeleteRejectReason();
-  // const reorderReasonsMutation = useReorderRejectReasons();
 
   const candidateReasons = reasons.filter(r => r.side === 'candidate');
   const companyReasons = reasons.filter(r => r.side === 'company');
@@ -224,7 +263,7 @@ export function SettingsFunnel() {
         <Icon name="sparkle" size={16} />
         <div>
           <b>Это шаблон.</b> Изменения вступают в силу для <i>новых</i> вакансий.
-          Для существующих — используйте тогглы «Применить ко всем активным» при сохранении.
+          Существующие вакансии не затрагиваются — у каждой своя воронка.
         </div>
       </div>
 

@@ -1,19 +1,24 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 
+// Тела запросов — 1:1 с бэком (CompanyDefaultStageCreate/Update/Reorder),
+// тот же контракт, что и у этапов живой вакансии (/vacancies/{id}/stages).
 type StageCreate = {
-  name: string;
-  type: 'middle';
-  description?: string;
+  stage_key: string;
+  label: string;
+  order_index: number;
+  is_terminal: boolean;
 };
 
 type StageUpdate = {
-  name: string;
+  label: string;
 };
 
 type StageReorder = {
-  stage_keys: string[];
+  order: string[]; // список stage_key в новом порядке
 };
+
+const DEFAULT_FUNNEL_KEY = ['settings', 'default-funnel'];
 
 export function useAddDefaultFunnelStage() {
   const queryClient = useQueryClient();
@@ -23,7 +28,7 @@ export function useAddDefaultFunnelStage() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'default-funnel'] });
+      queryClient.invalidateQueries({ queryKey: DEFAULT_FUNNEL_KEY });
     },
   });
 }
@@ -36,7 +41,7 @@ export function useRenameDefaultFunnelStage() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'default-funnel'] });
+      queryClient.invalidateQueries({ queryKey: DEFAULT_FUNNEL_KEY });
     },
   });
 }
@@ -49,7 +54,7 @@ export function useDeleteDefaultFunnelStage() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'default-funnel'] });
+      queryClient.invalidateQueries({ queryKey: DEFAULT_FUNNEL_KEY });
     },
   });
 }
@@ -62,7 +67,7 @@ export function useReorderDefaultFunnelStages() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'default-funnel'] });
+      queryClient.invalidateQueries({ queryKey: DEFAULT_FUNNEL_KEY });
     },
   });
 }

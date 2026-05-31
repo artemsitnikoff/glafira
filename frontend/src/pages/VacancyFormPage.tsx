@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import './vacancies/VacancyForm.css';
 import { Icon } from '@/components/ui/Icon';
@@ -13,6 +13,7 @@ import {
 } from '@/api/mutations/vacancies';
 import { useVacancy } from '@/api/hooks/useVacancy';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
+import { useDefaultFunnel, type DefaultFunnelStage } from '@/api/hooks/useDefaultFunnel';
 import { useClients } from '@/api/hooks/useClients';
 import { useUsers } from '@/api/hooks/useUsers';
 import type { components } from '@/api/types';
@@ -107,6 +108,50 @@ type StageInput = {
   is_terminal: boolean;
 };
 
+// Описание этапа по stage_key (для предзаполнения карточки этапа в редакторе).
+function getStageDescription(stageKey: string, type: Stage['type']): string {
+  const descriptions: Record<string, string> = {
+    'response': 'Кандидат пришёл с источника. Глафира делает первичный скрининг и зовёт в чат.',
+    'added': 'Кандидат добавлен рекрутером вручную из общей базы. Системный этап, не удаляется.',
+    'selected': 'Глафира посчитала кандидата подходящим — ждём контакта рекрутера.',
+    'recruiter': 'Назначен/проведён звонок-знакомство.',
+    'interview': 'Техническое или профильное интервью.',
+    'manager': 'Финальная встреча с заказчиком.',
+    'offer': 'Оффер выслан и согласовывается.',
+    'hired': 'Кандидат вышел на работу. Стартует Пульс-Онбординг.',
+    'rejected': 'Завершение по причине из справочника.',
+  };
+  return descriptions[stageKey] ||
+    (type === 'finalOk' ? 'Успешное завершение процесса подбора.' :
+     type === 'finalBad' ? 'Завершение процесса по причине отказа.' :
+     type === 'system' ? 'Системный этап воронки.' :
+     'Этап процесса подбора.');
+}
+
+// Воронка по умолчанию компании (GET /settings/default-funnel) → локальные Stage редактора.
+// Тип этапа выводится той же логикой, что и в edit-режиме (позиция + is_terminal + защищённость).
+function mapDefaultFunnelToStages(funnel: DefaultFunnelStage[]): Stage[] {
+  return funnel.map((s, index) => {
+    let type: Stage['type'];
+    if (index === 0) {
+      type = 'start';
+    } else if (s.is_terminal) {
+      type = s.stage_key === 'hired' || s.label.toLowerCase().includes('нанят') ? 'finalOk' : 'finalBad';
+    } else if (PROTECTED_STAGE_KEYS.has(s.stage_key)) {
+      type = 'system';
+    } else {
+      type = 'middle';
+    }
+    return {
+      id: index + 1,
+      name: s.label,
+      type,
+      desc: getStageDescription(s.stage_key, type),
+      stage_key: s.stage_key,
+    };
+  });
+}
+
 const EMPLOYMENT_TYPES = [
   { id: 'full', label: 'Полная' },
   { id: 'part', label: 'Частичная' },
@@ -127,8 +172,17 @@ export default function VacancyFormPage() {
 
   const { data: vacancy } = useVacancy(id || '');
   const { data: vacancyStages } = useVacancyStages(id || '');
+  const { data: defaultFunnel } = useDefaultFunnel();
   const { data: clients } = useClients();
   const { data: users } = useUsers();
+
+  // Воронка по умолчанию компании из Настроек → локальные Stage. null = пусто/не настроена.
+  const companyDefaultStages = useMemo<Stage[] | null>(
+    () => (defaultFunnel && defaultFunnel.length > 0 ? mapDefaultFunnelToStages(defaultFunnel) : null),
+    [defaultFunnel]
+  );
+  // Сидируем стартовые этапы из дефолта компании один раз (create-режим). Пусто → остаётся NV_DEFAULT_STAGES.
+  const seededFromDefaultRef = useRef(false);
 
   const createMutation = useCreateVacancy();
   const updateMutation = useUpdateVacancy();
@@ -228,26 +282,17 @@ export default function VacancyFormPage() {
     }
   }, [editMode, vacancyStages]);
 
-  // Получить описание этапа по stage_key
-  const getStageDescription = (stageKey: string, type: Stage['type']): string => {
-    const descriptions: Record<string, string> = {
-      'response': 'Кандидат пришёл с источника. Глафира делает первичный скрининг и зовёт в чат.',
-      'added': 'Кандидат добавлен рекрутером вручную из общей базы. Системный этап, не удаляется.',
-      'selected': 'Глафира посчитала кандидата подходящим — ждём контакта рекрутера.',
-      'recruiter': 'Назначен/проведён звонок-знакомство.',
-      'interview': 'Техническое или профильное интервью.',
-      'manager': 'Финальная встреча с заказчиком.',
-      'offer': 'Оффер выслан и согласовывается.',
-      'hired': 'Кандидат вышел на работу. Стартует Пульс-Онбординг.',
-      'rejected': 'Завершение по причине из справочника.',
-    };
-
-    return descriptions[stageKey] ||
-           (type === 'finalOk' ? 'Успешное завершение процесса подбора.' :
-            type === 'finalBad' ? 'Завершение процесса по причине отказа.' :
-            type === 'system' ? 'Системный этап воронки.' :
-            'Этап процесса подбора.');
-  };
+  // Create-режим: подставить воронку по умолчанию компании как стартовые этапы (один раз).
+  useEffect(() => {
+    if (editMode) return;
+    if (seededFromDefaultRef.current) return;
+    if (defaultFunnel === undefined) return; // ещё грузится — ждём
+    seededFromDefaultRef.current = true;
+    if (companyDefaultStages) {
+      setStages(companyDefaultStages);
+    }
+    // companyDefaultStages == null (дефолт пуст) → остаётся NV_DEFAULT_STAGES (fallback)
+  }, [editMode, defaultFunnel, companyDefaultStages]);
 
   const currentStepIndex = STEPS.findIndex(s => s.id === activeStep);
 
@@ -311,6 +356,9 @@ export default function VacancyFormPage() {
 
   // Генерирует stage_key для этапа
   const getStageKey = (stage: Stage): string => {
+    // Этап пришёл из воронки компании / API — сохраняем его реальный ключ (hired/rejected/interview…),
+    // не переслугивая по названию (иначе переименованный этап осиротит историю).
+    if (stage.stage_key) return stage.stage_key;
     // Канонические ключи для стандартных этапов (важно для hired/rejected)
     const canonicalKeys: Record<string, string> = {
       'Отклик': 'response',
@@ -411,6 +459,7 @@ export default function VacancyFormPage() {
               onChange={updateFormData}
               stages={stages}
               onStagesChange={setStages}
+              companyDefaultStages={companyDefaultStages}
               editMode={editMode}
               vacancyId={id || ''}
               addStageMutation={addStageMutation}
@@ -625,6 +674,7 @@ function FunnelStep({
   onChange,
   stages,
   onStagesChange,
+  companyDefaultStages = null,
   editMode = false,
   vacancyId,
   addStageMutation,
@@ -636,6 +686,7 @@ function FunnelStep({
   onChange: (updates: Partial<VacancyCreate>) => void;
   stages: Stage[];
   onStagesChange: (stages: Stage[]) => void;
+  companyDefaultStages?: Stage[] | null;
   editMode?: boolean;
   vacancyId?: string;
   addStageMutation?: any;
@@ -653,9 +704,17 @@ function FunnelStep({
     // В edit-режиме шаблоны не применяем — этапы управляются через API
     if (editMode) return;
 
-    const template = FUNNEL_TEMPLATES.find(t => t.id === templateId);
-    if (template) {
-      onStagesChange([...template.stages]); // Копируем массив
+    if (templateId === 'default') {
+      // «По умолчанию» = воронка из Настроек (company_default_stages). Пусто → хардкод-эталон.
+      const base = companyDefaultStages && companyDefaultStages.length > 0
+        ? companyDefaultStages
+        : NV_DEFAULT_STAGES;
+      onStagesChange(base.map(s => ({ ...s })));
+    } else {
+      const template = FUNNEL_TEMPLATES.find(t => t.id === templateId);
+      if (template) {
+        onStagesChange(template.stages.map(s => ({ ...s }))); // Копируем (глубоко по этапам)
+      }
     }
     onChange({ funnel_template: templateId });
   };

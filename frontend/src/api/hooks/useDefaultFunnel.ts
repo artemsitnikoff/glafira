@@ -1,14 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 
+// Форма ответа бэка GET /settings/default-funnel = CompanyDefaultStageOut
+// (1:1 как VacancyStageCount: stage_key/label/order_index/is_terminal/color).
+// Тип этапа (start/system/middle/finalOk/finalBad) НЕ хранится — выводится на фронте
+// той же логикой, что в форме вакансии (см. deriveDefaultStageType ниже).
 export type DefaultFunnelStage = {
-  id: string;
-  key: string;
-  name: string;
-  type: 'start' | 'system' | 'middle' | 'finalOk' | 'finalBad';
-  description?: string;
-  protected?: boolean;
-  position: number;
+  stage_key: string;
+  label: string;
+  order_index: number;
+  is_terminal: boolean;
+  color?: string | null;
 };
 
 export function useDefaultFunnel() {
