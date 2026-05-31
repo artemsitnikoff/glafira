@@ -49,7 +49,7 @@ class TestGlafiraScoring:
             "summary": "Хороший кандидат",
             "strengths": ["Python", "FastAPI"],
             "risks": ["нет опыта в Django"],
-            "requirements_match": {"Python": "соответствует"},
+            "requirements_match": [{"criterion": "Python", "weight": 50, "points": 40, "comment": "соответствует"}],
             "forecast": "готов через 2 недели"
         }
 
@@ -214,7 +214,7 @@ class TestGlafiraScoring:
             "summary": "Подходит для A",
             "strengths": ["Python"],
             "risks": [],
-            "requirements_match": {},
+            "requirements_match": [],
             "forecast": "2 недели"
         }
 
@@ -224,7 +224,7 @@ class TestGlafiraScoring:
             "summary": "Отлично подходит для B",
             "strengths": ["Python", "FastAPI"],
             "risks": [],
-            "requirements_match": {},
+            "requirements_match": [],
             "forecast": "1 неделя"
         }
 
@@ -381,3 +381,229 @@ class TestGlafiraVerification:
 
         assert response.status_code == 404
         assert response.json()['error']['code'] == 'NOT_FOUND'
+
+
+class TestGlafiraLLMClusterFixes:
+    """Tests for LLM-cluster bugs #19 and #20"""
+
+    async def test_scoring_validates_llm_structure_and_rejects_broken_data(
+        self, async_client, auth_headers, test_candidate, db_session
+    ):
+        """Test #19: scoring validates structure of LLM response and rejects broken types"""
+
+        # Create test vacancy
+        vacancy_data = {
+            "name": "Test Position",
+            "city": "Москва",
+            "description": "Test requirement",
+            "client_id": None
+        }
+        vacancy_response = await async_client.post(
+            "/api/v1/vacancies",
+            headers=auth_headers,
+            json=vacancy_data
+        )
+        assert vacancy_response.status_code == 201
+        vacancy_id = vacancy_response.json()["id"]
+
+        # Create application
+        application = Application(
+            company_id=test_candidate.company_id,
+            candidate_id=test_candidate.id,
+            vacancy_id=vacancy_id,
+            stage="response"
+        )
+        db_session.add(application)
+        await db_session.commit()
+
+        # Test with broken structure: requirements_match as string instead of array
+        broken_response_1 = {
+            "score": 85,
+            "verdict": "good",
+            "summary": "Хорошо",
+            "strengths": ["навык"],
+            "risks": ["риск"],
+            "requirements_match": "строка вместо массива",  # Неправильный тип
+            "forecast": "2 недели",
+            "questions": ["вопрос"]
+        }
+
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = broken_response_1
+
+            response = await async_client.post(
+                '/api/v1/glafira/score',
+                headers=auth_headers,
+                json={
+                    'candidate_id': str(test_candidate.id),
+                    'vacancy_id': vacancy_id
+                }
+            )
+
+            assert response.status_code == 502
+            assert response.json()['error']['code'] == 'GLAFIRA_PARSE_ERROR'
+            assert "не прошёл валидацию схемы" in response.json()['error']['details']['reason']
+
+        # Verify AiEvaluation was NOT created
+        evaluations_result = await db_session.execute(
+            select(AiEvaluation).where(
+                AiEvaluation.candidate_id == test_candidate.id
+            )
+        )
+        evaluations = evaluations_result.scalars().all()
+        assert len(evaluations) == 0
+
+        # Test with another broken structure: strengths as numbers, forecast as null
+        broken_response_2 = {
+            "score": 75,
+            "verdict": "partial",
+            "summary": {"объект": "вместо строки"},  # Неправильный тип
+            "strengths": [1, 2, 3],  # Числа вместо строк
+            "risks": ["риск"],
+            "requirements_match": [],
+            "forecast": None,  # null вместо строки
+            "questions": ["вопрос"]
+        }
+
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = broken_response_2
+
+            response = await async_client.post(
+                '/api/v1/glafira/score',
+                headers=auth_headers,
+                json={
+                    'candidate_id': str(test_candidate.id),
+                    'vacancy_id': vacancy_id
+                }
+            )
+
+            assert response.status_code == 502
+            assert response.json()['error']['code'] == 'GLAFIRA_PARSE_ERROR'
+
+        # Verify still no AiEvaluation created
+        evaluations_result = await db_session.execute(
+            select(AiEvaluation).where(
+                AiEvaluation.candidate_id == test_candidate.id
+            )
+        )
+        evaluations = evaluations_result.scalars().all()
+        assert len(evaluations) == 0
+
+    async def test_scoring_accepts_valid_structure_and_creates_evaluation(
+        self, async_client, auth_headers, test_candidate, db_session
+    ):
+        """Test #19: valid complete LLM structure passes and creates AiEvaluation"""
+
+        # Create test vacancy
+        vacancy_data = {
+            "name": "Test Position",
+            "city": "Москва",
+            "description": "Test requirement",
+            "client_id": None
+        }
+        vacancy_response = await async_client.post(
+            "/api/v1/vacancies",
+            headers=auth_headers,
+            json=vacancy_data
+        )
+        assert vacancy_response.status_code == 201
+        vacancy_id = vacancy_response.json()["id"]
+
+        # Create application
+        application = Application(
+            company_id=test_candidate.company_id,
+            candidate_id=test_candidate.id,
+            vacancy_id=vacancy_id,
+            stage="response"
+        )
+        db_session.add(application)
+        await db_session.commit()
+
+        # Valid structure matching EvaluationOut schema
+        valid_response = {
+            "score": 85,
+            "verdict": "good",
+            "summary": "Отличный кандидат",
+            "strengths": ["Python", "FastAPI"],
+            "risks": ["мало опыта"],
+            "requirements_match": [
+                {
+                    "criterion": "Python",
+                    "weight": 50,
+                    "points": 40,
+                    "comment": "Хороший уровень"
+                }
+            ],
+            "forecast": "2 недели",
+            "questions": ["Опыт с async?"]
+        }
+
+        with patch('app.services.glafira.scoring.call_json', new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = valid_response
+
+            response = await async_client.post(
+                '/api/v1/glafira/score',
+                headers=auth_headers,
+                json={
+                    'candidate_id': str(test_candidate.id),
+                    'vacancy_id': vacancy_id
+                }
+            )
+
+            assert response.status_code == 201
+            body = response.json()
+            assert body['score'] == 85
+            assert body['verdict'] == "good"
+            assert body['summary'] == "Отличный кандидат"
+
+        # Verify AiEvaluation WAS created
+        evaluations_result = await db_session.execute(
+            select(AiEvaluation).where(
+                AiEvaluation.candidate_id == test_candidate.id
+            )
+        )
+        evaluation = evaluations_result.scalar_one()
+        assert evaluation.score == 85
+        assert evaluation.verdict == "good"
+
+    def test_scoring_prompt_contains_anti_injection_protection(self):
+        """Test #20: scoring prompts contain anti-injection instructions"""
+        from app.services.glafira.prompts import SCORING_SYSTEM_PROMPT, SCORING_USER_TEMPLATE
+
+        # Check system prompt has anti-injection instruction
+        assert "попытк" in SCORING_SYSTEM_PROMPT or "не инструкции" in SCORING_SYSTEM_PROMPT
+        assert "манипуляци" in SCORING_SYSTEM_PROMPT
+
+        # Check user template has data markers
+        assert "<<<РЕЗЮМЕ_КАНДИДАТА" in SCORING_USER_TEMPLATE
+        assert "<<<КОНЕЦ_РЕЗЮМЕ>>>" in SCORING_USER_TEMPLATE
+        assert "<<<ОПИСАНИЕ_ВАКАНСИИ" in SCORING_USER_TEMPLATE
+        assert "<<<КОНЕЦ_ОПИСАНИЯ>>>" in SCORING_USER_TEMPLATE
+
+    def test_scoring_user_template_format_does_not_break(self):
+        """Test #20: SCORING_USER_TEMPLATE.format() doesn't crash with KeyError"""
+        from app.services.glafira.prompts import SCORING_USER_TEMPLATE
+
+        # Test that all required placeholders work
+        test_kwargs = {
+            'vacancy_name': 'Test Vacancy',
+            'vacancy_city': 'Москва',
+            'vacancy_salary': '100k-150k RUB',
+            'vacancy_description': 'Описание вакансии',
+            'candidate_name': 'Тест Тестов',
+            'candidate_city': 'СПб',
+            'candidate_phone': '+7123456789',
+            'candidate_email': 'test@test.com',
+            'resume_text': 'Текст резюме',
+            'experience_text': 'Опыт работы',
+            'skills_text': 'Навыки',
+            'salary_expectation': '120k RUB'
+        }
+
+        # This should not raise KeyError or IndexError
+        formatted = SCORING_USER_TEMPLATE.format(**test_kwargs)
+
+        # Check that data markers are preserved in formatted output
+        assert "<<<РЕЗЮМЕ_КАНДИДАТА" in formatted
+        assert "<<<КОНЕЦ_РЕЗЮМЕ>>>" in formatted
+        assert "Текст резюме" in formatted
