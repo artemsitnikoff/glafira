@@ -14,9 +14,20 @@ const EVENT_ICON: Record<string, any> = {
   move: 'chevR',
 };
 
+// Экранируем пользовательский текст (ФИО/имя файла/комментарий) ДО подсветки —
+// иначе '<'/'>' из Event.text попадут в DOM как разметка (Stored XSS). & — первым.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function parseEventText(text: string): React.ReactNode {
-  // Highlight Глафира
-  let result = text.replace(/Глафира/g, '<span class="anatoly">Глафира</span>');
+  // Highlight Глафира (по уже экранированному тексту — подсветка добавляет только безопасные span)
+  let result = escapeHtml(text).replace(/Глафира/g, '<span class="anatoly">Глафира</span>');
 
   // Find entities (кандидат/вакансия names) and mark them for highlighting
   result = result.replace(/([«»])([^«»]+)\1/g, '<span class="ent">$2</span>');

@@ -181,7 +181,7 @@ async def cleanup_demo(session: AsyncSession):
 
     # Список demo кандидатов для удаления связанных записей
     demo_candidate_ids_query = select(Candidate.id).where(
-        Candidate.extra.op("->>")('"demo"') == 'true'
+        Candidate.extra['demo'].astext == 'true'
     )
 
     # Удаляем employees связанные с demo кандидатами
@@ -221,7 +221,7 @@ async def cleanup_demo(session: AsyncSession):
     # Удаляем demo кандидатов
     await session.execute(
         delete(Candidate).where(
-            Candidate.extra.op("->>")('"demo"') == 'true'
+            Candidate.extra['demo'].astext == 'true'
         )
     )
 
@@ -844,7 +844,7 @@ async def seed_surveys(session: AsyncSession):
                     and_(
                         Candidate.first_name == "Денис",
                         Candidate.last_name == "Новиков",
-                        Candidate.extra.op("->>")('"demo"') == 'true'
+                        Candidate.extra['demo'].astext == 'true'
                     )
                 )
             )
