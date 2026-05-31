@@ -64,7 +64,7 @@ async def refresh_token(
         key="refresh_token",
         value=new_refresh_token,
         httponly=True,
-        secure=False,  # Set to True in production
+        secure=settings.SESSION_COOKIE_SECURE,
         samesite="lax",
         path="/api/v1/auth/refresh",
         max_age=14 * 24 * 60 * 60

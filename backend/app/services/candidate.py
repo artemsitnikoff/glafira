@@ -579,7 +579,14 @@ async def create_candidate(
 
     # If vacancy_id provided, create application
     if candidate_data.vacancy_id:
-        from ..models import Application  # Avoid circular import
+        from ..models import Application, Vacancy  # Avoid circular import
+
+        # Ensure vacancy exists and belongs to company
+        vacancy_result = await session.execute(
+            select(Vacancy).where(Vacancy.id == candidate_data.vacancy_id, Vacancy.company_id == company_id, Vacancy.deleted_at.is_(None))
+        )
+        if not vacancy_result.scalar_one_or_none():
+            raise NotFoundError("Вакансия")
 
         now = datetime.now(timezone.utc)
         application = Application(
@@ -743,7 +750,8 @@ async def get_candidate_applications(
         .outerjoin(Client, Vacancy.client_id == Client.id)
         .where(
             Application.candidate_id == candidate_id,
-            Application.company_id == company_id
+            Application.company_id == company_id,
+            Vacancy.company_id == company_id
         )
         .order_by(desc(Application.created_at))
     )

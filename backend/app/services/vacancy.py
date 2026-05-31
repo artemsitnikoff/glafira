@@ -183,6 +183,15 @@ async def create_vacancy(
     actor_user_id: UUID
 ) -> Vacancy:
     """Create new vacancy with stages and team"""
+
+    # If client_id provided, ensure client exists and belongs to company
+    if vacancy_data.client_id:
+        client_result = await session.execute(
+            select(Client).where(Client.id == vacancy_data.client_id, Client.company_id == company_id)
+        )
+        if not client_result.scalar_one_or_none():
+            raise NotFoundError("Клиент")
+
     # Create vacancy
     vacancy = Vacancy(
         company_id=company_id,

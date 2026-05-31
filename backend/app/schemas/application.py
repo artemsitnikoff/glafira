@@ -16,7 +16,9 @@ class ApplicationRow(ORMBase):
     ai_score: int | None
     has_pdn: bool
     phone: str | None
-    messengers: list[str]
+    # Обе формы: старые засиженные — список строк-каналов (["telegram",...]);
+    # новые из формы добавления — объекты {type, url}. Фронт рендерит обе.
+    messengers: list[dict | str]
     salary_expectation: int | None
     currency: str
     city: str | None

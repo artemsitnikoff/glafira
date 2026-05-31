@@ -2,7 +2,7 @@ import math
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 
-from sqlalchemy import and_, asc, desc, exists, func, nullslast, or_, select
+from sqlalchemy import and_, asc, desc, exists, func, not_, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -97,11 +97,23 @@ async def get_applications_for_vacancy_paginated(
     if messenger:
         base_filters.append(Candidate.preferred_channel.in_(messenger))
     if ready_relocate is not None:
-        # JSONB predicate for Postgres: extra->'relocation' casted to boolean
-        from sqlalchemy import Boolean
-        base_filters.append(
-            Candidate.extra['relocation'].astext.cast(Boolean) == ready_relocate
-        )
+        # relocation в extra — свободный текст ('готов к переезду в пределах региона')
+        # Матчим по строке без Boolean-cast (иначе 500 на invalid input syntax).
+        # and_/or_/not_ берём из модульного импорта (строка 5) — локальный импорт
+        # сделал бы их локальными на всю функцию → UnboundLocalError в строках с and_(*base_filters).
+        if ready_relocate is True:
+            # Содержит «готов» И НЕ содержит «не готов»
+            base_filters.append(and_(
+                Candidate.extra['relocation'].astext.ilike('%готов%'),
+                not_(Candidate.extra['relocation'].astext.ilike('%не готов%'))
+            ))
+        else:
+            # ready_relocate is False: relocation IS NULL ИЛИ содержит «не готов» ИЛИ НЕ содержит «готов»
+            base_filters.append(or_(
+                Candidate.extra['relocation'].is_(None),
+                Candidate.extra['relocation'].astext.ilike('%не готов%'),
+                not_(Candidate.extra['relocation'].astext.ilike('%готов%'))
+            ))
     if added_period and added_period != 'all':
         period_days = {'7d': 7, '30d': 30, '90d': 90}.get(added_period)
         if period_days:

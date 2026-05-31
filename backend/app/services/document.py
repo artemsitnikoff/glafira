@@ -132,6 +132,7 @@ async def upload_document(
     # Create document record
     now = datetime.now(timezone.utc)
     document = Document(
+        company_id=company_id,
         candidate_id=candidate_id,
         filename=file.filename or "unknown",
         file_type=_get_file_type(file.filename or ""),

@@ -137,7 +137,8 @@ async def _get_avg_time_to_hire(session: AsyncSession, company_id: UUID, period_
         Vacancy.closed_at < start_date.date()
     )
     prev_result = await session.execute(prev_query)
-    previous = float(prev_result.scalar() or 0.0) if prev_result.scalar() else 0.0
+    prev_val = prev_result.scalar()
+    previous = float(prev_val) if prev_val else 0.0
 
     return current, previous
 
