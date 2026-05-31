@@ -123,6 +123,22 @@ async def send_message(
     if not candidate_result.scalar_one_or_none():
         raise NotFoundError("Кандидат")
 
+    # Validate application_id ownership if provided
+    validated_application = None
+    if message_data.application_id:
+        app_result = await session.execute(
+            select(Application)
+            .options(joinedload(Application.vacancy))
+            .where(
+                Application.id == message_data.application_id,
+                Application.company_id == company_id,
+                Application.candidate_id == candidate_id
+            )
+        )
+        validated_application = app_result.scalar_one_or_none()
+        if not validated_application:
+            raise NotFoundError("Заявка")
+
     # Get sender user
     user_result = await session.execute(
         select(User).where(User.id == actor_user_id)
@@ -163,19 +179,12 @@ async def send_message(
 
     await session.flush()
 
-    # Return MessageOut
+    # Return MessageOut with validated application context
     application_context = None
     vacancy_id = None
-    if message_data.application_id:
-        app_result = await session.execute(
-            select(Application)
-            .options(joinedload(Application.vacancy))
-            .where(Application.id == message_data.application_id)
-        )
-        app = app_result.scalar_one_or_none()
-        if app and app.vacancy:
-            application_context = f"Контекст: вакансия {app.vacancy.name}"
-            vacancy_id = app.vacancy.id
+    if validated_application and validated_application.vacancy:
+        application_context = f"Контекст: вакансия {validated_application.vacancy.name}"
+        vacancy_id = validated_application.vacancy.id
 
     return MessageOut(
         id=message.id,

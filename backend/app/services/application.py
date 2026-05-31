@@ -284,6 +284,18 @@ async def move_application(
     if from_stage == to_stage:
         raise ValidationError("Заявка уже на этом этапе")
 
+    # Validate to_stage is valid for this vacancy
+    if to_stage not in STAGES:
+        # Check if it's a custom stage for this vacancy
+        custom_stage_result = await session.execute(
+            select(VacancyStage).where(
+                VacancyStage.vacancy_id == application.vacancy_id,
+                VacancyStage.stage_key == to_stage
+            )
+        )
+        if not custom_stage_result.scalar_one_or_none():
+            raise ValidationError(f"Неверный этап: {to_stage}")
+
     now = datetime.now(timezone.utc)
     application.stage = to_stage
     application.stage_changed_at = now
