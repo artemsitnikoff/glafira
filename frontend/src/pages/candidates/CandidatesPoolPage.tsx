@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useCandidates } from '../../api/hooks/useCandidates'
 import { useVacancies } from '../../api/hooks/useVacancies'
-import { CandidateFilters } from './components/CandidateFilters'
+import { FilterDrawer } from './components/FilterDrawer'
 import { Icon } from '../../components/ui/Icon'
 import { Avatar } from '../../components/ui/Avatar'
 import { ScoreBadge } from '../../components/ui/ScoreBadge'
@@ -311,20 +311,9 @@ export function CandidatesPoolPage() {
         )}
       </div>
 
-      {/* Временный мост фильтров: эталонный .fdr drawer собирается в Заходе B.
-          Сейчас открываем существующий CandidateFilters (стейт/URL/API работают). */}
+      {/* Эталонный FilterDrawer (.fdr) — замена временного моста */}
       {showFilters && (
-        <div className="cp-filters-temp-overlay" onClick={() => setShowFilters(false)}>
-          <div className="cp-filters-temp-panel" onClick={e => e.stopPropagation()}>
-            <div className="cp-filters-temp-head">
-              <h3>Фильтры</h3>
-              <button className="cp-filters-temp-close" onClick={() => setShowFilters(false)}>
-                <Icon name="x" size={18}/>
-              </button>
-            </div>
-            <CandidateFilters />
-          </div>
-        </div>
+        <FilterDrawer onClose={() => setShowFilters(false)} />
       )}
     </div>
   )

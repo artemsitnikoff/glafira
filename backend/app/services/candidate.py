@@ -2,6 +2,29 @@ import math
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 
+def _parse_comma_separated_uuids(value: str | None) -> list[UUID]:
+    """Parse comma-separated UUIDs, skip invalid ones"""
+    if not value:
+        return []
+
+    uuids = []
+    for item in value.split(','):
+        item = item.strip()
+        if item:
+            try:
+                uuids.append(UUID(item))
+            except ValueError:
+                # Skip invalid UUIDs
+                continue
+    return uuids
+
+def _parse_comma_separated_strings(value: str | None) -> list[str]:
+    """Parse comma-separated strings, skip empty ones"""
+    if not value:
+        return []
+
+    return [item.strip() for item in value.split(',') if item.strip()]
+
 from sqlalchemy import and_, asc, case, desc, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -73,9 +96,9 @@ async def get_candidates_paginated(
     score_min: int | None = None,
     score_max: int | None = None,
     source: str | None = None,
-    vacancy_id: UUID | None = None,
+    vacancy_id: str | None = None,
     stage: str | None = None,
-    tags: list[UUID] | None = None,
+    tags: str | None = None,
     added_period: str | None = None,
     sort: str | None = None,
     order: str = "desc",
@@ -110,7 +133,9 @@ async def get_candidates_paginated(
         base_filters.append(Candidate.city.ilike(f"%{city}%"))
 
     if source:
-        base_filters.append(Candidate.source == source)
+        sources = _parse_comma_separated_strings(source)
+        if sources:
+            base_filters.append(Candidate.source.in_(sources))
 
     if score_min is not None:
         base_filters.append(Candidate.ai_score >= score_min)
@@ -119,34 +144,59 @@ async def get_candidates_paginated(
         base_filters.append(Candidate.ai_score <= score_max)
 
     if vacancy_id:
-        base_filters.append(
-            exists().where(
-                and_(
-                    Application.candidate_id == Candidate.id,
-                    Application.vacancy_id == vacancy_id
+        vacancy_uuids = _parse_comma_separated_uuids(vacancy_id)
+        if vacancy_uuids:
+            base_filters.append(
+                exists().where(
+                    and_(
+                        Application.candidate_id == Candidate.id,
+                        Application.vacancy_id.in_(vacancy_uuids)
+                    )
                 )
             )
-        )
 
     if stage:
-        base_filters.append(
-            exists().where(
-                and_(
-                    Application.candidate_id == Candidate.id,
-                    Application.stage == stage
+        stages = _parse_comma_separated_strings(stage)
+        if stages:
+            pool_selected = 'pool' in stages
+            real_stages = [s for s in stages if s != 'pool']
+
+            stage_conditions = []
+
+            # Real stages condition
+            if real_stages:
+                stage_conditions.append(
+                    exists().where(
+                        and_(
+                            Application.candidate_id == Candidate.id,
+                            Application.stage.in_(real_stages)
+                        )
+                    )
                 )
-            )
-        )
+
+            # Pool condition - candidates without any applications
+            if pool_selected:
+                stage_conditions.append(
+                    ~exists().where(Application.candidate_id == Candidate.id)
+                )
+
+            # Combine conditions with OR if both present, otherwise use the single one
+            if len(stage_conditions) == 1:
+                base_filters.append(stage_conditions[0])
+            elif len(stage_conditions) > 1:
+                base_filters.append(or_(*stage_conditions))
 
     if tags:
-        base_filters.append(
-            exists().where(
-                and_(
-                    CandidateTag.candidate_id == Candidate.id,
-                    CandidateTag.tag_id.in_(tags)
+        tag_uuids = _parse_comma_separated_uuids(tags)
+        if tag_uuids:
+            base_filters.append(
+                exists().where(
+                    and_(
+                        CandidateTag.candidate_id == Candidate.id,
+                        CandidateTag.tag_id.in_(tag_uuids)
+                    )
                 )
             )
-        )
 
     if added_period:
         now = datetime.now(timezone.utc)

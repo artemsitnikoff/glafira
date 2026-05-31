@@ -425,45 +425,222 @@
   opacity: 1;
 }
 
-/* Временный мост фильтров (заменяется эталонным .fdr drawer в Заходе B) */
-.cp-filters-temp-overlay {
+/* ============================================================
+   FILTER DRAWER (.fdr) — эталонный drawer 1:1 из project/
+   ============================================================ */
+
+.fdr-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  justify-content: flex-end;
+  z-index: 80;
+  background: rgba(15,22,32,.32);
+  animation: fdrFade var(--dur-fast) var(--ease-out);
 }
-.cp-filters-temp-panel {
-  width: 400px;
-  max-width: 90vw;
-  height: 100%;
+@keyframes fdrFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fdrSlide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.fdr {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 81;
+  width: 360px;
   background: var(--bg-elevated);
-  border-left: 1px solid var(--border-2);
-  box-shadow: var(--shadow-lg);
-  padding: 20px;
-  overflow-y: auto;
-}
-.cp-filters-temp-head {
+  border-left: 1px solid var(--border-1);
+  box-shadow: -16px 0 32px -12px rgba(15,22,32,.18);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  flex-direction: column;
+  animation: fdrSlide 220ms var(--ease-out);
+  font-size: 13px;
 }
-.cp-filters-temp-head h3 {
+
+.fdr-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-2);
+  flex: none;
+}
+
+.fdr-title {
+  display: flex; align-items: center; gap: 8px;
   font-size: 16px;
   font-weight: 600;
   color: var(--fg-1);
-  margin: 0;
 }
-.cp-filters-temp-close {
+
+.fdr-reset-circle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
   background: none;
   border: none;
-  cursor: pointer;
+  border-radius: 50%;
   color: var(--fg-3);
-  display: flex;
-  padding: 4px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.cp-filters-temp-close:hover {
+.fdr-reset-circle:hover { background: var(--bg-3); color: var(--accent); }
+
+.fdr-pin-row {
+  padding: 10px 16px 0;
+  flex: none;
+}
+
+.fdr-pin-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-panel-2);
+  border: 1px dashed var(--border-1);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.fdr-pin-btn:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--ark-blue-50);
+}
+.fdr-pin-btn:disabled { cursor: not-allowed; opacity: 0.7; }
+
+.fdr-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 16px;
+}
+
+.fdr-section {
+  border-bottom: 1px solid var(--border-2);
+}
+
+.fdr-section-head {
+  display: flex; align-items: center;
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.fdr-section-head:hover { background: var(--bg-3); }
+
+.fdr-section-title { flex: 1; font-weight: 500; }
+
+.fdr-section-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.fdr-chev {
+  color: var(--fg-3);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.fdr-chev.rot { transform: rotate(180deg); }
+
+.fdr-section-body {
+  padding: 0 16px 16px;
+}
+
+.fdr-slider-row {
+  display: flex; align-items: center; gap: 12px;
+}
+.fdr-slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.fdr-slider-val {
+  min-width: 56px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.fdr-tick-row {
+  display: flex; justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+}
+
+.fdr-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fdr-check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.fdr-check input { accent-color: var(--accent); }
+
+.fdr-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-2);
+  flex: none;
+}
+.fdr-foot .btn-secondary { flex: none; }
+.fdr-foot .btn-primary { flex: 1; justify-content: center; }
+
+/* keep filter-chip styles (used inside drawer too) */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-1);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-1);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.filter-chip:hover { border-color: var(--ark-gray-400); }
+.filter-chip.active {
+  background: var(--ark-blue-50);
+  border-color: var(--ark-blue-100);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--fg-3);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.icon-btn:hover {
+  background: var(--bg-3);
   color: var(--fg-1);
 }
