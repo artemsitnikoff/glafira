@@ -19,9 +19,9 @@ import { EvaluationTab } from '../funnel/candidate-detail/tabs/EvaluationTab'
 
 const TABS = [
   { key: 'resume', label: 'Резюме' },
+  { key: 'evaluation', label: 'Оценка AI' },
   { key: 'chat', label: 'Чат' },
-  { key: 'documents', label: 'Документы' },
-  { key: 'evaluation', label: 'Оценка AI' }
+  { key: 'documents', label: 'Документы' }
 ] as const
 
 type TabKey = typeof TABS[number]['key']
@@ -291,7 +291,7 @@ export function CandidatePoolDetailPage() {
                   title="Перейти к карточке внутри вакансии"
                   onClick={() => navigate(`/vacancies/${app.vacancy_id}`)}
                 >
-                  <Icon name="arrow-right" size={14} />
+                  Перейти <Icon name="arrow-right" size={14} />
                 </button>
               </div>
             ))}

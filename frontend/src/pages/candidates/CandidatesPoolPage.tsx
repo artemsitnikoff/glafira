@@ -8,7 +8,6 @@ import { Icon } from '../../components/ui/Icon'
 import { Avatar } from '../../components/ui/Avatar'
 import { ScoreBadge } from '../../components/ui/ScoreBadge'
 import { StageChip } from '../../components/ui/StageChip'
-import { HoverMenu } from './components/HoverMenu'
 import NewCandidateForm from '../funnel/NewCandidateForm'
 import type { CandidateFilters as FilterType } from '../../api/hooks/useCandidates'
 import type { CandidateGridItem } from '../../api/aliases'
@@ -327,7 +326,6 @@ interface PoolCardProps {
 function PoolCard({ candidate }: PoolCardProps) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [isHovered, setIsHovered] = useState(false)
 
   const handleCardClick = () => {
     // Save current filters for back navigation
@@ -370,8 +368,6 @@ function PoolCard({ candidate }: PoolCardProps) {
     <div
       className="pool-card"
       onClick={handleCardClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       <div className="pc-head">
         <Avatar name={candidate.full_name} size="sm"/>
@@ -425,13 +421,6 @@ function PoolCard({ candidate }: PoolCardProps) {
         </div>
       )}
 
-      {/* Hover Menu */}
-      {isHovered && (
-        <HoverMenu
-          candidate={candidate}
-          onMenuClick={(e) => e.stopPropagation()}
-        />
-      )}
     </div>
   )
 }
