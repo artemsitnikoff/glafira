@@ -876,3 +876,43 @@
   transition: all var(--dur-fast) var(--ease-out);
 }
 .nv-step-body .fn-add:hover { border-color: var(--accent); color: var(--accent); background: var(--ark-blue-50); }
+
+/* Причины отказа в шаге «Воронка» */
+.nv-rr { margin-top: 28px; }
+.nv-rr-head { font-size: 15px; font-weight: 600; color: var(--fg-1); }
+.nv-rr-sub { font-size: 12px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
+.nv-rr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+.nv-rr-title { font-size: 12px; font-weight: 600; color: var(--fg-2); margin-bottom: 8px; }
+.nv-rr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.nv-rr-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border-1); border-radius: 999px;
+  background: var(--bg-panel); font-size: 13px; line-height: 1.2;
+}
+.nv-rr-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ark-blue-500); flex: none; }
+.nv-rr-dot.co { background: var(--ark-yellow-500); }
+.nv-rr-input {
+  border: none; background: transparent; padding: 1px 2px;
+  font: inherit; font-size: 13px; color: inherit; line-height: 1.2;
+  outline: none; min-width: 36px; border-radius: 4px;
+}
+.nv-rr-input:focus { background: var(--bg-2); }
+.nv-rr-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border: none; background: transparent;
+  cursor: pointer; color: var(--fg-3); border-radius: 50%;
+}
+.nv-rr-x:hover { background: var(--ark-red-100); color: var(--ark-red-600); }
+.nv-rr-lock {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; color: var(--fg-3); flex: none;
+}
+.nv-rr-add {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 10px; border: 1px dashed var(--border-2);
+  background: transparent; border-radius: 999px;
+  color: var(--ark-blue-700); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.nv-rr-add:hover { background: var(--ark-blue-50); border-color: var(--ark-blue-500); }
+@media (max-width: 720px) { .nv-rr-grid { grid-template-columns: 1fr; } }

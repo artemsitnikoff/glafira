@@ -14,6 +14,13 @@ import {
 import { useVacancy } from '@/api/hooks/useVacancy';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { useDefaultFunnel, type DefaultFunnelStage } from '@/api/hooks/useDefaultFunnel';
+import { useRejectReasons, type RejectReasonOut } from '@/api/hooks/useRejectReasons';
+import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
+import {
+  useAddVacancyRejectReason,
+  useUpdateVacancyRejectReason,
+  useDeleteVacancyRejectReason
+} from '@/api/mutations/vacancyRejectReasons';
 import { useClients } from '@/api/hooks/useClients';
 import { useUsers } from '@/api/hooks/useUsers';
 import type { components } from '@/api/types';
@@ -152,6 +159,29 @@ function mapDefaultFunnelToStages(funnel: DefaultFunnelStage[]): Stage[] {
   });
 }
 
+// Локальная причина отказа в редакторе формы. key — клиентский стабильный ключ (create-режим).
+type RejectReasonLocal = {
+  key: string;
+  id?: string;            // серверный id (edit-режим)
+  side: 'candidate' | 'company';
+  label: string;
+  order_index: number;
+  is_system: boolean;
+};
+
+let rrKeyCounter = 0;
+
+function mapCompanyReasonsToLocal(reasons: RejectReasonOut[]): RejectReasonLocal[] {
+  // Сид create-режима из дефолтов компании → НОВЫЕ причины вакансии (без серверного id).
+  return reasons.map((r, i) => ({
+    key: `seed-${i}`,
+    side: r.side === 'company' ? 'company' : 'candidate',
+    label: r.label,
+    order_index: r.order_index ?? i,
+    is_system: !!(r as RejectReasonOut).is_system,
+  }));
+}
+
 const EMPLOYMENT_TYPES = [
   { id: 'full', label: 'Полная' },
   { id: 'part', label: 'Частичная' },
@@ -183,6 +213,11 @@ export default function VacancyFormPage() {
   );
   // Сидируем стартовые этапы из дефолта компании один раз (create-режим). Пусто → остаётся NV_DEFAULT_STAGES.
   const seededFromDefaultRef = useRef(false);
+
+  // Причины отказа: в create-режиме сидируем из дефолтов компании (Настройки) и шлём на submit.
+  const { data: companyRejectReasons } = useRejectReasons();
+  const [rejectReasons, setRejectReasons] = useState<RejectReasonLocal[]>([]);
+  const seededReasonsRef = useRef(false);
 
   const createMutation = useCreateVacancy();
   const updateMutation = useUpdateVacancy();
@@ -294,6 +329,15 @@ export default function VacancyFormPage() {
     // companyDefaultStages == null (дефолт пуст) → остаётся NV_DEFAULT_STAGES (fallback)
   }, [editMode, defaultFunnel, companyDefaultStages]);
 
+  // Create-режим: сид причин отказа из дефолтов компании (один раз).
+  useEffect(() => {
+    if (editMode) return;
+    if (seededReasonsRef.current) return;
+    if (companyRejectReasons === undefined) return; // ещё грузится
+    seededReasonsRef.current = true;
+    setRejectReasons(mapCompanyReasonsToLocal(companyRejectReasons));
+  }, [editMode, companyRejectReasons]);
+
   const currentStepIndex = STEPS.findIndex(s => s.id === activeStep);
 
   // Валидация перехода
@@ -340,11 +384,20 @@ export default function VacancyFormPage() {
           is_terminal: stage.type === 'finalOk' || stage.type === 'finalBad',
         }));
 
-        // Добавляем stages в payload с приведением типа
+        // Причины отказа из формы (сид дефолтов компании ± правки) → привязка к вакансии
+        const rejectReasonInputs = rejectReasons.map(r => ({
+          side: r.side,
+          label: r.label.substring(0, 120),
+          order_index: r.order_index,
+          is_system: r.is_system,
+        }));
+
+        // Добавляем stages + reject_reasons в payload с приведением типа (openapi не регенерён)
         const payload = {
           ...formData,
           stages: stageInputs,
-        } as VacancyCreate & { stages: StageInput[] };
+          reject_reasons: rejectReasonInputs,
+        } as VacancyCreate & { stages: StageInput[]; reject_reasons: typeof rejectReasonInputs };
 
         const result = await createMutation.mutateAsync(payload);
         navigate(`/vacancies/${result.id}`);
@@ -460,6 +513,8 @@ export default function VacancyFormPage() {
               stages={stages}
               onStagesChange={setStages}
               companyDefaultStages={companyDefaultStages}
+              rejectReasons={rejectReasons}
+              onRejectReasonsChange={setRejectReasons}
               editMode={editMode}
               vacancyId={id || ''}
               addStageMutation={addStageMutation}
@@ -675,6 +730,8 @@ function FunnelStep({
   stages,
   onStagesChange,
   companyDefaultStages = null,
+  rejectReasons,
+  onRejectReasonsChange,
   editMode = false,
   vacancyId,
   addStageMutation,
@@ -687,6 +744,8 @@ function FunnelStep({
   stages: Stage[];
   onStagesChange: (stages: Stage[]) => void;
   companyDefaultStages?: Stage[] | null;
+  rejectReasons: RejectReasonLocal[];
+  onRejectReasonsChange: (reasons: RejectReasonLocal[]) => void;
   editMode?: boolean;
   vacancyId?: string;
   addStageMutation?: any;
@@ -965,6 +1024,116 @@ function FunnelStep({
         <button className="fn-add" onClick={addStage}>
           <Icon name="plus" size={14} /> Добавить этап
         </button>
+      </div>
+
+      <RejectReasonsEditor
+        reasons={rejectReasons}
+        onChange={onRejectReasonsChange}
+        editMode={editMode}
+        vacancyId={vacancyId}
+      />
+    </div>
+  );
+}
+
+function RejectReasonsEditor({
+  reasons,
+  onChange,
+  editMode,
+  vacancyId,
+}: {
+  reasons: RejectReasonLocal[];
+  onChange: (reasons: RejectReasonLocal[]) => void;
+  editMode: boolean;
+  vacancyId?: string;
+}) {
+  // edit-режим: причины грузятся/правятся через API вакансии; create-режим: локальный набор.
+  const { data: vacancyReasons } = useVacancyRejectReasons(editMode ? vacancyId : undefined);
+  const addMut = useAddVacancyRejectReason(vacancyId || '');
+  const updMut = useUpdateVacancyRejectReason(vacancyId || '');
+  const delMut = useDeleteVacancyRejectReason(vacancyId || '');
+
+  const list: RejectReasonLocal[] = editMode
+    ? (vacancyReasons || []).map(r => ({
+        key: r.id,
+        id: r.id,
+        side: r.side === 'company' ? 'company' : 'candidate',
+        label: r.label,
+        order_index: r.order_index ?? 0,
+        is_system: !!(r as RejectReasonOut).is_system,
+      }))
+    : reasons;
+
+  const handleAdd = (side: 'candidate' | 'company') => {
+    const count = list.filter(r => r.side === side).length;
+    if (editMode) {
+      if (vacancyId) addMut.mutate({ side, label: 'Новая причина', order_index: count });
+    } else {
+      onChange([...reasons, { key: `n${rrKeyCounter++}`, side, label: 'Новая причина', order_index: count, is_system: false }]);
+    }
+  };
+
+  const handleRename = (item: RejectReasonLocal, raw: string) => {
+    const label = raw.trim().substring(0, 120);
+    if (!label || label === item.label) return;
+    if (editMode) {
+      if (vacancyId && item.id) updMut.mutate({ id: item.id, label });
+    } else {
+      onChange(reasons.map(r => (r.key === item.key ? { ...r, label } : r)));
+    }
+  };
+
+  const handleDelete = (item: RejectReasonLocal) => {
+    if (item.is_system) return;
+    if (editMode) {
+      if (vacancyId && item.id) delMut.mutate(item.id);
+    } else {
+      onChange(reasons.filter(r => r.key !== item.key));
+    }
+  };
+
+  const renderGroup = (side: 'candidate' | 'company', title: string) => (
+    <div className="nv-rr-group">
+      <div className="nv-rr-title">{title}</div>
+      <div className="nv-rr-chips">
+        {list.filter(r => r.side === side).map(item => (
+          <span key={item.key} className="nv-rr-chip">
+            <span className={`nv-rr-dot ${side === 'company' ? 'co' : ''}`} />
+            <input
+              className="nv-rr-input"
+              defaultValue={item.label}
+              key={`${item.key}-${item.label}`}
+              size={Math.max(item.label.length, 4)}
+              onBlur={(e) => handleRename(item, e.target.value)}
+            />
+            {item.is_system ? (
+              <span className="nv-rr-lock" title="Системная причина — нельзя удалить">
+                <Icon name="lock" size={11} />
+              </span>
+            ) : (
+              <button className="nv-rr-x" aria-label="Удалить" onClick={() => handleDelete(item)}>
+                <Icon name="x" size={11} />
+              </button>
+            )}
+          </span>
+        ))}
+        <button className="nv-rr-add" onClick={() => handleAdd(side)}>
+          <Icon name="plus" size={12} /> Добавить
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="nv-rr">
+      <div className="nv-rr-head">Причины отказа</div>
+      <div className="nv-rr-sub">
+        Появятся при отклонении кандидата в этой вакансии. По умолчанию — из Настроек, можно изменить.
+        Системную (с замком) удалить нельзя.
+      </div>
+      <div className="nv-rr-grid">
+        {renderGroup('candidate', 'От кандидата')}
+        {renderGroup('company', 'Со стороны компании')}
       </div>
     </div>
   );
