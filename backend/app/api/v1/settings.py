@@ -47,6 +47,7 @@ from ...services.settings import (
     funnel_templates as funnel_templates_svc,
 )
 from ...services import candidate as candidate_service
+from ...core.errors import FeatureNotImplementedError
 
 router = APIRouter()
 
@@ -82,12 +83,15 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    """Change user password"""
-    await profile.change_password(
-        session, current_user, data.current_password, data.new_password, data.new_password_confirm, company_id
-    )
-    await session.commit()
-    return {"message": "Пароль успешно изменён"}
+    """Смена пароля ВРЕМЕННО ОТКЛЮЧЕНА (501).
+
+    Реальной формы смены пароля в UI нет (раздел — заглушка). Живой эндпоинт + autofill
+    менеджера паролей в УСТАРЕВШЕМ кэш-бандле (где форма была активна, коммит 050cd77,
+    до f3a15b2) молча перезаписывал пароль админа на автозаполненное значение → повторные
+    лок-ауты (root-cause, подтверждён audit_log: серии action=change_password парами).
+    Сервис profile.change_password оставлен — включить, когда будет НАСТОЯЩАЯ форма
+    (отдельная страница, autocomplete=new-password, без авто-сабмита на «Сохранить профиль»)."""
+    raise FeatureNotImplementedError(details={"reason": "Смена пароля временно недоступна"})
 
 
 # Glafira Settings endpoints

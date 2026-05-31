@@ -98,12 +98,13 @@ async def test_integration_config_encrypted_in_db_not_plaintext(async_client: As
     assert hh["config"]["api_key"].startswith("••••"), f"Expected masked value to start with ••••, got {hh['config']['api_key']}"
 
 
-async def test_password_change_wrong_current_returns_400(async_client: AsyncClient, auth_headers: dict):
-    """POST /profile/password с неверным current → 400."""
+async def test_password_change_disabled_returns_501(async_client: AsyncClient, auth_headers: dict):
+    """POST /profile/password отключён (feature deferred, см. settings.py) → 501.
+    Root-cause лок-аутов: устаревший кэш-бандл с живой формой + autofill молча менял пароль."""
     r = await async_client.post("/api/v1/settings/profile/password", headers=auth_headers,
         json={"current_password": "wrong", "new_password": "NewPass123!", "new_password_confirm": "NewPass123!"})
-    assert r.status_code == 400
-    assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert r.status_code == 501
+    assert r.json()["error"]["code"] == "FEATURE_NOT_IMPLEMENTED"
 
 
 async def test_email_template_crud_roundtrip(async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession):
