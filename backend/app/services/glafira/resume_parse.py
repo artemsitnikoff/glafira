@@ -186,6 +186,7 @@ async def parse_and_apply_resume(
         # Опыт работы
         if not candidate.experience and parsed_data.get("experience"):
             exp_count = 0
+            created_exp = []
             for idx, exp_data in enumerate(parsed_data["experience"]):
                 # position обязателен — пропускаем записи без position
                 if not (position := _to_str(exp_data.get("position"), 255)):
@@ -201,7 +202,17 @@ async def parse_and_apply_resume(
                     order_index=idx
                 )
                 session.add(experience)
+                created_exp.append(experience)
                 exp_count += 1
+
+            # Синхронизируем денормализованные «последнее место» со самой свежей записью опыта,
+            # чтобы мета карточки совпадала с опытом (а не с устаревшими/ручными last_*).
+            from ...services.candidate import pick_latest_experience
+            latest = pick_latest_experience(created_exp)
+            if latest:
+                candidate.last_position = latest.position
+                candidate.last_company = latest.company
+                candidate.last_period = latest.period
 
             logger.info(f"Created {exp_count} experience records for candidate {candidate_id}")
 

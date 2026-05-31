@@ -74,6 +74,33 @@ def _compute_full_name(last_name: str, first_name: str, middle_name: str | None)
     return " ".join(part for part in (last_name, first_name, middle_name) if part)
 
 
+import re as _re
+
+
+def _exp_recency_key(period: str | None) -> tuple[int, int]:
+    """Ключ свежести записи опыта: (текущая работа?, последний год периода). Больше = новее."""
+    if not period:
+        return (0, 0)
+    p = period.lower()
+    ongoing = 1 if any(k in p for k in ("наст", "н.в", "present", "current", "сейчас")) else 0
+    years = _re.findall(r"(?:19|20)\d{2}", period)
+    last_year = int(years[-1]) if years else 0
+    return (ongoing, last_year)
+
+
+def pick_latest_experience(experiences):
+    """Самая свежая запись опыта (текущая работа, иначе с наибольшим годом окончания).
+
+    Нужна потому, что денормализованные last_position/last_company/last_period могут
+    рассинхрониться с experience (сид ставит их независимо, парсер — только если NULL),
+    а порядок experience не гарантирован хронологически.
+    """
+    items = [e for e in (experiences or [])]
+    if not items:
+        return None
+    return max(items, key=lambda e: _exp_recency_key(getattr(e, "period", None)))
+
+
 async def compute_has_pdn(session: AsyncSession, candidate_id: UUID) -> bool:
     """True если у кандидата есть Consent со status='signed'."""
     result = await session.execute(
@@ -365,6 +392,13 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
     full_name = _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name)
     age = _compute_age(candidate.birth_date)
 
+    # «Последнее место работы» для меты — из самой свежей записи опыта (а не из устаревших
+    # денормализованных полей, которые могли рассинхрониться при сиде/парсинге).
+    latest_exp = pick_latest_experience(candidate.experience)
+    last_position = (latest_exp.position if latest_exp else None) or candidate.last_position
+    last_company = (latest_exp.company if latest_exp else None) or candidate.last_company
+    last_period = (latest_exp.period if latest_exp else None) or candidate.last_period
+
     return CandidateDetail(
         id=candidate.id,
         display_number=candidate.display_number,
@@ -382,9 +416,9 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         messengers=candidate.messengers or [],
         salary_expectation=candidate.salary_expectation,
         currency=candidate.currency,
-        last_position=candidate.last_position,
-        last_company=candidate.last_company,
-        last_period=candidate.last_period,
+        last_position=last_position,
+        last_company=last_company,
+        last_period=last_period,
         source=candidate.source,
         preferred_channel=candidate.preferred_channel,
         resume_text=candidate.resume_text,

@@ -67,10 +67,11 @@ export function CandidatePoolDetailPage() {
   const formatContactInfo = () => {
     if (!candidate) return ''
 
+    // Эталон: «возраст · период на последнем месте · последнее место» (без должности).
+    // last_* приходят с бэка из самой свежей записи опыта.
     const parts = []
     if (candidate.age) parts.push(`${candidate.age} лет`)
-    if (candidate.last_position && candidate.last_period) parts.push(`${candidate.last_position}/${candidate.last_period}`)
-    else if (candidate.last_position) parts.push(candidate.last_position)
+    if (candidate.last_period) parts.push(candidate.last_period)
     if (candidate.last_company) parts.push(candidate.last_company)
 
     return parts.join(' · ')

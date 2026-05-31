@@ -496,6 +496,7 @@ async def seed_experience(session: AsyncSession, candidates: list[Candidate]):
         template = templates[i % len(templates)]
 
         # Создаем записи опыта для кандидата
+        created_exp = []
         for order_index, (position, company, period, description) in enumerate(template):
             experience = CandidateExperience(
                 company_id=COMPANY_ID,
@@ -507,7 +508,17 @@ async def seed_experience(session: AsyncSession, candidates: list[Candidate]):
                 order_index=order_index
             )
             session.add(experience)
+            created_exp.append(experience)
             total_experience += 1
+
+        # Денормализованные «последнее место» — из самой свежей записи опыта,
+        # чтобы мета карточки совпадала с реальным опытом (а не с CANDIDATES_DATA).
+        from app.services.candidate import pick_latest_experience
+        latest = pick_latest_experience(created_exp)
+        if latest:
+            candidate.last_position = latest.position
+            candidate.last_company = latest.company
+            candidate.last_period = latest.period
 
     await session.flush()
     logger.info(f"Created {total_experience} experience records for {len(candidates)} candidates")

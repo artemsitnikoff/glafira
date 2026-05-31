@@ -102,10 +102,12 @@ export function CandidateHeader({ candidateId, application }: Props) {
             {candidate.ai_score && <ScoreBadge value={candidate.ai_score} size="lg" />}
           </div>
           <div className="cd-exp-line">
-            {candidate.experience?.[0] && (
+            {/* Последнее место работы — из last_* (бэк выводит их из самой свежей записи опыта;
+                experience[0] не годится — порядок не хронологический). */}
+            {candidate.last_company && (
               <>
-                {candidate.experience[0].period && `${candidate.experience[0].period} · `}
-                {candidate.experience[0].company}
+                {candidate.last_period && `${candidate.last_period} · `}
+                {candidate.last_company}
               </>
             )}
           </div>
