@@ -16,38 +16,53 @@ RETRYABLE_STATUS_CODES = {403, 429, 500, 502, 503, 504}
 MAX_RETRY_ATTEMPTS = 4
 BASE_BACKOFF_DELAY = 2.0
 
+# HTTP timeout configuration
+_HTTP_TIMEOUT = httpx.Timeout(
+    connect=10.0,  # Connection timeout
+    read=120.0,    # Read timeout (generous for LLM scoring)
+    write=10.0,    # Write timeout
+    pool=10.0      # Pool timeout
+)
+
 
 async def _make_openrouter_request(client: httpx.AsyncClient, payload: dict) -> httpx.Response:
-    """Makes request with exponential backoff retry on transient errors"""
+    """Makes request with exponential backoff retry on transient errors and network failures"""
     for attempt in range(MAX_RETRY_ATTEMPTS):
-        response = await client.post(
-            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=payload
-        )
+        try:
+            response = await client.post(
+                f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json=payload
+            )
 
-        # Success case
-        if response.status_code == 200:
-            return response
+            # Success case
+            if response.status_code == 200:
+                return response
 
-        # Final attempt - don't retry, just return
-        if attempt == MAX_RETRY_ATTEMPTS - 1:
-            return response
+            # Final attempt - don't retry, just return
+            if attempt == MAX_RETRY_ATTEMPTS - 1:
+                return response
 
-        # Check if status code is retryable
-        if response.status_code not in RETRYABLE_STATUS_CODES:
-            return response
+            # Check if status code is retryable
+            if response.status_code not in RETRYABLE_STATUS_CODES:
+                return response
+
+        except httpx.HTTPError:
+            # Network error - retry with backoff, but re-raise on final attempt
+            if attempt == MAX_RETRY_ATTEMPTS - 1:
+                raise
 
         # Calculate backoff delay
         backoff_delay = BASE_BACKOFF_DELAY * (2.5 ** attempt)
 
-        # Check for Retry-After header and respect it
-        retry_after = response.headers.get("Retry-After")
-        if retry_after and retry_after.isdigit():
-            backoff_delay = max(backoff_delay, float(retry_after))
+        # Check for Retry-After header and respect it (only if response exists)
+        if 'response' in locals():
+            retry_after = response.headers.get("Retry-After")
+            if retry_after and retry_after.isdigit():
+                backoff_delay = max(backoff_delay, float(retry_after))
 
         await asyncio.sleep(backoff_delay)
 
@@ -59,7 +74,7 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
     if not settings.OPENROUTER_API_KEY:
         raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         payload = {
             "model": settings.GLAFIRA_MODEL,
             "max_tokens": max_tokens,
@@ -69,7 +84,12 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
             ]
         }
 
-        response = await _make_openrouter_request(client, payload)
+        try:
+            response = await _make_openrouter_request(client, payload)
+        except httpx.HTTPError as e:
+            raise GlafiraParseError(details={
+                "reason": f"Сетевая ошибка при обращении к OpenRouter: {type(e).__name__}"
+            })
 
         if response.status_code != 200:
             raise GlafiraParseError(details={
@@ -110,7 +130,7 @@ async def call_text(*, system: str, user: str, max_tokens: int = 1024) -> str:
     if not settings.OPENROUTER_API_KEY:
         raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         payload = {
             "model": settings.GLAFIRA_MODEL,
             "max_tokens": max_tokens,
@@ -120,7 +140,12 @@ async def call_text(*, system: str, user: str, max_tokens: int = 1024) -> str:
             ]
         }
 
-        response = await _make_openrouter_request(client, payload)
+        try:
+            response = await _make_openrouter_request(client, payload)
+        except httpx.HTTPError as e:
+            raise GlafiraParseError(details={
+                "reason": f"Сетевая ошибка при обращении к OpenRouter: {type(e).__name__}"
+            })
 
         if response.status_code != 200:
             raise GlafiraParseError(details={
