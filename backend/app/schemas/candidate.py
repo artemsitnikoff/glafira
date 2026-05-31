@@ -42,6 +42,7 @@ class CandidateGridItem(ORMBase):
     last_position: str | None = None
     last_company: str | None = None
     last_period: str | None = None
+    last_tenure: str | None = None  # стаж на последнем месте, напр. «2 года»
     ai_score: int | None = None
     avatar_url: str | None = None
     is_duplicate: bool = False
@@ -72,6 +73,8 @@ class CandidateDetail(ORMBase):
     last_position: str | None = None
     last_company: str | None = None
     last_period: str | None = None
+    last_tenure: str | None = None        # стаж на последнем месте, напр. «2 года 3 мес»
+    total_experience: str | None = None   # общий стаж по резюме (сумма), напр. «6 лет 7 мес»
     source: str
     preferred_channel: str = "telegram"
     resume_text: str | None = None

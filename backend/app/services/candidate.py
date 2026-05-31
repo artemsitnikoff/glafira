@@ -101,6 +101,75 @@ def pick_latest_experience(experiences):
     return max(items, key=lambda e: _exp_recency_key(getattr(e, "period", None)))
 
 
+_RU_MONTHS = {
+    "янв": 1, "фев": 2, "мар": 3, "апр": 4, "май": 5, "мая": 5, "июн": 6,
+    "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12,
+}
+
+
+def _parse_period_point(s: str, *, is_end: bool):
+    """'Мар 2024' / '2024' / 'наст. время' → (year, month). None если не распознано."""
+    s = s.strip().lower()
+    if any(k in s for k in ("наст", "present", "сейчас", "н.в", "текущ")):
+        t = date.today()
+        return (t.year, t.month)
+    m = _re.search(r"([а-яё]{3,})\.?\s*(\d{4})", s)
+    if m and (mon := _RU_MONTHS.get(m.group(1)[:3])):
+        return (int(m.group(2)), mon)
+    y = _re.search(r"(19|20)\d{2}", s)
+    if y:
+        return (int(y.group(0)), 1)  # год без месяца → январь (чтобы «2020-2022» = 2 года)
+    return None
+
+
+def _period_to_months(period: str | None) -> int:
+    """Длительность периода в месяцах (0 если не распарсилось)."""
+    if not period:
+        return 0
+    parts = _re.split(r"\s*[—–-]\s*|\s+по\s+", period, maxsplit=1)
+    if len(parts) < 2:
+        return 0
+    start = _parse_period_point(parts[0], is_end=False)
+    end = _parse_period_point(parts[1], is_end=True)
+    if not start or not end:
+        return 0
+    return max(0, (end[0] - start[0]) * 12 + (end[1] - start[1]))
+
+
+def _plural_years(n: int) -> str:
+    n10, n100 = n % 10, n % 100
+    if n10 == 1 and n100 != 11:
+        return "год"
+    if 2 <= n10 <= 4 and not (12 <= n100 <= 14):
+        return "года"
+    return "лет"
+
+
+def format_duration(months: int) -> str | None:
+    """Месяцы → '2 года 3 мес' (как в эталоне). None если 0/неизвестно."""
+    if months <= 0:
+        return None
+    years, mons = divmod(months, 12)
+    parts = []
+    if years:
+        parts.append(f"{years} {_plural_years(years)}")
+    if mons:
+        parts.append(f"{mons} мес")
+    return " ".join(parts) if parts else None
+
+
+def last_job_tenure(experiences) -> str | None:
+    """Длительность на последнем (самом свежем) месте работы."""
+    latest = pick_latest_experience(experiences)
+    return format_duration(_period_to_months(getattr(latest, "period", None))) if latest else None
+
+
+def total_experience(experiences) -> str | None:
+    """Общий стаж = сумма длительностей всех записей опыта."""
+    total = sum(_period_to_months(getattr(e, "period", None)) for e in (experiences or []))
+    return format_duration(total)
+
+
 async def compute_has_pdn(session: AsyncSession, candidate_id: UUID) -> bool:
     """True если у кандидата есть Consent со status='signed'."""
     result = await session.execute(
@@ -332,6 +401,7 @@ async def get_candidates_paginated(
             last_position=row.last_position,
             last_company=row.last_company,
             last_period=row.last_period,
+            last_tenure=format_duration(_period_to_months(row.last_period)),
             ai_score=row.ai_score,
             avatar_url=None,  # No avatar_url field in Candidate model
             is_duplicate=row.is_duplicate,
@@ -398,6 +468,9 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
     last_position = (latest_exp.position if latest_exp else None) or candidate.last_position
     last_company = (latest_exp.company if latest_exp else None) or candidate.last_company
     last_period = (latest_exp.period if latest_exp else None) or candidate.last_period
+    # Вычисленные длительности (как в эталоне): стаж на последнем месте + общий стаж по резюме.
+    last_tenure = last_job_tenure(candidate.experience)
+    total_exp = total_experience(candidate.experience)
 
     return CandidateDetail(
         id=candidate.id,
@@ -419,6 +492,8 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         last_position=last_position,
         last_company=last_company,
         last_period=last_period,
+        last_tenure=last_tenure,
+        total_experience=total_exp,
         source=candidate.source,
         preferred_channel=candidate.preferred_channel,
         resume_text=candidate.resume_text,

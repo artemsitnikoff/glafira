@@ -1,6 +1,11 @@
 """Unit tests for pick_latest_experience (мета карточки = самая свежая запись опыта)."""
 
-from app.services.candidate import pick_latest_experience
+from app.services.candidate import (
+    pick_latest_experience,
+    format_duration,
+    _period_to_months,
+    total_experience,
+)
 
 
 class _Exp:
@@ -33,3 +38,28 @@ def test_picks_latest_end_year_when_no_ongoing():
 def test_empty_returns_none():
     assert pick_latest_experience([]) is None
     assert pick_latest_experience(None) is None
+
+
+def test_format_duration():
+    assert format_duration(0) is None
+    assert format_duration(11) == "11 мес"
+    assert format_duration(12) == "1 год"
+    assert format_duration(13) == "1 год 1 мес"
+    assert format_duration(24) == "2 года"
+    assert format_duration(38) == "3 года 2 мес"
+    assert format_duration(60) == "5 лет"
+    assert format_duration(91) == "7 лет 7 мес"
+
+
+def test_period_to_months_year_range():
+    assert _period_to_months("2020-2022") == 24       # «2020-2022» = 2 года
+    assert _period_to_months("Июл 2018 — Авг 2019") == 13
+    assert _period_to_months("Июн 2021 — Фев 2023") == 20
+    assert _period_to_months(None) == 0
+    assert _period_to_months("кривая строка") == 0
+
+
+def test_total_experience_sums():
+    exps = [_Exp("A", "2018-2019"), _Exp("B", "2020-2022"), _Exp("C", "2022-2024")]
+    # 12 + 24 + 24 = 60 мес = 5 лет
+    assert total_experience(exps) == "5 лет"

@@ -67,11 +67,12 @@ export function CandidatePoolDetailPage() {
   const formatContactInfo = () => {
     if (!candidate) return ''
 
-    // Эталон: «возраст · период на последнем месте · последнее место» (без должности).
-    // last_* приходят с бэка из самой свежей записи опыта.
+    // Эталон: «возраст · стаж на последнем месте · последнее место» (без должности).
+    // last_tenure/last_company приходят с бэка (вычислены из самой свежей записи опыта).
+    const tenure = (candidate as any).last_tenure as string | null | undefined
     const parts = []
     if (candidate.age) parts.push(`${candidate.age} лет`)
-    if (candidate.last_period) parts.push(candidate.last_period)
+    if (tenure) parts.push(tenure)
     if (candidate.last_company) parts.push(candidate.last_company)
 
     return parts.join(' · ')

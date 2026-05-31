@@ -83,7 +83,14 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
 
       {candidate.experience && candidate.experience.length > 0 && (
         <>
-          <h3 className="cc-sec-title">Опыт работы</h3>
+          <h3 className="cc-sec-title">
+            Опыт работы
+            {(candidate as any).total_experience && (
+              <span style={{ color: 'var(--fg-3)', fontWeight: 400, fontSize: '13px' }}>
+                {' · '}общий стаж {(candidate as any).total_experience}
+              </span>
+            )}
+          </h3>
           {candidate.experience.map((exp: any, index: number) => (
             <div key={index} className="job">
               <div className="job-header">

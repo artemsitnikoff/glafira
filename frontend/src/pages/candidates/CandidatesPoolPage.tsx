@@ -364,8 +364,10 @@ function PoolCard({ candidate }: PoolCardProps) {
   // Format age and experience display
   const formatAge = (age: number | null | undefined) => age ? `${age} лет` : ''
   const formatExperience = () => {
+    // Эталон: «стаж на последнем месте · компания» (last_tenure вычислен на беке).
+    const tenure = (candidate as any).last_tenure as string | null | undefined
     const parts = []
-    if (candidate.last_position) parts.push(candidate.last_period || 'опыт')
+    if (tenure) parts.push(tenure)
     if (candidate.last_company) parts.push(candidate.last_company)
     return parts.join(' · ')
   }
