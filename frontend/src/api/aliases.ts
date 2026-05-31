@@ -53,7 +53,6 @@ export interface Paginated<T> {
   page: number;
   page_size: number;
   pages: number;
-  has_next?: boolean;
 }
 
 // FastAPI generated KpiCard under namespaced keys because the same class name

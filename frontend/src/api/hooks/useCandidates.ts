@@ -53,7 +53,9 @@ export function useCandidates(filters: CandidateFilters = {}) {
       return response.data as Paginated<CandidateGridItem>
     },
     getNextPageParam: (lastPage, allPages) => {
-      return lastPage.has_next ? allPages.length + 1 : undefined
+      // Бэк отдаёт `pages` (всего страниц), а НЕ `has_next`. Следующая страница есть,
+      // пока загруженных страниц меньше общего числа.
+      return allPages.length < lastPage.pages ? allPages.length + 1 : undefined
     },
     initialPageParam: 1
   })
