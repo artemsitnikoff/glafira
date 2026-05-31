@@ -4,7 +4,7 @@ import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
 import { MessIconRound } from '@/components/ui/MessIconRound';
 import { messengerChannel } from '@/lib/messengers';
-import { ScoreBadge } from '@/components/ui/ScoreBadge';
+import { ScoreLabel } from '@/components/ui/ScoreLabel';
 import { PdnBadge } from '@/components/PdnBadge';
 
 type Props = {
@@ -95,7 +95,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
           <div className="cd-name-row">
             <h1 className="cd-name">{candidate.full_name}</h1>
             {candidate.has_pdn && <PdnBadge size="md" />}
-            {candidate.ai_score && <ScoreBadge value={candidate.ai_score} size="lg" />}
+            {candidate.ai_score && <ScoreLabel value={candidate.ai_score} size="lg" />}
           </div>
           <div className="cd-exp-line">
             {/* Стаж на последнем месте · компания (эталон). last_tenure вычислен на беке

@@ -9,9 +9,3 @@ export function scoreBand(value: number | null | undefined): ScoreBand {
   if (value >= 50) return 'yellow';
   return 'red';
 }
-
-// CSS-класс воронки (.score-green / .score-yellow / .score-red), '' для пустого значения.
-export function scoreClass(value: number | null | undefined): string {
-  const b = scoreBand(value);
-  return b === 'none' ? '' : `score-${b}`;
-}

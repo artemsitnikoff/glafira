@@ -1,7 +1,7 @@
-// Эталонный AI-скоринг-бейдж: светлый фон + цветной текст, моноширинный, фикс-размер.
-// 1:1 с воронкой (Funnel.css .cnd-funnel-wrap .score-*) и эталоном. Инлайн-стили = точные
-// значения эталона, без зависимости от scoped-CSS (чтобы совпадало на любом экране).
-// Общий components/ui/ScoreBadge (сплошной фон + белый текст) НЕ трогаем — его юзают другие экраны.
+// ЕДИНЫЙ бейдж AI-скоринга для всего проекта: светлый пастельный фон + цветной текст,
+// моноширинный, фикс-бокс по размеру. 1:1 с эталоном (.score-badge .score-green = ark-green-100/600).
+// Инлайн-стили = точные значения эталона, без зависимости от scoped-CSS — совпадает на любом экране
+// (воронка / список / пул / карточка / AI-вердикт). Порог цвета — из lib/score.scoreBand (80/50).
 import { scoreBand } from '@/lib/score';
 
 type Size = 'sm' | 'md' | 'lg' | 'xl';
@@ -24,11 +24,12 @@ function colors(v: number | null | undefined): { bg: string; fg: string } {
   return BAND_COLORS[scoreBand(v)];
 }
 
-export function ScoreLabel({ value, size = 'lg' }: { value: number | null | undefined; size?: Size }) {
+export function ScoreLabel({ value, size = 'lg', title }: { value: number | null | undefined; size?: Size; title?: string }) {
   const s = SIZES[size];
   const c = colors(value);
   return (
     <span
+      title={title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

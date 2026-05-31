@@ -5,19 +5,9 @@ import { StageChip } from '@/components/ui/StageChip';
 import { MessIconRound } from '@/components/ui/MessIconRound';
 import { messengerChannel } from '@/lib/messengers';
 import { Icon } from '@/components/ui/Icon';
-import { scoreClass } from '@/lib/score';
 import { formatSalary } from '@/lib/format';
-
-// Score-бейдж 1:1 по эталону: светлый пастельный фон + тёмный текст, фикс-бокс по score-{size}.
-// Использует scoped-классы .score-badge/.score-green/.score-lg из Funnel.css.
-// Общий components/ui/ScoreBadge — другой стиль (сплошной фон + белый текст), его НЕ трогаем (юзают другие экраны).
-function ScoreBadge({ value, size = 'lg' }: { value: number | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
-  return (
-    <span className={`score-badge ${scoreClass(value)} score-${size}`} title="Почему такая оценка">
-      {value == null ? '—' : value}
-    </span>
-  );
-}
+import { ScoreLabel } from '@/components/ui/ScoreLabel';
+// Единый бейдж скоринга — общий ScoreLabel (светлый пастель, 1:1 эталон) на всех экранах.
 
 type Props = {
   vacancyId: string;
@@ -314,7 +304,7 @@ function FunnelRow({
             <div className="prof-meta-line">{candidate.last_position || 'Опыт не указан'}</div>
           </div>
         </div>
-        <ScoreBadge value={candidate.ai_score} size="lg" />
+        <ScoreLabel value={candidate.ai_score} size="lg" title="Почему такая оценка" />
       </div>
 
       {!detailMode && (

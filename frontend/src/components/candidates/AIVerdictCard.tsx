@@ -1,4 +1,5 @@
-import { scoreBand, scoreClass } from '@/lib/score';
+import { scoreBand } from '@/lib/score';
+import { ScoreLabel } from '@/components/ui/ScoreLabel';
 
 type Props = {
   evaluation: any;
@@ -9,10 +10,7 @@ type Props = {
 export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
   if (!evaluation) return null;
 
-  // Score color — единый порог 80/50 (раньше тут было 60 → расходилось с текстом ниже)
-  const getScoreColor = (score: number) => scoreClass(score);
-
-  // Use real AI summary or fallback based on score (порог из того же scoreBand)
+  // Use real AI summary or fallback based on score (единый порог через scoreBand)
   const getSummaryText = () => {
     if (evaluation.summary) {
       return evaluation.summary;
@@ -37,9 +35,7 @@ export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
             <div className="filo-sub">{getSummaryText()}</div>
           </div>
         </div>
-        <span className={`score-badge score-xl ${getScoreColor(evaluation.score)}`}>
-          {evaluation.score}
-        </span>
+        <ScoreLabel value={evaluation.score} size="xl" />
       </div>
       {!hideLink && (
         <div className="filo-link-row">
