@@ -45,6 +45,7 @@ class Application(Base, TimestampMixin, CompanyMixin):
     reject_side: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_repeat: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     source: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    hh_negotiation_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
 
     # Constraints
     __table_args__ = (

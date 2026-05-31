@@ -24,6 +24,11 @@ class Settings(BaseSettings):
 
     HH_CLIENT_ID: str = ""
     HH_CLIENT_SECRET: str = ""
+    HH_REDIRECT_URI: str = ""
+    HH_USER_AGENT: str = "Glafira/1.0 (glafira.dclouds.ru)"
+    HH_AUTHORIZE_URL: str = "https://hh.ru/oauth/authorize"
+    HH_TOKEN_URL: str = "https://api.hh.ru/token"
+    HH_API_BASE: str = "https://api.hh.ru"
     AVITO_CLIENT_ID: str = ""
     AVITO_CLIENT_SECRET: str = ""
 
@@ -32,6 +37,7 @@ class Settings(BaseSettings):
     # Deployment
     CORS_ORIGINS: str = "http://localhost:5173"  # comma-separated list
     SESSION_COOKIE_SECURE: bool = False  # True in production with HTTPS
+    FRONTEND_BASE_URL: str = "https://glafira.dclouds.ru"
 
     @property
     def cors_origins_list(self) -> list[str]:

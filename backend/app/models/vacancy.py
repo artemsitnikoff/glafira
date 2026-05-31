@@ -57,6 +57,7 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     external_source: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     external_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    hh_vacancy_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
 
     # Constraints
     __table_args__ = (

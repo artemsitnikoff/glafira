@@ -31,6 +31,7 @@ from .settings import (
     FunnelTemplate,
     FunnelTemplateStage,
 )
+from .hh_integration import HhIntegration, HhOauthState
 
 __all__ = [
     "Base",
@@ -68,4 +69,6 @@ __all__ = [
     "GlafiraSettings",
     "Integration",
     "CompanyDefaultStage",
+    "HhIntegration",
+    "HhOauthState",
 ]
