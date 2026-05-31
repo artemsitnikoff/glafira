@@ -8,58 +8,119 @@ type Props = {
   onFiltersChange: (filters: ApplicationFilters) => void;
 };
 
+// Источники — реальные значения Candidate.source (RU-лейблы), мультивыбор.
 const SOURCES = [
   { id: 'hh', label: 'HeadHunter' },
-  { id: 'telegram', label: 'Глафира · Telegram' },
   { id: 'avito', label: 'Авито' },
+  { id: 'superjob', label: 'SuperJob' },
+  { id: 'telegram', label: 'Telegram' },
+  { id: 'referral', label: 'Реферал' },
+  { id: 'direct', label: 'Напрямую' },
+  { id: 'agency', label: 'Агентство' },
+  { id: 'manual', label: 'Вручную' },
+  { id: 'import', label: 'Импорт' },
+  { id: 'other', label: 'Другое' },
 ];
 
+// Мессенджер — реальные значения Candidate.preferred_channel, мультивыбор.
 const MESSENGERS = [
   { id: 'telegram', label: 'Telegram' },
-  { id: 'whatsapp', label: 'WhatsApp' },
-  { id: 'max', label: 'Max' },
+  { id: 'email', label: 'E-mail' },
+  { id: 'phone', label: 'Телефон' },
 ];
 
-const CITIES = ['Москва', 'СПб', 'Новосибирск'];
-
+// Период отбора — значения added_period, поддерживаемые беком (одиночный выбор).
 const PERIODS = [
-  { id: '1d', label: 'Сегодня' },
   { id: '7d', label: 'Неделя' },
   { id: '30d', label: 'Месяц' },
   { id: '90d', label: 'Квартал' },
   { id: 'all', label: 'Всё время' },
 ];
 
+// Локальный черновик фильтра — копится в drawer, применяется ТОЛЬКО по кнопке.
+type Draft = {
+  score_min: number;   // 0 = неактивно
+  salary_max: number;  // 500 = неактивно (без потолка)
+  source: string[];
+  city: string;        // свободный ввод (бэк: ILIKE)
+  messenger: string[];
+  ready_relocate: boolean;
+  added_period: string; // '' = «Всё время» (неактивно)
+  repeat: boolean;
+};
+
+const EMPTY_DRAFT: Draft = {
+  score_min: 0, salary_max: 500, source: [], city: '',
+  messenger: [], ready_relocate: false, added_period: '', repeat: false,
+};
+
+const asArray = (v: string | string[] | undefined): string[] =>
+  Array.isArray(v) ? v : v ? [v] : [];
+
+function filtersToDraft(f: ApplicationFilters): Draft {
+  return {
+    score_min: f.score_min ?? 0,
+    salary_max: f.salary_max ?? 500,
+    source: asArray(f.source),
+    city: typeof f.city === 'string' ? f.city : '',
+    messenger: asArray(f.messenger),
+    ready_relocate: !!f.ready_relocate,
+    added_period: f.added_period && f.added_period !== 'all' ? f.added_period : '',
+    repeat: !!f.repeat,
+  };
+}
+
+// Накладываем черновик на текущие filters — этап/поиск/сортировка сохраняются.
+function applyDraft(base: ApplicationFilters, d: Draft): ApplicationFilters {
+  return {
+    stage: base.stage,
+    search: base.search,
+    sort: base.sort,
+    order: base.order,
+    score_min: d.score_min > 0 ? d.score_min : undefined,
+    salary_max: d.salary_max < 500 ? d.salary_max : undefined,
+    source: d.source.length ? d.source : undefined,
+    city: d.city.trim() ? d.city.trim() : undefined,
+    messenger: d.messenger.length ? d.messenger : undefined,
+    ready_relocate: d.ready_relocate ? true : undefined,
+    added_period: d.added_period ? d.added_period : undefined,
+    repeat: d.repeat ? true : undefined,
+  };
+}
+
 export default function FilterDrawer({ onClose, filters, onFiltersChange }: Props) {
   const [openSections, setOpenSections] = useState(new Set(['ai', 'salary', 'source']));
+  // Черновик инициализируется из уже применённых фильтров.
+  const [draft, setDraft] = useState<Draft>(() => filtersToDraft(filters));
 
   const toggleSection = (id: string) => {
-    const next = new Set(openSections);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setOpenSections(next);
-  };
-
-  const resetFilters = () => {
-    onFiltersChange({
-      sort: filters.sort,
-      order: filters.order,
+    setOpenSections(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
   };
 
-  const hasActiveFilters = !!(
-    filters.score_min ||
-    filters.salary_max ||
-    filters.source ||
-    filters.city ||
-    filters.messenger ||
-    filters.ready_relocate ||
-    filters.added_period ||
-    filters.repeat
-  );
+  const toggleInArray = (key: 'source' | 'messenger', id: string) => {
+    setDraft(d => {
+      const arr = d[key];
+      return { ...d, [key]: arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id] };
+    });
+  };
+
+  const activeCount =
+    (draft.score_min > 0 ? 1 : 0) +
+    (draft.salary_max < 500 ? 1 : 0) +
+    draft.source.length +
+    (draft.city.trim() ? 1 : 0) +
+    draft.messenger.length +
+    (draft.ready_relocate ? 1 : 0) +
+    (draft.added_period ? 1 : 0) +
+    (draft.repeat ? 1 : 0);
+
+  const apply = () => { onFiltersChange(applyDraft(filters, draft)); onClose(); };
+  const resetAll = () => { onFiltersChange(applyDraft(filters, EMPTY_DRAFT)); onClose(); };
+  const resetDraft = () => setDraft(EMPTY_DRAFT);
 
   return (
     <>
@@ -68,8 +129,8 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
         <div className="fdr-head">
           <div className="fdr-title">
             Фильтры
-            {hasActiveFilters && (
-              <button className="fdr-reset-circle" onClick={resetFilters} title="Сбросить">
+            {activeCount > 0 && (
+              <button className="fdr-reset-circle" onClick={resetDraft} title="Сбросить">
                 <Icon name="refresh" size={14} />
               </button>
             )}
@@ -80,198 +141,92 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
         </div>
 
         <div className="fdr-pin-row">
-          <button className="fdr-pin-btn" disabled>
+          <button className="fdr-pin-btn" disabled title="Скоро">
             <Icon name="bookmark" size={13} />
             Сохранить настроенный фильтр
           </button>
         </div>
 
         <div className="fdr-body">
-          <FilterSection
-            title="AI-скоринг"
-            count={filters.score_min ? 1 : 0}
-            open={openSections.has('ai')}
-            onToggle={() => toggleSection('ai')}
-          >
+          <FilterSection title="AI-скоринг" count={draft.score_min > 0 ? 1 : 0} open={openSections.has('ai')} onToggle={() => toggleSection('ai')}>
             <div className="fdr-slider-row">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                value={filters.score_min || 0}
-                onChange={e =>
-                  onFiltersChange({ ...filters, score_min: Number(e.target.value) })
-                }
-              />
-              <span className="fdr-slider-val t-mono">от {filters.score_min || 0}</span>
+              <input type="range" min="0" max="100" step="5" value={draft.score_min}
+                onChange={e => setDraft(d => ({ ...d, score_min: Number(e.target.value) }))} />
+              <span className="fdr-slider-val t-mono">от {draft.score_min}</span>
             </div>
-            <div className="fdr-tick-row">
-              <span>0</span>
-              <span>50</span>
-              <span>100</span>
-            </div>
+            <div className="fdr-tick-row"><span>0</span><span>50</span><span>100</span></div>
           </FilterSection>
 
-          <FilterSection
-            title="Зарплата, тыс ₽"
-            count={filters.salary_max && filters.salary_max < 500 ? 1 : 0}
-            open={openSections.has('salary')}
-            onToggle={() => toggleSection('salary')}
-          >
+          <FilterSection title="Зарплата, тыс ₽" count={draft.salary_max < 500 ? 1 : 0} open={openSections.has('salary')} onToggle={() => toggleSection('salary')}>
             <div className="fdr-slider-row">
-              <input
-                type="range"
-                min="100"
-                max="500"
-                step="10"
-                value={filters.salary_max || 500}
-                onChange={e =>
-                  onFiltersChange({ ...filters, salary_max: Number(e.target.value) })
-                }
-              />
-              <span className="fdr-slider-val t-mono">до {filters.salary_max || 500}</span>
+              <input type="range" min="100" max="500" step="10" value={draft.salary_max}
+                onChange={e => setDraft(d => ({ ...d, salary_max: Number(e.target.value) }))} />
+              <span className="fdr-slider-val t-mono">до {draft.salary_max}</span>
             </div>
           </FilterSection>
 
-          <FilterSection
-            title="Источник"
-            count={0} // TODO: calculate count
-            open={openSections.has('source')}
-            onToggle={() => toggleSection('source')}
-          >
+          <FilterSection title="Источник" count={draft.source.length} open={openSections.has('source')} onToggle={() => toggleSection('source')}>
             <div className="fdr-chip-row">
-              {SOURCES.map(source => (
-                <button
-                  key={source.id}
-                  className={`filter-chip ${filters.source === source.id ? 'active' : ''}`}
-                  onClick={() =>
-                    onFiltersChange({
-                      ...filters,
-                      source: filters.source === source.id ? undefined : source.id,
-                    })
-                  }
-                >
-                  {source.label}
+              {SOURCES.map(s => (
+                <button key={s.id} className={`filter-chip ${draft.source.includes(s.id) ? 'active' : ''}`} onClick={() => toggleInArray('source', s.id)}>
+                  {s.label}
                 </button>
               ))}
             </div>
           </FilterSection>
 
-          <FilterSection
-            title="Город проживания"
-            count={0}
-            open={openSections.has('city')}
-            onToggle={() => toggleSection('city')}
-          >
+          <FilterSection title="Город проживания" count={draft.city.trim() ? 1 : 0} open={openSections.has('city')} onToggle={() => toggleSection('city')}>
+            <input
+              className="fdr-text-input"
+              type="text"
+              placeholder="Введите город"
+              value={draft.city}
+              onChange={e => setDraft(d => ({ ...d, city: e.target.value }))}
+            />
+          </FilterSection>
+
+          <FilterSection title="Мессенджер" count={draft.messenger.length} open={openSections.has('mess')} onToggle={() => toggleSection('mess')}>
             <div className="fdr-chip-row">
-              {CITIES.map(city => (
-                <button
-                  key={city}
-                  className={`filter-chip ${filters.city === city ? 'active' : ''}`}
-                  onClick={() =>
-                    onFiltersChange({
-                      ...filters,
-                      city: filters.city === city ? undefined : city,
-                    })
-                  }
-                >
-                  {city}
+              {MESSENGERS.map(m => (
+                <button key={m.id} className={`filter-chip ${draft.messenger.includes(m.id) ? 'active' : ''}`} onClick={() => toggleInArray('messenger', m.id)}>
+                  {m.label}
                 </button>
               ))}
             </div>
           </FilterSection>
 
-          <FilterSection
-            title="Мессенджер"
-            count={0}
-            open={openSections.has('mess')}
-            onToggle={() => toggleSection('mess')}
-          >
-            <div className="fdr-chip-row">
-              {MESSENGERS.map(messenger => (
-                <button
-                  key={messenger.id}
-                  className={`filter-chip ${filters.messenger === messenger.id ? 'active' : ''}`}
-                  onClick={() =>
-                    onFiltersChange({
-                      ...filters,
-                      messenger: filters.messenger === messenger.id ? undefined : messenger.id,
-                    })
-                  }
-                >
-                  {messenger.label}
-                </button>
-              ))}
-            </div>
-          </FilterSection>
-
-          <FilterSection
-            title="Готовность"
-            count={filters.ready_relocate ? 1 : 0}
-            open={openSections.has('ready')}
-            onToggle={() => toggleSection('ready')}
-          >
+          <FilterSection title="Готовность" count={draft.ready_relocate ? 1 : 0} open={openSections.has('ready')} onToggle={() => toggleSection('ready')}>
             <label className="fdr-check">
-              <input
-                type="checkbox"
-                checked={filters.ready_relocate || false}
-                onChange={e =>
-                  onFiltersChange({ ...filters, ready_relocate: e.target.checked })
-                }
-              />
+              <input type="checkbox" checked={draft.ready_relocate} onChange={e => setDraft(d => ({ ...d, ready_relocate: e.target.checked }))} />
               <span>Готов к переезду</span>
             </label>
           </FilterSection>
 
-          <FilterSection
-            title="Период отбора на вакансию"
-            count={filters.added_period ? 1 : 0}
-            open={openSections.has('period')}
-            onToggle={() => toggleSection('period')}
-          >
+          <FilterSection title="Период отбора на вакансию" count={draft.added_period ? 1 : 0} open={openSections.has('period')} onToggle={() => toggleSection('period')}>
             <div className="fdr-chip-row">
-              {PERIODS.map(period => (
+              {PERIODS.map(p => (
                 <button
-                  key={period.id}
-                  className={`filter-chip ${filters.added_period === period.id ? 'active' : ''}`}
-                  onClick={() =>
-                    onFiltersChange({
-                      ...filters,
-                      added_period: filters.added_period === period.id ? undefined : period.id,
-                    })
-                  }
+                  key={p.id}
+                  className={`filter-chip ${(draft.added_period || 'all') === p.id ? 'active' : ''}`}
+                  onClick={() => setDraft(d => ({ ...d, added_period: p.id === 'all' ? '' : p.id }))}
                 >
-                  {period.label}
+                  {p.label}
                 </button>
               ))}
             </div>
           </FilterSection>
 
-          <FilterSection
-            title="Повторный отклик"
-            count={filters.repeat ? 1 : 0}
-            open={openSections.has('repeat')}
-            onToggle={() => toggleSection('repeat')}
-          >
+          <FilterSection title="Повторный отклик" count={draft.repeat ? 1 : 0} open={openSections.has('repeat')} onToggle={() => toggleSection('repeat')}>
             <label className="fdr-check">
-              <input
-                type="checkbox"
-                checked={filters.repeat || false}
-                onChange={e => onFiltersChange({ ...filters, repeat: e.target.checked })}
-              />
+              <input type="checkbox" checked={draft.repeat} onChange={e => setDraft(d => ({ ...d, repeat: e.target.checked }))} />
               <span>Только повторно откликнувшиеся</span>
             </label>
           </FilterSection>
         </div>
 
         <div className="fdr-foot">
-          <button className="btn btn-secondary btn-sm" onClick={resetFilters}>
-            Сбросить всё
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={onClose}>
-            Показать результаты
-          </button>
+          <button className="btn btn-secondary btn-sm" onClick={resetAll}>Сбросить всё</button>
+          <button className="btn btn-primary btn-sm" onClick={apply}>Применить</button>
         </div>
       </aside>
     </>

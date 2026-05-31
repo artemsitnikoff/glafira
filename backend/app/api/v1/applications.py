@@ -43,7 +43,7 @@ async def get_applications_for_vacancy_funnel(
     search: str | None = Query(None),
     score_min: int | None = Query(None),
     salary_max: int | None = Query(None),
-    source: str | None = Query(None),
+    source: list[str] | None = Query(None),
     city: str | None = Query(None),
     messenger: list[str] | None = Query(None),
     ready_relocate: bool | None = Query(None),

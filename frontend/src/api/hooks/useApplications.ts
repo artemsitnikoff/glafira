@@ -10,7 +10,7 @@ export type ApplicationFilters = {
   score_min?: number;
   salary_max?: number;
   source?: string | string[];
-  city?: string | string[];
+  city?: string; // свободный ввод (одно значение, ILIKE на беке)
   messenger?: string | string[];
   ready_relocate?: boolean;
   added_period?: string;

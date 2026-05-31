@@ -30,14 +30,34 @@ export default function VacancyDetailPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [createCandidateOpen, setCreateCandidateOpen] = useState(false);
 
-  // Extract filters from URL
+  // Extract filters from URL — читаем ВСЕ поля (раньше читались только stage/search/score_min,
+  // из-за чего фильтры из drawer писались в URL, но не доходили до API).
   const filters: ApplicationFilters = {
     stage: searchParams.get('stage') || undefined,
     search: searchParams.get('search') || undefined,
     score_min: searchParams.get('score_min') ? Number(searchParams.get('score_min')) : undefined,
-    sort: searchParams.get('sort') || 'score',
+    salary_max: searchParams.get('salary_max') ? Number(searchParams.get('salary_max')) : undefined,
+    source: searchParams.getAll('source').length ? searchParams.getAll('source') : undefined,
+    city: searchParams.get('city') || undefined,
+    messenger: searchParams.getAll('messenger').length ? searchParams.getAll('messenger') : undefined,
+    ready_relocate: searchParams.get('ready_relocate') === 'true' || undefined,
+    added_period: searchParams.get('added_period') || undefined,
+    repeat: searchParams.get('repeat') === 'true' || undefined,
+    sort: searchParams.get('sort') || 'ai_score', // дефолт — AI-скоринг (совпадает с подсветкой колонки)
     order: (searchParams.get('order') as 'asc' | 'desc') || 'desc',
   };
+
+  // Кол-во активных фильтров (без этапа/поиска/сортировки — у них свои контролы) — для бейджа.
+  const arrLen = (v: string | string[] | undefined) => (v ? (Array.isArray(v) ? v.length : 1) : 0);
+  const activeFilterCount =
+    (filters.score_min ? 1 : 0) +
+    (filters.salary_max ? 1 : 0) +
+    arrLen(filters.source) +
+    (filters.city ? 1 : 0) +
+    arrLen(filters.messenger) +
+    (filters.ready_relocate ? 1 : 0) +
+    (filters.added_period ? 1 : 0) +
+    (filters.repeat ? 1 : 0);
 
   // Get applications for finding current candidate's application
   const { data: applicationsData } = useApplications(id!, filters);
@@ -66,19 +86,20 @@ export default function VacancyDetailPage() {
   const updateFilters = (newFilters: ApplicationFilters) => {
     const params = new URLSearchParams(searchParams);
 
-    // Clear existing filter params
-    params.delete('stage');
-    params.delete('search');
-    params.delete('score_min');
-    params.delete('sort');
-    params.delete('order');
+    // Чистим ВСЕ фильтр-ключи (вызыватели передают полный объект filters).
+    ['stage', 'search', 'score_min', 'salary_max', 'source', 'city', 'messenger',
+     'ready_relocate', 'added_period', 'repeat', 'sort', 'order'].forEach(k => params.delete(k));
 
-    // Add new filters
-    Object.entries(newFilters).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
+    // Пишем заново; массивы (source/messenger) — несколькими значениями.
+    const setParam = (key: string, value: unknown) => {
+      if (value === undefined || value === null || value === '') return;
+      if (Array.isArray(value)) {
+        value.forEach(v => params.append(key, String(v)));
+      } else {
         params.set(key, String(value));
       }
-    });
+    };
+    Object.entries(newFilters).forEach(([key, value]) => setParam(key, value));
 
     setSearchParams(params);
   };
@@ -151,7 +172,7 @@ export default function VacancyDetailPage() {
           search={filters.search}
           onSearchChange={search => updateFilters({ ...filters, search })}
           onFiltersOpen={() => setFiltersOpen(true)}
-          filtersCount={0} // TODO: calculate active filters count
+          filtersCount={activeFilterCount}
         />
 
         {selectedIds.size > 0 && !isDetailMode && (
@@ -165,11 +186,11 @@ export default function VacancyDetailPage() {
         <div style={{ flex: 1 }} />
 
         <button
-          className={`btn btn-secondary btn-sm ${0 > 0 ? 'has-filters' : ''}`}
+          className={`btn btn-secondary btn-sm ${activeFilterCount > 0 ? 'has-filters' : ''}`}
           onClick={() => setFiltersOpen(true)}
         >
           <Icon name="filter" size={14} /> Фильтры
-          {0 > 0 && <span className="filter-badge">{0}</span>}
+          {activeFilterCount > 0 && <span className="filter-badge">{activeFilterCount}</span>}
         </button>
       </div>
 

@@ -44,7 +44,7 @@ async def get_applications_for_vacancy_paginated(
     search: str | None = None,
     score_min: int | None = None,
     salary_max: int | None = None,
-    source: str | None = None,
+    source: list[str] | None = None,
     city: str | None = None,
     messenger: list[str] | None = None,
     ready_relocate: bool | None = None,
@@ -90,7 +90,8 @@ async def get_applications_for_vacancy_paginated(
             )
         )
     if source:
-        base_filters.append(Candidate.source == source)
+        # source — список (мультивыбор в фильтре)
+        base_filters.append(Candidate.source.in_(source))
     if city:
         base_filters.append(Candidate.city.ilike(f"%{city}%"))
     if messenger:
@@ -145,7 +146,7 @@ async def get_applications_for_vacancy_paginated(
     # Поля сортировки 1:1 с фронтом (имена колонок ApplicationRow). Числовые/дата сортируются
     # по значению, строки — лексикографически, этап — по порядку воронки (VacancyStage.order_index).
     sort_column = Application.created_at  # дефолт
-    if sort == "ai_score":
+    if sort in ("ai_score", "score"):  # 'score' — обратная совместимость старых ссылок
         sort_column = Application.ai_score
     elif sort == "full_name":
         sort_column = Candidate.last_name
