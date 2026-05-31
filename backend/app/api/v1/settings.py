@@ -353,16 +353,22 @@ async def get_default_funnel(
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    """Get company default funnel stages"""
+    """Get company default funnel stages.
+
+    Гарантирует инвариант непустоты: если у компании нет дефолт-воронки (0 строк),
+    она провижинится из core STAGES (с защищёнными этапами) — «пустого дефолта» не существует.
+    """
     from ...core.stages import STAGES
-    stages = await default_funnel.list_default_stages(session, company_id)
+    stages = await default_funnel.ensure_default_stages(session, company_id)
     result = []
     for stage in stages:
-        # Add color from STAGES
+        # Add color from STAGES (собираем Pydantic ДО commit — после commit ORM-атрибуты истекают)
         color = STAGES.get(stage.stage_key, type('obj', (object,), {"color": "#9AA3AE"})()).color
         stage_data = CompanyDefaultStageOut.model_validate(stage)
         stage_data.color = color
         result.append(stage_data)
+    # Персистим авто-провижининг, если он был (no-op, если этапы уже существовали)
+    await session.commit()
     return result
 
 

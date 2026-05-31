@@ -11,13 +11,39 @@ from ...services.audit import audit
 
 
 async def list_default_stages(session: AsyncSession, company_id: UUID) -> list[CompanyDefaultStage]:
-    """Get company default stages"""
+    """Get company default stages (чистое чтение, без сайд-эффектов)"""
     result = await session.execute(
         select(CompanyDefaultStage)
         .where(CompanyDefaultStage.company_id == company_id)
         .order_by(CompanyDefaultStage.order_index)
     )
     return list(result.scalars().all())
+
+
+async def ensure_default_stages(session: AsyncSession, company_id: UUID) -> list[CompanyDefaultStage]:
+    """Инвариант: у компании ВСЕГДА есть дефолт-воронка с защищёнными этапами.
+
+    Если этапов нет (компания не была провижинирована) — создаёт базовую воронку из
+    core/stages.py STAGES (включая hired/rejected/added/response, которые нельзя удалить).
+    Идемпотентна: при наличии этапов ничего не создаёт. Возвращает полный список по порядку.
+    Вызывающий обязан закоммитить (на GET-эндпоинте — после сборки ответа).
+    """
+    stages = await list_default_stages(session, company_id)
+    if stages:
+        return stages
+
+    for stage_def in STAGES.values():
+        session.add(
+            CompanyDefaultStage(
+                company_id=company_id,
+                stage_key=stage_def.key,
+                label=stage_def.label,
+                order_index=stage_def.order_index,
+                is_terminal=stage_def.is_terminal,
+            )
+        )
+    await session.flush()
+    return await list_default_stages(session, company_id)
 
 
 async def create_default_stage(

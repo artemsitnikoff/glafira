@@ -9,18 +9,38 @@ from app.models import CompanyDefaultStage, Vacancy, VacancyStage
 
 
 @pytest.mark.asyncio
-async def test_get_default_funnel_empty(
+async def test_get_default_funnel_autoprovisions(
     async_client: AsyncClient,
     admin_token: str,
 ):
-    """Test GET /settings/default-funnel returns empty list initially"""
+    """GET /settings/default-funnel: «пустого дефолта» не существует.
+
+    Если у компании нет этапов (0 строк), эндпоинт провижинит базовую воронку из core STAGES
+    (включая защищённые hired/rejected/added/response). Инвариант непустоты + идемпотентность.
+    """
     response = await async_client.get(
         "/api/v1/settings/default-funnel",
         headers={"Authorization": f"Bearer {admin_token}"}
     )
 
     assert response.status_code == 200
-    assert response.json() == []
+    data = response.json()
+    # Авто-провижининг базовой воронки (9 этапов в порядке order_index)
+    keys = [s["stage_key"] for s in data]
+    assert keys == [
+        "response", "added", "selected", "recruiter",
+        "interview", "manager", "offer", "hired", "rejected"
+    ]
+    # Защищённые этапы присутствуют — воронку нельзя опустошить
+    assert {"hired", "rejected", "added", "response"}.issubset(set(keys))
+
+    # Идемпотентность: повторный вызов не плодит дубли
+    response2 = await async_client.get(
+        "/api/v1/settings/default-funnel",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert response2.status_code == 200
+    assert len(response2.json()) == 9
 
 
 @pytest.mark.asyncio
