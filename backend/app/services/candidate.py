@@ -39,6 +39,7 @@ from ..models import (
     CandidateSkill,
     Client,
     Consent,
+    Event,
     Tag,
     User,
     Vacancy,
@@ -941,7 +942,19 @@ async def assign_candidate_to_vacancy(
         company_id=company_id,
     )
 
-    # TODO: Create Event record for activity feed
+    # Событие для ленты «Все действия» (Event != audit — лента читает таблицу events).
+    # type='new' — уже в CHECK Event.type и рендерится на фронте (миграция не нужна).
+    session.add(
+        Event(
+            company_id=company_id,
+            type="new",
+            actor_type="human",
+            actor_user_id=actor_user_id,
+            text=f"Кандидат {candidate.full_name} назначен на вакансию «{vacancy.name}»",
+            candidate_id=candidate_id,
+            vacancy_id=vacancy_id,
+        )
+    )
 
     # Return ApplicationRow format
     full_name = _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name)

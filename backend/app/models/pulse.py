@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, ForeignKey, CheckConstraint, Date, TIMESTAMP, Boolean, Numeric, text, Text
+from sqlalchemy import String, Integer, ForeignKey, CheckConstraint, UniqueConstraint, Date, TIMESTAMP, Boolean, Numeric, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,6 +78,9 @@ class Employee(Base, TimestampMixin, CompanyMixin):
             "enps >= -100 AND enps <= 100",
             name="check_employee_enps"
         ),
+        # DB-бэкстоп к app-level идемпотентности найма (SELECT-then-INSERT в
+        # create_employee_from_hire) против гонки двойного найма из одной заявки.
+        UniqueConstraint("application_id", name="uq_employees_application_id"),
     )
 
     # Relationships

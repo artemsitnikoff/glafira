@@ -4,9 +4,13 @@ import pytest
 import uuid
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone, date
 
-from app.models import User, Company, Candidate, Vacancy, VacancyStage
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.models import User, Company, Candidate, Vacancy, VacancyStage, Application, Event, Employee
 from app.services.user import create_user
 from app.services.candidate import assign_candidate_to_vacancy
 from app.schemas.user import UserCreate
@@ -40,16 +44,10 @@ async def test_vacancy(db_session: AsyncSession, admin_user: User) -> Vacancy:
     """Create test vacancy"""
     vacancy = Vacancy(
         company_id=admin_user.company_id,
-        title="Test Vacancy",
-        department="IT",
-        position="Developer",
-        description="Test description",
+        name="Test Vacancy",
+        city="Москва",
+        positions_count=1,
         employment_type="full_time",
-        salary_min=100000,
-        salary_max=200000,
-        is_remote=False,
-        responsible_user_id=admin_user.id,
-        status="active"
     )
     db_session.add(vacancy)
     await db_session.commit()
@@ -58,14 +56,15 @@ async def test_vacancy(db_session: AsyncSession, admin_user: User) -> Vacancy:
 
 
 @pytest.fixture
-async def vacancy_with_custom_stage(db_session: AsyncSession, test_vacancy: Vacancy) -> tuple[Vacancy, VacancyStage]:
+async def vacancy_with_custom_stage(db_session: AsyncSession, test_vacancy: Vacancy, admin_user: User) -> tuple[Vacancy, VacancyStage]:
     """Create vacancy with custom stage"""
     custom_stage = VacancyStage(
+        company_id=admin_user.company_id,
         vacancy_id=test_vacancy.id,
         stage_key="custom_test",
         label="Custom Test Stage",
         order_index=5,
-        color="#ff5733"
+        is_terminal=False,
     )
     db_session.add(custom_stage)
     await db_session.commit()
@@ -204,3 +203,68 @@ class TestAssignCandidateCustomStages:
             )
 
         assert f"Неверная стадия: {custom_stage.stage_key}" in str(exc_info.value)
+
+class TestAssignCreatesEvent:
+    """#10: assign_candidate_to_vacancy creates an Event for the activity feed"""
+
+    async def test_assign_creates_new_event(
+        self, db_session: AsyncSession, admin_user: User, test_candidate: Candidate, test_vacancy: Vacancy
+    ):
+        await assign_candidate_to_vacancy(
+            session=db_session,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
+            stage="selected",
+            company_id=admin_user.company_id,
+            actor_user_id=admin_user.id,
+        )
+
+        result = await db_session.execute(
+            select(Event).where(
+                Event.candidate_id == test_candidate.id,
+                Event.type == "new",
+            )
+        )
+        event = result.scalar_one_or_none()
+        assert event is not None
+        assert event.vacancy_id == test_vacancy.id
+        assert event.actor_type == "human"
+        assert test_vacancy.name in event.text
+
+
+class TestEmployeeApplicationIdUnique:
+    """#17: UNIQUE on Employee.application_id prevents double-hire from one application"""
+
+    async def test_duplicate_application_id_raises(
+        self, db_session: AsyncSession, admin_user: User, test_candidate: Candidate, test_vacancy: Vacancy
+    ):
+        application = Application(
+            company_id=admin_user.company_id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
+            stage="hired",
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(application)
+        await db_session.flush()
+
+        emp1 = Employee(
+            company_id=admin_user.company_id,
+            candidate_id=test_candidate.id,
+            application_id=application.id,
+            full_name="Emp One",
+            start_date=date.today(),
+        )
+        db_session.add(emp1)
+        await db_session.flush()
+
+        emp2 = Employee(
+            company_id=admin_user.company_id,
+            candidate_id=test_candidate.id,
+            application_id=application.id,  # SAME application_id → UNIQUE violation
+            full_name="Emp Two",
+            start_date=date.today(),
+        )
+        db_session.add(emp2)
+        with pytest.raises(IntegrityError):
+            await db_session.flush()
