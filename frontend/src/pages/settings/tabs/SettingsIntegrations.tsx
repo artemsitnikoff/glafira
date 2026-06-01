@@ -1,5 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
-import { PageHead, FormRow, TextInput, Textarea, Select, Switch } from '../components/FormComponents';
+import { PageHead, FormRow, TextInput, Select, Switch } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
 import { useHhSaveConfig, useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
 import { useEffect, useState } from 'react';
@@ -62,6 +62,8 @@ export function SettingsIntegrations() {
     client_secret: '',
     redirect_uri: `${window.location.origin}/api/v1/integrations/hh/callback`
   });
+  // Режим повторного ввода настроек (когда уже configured, но хотим сменить креды)
+  const [editConfig, setEditConfig] = useState(false);
 
   // Обработка OAuth-возврата
   useEffect(() => {
@@ -197,54 +199,37 @@ export function SettingsIntegrations() {
                   </button>
                 </div>
               </div>
-            ) : hhStatus?.configured ? (
-              // Состояние 2: Настроено, но не подключено
+            ) : hhStatus?.configured && !editConfig ? (
+              // Состояние 2: Настроено, но не подключено — одна синяя кнопка «Подключить»
               <div>
-                <div className="form-grid form-grid-2">
-                  <FormRow label="Client ID">
-                    <TextInput
-                      value={hhStatus.client_id_masked || ''}
-                      placeholder="Настроено"
-                      mono
-                      locked
-                    />
-                  </FormRow>
-                  <FormRow label="Client Secret">
-                    <TextInput
-                      type="password"
-                      value={hhForm.client_secret}
-                      onChange={(value) => setHhForm(prev => ({ ...prev, client_secret: value }))}
-                      placeholder="Введите заново для изменения"
-                      mono
-                    />
-                  </FormRow>
-                  <FormRow label="Redirect URI" span={2}>
-                    <TextInput
-                      value={hhStatus.redirect_uri || hhForm.redirect_uri}
-                      onChange={(value) => setHhForm(prev => ({ ...prev, redirect_uri: value }))}
-                      mono
-                    />
-                  </FormRow>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Настроено: Client ID <span className="t-mono">{hhStatus.client_id_masked}</span>.
+                  Осталось пройти авторизацию на hh.ru.
                 </div>
                 <div className="integ-actions">
                   <button
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-primary btn-sm"
                     onClick={handleHhConnect}
-                    disabled={hhAuthorizeMutation.isPending || !hhForm.client_secret}
+                    disabled={hhAuthorizeMutation.isPending}
                   >
                     {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить'}
                   </button>
                   <button
-                    className="btn btn-primary btn-sm"
-                    onClick={handleHhSaveConfig}
-                    disabled={hhSaveConfigMutation.isPending || !hhForm.client_secret}
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      if (hhStatus.redirect_uri) {
+                        setHhForm(prev => ({ ...prev, redirect_uri: hhStatus.redirect_uri! }));
+                      }
+                      setEditConfig(true);
+                    }}
+                    disabled={hhAuthorizeMutation.isPending}
                   >
-                    {hhSaveConfigMutation.isPending ? 'Сохранение...' : 'Сохранить и подключить'}
+                    Изменить настройки
                   </button>
                 </div>
               </div>
             ) : (
-              // Состояние 1: Не настроено
+              // Состояние 1: Не настроено (или повторный ввод настроек) — одна синяя «Сохранить и подключить»
               <div>
                 <div className="form-grid form-grid-2">
                   <FormRow label="Client ID" required>
@@ -289,47 +274,18 @@ export function SettingsIntegrations() {
                   >
                     {hhSaveConfigMutation.isPending ? 'Сохранение...' : 'Сохранить и подключить'}
                   </button>
+                  {editConfig && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setEditConfig(false)}
+                      disabled={hhSaveConfigMutation.isPending}
+                    >
+                      Отмена
+                    </button>
+                  )}
                 </div>
               </div>
             )}
-          </div>
-        </IntegrationCard>
-
-        {/* TELEGRAM */}
-        <IntegrationCard
-          ico={<span className="integ-emoji">🤖</span>}
-          iconBg="#EAF3FE"
-          name="Telegram"
-          desc="Бот «Глафира» для общения с кандидатами и уведомления пользователей"
-          status="ok">
-          <div className="integ-section">
-            <div className="integ-section-title">Бот «Глафира» — общение с кандидатами</div>
-            <div className="form-grid form-grid-2">
-              <FormRow label="Bot Token" required>
-                <TextInput value="••••••••••••5817:AAFq-pK9b3xN-vN" mono locked />
-              </FormRow>
-              <FormRow label="Bot Username" hint="Определяется автоматически после ввода токена">
-                <TextInput value="@glafira_recruit_bot" mono locked />
-              </FormRow>
-              <FormRow label="Webhook URL" span={2} hint="Скопируйте URL в настройки бота, если он не привязался автоматически">
-                <div className="row-with-action">
-                  <TextInput value="https://api.glafira.app/webhook/tg/8f3d2e91-…" mono locked />
-                  <button className="btn btn-secondary btn-sm" disabled>
-                    <Icon name="link" size={13}/>Копировать
-                  </button>
-                </div>
-              </FormRow>
-              <FormRow label="Приветственное сообщение" span={2}
-                hint="Что Глафира пишет кандидату при первом контакте. Поддерживает {{vacancy}} и {{company}}">
-                <Textarea rows={3}
-                  value="Здравствуйте! Я Глафира — помогаю с подбором в {{company}}. Я задам пару коротких вопросов по вакансии «{{vacancy}}», чтобы понять, насколько она вам подходит. Это займёт 3–5 минут 🙂" />
-              </FormRow>
-            </div>
-            <div className="integ-actions">
-              <Switch value={true} disabled
-                label="Включить бота" desc="Если выключено — кандидаты получают сообщение «Бот временно недоступен»"/>
-              <button className="btn btn-secondary btn-sm" disabled>Проверить подключение</button>
-            </div>
           </div>
         </IntegrationCard>
 
@@ -419,7 +375,7 @@ export function SettingsIntegrations() {
 
       <div className="info-banner muted">
         <Icon name="sparkle" size={14}/>
-        <div>В будущих релизах сюда добавятся карточки <b>hh.ru</b>, <b>Авито Работа</b> и публикация в <b>Telegram-каналы</b>.</div>
+        <div>В будущих релизах сюда добавятся карточки <b>Авито Работа</b> и публикация в <b>Telegram-каналы</b>.</div>
       </div>
     </div>
   );

@@ -764,3 +764,27 @@
 .t-mono { font-family: var(--font-mono); }
 .t-caption { font-size: 11px; color: var(--fg-3); }
 .muted { opacity: 0.6; }
+
+/* Кнопки в карточках интеграций (глобального .btn нет — определяем scoped, как в пуле/воронке).
+   --accent = #2A8AF0 (синий), как «Добавить кандидата» в пуле. */
+.integ-card .btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.integ-card .btn-sm { height: 28px; padding: 0 12px; font-size: 12px; }
+.integ-card .btn-primary { background: var(--accent); color: var(--ark-white); border-color: var(--accent); }
+.integ-card .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.integ-card .btn-secondary { background: var(--bg-1); color: var(--fg-1); border-color: var(--border-1); }
+.integ-card .btn-secondary:hover:not(:disabled) { background: var(--bg-3); }
+.integ-card .btn:disabled { opacity: 0.55; cursor: not-allowed; }
