@@ -351,6 +351,10 @@
   color: var(--fg-2);
 }
 .info-banner.muted > svg { color: var(--fg-3); }
+.info-banner.small {
+  padding: 10px;
+  margin-top: 10px;
+}
 
 .funnel-editor { display: flex; flex-direction: column; gap: 6px; }
 .fn-stage {

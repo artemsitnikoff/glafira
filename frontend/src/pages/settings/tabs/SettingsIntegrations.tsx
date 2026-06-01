@@ -684,7 +684,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                     {b24DisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
                   </button>
                 </div>
-                <div className="info-banner small" style={{ marginTop: 10 }}>
+                <div className="info-banner small">
                   <Icon name="sparkle" size={14} />
                   <div>Импорт сотрудников в Глафиру и отчёт «Текучка» — следующий этап (вебхук уже читает данные с портала).</div>
                 </div>
