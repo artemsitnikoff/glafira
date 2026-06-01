@@ -12,6 +12,8 @@ api_id/api_hash — из .env (TELEGRAM_API_ID / TELEGRAM_API_HASH), одно п
 на инстанс.
 """
 
+import logging
+
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.functions.auth import ResendCodeRequest
@@ -26,6 +28,13 @@ from telethon.errors import (
 
 from ....config import settings
 from ....core.errors import AppError, ValidationError
+
+logger = logging.getLogger(__name__)
+
+
+def _mask_phone(p: str) -> str:
+    p = p or ""
+    return (p[:5] + "***" + p[-2:]) if len(p) > 8 else "***"
 
 
 def _api_creds() -> tuple[int, str]:
@@ -57,20 +66,31 @@ async def send_code(phone: str) -> dict:
     try:
         await client.connect()
         sent = await client.send_code_request(phone)
+        code_type = type(sent.type).__name__
+        next_type = type(sent.next_type).__name__ if sent.next_type else None
+        logger.info(
+            "[tg] send_code phone=%s -> type=%s next_type=%s timeout=%s hash=%s",
+            _mask_phone(phone), code_type, next_type,
+            getattr(sent, "timeout", None), bool(sent.phone_code_hash),
+        )
         return {
             "session": client.session.save(),
             "phone_code_hash": sent.phone_code_hash,
-            "code_type": type(sent.type).__name__,
+            "code_type": code_type,
         }
     except PhoneNumberInvalidError:
+        logger.warning("[tg] send_code phone=%s -> PhoneNumberInvalid", _mask_phone(phone))
         raise AppError(code="TG_PHONE_INVALID", message="Неверный номер телефона", status_code=400)
     except ApiIdInvalidError:
+        logger.warning("[tg] send_code phone=%s -> ApiIdInvalid", _mask_phone(phone))
         raise AppError(code="TG_API_INVALID", message="Неверные api_id/api_hash (проверьте .env)", status_code=400)
     except FloodWaitError as e:
+        logger.warning("[tg] send_code phone=%s -> FloodWait %ss", _mask_phone(phone), e.seconds)
         raise AppError(code="TG_FLOOD", message=f"Слишком частые запросы, подождите {e.seconds} сек", status_code=400, details={"seconds": e.seconds})
     except AppError:
         raise
     except Exception as e:
+        logger.exception("[tg] send_code phone=%s -> %s: %s", _mask_phone(phone), type(e).__name__, e)
         raise AppError(code="TG_SEND_CODE_ERROR", message="Не удалось отправить код Telegram", status_code=400, details={"reason": str(e)})
     finally:
         await client.disconnect()
@@ -86,16 +106,24 @@ async def resend_code(session_str: str, phone: str, phone_code_hash: str) -> dic
     try:
         await client.connect()
         sent = await client(ResendCodeRequest(phone=phone, phone_code_hash=phone_code_hash))
+        code_type = type(sent.type).__name__
+        next_type = type(sent.next_type).__name__ if sent.next_type else None
+        logger.info(
+            "[tg] resend_code phone=%s -> type=%s next_type=%s timeout=%s",
+            _mask_phone(phone), code_type, next_type, getattr(sent, "timeout", None),
+        )
         return {
             "session": client.session.save(),
             "phone_code_hash": sent.phone_code_hash,
-            "code_type": type(sent.type).__name__,
+            "code_type": code_type,
         }
     except FloodWaitError as e:
+        logger.warning("[tg] resend_code phone=%s -> FloodWait %ss", _mask_phone(phone), e.seconds)
         raise AppError(code="TG_FLOOD", message=f"Слишком частые запросы, подождите {e.seconds} сек", status_code=400, details={"seconds": e.seconds})
     except AppError:
         raise
     except Exception as e:
+        logger.exception("[tg] resend_code phone=%s -> %s: %s", _mask_phone(phone), type(e).__name__, e)
         raise AppError(code="TG_RESEND_ERROR", message="Не удалось переотправить код", status_code=400, details={"reason": str(e)})
     finally:
         await client.disconnect()
