@@ -8,6 +8,7 @@ from ...deps import get_current_user, get_current_company_id
 from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate, UserListItem
 from ...schemas.base import Paginated, MessageResult
 from ...services.user import get_user, create_user, update_user, delete_user, get_users_paginated
+from ...services.integrations.smtp import service as smtp_service
 from ...models import User
 from ...core.errors import ForbiddenError
 
@@ -57,9 +58,24 @@ async def create_new_user(
     user, temp_password = await create_user(session, user_data, company_id, current_user.id)
     await session.commit()
 
+    # Отправляем доступы на email сотрудника (как при импорте из Б24). Если SMTP не
+    # настроен/ошибка — не падаем: emailed=False, temp_password вернём для ручной передачи.
+    emailed = False
+    try:
+        await smtp_service.send_credentials_email(
+            session, company_id,
+            to=user_data.email,
+            full_name=user_data.full_name,
+            temp_password=temp_password,
+        )
+        emailed = True
+    except Exception:
+        emailed = False
+
     # Return user data with temp_password included once
     response_data = UserShort.model_validate(user).model_dump()
     response_data["temp_password"] = temp_password
+    response_data["emailed"] = emailed
     return response_data
 
 

@@ -19,7 +19,7 @@ from app.core.errors import ValidationError
 
 DEPT_GET = "app.services.integrations.bitrix24.client.get_departments"
 USERS_GET = "app.services.integrations.bitrix24.client.get_all_users"
-SEND_EMAIL = "app.services.integrations.bitrix24.service.send_email"
+SEND_EMAIL = "app.services.integrations.bitrix24.service.send_credentials_email"
 
 WEBHOOK = "https://demo.bitrix24.ru/rest/1/abc123code/"
 

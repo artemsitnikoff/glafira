@@ -20,6 +20,7 @@ interface CreatedResult {
   email: string;
   full_name: string;
   temp_password: string;
+  emailed: boolean;
 }
 
 export function CreateUserModal({ isOpen, onClose }: Props) {
@@ -47,11 +48,12 @@ export function CreateUserModal({ isOpen, onClose }: Props) {
         full_name: fullName.trim(),
         role,
       });
-      const r = res as unknown as { email: string; full_name: string; temp_password: string };
+      const r = res as unknown as { temp_password: string; emailed?: boolean };
       setResult({
-        email: r.email,
-        full_name: r.full_name ?? fullName.trim(),
+        email: email.trim(),
+        full_name: fullName.trim(),
         temp_password: r.temp_password,
+        emailed: !!r.emailed,
       });
     } catch (err) {
       const e = err as unknown as ApiError;
@@ -119,7 +121,7 @@ export function CreateUserModal({ isOpen, onClose }: Props) {
 
               <div className="info-banner small">
                 <Icon name="info" size={14} />
-                <div>Пользователь создаётся с временным паролем — после создания скопируйте логин и пароль и передайте сотруднику.</div>
+                <div>Логин и временный пароль будут отправлены на email сотрудника (нужен настроенный SMTP).</div>
               </div>
             </>
           ) : (
@@ -128,17 +130,27 @@ export function CreateUserModal({ isOpen, onClose }: Props) {
                 <Icon name="check-circle" size={20} />
                 <h3>Пользователь создан</h3>
               </div>
-              <div className="import-stat">
-                <strong>{result.full_name}</strong>
-                <div className="temp-password-item">
-                  <div className="temp-password">
-                    Логин: <code>{result.email}</code>
-                  </div>
-                  <div className="temp-password">
-                    Временный пароль: <code>{result.temp_password}</code>
+              {result.emailed ? (
+                <div className="import-stat">
+                  <strong>{result.full_name}</strong> ({result.email})
+                  <div className="temp-password-item">Доступы отправлены на email сотрудника.</div>
+                </div>
+              ) : (
+                <div className="import-stat">
+                  <strong>{result.full_name}</strong> ({result.email})
+                  <div className="temp-password-item">
+                    <div style={{ marginBottom: 6, color: 'var(--ark-red-600)' }}>
+                      Письмо не отправлено (SMTP не настроен) — передайте доступы вручную:
+                    </div>
+                    <div className="temp-password">
+                      Логин: <code>{result.email}</code>
+                    </div>
+                    <div className="temp-password">
+                      Временный пароль: <code>{result.temp_password}</code>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>

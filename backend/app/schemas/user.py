@@ -41,5 +41,6 @@ class UserUpdate(BaseModel):
 
 
 class UserCreateResult(UserShort):
-    """Returned by POST /users — includes one-time temp_password for admin to show."""
+    """Returned by POST /users — temp_password (once) + emailed (отправлено ли письмо)."""
     temp_password: str
+    emailed: bool = False

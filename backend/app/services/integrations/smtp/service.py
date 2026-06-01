@@ -212,6 +212,32 @@ async def send_email(
     )
 
 
+async def send_credentials_email(
+    session: AsyncSession,
+    company_id: UUID,
+    *,
+    to: str,
+    full_name: str,
+    temp_password: str,
+) -> None:
+    """Письмо новому пользователю с логином и временным паролем.
+
+    Общий канал для ручного создания юзера и импорта из Битрикс24.
+    Бросает ValidationError, если SMTP не настроен; AppError при сбое отправки.
+    """
+    subject = "Добро пожаловать в Глафира Рекрутёр"
+    body_text = (
+        f"Здравствуйте, {full_name}!\n\n"
+        "Для вас создан аккаунт в системе Глафира Рекрутёр.\n\n"
+        "Данные для входа:\n"
+        f"Логин: {to}\n"
+        f"Пароль: {temp_password}\n\n"
+        "Рекомендуем сменить пароль после первого входа в систему.\n\n"
+        "С уважением,\nКоманда Глафира Рекрутёр"
+    )
+    await send_email(session, company_id, to=to, subject=subject, body_text=body_text)
+
+
 async def send_test_email(
     session: AsyncSession,
     company_id: UUID,

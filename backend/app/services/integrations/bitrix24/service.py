@@ -20,7 +20,7 @@ from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError
 from ...user import create_user
-from ...integrations.smtp.service import send_email
+from ...integrations.smtp.service import send_credentials_email
 from . import client as b24_client
 
 PROVIDER = "bitrix24"
@@ -372,23 +372,8 @@ async def import_users(
 
             # Try to send email
             try:
-                await send_email(
-                    session,
-                    company_id,
-                    to=email,
-                    subject="Добро пожаловать в Глафира Рекрутёр",
-                    body_text=f"""Здравствуйте, {full_name}!
-
-Для вас создан аккаунт в системе Глафира Рекрутёр.
-
-Данные для входа:
-Логин: {email}
-Пароль: {temp_password}
-
-Рекомендуем сменить пароль после первого входа в систему.
-
-С уважением,
-Команда Глафира Рекрутёр"""
+                await send_credentials_email(
+                    session, company_id, to=email, full_name=full_name, temp_password=temp_password
                 )
                 emailed.append(email)
             except Exception:
