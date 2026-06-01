@@ -1,304 +1,130 @@
 /**
- * Boxplot chart для speed-отчёта.
- * Источник: backend/app/services/analytics/speed.py:_build_boxplot_chart
- * Форма data: { stages: [{ stage_key: string, label: string, median: number, q1: number, q3: number, min: number, max: number, outliers: number[] }] }
+ * Boxplot — время на этапах воронки (dwell time, дни).
+ * Источник: speed.py:_build_boxplot_chart
+ * Форма data: { stages: [{ stage_key, label, median, q1, q3, min, max, outliers }] }
+ * Этапы без данных (median=null) рисуем «нет данных».
+ * Content-only: карточку и empty-state даёт AnChart.
  */
 
 import { useRef, useEffect, useState } from 'react';
+import { ANALYTICS_PALETTE } from '../../palette';
 
-interface BoxplotData {
-  stages: Array<{
-    stage_key: string;
-    label: string;
-    median: number | null;
-    q1: number | null;
-    q3: number | null;
-    min: number | null;
-    max: number | null;
-    outliers: number[];
-  }>;
+interface BoxStage {
+  stage_key: string;
+  label: string;
+  median: number | null;
+  q1: number | null;
+  q3: number | null;
+  min: number | null;
+  max: number | null;
+  outliers: number[];
 }
 
 interface BoxplotChartProps {
-  title: string;
-  data: BoxplotData;
-  onDataClick?: (data: any) => void;
+  data: { stages: BoxStage[] };
 }
 
-export function BoxplotChart({ title, data, onDataClick }: BoxplotChartProps) {
+/** Детерминированный jitter по индексу выброса (без RNG) в [-0.5, 0.5]. */
+function jitterFor(index: number): number {
+  // золотое сечение для равномерного псевдослучайного распределения по индексу
+  const frac = (index * 0.6180339887) % 1;
+  return frac - 0.5;
+}
+
+export function BoxplotChart({ data }: BoxplotChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
 
   useEffect(() => {
     if (!containerRef.current) return;
-
-    const resizeObserver = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
-      }
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setContainerWidth(e.contentRect.width);
     });
-
-    resizeObserver.observe(containerRef.current);
-    return () => resizeObserver.disconnect();
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
   }, []);
 
-  if (!data?.stages || data.stages.length === 0) {
-    return (
-      <div className="analytics-chart-card">
-        <div className="analytics-chart-header">
-          <h3 className="analytics-chart-title">{title}</h3>
-        </div>
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-3)' }}>
-          Нет данных для отображения
-        </div>
-      </div>
-    );
-  }
+  const margin = { top: 16, right: 32, bottom: 50, left: 56 };
+  const chartWidth = Math.max(280, containerWidth) - margin.left - margin.right;
+  const chartHeight = 260;
+  const boxWidth = Math.min(56, (chartWidth / data.stages.length) * 0.55);
 
-  // Calculate chart dimensions
-  const margin = { top: 20, right: 40, bottom: 60, left: 80 };
-  const chartWidth = containerWidth - margin.left - margin.right;
-  const chartHeight = 300;
-  const boxWidth = Math.min(60, chartWidth / data.stages.length * 0.6);
-
-  // Find the global min/max for Y scale
-  const allValues = data.stages.flatMap(stage => [
-    stage.min,
-    stage.max,
-    stage.median,
-    stage.q1,
-    stage.q3,
-    ...stage.outliers
-  ]).filter((v): v is number => v !== null && v !== undefined);
-
-  const globalMin = Math.min(...allValues);
-  const globalMax = Math.max(...allValues);
-  const yScale = (value: number) => chartHeight - ((value - globalMin) / (globalMax - globalMin)) * chartHeight;
-
-  // X positions for stages
+  const allValues = data.stages
+    .flatMap((s) => [s.min, s.max, s.median, s.q1, s.q3, ...s.outliers])
+    .filter((v): v is number => v !== null && v !== undefined);
+  const globalMin = Math.min(...allValues, 0);
+  const globalMax = Math.max(...allValues, 1);
+  const span = globalMax - globalMin || 1;
+  const yScale = (value: number) => chartHeight - ((value - globalMin) / span) * chartHeight;
   const stageWidth = chartWidth / data.stages.length;
 
-  // Y axis ticks
-  const yTicks = [];
-  const tickCount = 5;
-  for (let i = 0; i <= tickCount; i++) {
-    const value = globalMin + (globalMax - globalMin) * (i / tickCount);
-    yTicks.push(value);
-  }
+  const yTicks: number[] = [];
+  for (let i = 0; i <= 4; i++) yTicks.push(globalMin + span * (i / 4));
 
   return (
-    <div className="analytics-chart-card" ref={containerRef}>
-      <div className="analytics-chart-header">
-        <h3 className="analytics-chart-title">{title}</h3>
-        <p className="analytics-chart-subtitle">
-          Ящики с усами показывают медиану, квартили и выбросы времени на каждом этапе
-        </p>
-      </div>
+    <div className="an-chart-wrap" ref={containerRef}>
+      <svg width="100%" height={chartHeight + margin.top + margin.bottom} className="an-svg-chart">
+        <g transform={`translate(${margin.left}, ${margin.top})`}>
+          {yTicks.map((tick, i) => (
+            <g key={i}>
+              <line x1={0} y1={yScale(tick)} x2={chartWidth} y2={yScale(tick)} stroke="var(--border-2)" strokeWidth={1} strokeDasharray={i === 0 ? '0' : '3 3'} />
+              <text x={-10} y={yScale(tick)} textAnchor="end" dominantBaseline="middle" style={{ fontSize: 11, fill: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+                {tick.toFixed(0)}
+              </text>
+            </g>
+          ))}
 
-      <div className="analytics-chart-container">
-        <svg width="100%" height={chartHeight + margin.top + margin.bottom} className="analytics-svg-chart">
-          <g transform={`translate(${margin.left}, ${margin.top})`}>
-            {/* Y axis */}
-            <line
-              x1={0}
-              y1={0}
-              x2={0}
-              y2={chartHeight}
-              stroke="var(--border-2)"
-              strokeWidth={1}
-            />
-
-            {/* Y axis ticks and labels */}
-            {yTicks.map((tick, index) => {
-              const y = yScale(tick);
-              return (
-                <g key={index}>
-                  <line
-                    x1={-5}
-                    y1={y}
-                    x2={chartWidth}
-                    y2={y}
-                    stroke="var(--border-2)"
-                    strokeWidth={1}
-                    strokeDasharray={index === 0 ? '0' : '3 3'}
-                  />
-                  <text
-                    x={-10}
-                    y={y}
-                    textAnchor="end"
-                    dominantBaseline="middle"
-                    className="analytics-chart-text"
-                    style={{ fontSize: '11px', fill: 'var(--fg-3)' }}
-                  >
-                    {tick.toFixed(1)}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* X axis */}
-            <line
-              x1={0}
-              y1={chartHeight}
-              x2={chartWidth}
-              y2={chartHeight}
-              stroke="var(--border-2)"
-              strokeWidth={1}
-            />
-
-            {/* Boxplots */}
-            {data.stages.map((stage, index) => {
-              const centerX = (index + 0.5) * stageWidth;
-
-              // Skip stages with no data
-              if (stage.median === null || stage.q1 === null || stage.q3 === null) {
-                return (
-                  <g key={stage.stage_key}>
-                    {/* X axis label */}
-                    <text
-                      x={centerX}
-                      y={chartHeight + 20}
-                      textAnchor="middle"
-                      className="analytics-chart-text"
-                      style={{ fontSize: '11px', fill: 'var(--fg-3)' }}
-                    >
-                      {stage.label}
-                    </text>
-                    <text
-                      x={centerX}
-                      y={chartHeight - 20}
-                      textAnchor="middle"
-                      style={{ fontSize: '12px', fill: 'var(--fg-3)' }}
-                    >
-                      Нет данных
-                    </text>
-                  </g>
-                );
-              }
-
-              const medianY = yScale(stage.median);
-              const q1Y = yScale(stage.q1);
-              const q3Y = yScale(stage.q3);
-              const minY = stage.min !== null ? yScale(stage.min) : q1Y;
-              const maxY = stage.max !== null ? yScale(stage.max) : q3Y;
-
+          {data.stages.map((stage, index) => {
+            const centerX = (index + 0.5) * stageWidth;
+            if (stage.median === null || stage.q1 === null || stage.q3 === null) {
               return (
                 <g key={stage.stage_key}>
-                  {/* Whiskers */}
-                  <line
-                    x1={centerX}
-                    y1={minY}
-                    x2={centerX}
-                    y2={q1Y}
-                    stroke="var(--fg-2)"
-                    strokeWidth={1}
-                  />
-                  <line
-                    x1={centerX}
-                    y1={q3Y}
-                    x2={centerX}
-                    y2={maxY}
-                    stroke="var(--fg-2)"
-                    strokeWidth={1}
-                  />
-
-                  {/* Whisker caps */}
-                  <line
-                    x1={centerX - boxWidth / 4}
-                    y1={minY}
-                    x2={centerX + boxWidth / 4}
-                    y2={minY}
-                    stroke="var(--fg-2)"
-                    strokeWidth={1}
-                  />
-                  <line
-                    x1={centerX - boxWidth / 4}
-                    y1={maxY}
-                    x2={centerX + boxWidth / 4}
-                    y2={maxY}
-                    stroke="var(--fg-2)"
-                    strokeWidth={1}
-                  />
-
-                  {/* Box */}
-                  <rect
-                    x={centerX - boxWidth / 2}
-                    y={q3Y}
-                    width={boxWidth}
-                    height={q1Y - q3Y}
-                    fill="var(--accent)"
-                    fillOpacity={0.2}
-                    stroke="var(--accent)"
-                    strokeWidth={1.5}
-                    rx={2}
-                    style={{ cursor: onDataClick ? 'pointer' : 'default' }}
-                    onClick={() => onDataClick?.(stage)}
-                  />
-
-                  {/* Median line */}
-                  <line
-                    x1={centerX - boxWidth / 2}
-                    y1={medianY}
-                    x2={centerX + boxWidth / 2}
-                    y2={medianY}
-                    stroke="var(--accent)"
-                    strokeWidth={2}
-                  />
-
-                  {/* Outliers */}
-                  {stage.outliers.map((outlier, outlierIndex) => (
-                    <circle
-                      key={outlierIndex}
-                      cx={centerX + (Math.random() - 0.5) * boxWidth * 0.5} // slight jitter
-                      cy={yScale(outlier)}
-                      r={2}
-                      fill="var(--score-red)"
-                      opacity={0.7}
-                    />
-                  ))}
-
-                  {/* X axis label */}
-                  <text
-                    x={centerX}
-                    y={chartHeight + 20}
-                    textAnchor="middle"
-                    className="analytics-chart-text"
-                    style={{ fontSize: '11px', fill: 'var(--fg-3)' }}
-                  >
-                    {stage.label}
+                  <text x={centerX} y={chartHeight - 12} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--fg-4)' }}>
+                    нет данных
                   </text>
-
-                  {/* Median value label */}
-                  <text
-                    x={centerX + boxWidth / 2 + 8}
-                    y={medianY}
-                    dominantBaseline="middle"
-                    style={{
-                      fontSize: '10px',
-                      fill: 'var(--fg-2)',
-                      fontFamily: 'var(--font-mono)',
-                      fontWeight: '500',
-                    }}
-                  >
-                    {stage.median.toFixed(1)}д
+                  <text x={centerX} y={chartHeight + 22} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--fg-3)' }}>
+                    {stage.label}
                   </text>
                 </g>
               );
-            })}
-
-            {/* Y axis title */}
-            <text
-              x={-50}
-              y={chartHeight / 2}
-              textAnchor="middle"
-              transform={`rotate(-90, -50, ${chartHeight / 2})`}
-              style={{ fontSize: '12px', fill: 'var(--fg-3)', fontWeight: '500' }}
-            >
-              Дни
-            </text>
-          </g>
-        </svg>
-      </div>
+            }
+            const medianY = yScale(stage.median);
+            const q1Y = yScale(stage.q1);
+            const q3Y = yScale(stage.q3);
+            const minY = stage.min !== null ? yScale(stage.min) : q1Y;
+            const maxY = stage.max !== null ? yScale(stage.max) : q3Y;
+            return (
+              <g key={stage.stage_key}>
+                <line x1={centerX} y1={minY} x2={centerX} y2={q1Y} stroke="var(--fg-3)" strokeWidth={1} />
+                <line x1={centerX} y1={q3Y} x2={centerX} y2={maxY} stroke="var(--fg-3)" strokeWidth={1} />
+                <line x1={centerX - boxWidth / 4} y1={minY} x2={centerX + boxWidth / 4} y2={minY} stroke="var(--fg-3)" strokeWidth={1} />
+                <line x1={centerX - boxWidth / 4} y1={maxY} x2={centerX + boxWidth / 4} y2={maxY} stroke="var(--fg-3)" strokeWidth={1} />
+                <rect
+                  x={centerX - boxWidth / 2}
+                  y={q3Y}
+                  width={boxWidth}
+                  height={Math.max(1, q1Y - q3Y)}
+                  fill={ANALYTICS_PALETTE.blue}
+                  fillOpacity={0.18}
+                  stroke={ANALYTICS_PALETTE.blue}
+                  strokeWidth={1.5}
+                  rx={2}
+                />
+                <line x1={centerX - boxWidth / 2} y1={medianY} x2={centerX + boxWidth / 2} y2={medianY} stroke={ANALYTICS_PALETTE.blue} strokeWidth={2} />
+                {stage.outliers.map((outlier, oi) => (
+                  <circle key={oi} cx={centerX + jitterFor(oi) * boxWidth * 0.5} cy={yScale(outlier)} r={2} fill={ANALYTICS_PALETTE.red} opacity={0.7} />
+                ))}
+                <text x={centerX} y={chartHeight + 22} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--fg-3)' }}>
+                  {stage.label}
+                </text>
+                <text x={centerX + boxWidth / 2 + 6} y={medianY} dominantBaseline="middle" style={{ fontSize: 10, fill: 'var(--fg-2)', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+                  {stage.median.toFixed(1)}д
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      </svg>
     </div>
   );
 }

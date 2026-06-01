@@ -1,29 +1,32 @@
-import type { AnalyticsResponse, AnalyticsFilters } from '@/api/aliases';
-import { ChartRenderer } from '../ChartRenderer';
-import { TableRenderer } from '../TableRenderer';
+import type { AnalyticsResponse } from '@/api/aliases';
+import { AnChart } from '../AnChart';
+import { AnTable } from '../AnTable';
+import { Icon } from '@/components/ui/Icon';
 
 interface SourcesReportProps {
   data: AnalyticsResponse;
-  filters: AnalyticsFilters;
-  onFiltersChange: (filters: Partial<AnalyticsFilters>) => void;
 }
 
 export function SourcesReport({ data }: SourcesReportProps) {
   return (
-    <div>
-      {/* Main table first (primary content) */}
-      {data.tables?.map((table, index) => (
-        <TableRenderer key={index} table={table} />
+    <>
+      {/* sources: charts[stacked, scatter] + table[эффективность] */}
+      {data.charts?.map((chart, i) => (
+        <AnChart key={i} chart={chart} />
       ))}
 
-      {/* Charts */}
-      {data.charts?.map((chart, index) => (
-        <ChartRenderer
-          key={index}
-          chart={chart}
-        />
+      {data.tables?.map((table, i) => (
+        <AnTable key={i} table={table} />
       ))}
 
-    </div>
+      <div className="an-note">
+        <Icon name="info" size={14} />
+        <span>
+          <span className="nt-title">Не построено (нет данных бека):</span> multi-line «динамика источников по
+          неделям» — эталонный график, которого <code>/analytics/sources</code> не отдаёт. Колонки
+          «Стоимость» / «ROI» в таблице бек возвращает <code>null</code> → показаны как «—».
+        </span>
+      </div>
+    </>
   );
 }

@@ -1,95 +1,67 @@
 /**
- * Scatter chart для источников (качество × объём).
- * Источник: backend/app/services/analytics/sources.py
+ * Scatter chart — источники: качество (avg AI-score) × объём.
+ * Источник: sources.py:_build_scatter_chart
  * Форма data: { points: [{ label: string, x: number, y: number }] }
+ * Пусто если у источников нет ai_score → AnChart покажет empty-state.
+ * Content-only: карточку даёт AnChart.
  */
 
-import { ScatterChart as RechartsScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  ScatterChart as RechartsScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  ZAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { ANALYTICS_PALETTE } from '../../palette';
 
-interface ScatterChartProps {
-  title: string;
-  data: {
-    points: Array<{ label: string; x: number; y: number; [key: string]: any }>;
-  };
-  onDataClick?: (data: any) => void;
+interface ScatterPoint {
+  label: string;
+  x: number;
+  y: number;
 }
 
-export function ScatterChart({ title, data, onDataClick }: ScatterChartProps) {
-  if (!data?.points || data.points.length === 0) {
-    return (
-      <div className="analytics-chart-card">
-        <div className="analytics-chart-header">
-          <h3 className="analytics-chart-title">{title}</h3>
-        </div>
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-3)' }}>
-          Нет данных для отображения
-        </div>
-      </div>
-    );
-  }
+interface ScatterChartProps {
+  data: { points: ScatterPoint[] };
+}
 
-  const renderTooltip = (props: any) => {
-    if (!props.active || !props.payload || props.payload.length === 0) {
-      return null;
-    }
-
-    const point = props.payload[0].payload;
-    return (
-      <div className="analytics-chart-tooltip">
-        <div className="analytics-chart-tooltip-title">{point.label}</div>
-        <div className="analytics-chart-tooltip-item">
-          <span className="analytics-chart-tooltip-label">Качество:</span>
-          <span className="analytics-chart-tooltip-value">{point.x}</span>
-        </div>
-        <div className="analytics-chart-tooltip-item">
-          <span className="analytics-chart-tooltip-label">Объём:</span>
-          <span className="analytics-chart-tooltip-value">{point.y}</span>
-        </div>
-      </div>
-    );
-  };
-
+function renderTooltip(props: { active?: boolean; payload?: Array<{ payload: ScatterPoint }> }) {
+  if (!props.active || !props.payload || props.payload.length === 0) return null;
+  const p = props.payload[0].payload;
   return (
-    <div className="analytics-chart-card">
-      <div className="analytics-chart-header">
-        <h3 className="analytics-chart-title">{title}</h3>
-        <p className="analytics-chart-subtitle">
-          X = Качество, Y = Объём. Правый верхний квадрант = лучшие источники.
-        </p>
+    <div className="an-chart-tooltip">
+      <div className="an-chart-tooltip-title">{p.label}</div>
+      <div className="an-chart-tooltip-item">
+        <span className="an-chart-tooltip-label">Качество (AI):</span>
+        <span className="an-chart-tooltip-value">{p.x}</span>
       </div>
+      <div className="an-chart-tooltip-item">
+        <span className="an-chart-tooltip-label">Объём:</span>
+        <span className="an-chart-tooltip-value">{p.y}</span>
+      </div>
+    </div>
+  );
+}
 
-      <div className="analytics-chart-container">
-        <ResponsiveContainer width="100%" height={280}>
-          <RechartsScatterChart
-            data={data.points}
-            margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" />
-            <XAxis
-              dataKey="x"
-              type="number"
-              stroke="var(--fg-3)"
-              fontSize={11}
-              fontFamily="var(--font-mono)"
-              domain={['dataMin - 5', 'dataMax + 5']}
-            />
-            <YAxis
-              dataKey="y"
-              type="number"
-              stroke="var(--fg-3)"
-              fontSize={11}
-              fontFamily="var(--font-mono)"
-              domain={['dataMin - 10', 'dataMax + 10']}
-            />
-            <Tooltip content={renderTooltip} />
-            <Scatter
-              dataKey="y"
-              fill="var(--accent)"
-              onClick={onDataClick}
-            />
-          </RechartsScatterChart>
-        </ResponsiveContainer>
+export function ScatterChart({ data }: ScatterChartProps) {
+  return (
+    <div className="an-chart-wrap">
+      <div className="an-card-head" style={{ marginBottom: 8 }}>
+        <div className="sub">X — качество (средний AI-скоринг), Y — объём откликов. Правый верх = лучшие каналы.</div>
       </div>
+      <ResponsiveContainer width="100%" height={240}>
+        <RechartsScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" />
+          <XAxis dataKey="x" type="number" name="Качество" stroke="var(--fg-3)" fontSize={11} fontFamily="var(--font-mono)" tickLine={false} domain={['dataMin - 5', 'dataMax + 5']} />
+          <YAxis dataKey="y" type="number" name="Объём" stroke="var(--fg-3)" fontSize={11} fontFamily="var(--font-mono)" tickLine={false} axisLine={false} width={36} domain={['dataMin - 2', 'dataMax + 2']} />
+          <ZAxis range={[80, 80]} />
+          <Tooltip content={renderTooltip as never} cursor={{ strokeDasharray: '3 3' }} />
+          <Scatter data={data.points} fill={ANALYTICS_PALETTE.blue} />
+        </RechartsScatterChart>
+      </ResponsiveContainer>
     </div>
   );
 }

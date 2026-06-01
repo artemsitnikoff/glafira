@@ -17,7 +17,7 @@ const VacancyDetailPage = lazy(() => import('@/pages/VacancyDetailPage'));
 const CandidatesPoolPage = lazy(() => import('@/pages/candidates/CandidatesPoolPage').then(m => ({ default: m.CandidatesPoolPage })));
 const CandidatePoolDetailPage = lazy(() => import('@/pages/candidates/CandidatePoolDetailPage').then(m => ({ default: m.CandidatePoolDetailPage })));
 const PulseComingSoon = lazy(() => import('@/pages/pulse/PulseComingSoon').then(m => ({ default: m.PulseComingSoon })));
-const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
+const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {

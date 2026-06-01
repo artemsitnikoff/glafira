@@ -1,102 +1,61 @@
 /**
- * Line chart для динамики откликов.
- * Источник: backend/app/services/analytics/overview.py:_build_dynamics_chart
+ * Line chart — динамика откликов / отказов.
+ * Источник: overview.py:_build_dynamics_chart, rejections.py:_build_rejections_dynamics_chart
  * Форма data: { points: [{ date: string, value: number }] }
+ * Content-only: карточку и empty-state даёт AnChart.
  */
 
-import { LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  LineChart as RechartsLineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { ANALYTICS_PALETTE } from '../../palette';
 
 interface LineChartProps {
-  title: string;
-  data: {
-    points: Array<{ date: string; value: number; [key: string]: any }>;
-  };
-  onDataClick?: (data: any) => void;
+  data: { points: Array<{ date: string; value: number }> };
 }
 
-export function LineChart({ title, data, onDataClick }: LineChartProps) {
-  if (!data?.points || data.points.length === 0) {
-    return (
-      <div className="analytics-chart-card">
-        <div className="analytics-chart-header">
-          <h3 className="analytics-chart-title">{title}</h3>
-        </div>
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-3)' }}>
-          Нет данных для отображения
-        </div>
-      </div>
-    );
-  }
+function formatDay(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
 
-  const formatTooltipLabel = (label: string) => {
-    try {
-      const date = new Date(label);
-      return date.toLocaleDateString('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        year: '2-digit'
-      });
-    } catch {
-      return label;
-    }
-  };
-
-  const formatXAxisLabel = (value: string) => {
-    try {
-      const date = new Date(value);
-      return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-    } catch {
-      return value;
-    }
-  };
-
+export function LineChart({ data }: LineChartProps) {
   return (
-    <div className="analytics-chart-card">
-      <div className="analytics-chart-header">
-        <h3 className="analytics-chart-title">{title}</h3>
-      </div>
-
-      <div className="analytics-chart-container">
-        <ResponsiveContainer width="100%" height={280}>
-          <RechartsLineChart
-            data={data.points}
-            margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" />
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatXAxisLabel}
-              stroke="var(--fg-3)"
-              fontSize={11}
-              fontFamily="var(--font-mono)"
-            />
-            <YAxis
-              stroke="var(--fg-3)"
-              fontSize={11}
-              fontFamily="var(--font-mono)"
-            />
-            <Tooltip
-              labelFormatter={(label: any) => formatTooltipLabel(String(label))}
-              contentStyle={{
-                backgroundColor: 'var(--bg-1)',
-                border: '1px solid var(--border-2)',
-                borderRadius: '8px',
-                fontSize: '14px',
-              }}
-              labelStyle={{ color: 'var(--fg-3)', fontSize: '12px' }}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke="var(--accent)"
-              strokeWidth={2}
-              dot={{ fill: 'var(--accent)', r: 4 }}
-              activeDot={{ r: 6, fill: 'var(--accent)' }}
-              onClick={onDataClick}
-            />
-          </RechartsLineChart>
-        </ResponsiveContainer>
-      </div>
+    <div className="an-chart-wrap">
+      <ResponsiveContainer width="100%" height={240}>
+        <RechartsLineChart data={data.points} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-2)" vertical={false} />
+          <XAxis dataKey="date" tickFormatter={formatDay} stroke="var(--fg-3)" fontSize={11} fontFamily="var(--font-mono)" tickLine={false} />
+          <YAxis stroke="var(--fg-3)" fontSize={11} fontFamily="var(--font-mono)" tickLine={false} axisLine={false} width={36} allowDecimals={false} />
+          <Tooltip
+            labelFormatter={(label) => formatDay(String(label))}
+            contentStyle={{
+              backgroundColor: '#1F2733',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '12px',
+            }}
+            labelStyle={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}
+            itemStyle={{ color: '#fff' }}
+          />
+          <Line
+            type="monotone"
+            dataKey="value"
+            name="Значение"
+            stroke={ANALYTICS_PALETTE.blue}
+            strokeWidth={2}
+            dot={{ fill: ANALYTICS_PALETTE.blue, r: 3 }}
+            activeDot={{ r: 5 }}
+          />
+        </RechartsLineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

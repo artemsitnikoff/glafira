@@ -1,28 +1,22 @@
-import type { AnalyticsResponse, AnalyticsFilters } from '@/api/aliases';
-import { ChartRenderer } from '../ChartRenderer';
-import { TableRenderer } from '../TableRenderer';
+import type { AnalyticsResponse } from '@/api/aliases';
+import { AnChart } from '../AnChart';
+import { AnTable } from '../AnTable';
 
 interface RejectionsReportProps {
   data: AnalyticsResponse;
-  filters: AnalyticsFilters;
-  onFiltersChange: (filters: Partial<AnalyticsFilters>) => void;
 }
 
 export function RejectionsReport({ data }: RejectionsReportProps) {
   return (
-    <div>
-      {/* Charts */}
-      {data.charts?.map((chart, index) => (
-        <ChartRenderer
-          key={index}
-          chart={chart}
-        />
+    <>
+      {/* rejections: charts[pie «Причины отказов», line «Динамика отказов»] + table */}
+      {data.charts?.map((chart, i) => (
+        <AnChart key={i} chart={chart} />
       ))}
 
-      {/* Tables */}
-      {data.tables?.map((table, index) => (
-        <TableRenderer key={index} table={table} />
+      {data.tables?.map((table, i) => (
+        <AnTable key={i} table={table} />
       ))}
-    </div>
+    </>
   );
 }

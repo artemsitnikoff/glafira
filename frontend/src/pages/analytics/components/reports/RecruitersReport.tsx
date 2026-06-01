@@ -1,63 +1,39 @@
-import type { AnalyticsResponse, AnalyticsFilters } from '@/api/aliases';
-import { ChartRenderer } from '../ChartRenderer';
-import { TableRenderer } from '../TableRenderer';
-import { RecruiterLeaderboard } from '../RecruiterLeaderboard';
-
-interface RecruiterData {
-  name: string;
-  active_vacancies: number;
-  applications_processed: number;
-  screenings: number;
-  interviews_scheduled: number;
-  interviews_conducted: number;
-  hires: number;
-  avg_time_to_hire: number;
-  glafira_autonomy_pct: number;
-  [key: string]: any;
-}
+import type { AnalyticsResponse } from '@/api/aliases';
+import { AnChart } from '../AnChart';
+import { AnTable } from '../AnTable';
+import { Icon } from '@/components/ui/Icon';
 
 interface RecruitersReportProps {
   data: AnalyticsResponse;
-  filters: AnalyticsFilters;
-  onFiltersChange: (filters: Partial<AnalyticsFilters>) => void;
 }
 
+/**
+ * Рекрутёры. Лидерборд рендерим через общий AnTable — ключи колонок берём
+ * напрямую из TableColumn бека (recruiter_name / vacancies_active /
+ * applications_handled / interviews / hires / avg_time_to_hire /
+ * glafira_autonomy_pct / rank). Это выравнивает фронт под бек (прежний
+ * RecruiterLeaderboard ждал несуществующие name/active_vacancies/...).
+ */
 export function RecruitersReport({ data }: RecruitersReportProps) {
-  // Extract recruiter data from tables for leaderboard
-  const recruiterData = data.tables?.find(table => table.title.toLowerCase().includes('рекрут'))?.rows || [];
-
   return (
-    <div>
-      {/* Recruiter Leaderboard */}
-      {recruiterData.length > 0 && (
-        <div className="analytics-chart-card" style={{ marginBottom: '24px' }}>
-          <div className="analytics-chart-header">
-            <h3 className="analytics-chart-title">Рейтинг рекрутёров</h3>
-            <p className="analytics-chart-subtitle">
-              Лидерборд команды по ключевым показателям эффективности
-            </p>
-          </div>
-          <RecruiterLeaderboard
-            recruiters={recruiterData as RecruiterData[]} // Backend table rows: { [key: string]: unknown }[] → RecruiterData[]
-          />
-        </div>
-      )}
-
-      {/* Charts */}
-      {data.charts?.map((chart, index) => (
-        <ChartRenderer
-          key={index}
-          chart={chart}
-        />
+    <>
+      {/* charts[bar «Найма по рекрутёрам», radar «Сравнение топ-рекрутёров»] */}
+      {data.charts?.map((chart, i) => (
+        <AnChart key={i} chart={chart} />
       ))}
 
-      {/* Additional tables */}
-      {data.tables
-        ?.filter(table => !table.title.toLowerCase().includes('рекрут'))
-        .map((table, index) => (
-          <TableRenderer key={index} table={table} />
-        ))}
+      {data.tables?.map((table, i) => (
+        <AnTable key={i} table={table} />
+      ))}
 
-    </div>
+      <div className="an-note">
+        <Icon name="info" size={14} />
+        <span>
+          <span className="nt-title">Не построено (нет данных бека):</span> multi-line «динамика
+          производительности команды по неделям» — эталонный график, которого
+          <code> /analytics/recruiters</code> не отдаёт.
+        </span>
+      </div>
+    </>
   );
 }
