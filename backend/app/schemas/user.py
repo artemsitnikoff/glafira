@@ -22,6 +22,7 @@ class UserListItem(ORMBase):
     position: str | None
     avatar_url: str | None
     is_active: bool
+    source: str
     created_at: datetime
 
 

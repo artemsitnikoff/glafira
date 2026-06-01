@@ -6,6 +6,7 @@ import { useUsers } from '@/api/hooks/useUsers';
 import { useAuthStore } from '@/store/authStore';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
 import { BitrixImportModal } from './components/BitrixImportModal';
+import { CreateUserModal } from './components/CreateUserModal';
 import { UserActionMenu } from './components/UserActionMenu';
 import { useDebounce } from '@/hooks/useDebounce';
 import './components/BitrixImportModal.css';
@@ -44,6 +45,7 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -162,8 +164,8 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
             </button>
           )}
           {isAdmin && (
-            <button className="btn btn-primary btn-sm" disabled={true || readOnly}>
-              <Icon name="plus" size={14} />Пригласить
+            <button className="btn btn-primary btn-sm" onClick={() => setIsCreateModalOpen(true)}>
+              <Icon name="plus" size={14} />Создать
             </button>
           )}
         </div>
@@ -198,7 +200,11 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
                 </div>
                 <div><span className={`role-pill role-${roleClass[u.role as keyof typeof roleClass]}`}>{roleLabel[u.role as keyof typeof roleLabel]}</span></div>
                 <div className="ut-cell">
-                  <span className="t-secondary">Создан в системе</span>
+                  {u.source === 'b24' ? (
+                    <span className="src-pill src-b24">Импортирован из Б24</span>
+                  ) : (
+                    <span className="t-secondary">Создан в системе</span>
+                  )}
                 </div>
                 <div className="ut-cell t-mono" style={{ fontSize: 12 }}>
                   {formatLastActivity(u.created_at)}
@@ -226,6 +232,11 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
       <BitrixImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+      />
+
+      <CreateUserModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
       />
     </div>
   );

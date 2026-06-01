@@ -10,6 +10,7 @@ export interface UserListItem {
   position?: string | null;
   avatar_url?: string | null;
   is_active: boolean;
+  source?: string; // 'manual' | 'b24'
   created_at: string;
 }
 

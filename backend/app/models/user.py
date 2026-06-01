@@ -49,6 +49,8 @@ class User(Base, TimestampMixin, CompanyMixin):
         server_default=text("'DD.MM.YYYY'")
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # Откуда заведён пользователь: 'manual' (создан вручную) | 'b24' (импортирован из Битрикс24)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'manual'"))
 
     # Constraints
     __table_args__ = (

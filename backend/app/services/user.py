@@ -92,9 +92,10 @@ async def create_user(
     session: AsyncSession,
     user_data: UserCreate,
     company_id: UUID,
-    actor_user_id: UUID
+    actor_user_id: UUID,
+    source: str = "manual",
 ) -> tuple[User, str]:
-    """Create new user"""
+    """Create new user. source: 'manual' (вручную) | 'b24' (импорт из Битрикс24)."""
     # Check if email already exists globally (unique constraint is global)
     existing_user_result = await session.execute(
         select(User).where(User.email == user_data.email)
@@ -113,6 +114,7 @@ async def create_user(
         full_name=user_data.full_name,
         role=user_data.role,
         position=user_data.position,
+        source=source,
     )
 
     session.add(user)

@@ -363,7 +363,7 @@ async def import_users(
                 role=role,
                 position=position
             )
-            user, temp_password = await create_user(session, user_create, company_id, user_id)
+            user, temp_password = await create_user(session, user_create, company_id, user_id, source="b24")
 
             created.append({
                 "email": email,
