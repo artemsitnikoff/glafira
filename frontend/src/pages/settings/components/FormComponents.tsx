@@ -196,11 +196,12 @@ type CardProps = {
   desc?: string;
   children: ReactNode;
   foot?: ReactNode;
+  className?: string;
 };
 
-export function Card({ title, desc, children, foot }: CardProps) {
+export function Card({ title, desc, children, foot, className }: CardProps) {
   return (
-    <section className="set-card">
+    <section className={`set-card ${className || ''}`}>
       {(title || desc) && (
         <header className="set-card-head">
           {title && <div className="set-card-title">{title}</div>}

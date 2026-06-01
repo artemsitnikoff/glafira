@@ -117,7 +117,7 @@ export function SettingsAccess() {
         </div>
       </Card>
 
-      <Card title="Пользователи" desc={`Всего ${totalUsers}: ${activeUsers} активных`}>
+      <Card title="Пользователи" desc={`Всего ${totalUsers}: ${activeUsers} активных`} className="set-card-overflow">
         <div className="users-toolbar">
           <div className="users-search">
             <Icon name="search" size={14}/>

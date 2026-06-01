@@ -87,6 +87,9 @@
   margin-bottom: 16px;
   overflow: hidden;
 }
+/* Карточки с выпадающими меню (напр. «⋯» в списке юзеров) — не клипуем дропдаун.
+   Контент инсетнут падингом .set-card-body, скругление углов не страдает. */
+.set-card.set-card-overflow { overflow: visible; }
 .set-card-head {
   padding: 16px 20px 12px;
   border-bottom: 1px solid var(--border-2);
