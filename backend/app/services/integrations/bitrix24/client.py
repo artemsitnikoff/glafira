@@ -102,3 +102,9 @@ async def get_all_users(webhook_url: str, max_items: int = 5000) -> list[dict]:
             break
 
     return items
+
+
+async def get_departments(webhook_url: str) -> list[dict]:
+    """Отделы организации (department.get). Возвращает сырой результат B24."""
+    data = await call(webhook_url, "department.get", {})
+    return data.get("result") or []

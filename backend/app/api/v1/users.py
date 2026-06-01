@@ -1,28 +1,34 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
+from typing import Optional
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
-from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate
-from ...schemas.base import Paginated
-from ...services.user import get_user, create_user, update_user
+from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate, UserListItem
+from ...schemas.base import Paginated, MessageResult
+from ...services.user import get_user, create_user, update_user, delete_user, get_users_paginated
 from ...models import User
 from ...core.errors import ForbiddenError
 
 router = APIRouter()
 
 
-@router.get("", response_model=Paginated[UserShort])
+@router.get("", response_model=Paginated[UserListItem])
 async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(24, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Search by full name or email"),
+    role: Optional[str] = Query(None, description="Filter by role (admin, recruiter, manager)"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id)
 ):
-    """Get paginated list of users for company"""
-    from ...services.user import get_users_paginated
-    result = await get_users_paginated(session, company_id, page, page_size)
+    """Get paginated list of users for company with filters"""
+    result = await get_users_paginated(
+        session, company_id, page, page_size,
+        search=search, role=role, is_active=is_active
+    )
     return result
 
 
@@ -73,3 +79,20 @@ async def update_user_by_id(
     await session.commit()
 
     return UserShort.model_validate(user)
+
+
+@router.delete("/{user_id}", response_model=MessageResult)
+async def delete_user_by_id(
+    user_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Delete user (admin only)"""
+    if current_user.role != "admin":
+        raise ForbiddenError("Только администратор может удалять пользователей")
+
+    await delete_user(session, user_id, company_id, current_user.id)
+    await session.commit()
+
+    return MessageResult(message="Пользователь удалён")

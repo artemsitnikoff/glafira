@@ -637,6 +637,57 @@
 .status-pill.status-invited  { background: var(--ark-yellow-100); color: var(--ark-yellow-600); }
 .status-pill.status-invited  .st-dot { background: var(--ark-yellow-500); }
 
+.users-loading,
+.users-empty {
+  grid-column: 1 / -1;
+  padding: 40px;
+  text-align: center;
+  color: var(--fg-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.users-loading .icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--ark-red-100);
+  color: var(--ark-red-600);
+  border: 1px solid var(--ark-red-200);
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.error-banner button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.error-banner button:hover {
+  background: var(--ark-red-200);
+}
+
 /* ---------------- Tags ---------------- */
 .tags-table {
   display: grid;
@@ -813,3 +864,22 @@
 .integ-card .btn-secondary { background: var(--bg-1); color: var(--fg-1); border-color: var(--border-1); }
 .integ-card .btn-secondary:hover:not(:disabled) { background: var(--bg-3); }
 .integ-card .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Кнопки на всей странице Настроек (.btn глобально НЕ определён; Button.css использует
+   .btn--primary BEM и не грузится здесь). Покрывает тулбар «Пользователи», меню действий
+   и модалку импорта (все — потомки .set-content-inner). Реальные токены. */
+.set-content-inner .btn {
+  height: 32px; padding: 0 14px; border-radius: 6px;
+  border: 1px solid transparent; font-family: inherit;
+  font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.set-content-inner .btn-sm { height: 28px; padding: 0 12px; font-size: 12px; }
+.set-content-inner .btn-primary { background: var(--accent); color: var(--ark-white); border-color: var(--accent); }
+.set-content-inner .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.set-content-inner .btn-secondary { background: var(--bg-1); color: var(--fg-1); border-color: var(--border-1); }
+.set-content-inner .btn-secondary:hover:not(:disabled) { background: var(--bg-3); }
+.set-content-inner .btn-danger { background: var(--ark-red-500); color: var(--ark-white); border-color: var(--ark-red-500); }
+.set-content-inner .btn-danger:hover:not(:disabled) { background: var(--ark-red-600); border-color: var(--ark-red-600); }
+.set-content-inner .btn:disabled { opacity: 0.55; cursor: not-allowed; }

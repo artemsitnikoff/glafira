@@ -1,0 +1,282 @@
+/* Оболочка модалки — самодостаточная (классы .modal-* в VacancyForm.css не грузятся
+   на странице Настроек). Реальные токены. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  max-height: 86vh;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-1);
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.modal-close:hover {
+  background: var(--bg-3);
+  color: var(--fg-1);
+}
+.modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+}
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-1);
+}
+
+.modal-lg {
+  max-width: 760px;
+  width: 90vw;
+}
+
+.import-filters {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid var(--ark-gray-200);
+  border-radius: 8px;
+  background: var(--bg-1);
+}
+
+.import-filter-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.import-filter-row:last-child {
+  margin-bottom: 0;
+}
+
+.import-filter {
+  flex: 1;
+}
+
+.import-filter label {
+  display: block;
+  font-weight: 500;
+  color: var(--fg-1);
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.form-input,
+.form-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--ark-gray-300);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg-1);
+  color: var(--fg-1);
+}
+
+.form-input:focus,
+.form-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(42,138,240,.18);
+}
+
+.import-list {
+  border: 1px solid var(--ark-gray-200);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.import-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--ark-gray-200);
+}
+
+.import-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.import-selected-count {
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.import-loading {
+  padding: 40px;
+  text-align: center;
+  color: var(--fg-2);
+}
+
+.import-candidates {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.import-candidate {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ark-gray-100);
+}
+
+.import-candidate:last-child {
+  border-bottom: none;
+}
+
+.import-candidate.disabled {
+  opacity: 0.6;
+}
+
+.import-candidate-checkbox input {
+  margin: 0;
+}
+
+.import-candidate-info {
+  flex: 1;
+}
+
+.import-candidate-name {
+  font-weight: 500;
+  color: var(--fg-1);
+  margin-bottom: 4px;
+}
+
+.import-candidate-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.import-candidate-position {
+  color: var(--fg-2);
+}
+
+.import-candidate-department {
+  color: var(--fg-2);
+  background: var(--bg-3);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.import-candidate-email {
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+}
+
+.import-candidate-no-email {
+  color: var(--ark-red-500);
+  font-style: italic;
+}
+
+.import-result {
+  text-align: center;
+}
+
+.import-result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  color: var(--ark-green-600);
+}
+
+.import-result-summary h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.import-result-stats {
+  text-align: left;
+  space-y: 16px;
+}
+
+.import-stat {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg-2);
+  border-radius: 6px;
+}
+
+.import-stat strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--fg-1);
+}
+
+.import-stat-list {
+  font-size: 14px;
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+
+.import-stat-passwords {
+  font-size: 14px;
+}
+
+.temp-password-item {
+  margin-bottom: 8px;
+  padding: 8px;
+  background: var(--bg-1);
+  border: 1px solid var(--ark-gray-200);
+  border-radius: 4px;
+}
+
+.temp-password {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.temp-password code {
+  background: var(--ark-gray-100);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  color: var(--fg-1);
+}

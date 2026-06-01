@@ -14,10 +14,13 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....models import Integration
+from ....models import Integration, User
+from ....schemas.user import UserCreate
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError
+from ...user import create_user
+from ...integrations.smtp.service import send_email
 from . import client as b24_client
 
 PROVIDER = "bitrix24"
@@ -52,6 +55,34 @@ def _simplify_user(u: dict) -> dict:
         "last_name": (u.get("LAST_NAME") or "").strip(),
         "position": (u.get("WORK_POSITION") or "").strip() or None,
         "email": (u.get("EMAIL") or "").strip() or None,
+        "active": is_active,
+    }
+
+
+def _simplify_user_for_import(u: dict, departments_map: dict[str, str]) -> dict:
+    """B24-пользователь → форма для импорта (с информацией об отделе)."""
+    active = u.get("ACTIVE")
+    is_active = active is True or (isinstance(active, str) and active.upper() in ("Y", "TRUE", "1"))
+
+    # Map department IDs to names
+    dept_ids = u.get("UF_DEPARTMENT") or []
+    if not isinstance(dept_ids, list):
+        dept_ids = [dept_ids] if dept_ids else []
+
+    department_names = []
+    for dept_id in dept_ids:
+        dept_name = departments_map.get(str(dept_id))
+        if dept_name:
+            department_names.append(dept_name)
+
+    return {
+        "b24_id": str(u.get("ID", "")),
+        "name": (u.get("NAME") or "").strip(),
+        "last_name": (u.get("LAST_NAME") or "").strip(),
+        "position": (u.get("WORK_POSITION") or "").strip() or None,
+        "email": (u.get("EMAIL") or "").strip() or None,
+        "department_ids": [str(d) for d in dept_ids],
+        "department_name": ", ".join(department_names) or None,
         "active": is_active,
     }
 
@@ -213,6 +244,186 @@ async def preview_users(session: AsyncSession, company_id: UUID, limit: int = 20
     raw = data.get("result") or []
     users = [_simplify_user(u) for u in raw[:limit]]
     return {"total": data.get("total"), "users": users}
+
+
+async def list_departments(session: AsyncSession, company_id: UUID) -> list[dict]:
+    """Список отделов из Битрикс24."""
+    row = await _get_row(session, company_id)
+    if not row or not row.config or not row.config.get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    webhook = await _decrypted_webhook(row)
+    departments = await b24_client.get_departments(webhook)
+
+    # Simplify department structure
+    result = []
+    for dept in departments:
+        result.append({
+            "id": str(dept.get("ID", "")),
+            "name": str(dept.get("NAME", "")),
+            "parent": str(dept.get("PARENT", "")) if dept.get("PARENT") else None,
+        })
+
+    return result
+
+
+async def get_import_candidates(session: AsyncSession, company_id: UUID) -> list[dict]:
+    """Пользователи Битрикс24 для импорта (с отделами)."""
+    row = await _get_row(session, company_id)
+    if not row or not row.config or not row.config.get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    webhook = await _decrypted_webhook(row)
+
+    # Get departments for mapping
+    departments = await b24_client.get_departments(webhook)
+    departments_map = {str(dept.get("ID", "")): str(dept.get("NAME", "")) for dept in departments}
+
+    # Get all users
+    users = await b24_client.get_all_users(webhook)
+
+    # Convert to import format
+    result = []
+    for user in users:
+        result.append(_simplify_user_for_import(user, departments_map))
+
+    return result
+
+
+async def import_users(
+    session: AsyncSession,
+    company_id: UUID,
+    user_id: UUID,
+    *,
+    b24_user_ids: list[str],
+    role: str,
+    delivery: str = "email"
+) -> dict:
+    """Импорт пользователей из Битрикс24."""
+    if delivery != "email":
+        raise ValidationError("Пока поддерживается только доставка по email")
+
+    row = await _get_row(session, company_id)
+    if not row or not row.config or not row.config.get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    webhook = await _decrypted_webhook(row)
+
+    # Get fresh user data from B24
+    all_users = await b24_client.get_all_users(webhook)
+    users_by_id = {str(u.get("ID", "")): u for u in all_users}
+
+    created = []
+    emailed = []
+    shown = []
+    skipped = []
+
+    for b24_id in b24_user_ids:
+        b24_user = users_by_id.get(str(b24_id))
+        if not b24_user:
+            skipped.append({
+                "name": f"ID {b24_id}",
+                "reason": "Пользователь не найден в Битрикс24"
+            })
+            continue
+
+        name = (b24_user.get("NAME") or "").strip()
+        last_name = (b24_user.get("LAST_NAME") or "").strip()
+        full_name = f"{name} {last_name}".strip() or f"Пользователь {b24_id}"
+        position = (b24_user.get("WORK_POSITION") or "").strip() or None
+        email = (b24_user.get("EMAIL") or "").strip()
+
+        if not email:
+            skipped.append({
+                "name": full_name,
+                "reason": "Нет email в Битрикс24"
+            })
+            continue
+
+        # Check if user already exists (by email)
+        existing_result = await session.execute(
+            select(User).where(User.email == email)
+        )
+        existing_user = existing_result.scalar_one_or_none()
+
+        if existing_user:
+            skipped.append({
+                "name": full_name,
+                "reason": f"Пользователь с email {email} уже существует"
+            })
+            continue
+
+        # Create user
+        try:
+            user_create = UserCreate(
+                email=email,
+                full_name=full_name,
+                role=role,
+                position=position
+            )
+            user, temp_password = await create_user(session, user_create, company_id, user_id)
+
+            created.append({
+                "email": email,
+                "full_name": full_name
+            })
+
+            # Try to send email
+            try:
+                await send_email(
+                    session,
+                    company_id,
+                    to=email,
+                    subject="Добро пожаловать в Глафира Рекрутёр",
+                    body_text=f"""Здравствуйте, {full_name}!
+
+Для вас создан аккаунт в системе Глафира Рекрутёр.
+
+Данные для входа:
+Логин: {email}
+Пароль: {temp_password}
+
+Рекомендуем сменить пароль после первого входа в систему.
+
+С уважением,
+Команда Глафира Рекрутёр"""
+                )
+                emailed.append(email)
+            except Exception:
+                # Email failed, but user created - show temp password
+                shown.append({
+                    "email": email,
+                    "temp_password": temp_password,
+                    "full_name": full_name
+                })
+
+        except Exception as e:
+            skipped.append({
+                "name": full_name,
+                "reason": f"Ошибка создания: {str(e)}"
+            })
+
+    # Audit the import action
+    await audit(
+        session,
+        action="bitrix24_import_users",
+        entity_type="integration",
+        entity_id=row.id,
+        after={
+            "imported_count": len(created),
+            "skipped_count": len(skipped),
+            "role": role
+        },
+        actor_user_id=user_id,
+        company_id=company_id,
+    )
+
+    return {
+        "created": created,
+        "emailed": emailed,
+        "shown": shown,
+        "skipped": skipped
+    }
 
 
 async def disconnect(session: AsyncSession, company_id: UUID, user_id: UUID) -> None:

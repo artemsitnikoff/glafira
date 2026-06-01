@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from uuid import UUID
+from datetime import datetime
 
 from .base import ORMBase
 
@@ -10,6 +11,18 @@ class UserShort(ORMBase):
     position: str | None
     avatar_url: str | None
     role: str
+
+
+class UserListItem(ORMBase):
+    """Extended user info for the users list page"""
+    id: UUID
+    full_name: str
+    email: str
+    role: str
+    position: str | None
+    avatar_url: str | None
+    is_active: bool
+    created_at: datetime
 
 
 class UserCreate(BaseModel):

@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from ...deps import get_current_user
-from ...core.errors import ValidationError
+from ...core.errors import ValidationError, ForbiddenError
 from ...database import get_db
 from ...models import User
 from ...services.integrations.hh import service as hh_service
 from ...services.integrations.smtp import service as smtp_service
 from ...services.integrations.bitrix24 import service as b24_service
+from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixImportRequest, BitrixImportResult
 from ...config import settings
 
 
@@ -249,6 +250,55 @@ async def preview_b24_users(
 ):
     """Превью сотрудников с портала (первая страница). Импорт в Глафиру — отдельный этап."""
     return await b24_service.preview_users(session, current_user.company_id)
+
+
+@router.get("/bitrix24/departments")
+async def get_b24_departments(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Список отделов Битрикс24 (admin only)."""
+    if current_user.role != "admin":
+        raise ForbiddenError("Только администратор может получать список отделов")
+
+    departments = await b24_service.list_departments(session, current_user.company_id)
+    return [BitrixDepartment.model_validate(dept) for dept in departments]
+
+
+@router.get("/bitrix24/import-candidates")
+async def get_b24_import_candidates(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Список пользователей Битрикс24 для импорта (с отделами, admin only)."""
+    if current_user.role != "admin":
+        raise ForbiddenError("Только администратор может получать список пользователей для импорта")
+
+    candidates = await b24_service.get_import_candidates(session, current_user.company_id)
+    return [BitrixImportCandidate.model_validate(candidate) for candidate in candidates]
+
+
+@router.post("/bitrix24/import", response_model=BitrixImportResult)
+async def import_b24_users(
+    data: BitrixImportRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Импорт пользователей из Битрикс24 (admin only)."""
+    if current_user.role != "admin":
+        raise ForbiddenError("Только администратор может импортировать пользователей")
+
+    result = await b24_service.import_users(
+        session,
+        current_user.company_id,
+        current_user.id,
+        b24_user_ids=data.b24_user_ids,
+        role=data.role,
+        delivery=data.delivery
+    )
+    await session.commit()
+
+    return BitrixImportResult.model_validate(result)
 
 
 @router.post("/bitrix24/disconnect")
