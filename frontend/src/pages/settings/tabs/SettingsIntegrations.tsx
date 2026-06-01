@@ -2,6 +2,9 @@ import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select, Switch } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
 import { useHhSaveConfig, useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
+import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
+import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
+import { useAuthStore } from '@/store/authStore';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ApiError } from '@/api/aliases';
@@ -12,6 +15,7 @@ function IntegrationCard({
   name,
   desc,
   status,
+  statusLabel,
   children
 }: {
   ico: React.ReactNode;
@@ -19,6 +23,7 @@ function IntegrationCard({
   name: string;
   desc: string;
   status: 'ok' | 'bad' | 'err';
+  statusLabel?: string;
   children: React.ReactNode;
 }) {
   const statusInfo = {
@@ -38,7 +43,7 @@ function IntegrationCard({
         <div className={`conn-pill ${statusInfo.cls}`}>
           {status === 'ok' && <Icon name="check" size={12}/>}
           {status === 'err' && <Icon name="x" size={12}/>}
-          {statusInfo.label}
+          {statusLabel ?? statusInfo.label}
         </div>
         <span className="integ-chev"><Icon name="chevD" size={16}/></span>
       </div>
@@ -139,6 +144,82 @@ export function SettingsIntegrations() {
     }
   };
 
+  // ---------------- SMTP (почтовый сервер) ----------------
+  const { data: smtpStatus, isLoading: smtpLoading } = useSmtpStatus();
+  const smtpSaveMutation = useSmtpSaveConfig();
+  const smtpTestMutation = useSmtpTest();
+  const smtpDisconnectMutation = useSmtpDisconnect();
+
+  const currentUserEmail = useAuthStore(s => s.user?.email) ?? '';
+
+  const [smtpForm, setSmtpForm] = useState({
+    host: '',
+    port: '587',
+    encryption: 'tls',
+    username: '',
+    password: '',
+    from_email: '',
+    from_name: '',
+    reply_to: '',
+  });
+  const [smtpEdit, setSmtpEdit] = useState(false);
+  const [smtpTestTo, setSmtpTestTo] = useState(currentUserEmail);
+
+  const enterSmtpEdit = () => {
+    setSmtpForm({
+      host: smtpStatus?.host || '',
+      port: smtpStatus?.port ? String(smtpStatus.port) : '587',
+      encryption: smtpStatus?.encryption || 'tls',
+      username: smtpStatus?.username || '',
+      password: '',
+      from_email: smtpStatus?.from_email || '',
+      from_name: smtpStatus?.from_name || '',
+      reply_to: smtpStatus?.reply_to || '',
+    });
+    setSmtpEdit(true);
+  };
+
+  const handleSmtpSave = async () => {
+    try {
+      await smtpSaveMutation.mutateAsync({
+        host: smtpForm.host.trim(),
+        port: parseInt(smtpForm.port, 10) || 0,
+        encryption: smtpForm.encryption,
+        username: smtpForm.username.trim(),
+        password: smtpForm.password,
+        from_email: smtpForm.from_email.trim(),
+        from_name: smtpForm.from_name.trim(),
+        reply_to: smtpForm.reply_to.trim(),
+      });
+      setSmtpEdit(false);
+      setSmtpForm(prev => ({ ...prev, password: '' })); // не держим пароль в стейте
+      setNotification({ type: 'success', message: 'Настройки SMTP сохранены. Отправьте тестовое письмо для проверки.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при сохранении настроек SMTP' });
+    }
+  };
+
+  const handleSmtpTest = async () => {
+    try {
+      const res = await smtpTestMutation.mutateAsync({ to: smtpTestTo.trim() });
+      setNotification({ type: 'success', message: `Тестовое письмо отправлено на ${res.sent_to}` });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось отправить тестовое письмо' });
+    }
+  };
+
+  const handleSmtpDisconnect = async () => {
+    try {
+      await smtpDisconnectMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'SMTP отключён' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении SMTP' });
+    }
+  };
+
   return (
     <div className="set-content-inner">
       <PageHead title="Интеграции"
@@ -155,13 +236,6 @@ export function SettingsIntegrations() {
           <div>{notification.message}</div>
         </div>
       )}
-
-      <div className="info-banner">
-        <Icon name="bell" size={16} />
-        <div>
-          <b>Скоро.</b> Функциональность находится в разработке.
-        </div>
-      </div>
 
       <div className="integ-list">
         {/* HH.RU */}
@@ -295,40 +369,144 @@ export function SettingsIntegrations() {
           iconBg="#FFF1C8"
           name="Почтовый сервер (SMTP)"
           desc="Отправка писем кандидатам и системных уведомлений"
-          status="bad">
+          status={smtpStatus?.verified ? 'ok' : (smtpStatus?.last_test_error ? 'err' : 'bad')}
+          statusLabel={
+            smtpStatus?.verified ? undefined
+              : smtpStatus?.last_test_error ? 'Ошибка отправки'
+              : smtpStatus?.configured ? 'Настроено'
+              : undefined
+          }>
           <div className="integ-section">
-            <div className="form-grid form-grid-2">
-              <FormRow label="SMTP-сервер" required>
-                <TextInput value="smtp.yandex.ru" mono locked />
-              </FormRow>
-              <FormRow label="Порт">
-                <TextInput value="587" mono locked />
-              </FormRow>
-              <FormRow label="Шифрование">
-                <Select value="tls"
-                  options={[{value:'tls',label:'TLS (рекомендуется)'},{value:'ssl',label:'SSL'},{value:'none',label:'Без шифрования'}]}
-                  disabled />
-              </FormRow>
-              <FormRow label="Reply-to">
-                <TextInput placeholder="hr@company.ru" locked />
-              </FormRow>
-              <FormRow label="Email отправителя" required>
-                <TextInput value="hr@company.ru" mono locked />
-              </FormRow>
-              <FormRow label="Имя отправителя">
-                <TextInput value="HR · ООО Логос" locked />
-              </FormRow>
-              <FormRow label="Логин SMTP">
-                <TextInput value="hr@company.ru" mono locked />
-              </FormRow>
-              <FormRow label="Пароль">
-                <TextInput value="••••••••••••" type="password" mono locked />
-              </FormRow>
-            </div>
-            <div className="integ-actions">
-              <button className="btn btn-secondary btn-sm" disabled>Отправить тестовое письмо</button>
-              <button className="btn btn-primary btn-sm" disabled>Сохранить и подключить</button>
-            </div>
+            {smtpLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : (smtpStatus?.configured && !smtpEdit) ? (
+              // Настроено — сводка + тест-отправка
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <div>
+                    <strong className="t-mono">{smtpStatus.host}:{smtpStatus.port}</strong>
+                    {' · '}
+                    {smtpStatus.encryption === 'tls' ? 'TLS (STARTTLS)' : smtpStatus.encryption === 'ssl' ? 'SSL' : 'без шифрования'}
+                  </div>
+                  <div style={{ marginTop: '2px' }}>
+                    Отправитель: {smtpStatus.from_name ? `${smtpStatus.from_name} · ` : ''}
+                    <span className="t-mono">{smtpStatus.from_email}</span>
+                  </div>
+                  {smtpStatus.verified && smtpStatus.last_test_at && (
+                    <div style={{ fontSize: '12px', color: 'var(--ark-green-600)', marginTop: '4px' }}>
+                      ✓ Проверено: тест отправлен {new Date(smtpStatus.last_test_at).toLocaleString('ru')}
+                    </div>
+                  )}
+                  {!smtpStatus.verified && smtpStatus.last_test_error && (
+                    <div style={{ fontSize: '12px', color: 'var(--ark-red-600)', marginTop: '4px' }}>
+                      Последний тест не прошёл: {smtpStatus.last_test_error}
+                    </div>
+                  )}
+                  {!smtpStatus.verified && !smtpStatus.last_test_error && (
+                    <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                      Ещё не проверено — отправьте тестовое письмо.
+                    </div>
+                  )}
+                </div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Кому отправить тест" span={2}>
+                    <TextInput
+                      value={smtpTestTo}
+                      onChange={(v) => setSmtpTestTo(v)}
+                      placeholder="email получателя"
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSmtpTest}
+                    disabled={smtpTestMutation.isPending || !smtpTestTo.trim()}
+                  >
+                    {smtpTestMutation.isPending ? 'Отправка...' : 'Отправить тестовое письмо'}
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={enterSmtpEdit}
+                    disabled={smtpTestMutation.isPending}
+                  >
+                    Изменить настройки
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleSmtpDisconnect}
+                    disabled={smtpDisconnectMutation.isPending}
+                  >
+                    {smtpDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Не настроено или редактирование — форма
+              <div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="SMTP-сервер" required>
+                    <TextInput value={smtpForm.host} onChange={(v) => setSmtpForm(p => ({ ...p, host: v }))} placeholder="smtp.yandex.ru" mono />
+                  </FormRow>
+                  <FormRow label="Порт" required>
+                    <TextInput value={smtpForm.port} onChange={(v) => setSmtpForm(p => ({ ...p, port: v.replace(/[^0-9]/g, '') }))} placeholder="587" mono />
+                  </FormRow>
+                  <FormRow label="Шифрование">
+                    <Select
+                      value={smtpForm.encryption}
+                      options={[{ value: 'tls', label: 'TLS (STARTTLS, обычно 587)' }, { value: 'ssl', label: 'SSL (обычно 465)' }, { value: 'none', label: 'Без шифрования' }]}
+                      onChange={(v) => setSmtpForm(p => ({ ...p, encryption: v }))}
+                    />
+                  </FormRow>
+                  <FormRow label="Reply-to">
+                    <TextInput value={smtpForm.reply_to} onChange={(v) => setSmtpForm(p => ({ ...p, reply_to: v }))} placeholder="hr@company.ru" mono />
+                  </FormRow>
+                  <FormRow label="Email отправителя" required>
+                    <TextInput value={smtpForm.from_email} onChange={(v) => setSmtpForm(p => ({ ...p, from_email: v }))} placeholder="hr@company.ru" mono />
+                  </FormRow>
+                  <FormRow label="Имя отправителя">
+                    <TextInput value={smtpForm.from_name} onChange={(v) => setSmtpForm(p => ({ ...p, from_name: v }))} placeholder="HR · Моя компания" />
+                  </FormRow>
+                  <FormRow label="Логин SMTP">
+                    <TextInput value={smtpForm.username} onChange={(v) => setSmtpForm(p => ({ ...p, username: v }))} placeholder="hr@company.ru" mono />
+                  </FormRow>
+                  <FormRow label="Пароль" required={!smtpStatus?.configured}>
+                    <TextInput
+                      type="password"
+                      value={smtpForm.password}
+                      onChange={(v) => setSmtpForm(p => ({ ...p, password: v }))}
+                      placeholder={smtpStatus?.configured ? 'Оставьте пустым, чтобы не менять' : 'Пароль или app-пароль'}
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="info-banner small">
+                  <Icon name="alert-triangle" size={14} />
+                  <div>Для Яндекс/Gmail используйте <strong>пароль приложения</strong> (app password), а не основной пароль аккаунта. После сохранения отправьте тестовое письмо.</div>
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSmtpSave}
+                    disabled={
+                      smtpSaveMutation.isPending ||
+                      !smtpForm.host.trim() ||
+                      !smtpForm.port ||
+                      !smtpForm.from_email.trim() ||
+                      (!smtpStatus?.configured && !smtpForm.password)
+                    }
+                  >
+                    {smtpSaveMutation.isPending ? 'Сохранение...' : 'Сохранить настройки'}
+                  </button>
+                  {smtpEdit && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => setSmtpEdit(false)} disabled={smtpSaveMutation.isPending}>
+                      Отмена
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </IntegrationCard>
 
@@ -338,7 +516,7 @@ export function SettingsIntegrations() {
           iconBg="#EAF3FE"
           name="Битрикс·24"
           desc="Импорт пользователей и данные о текучке"
-          status="ok">
+          status="bad">
           <div className="integ-section">
             <div className="form-grid form-grid-2">
               <FormRow label="URL портала Битрикс·24" required span={2}>
