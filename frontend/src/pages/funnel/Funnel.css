@@ -111,6 +111,49 @@
   flex: none;
 }
 
+/* Выпадашка «Действие» (дублировать / закрыть) — дизайн как у «Перевести» (.cd-move-pop) */
+.cnd-funnel-wrap .vh-action-wrap { position: relative; }
+.cnd-funnel-wrap .vh-action-backdrop { position: fixed; inset: 0; z-index: 999; }
+.cnd-funnel-wrap .vh-action-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -8px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.06);
+  z-index: 1000;
+  padding: 6px;
+}
+.cnd-funnel-wrap .vh-action-head {
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  font-weight: 600;
+}
+.cnd-funnel-wrap .vh-action-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg-1);
+  font-size: 13px;
+  border-radius: 6px;
+  transition: background 120ms;
+}
+.cnd-funnel-wrap .vh-action-item:hover:not(:disabled) { background: var(--bg-3-hover); }
+.cnd-funnel-wrap .vh-action-item:disabled { opacity: 0.6; cursor: default; }
+.cnd-funnel-wrap .vh-action-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.cnd-funnel-wrap .vh-action-err { padding: 6px 10px 2px; font-size: 12px; color: var(--ark-red-600); }
+
 /* Funnel chips (sticky under header) */
 .cnd-funnel-wrap .funnel-row {
   position: sticky;

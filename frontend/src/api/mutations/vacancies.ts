@@ -61,12 +61,28 @@ export function useArchiveVacancy() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
-      const response = await api.post(`/vacancies/${id}/archive`);
-      return response.data;
+    // result: 'hired' (кандидат найден) | 'cancelled' (не найден) | 'frozen'
+    mutationFn: async ({ id, result }: { id: string; result: string }) => {
+      const response = await api.post(`/vacancies/${id}/archive`, { result });
+      return response.data as VacancyDetail;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['vacancies', id] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+    },
+  });
+}
+
+export function useDuplicateVacancy() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string): Promise<VacancyDetail> => {
+      const response = await api.post(`/vacancies/${id}/duplicate`);
+      return response.data as VacancyDetail;
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
     },

@@ -52,6 +52,7 @@ import {
   Info,
   Link,
   Pencil,
+  Copy,
 } from 'lucide-react';
 
 const iconMap = {
@@ -64,6 +65,7 @@ const iconMap = {
   search: Search,
   plus: Plus,
   edit: Pencil,
+  copy: Copy,
   archive: Archive,
   bell: Bell,
   'chevron-down': ChevronDown,

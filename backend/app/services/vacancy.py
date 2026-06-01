@@ -5,7 +5,7 @@ from uuid import UUID
 from datetime import date, datetime, timedelta, timezone
 import math
 
-from ..models import Vacancy, VacancyTeam, VacancyStage, User, Application, Client
+from ..models import Vacancy, VacancyTeam, VacancyStage, User, Application, Client, RejectReason
 from ..schemas.vacancy import (
     VacancyCreate, VacancyUpdate, VacancyArchive, VacancySidebar, VacancySidebarItem,
     VacancyStageCount, VacancyDetail, VacancyStageCreate, VacancyStageUpdate, VacancyStageReorder
@@ -515,6 +515,88 @@ async def archive_vacancy(
     )
 
     return vacancy
+
+
+async def duplicate_vacancy(
+    session: AsyncSession,
+    vacancy_id: UUID,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> Vacancy:
+    """Создать копию вакансии: поля + этапы + причины отказа + команда. БЕЗ заявок."""
+    src = await get_vacancy(session, vacancy_id, company_id)
+
+    new_v = Vacancy(
+        company_id=company_id,
+        name=f"{src.name} (копия)",
+        sort_order=src.sort_order,
+        client_id=src.client_id,
+        city=src.city,
+        deadline=src.deadline,
+        positions_count=src.positions_count,
+        department=src.department,
+        employment_type=src.employment_type,
+        is_confidential=src.is_confidential,
+        salary_from=src.salary_from,
+        salary_to=src.salary_to,
+        currency=src.currency,
+        description=src.description,
+        funnel_template=src.funnel_template,
+        glafira_mode=src.glafira_mode,
+        responsible_user_id=src.responsible_user_id,
+        # status='active' (default); archive_result/closed_at/external_*/hh_* — не копируем
+    )
+    session.add(new_v)
+    await session.flush()
+
+    # Этапы воронки
+    src_stages = (await session.execute(
+        select(VacancyStage)
+        .where(VacancyStage.vacancy_id == vacancy_id, VacancyStage.company_id == company_id)
+        .order_by(VacancyStage.order_index)
+    )).scalars().all()
+    for s in src_stages:
+        session.add(VacancyStage(
+            company_id=company_id, vacancy_id=new_v.id,
+            stage_key=s.stage_key, label=s.label,
+            order_index=s.order_index, is_terminal=s.is_terminal,
+        ))
+
+    # Причины отказа (per-vacancy)
+    src_reasons = (await session.execute(
+        select(RejectReason).where(
+            RejectReason.vacancy_id == vacancy_id,
+            RejectReason.company_id == company_id,
+        )
+    )).scalars().all()
+    for r in src_reasons:
+        session.add(RejectReason(
+            company_id=company_id, vacancy_id=new_v.id,
+            side=r.side, label=r.label, order_index=r.order_index,
+            is_active=r.is_active, is_system=r.is_system,
+        ))
+
+    # Команда
+    src_team = (await session.execute(
+        select(VacancyTeam).where(
+            VacancyTeam.vacancy_id == vacancy_id,
+            VacancyTeam.company_id == company_id,
+        )
+    )).scalars().all()
+    for t in src_team:
+        session.add(VacancyTeam(
+            company_id=company_id, vacancy_id=new_v.id,
+            user_id=t.user_id, is_responsible=t.is_responsible,
+        ))
+
+    await session.flush()
+    await audit(
+        session, action="duplicate", entity_type="vacancy",
+        entity_id=new_v.id,
+        after={"name": new_v.name, "source_id": str(vacancy_id)},
+        actor_user_id=actor_user_id, company_id=company_id,
+    )
+    return new_v
 
 
 async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id: UUID) -> list[VacancyStageCount]:

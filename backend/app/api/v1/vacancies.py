@@ -31,6 +31,7 @@ from ...services.vacancy import (
     create_vacancy,
     update_vacancy,
     archive_vacancy,
+    duplicate_vacancy,
     get_vacancy_sidebar,
     get_vacancy_stages,
     add_vacancy_stage,
@@ -123,6 +124,26 @@ async def create_new_vacancy(
     # Set client name manually as it's computed
     data.client_name = vacancy.client.name if vacancy.client else None
 
+    return data
+
+
+@router.post("/{vacancy_id}/duplicate", response_model=VacancyDetail, status_code=201)
+async def duplicate_vacancy_by_id(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Дублировать вакансию (копия полей+этапов+причин+команды, без заявок)."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут создавать вакансии")
+
+    new_vacancy = await duplicate_vacancy(session, vacancy_id, company_id, current_user.id)
+    await session.commit()
+
+    vacancy = await get_vacancy(session, new_vacancy.id, company_id)
+    data = VacancyDetail.model_validate(vacancy)
+    data.client_name = vacancy.client.name if vacancy.client else None
     return data
 
 
