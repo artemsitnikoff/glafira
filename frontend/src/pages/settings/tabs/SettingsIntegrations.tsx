@@ -1,9 +1,11 @@
 import { Icon } from '@/components/ui/Icon';
-import { PageHead, FormRow, TextInput, Select, Switch } from '../components/FormComponents';
+import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
 import { useHhSaveConfig, useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
+import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
+import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
 import { useAuthStore } from '@/store/authStore';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -217,6 +219,50 @@ export function SettingsIntegrations() {
     } catch (error) {
       const e = error as unknown as ApiError;
       setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении SMTP' });
+    }
+  };
+
+  // ---------------- Битрикс24 (входящий вебхук) ----------------
+  const { data: b24Status, isLoading: b24Loading } = useBitrix24Status();
+  const b24SaveMutation = useBitrix24SaveConfig();
+  const b24TestMutation = useBitrix24Test();
+  const b24DisconnectMutation = useBitrix24Disconnect();
+
+  const [b24Url, setB24Url] = useState('');
+  const [b24Edit, setB24Edit] = useState(false);
+
+  const handleB24Save = async () => {
+    try {
+      await b24SaveMutation.mutateAsync({ webhook_url: b24Url.trim() });
+      setB24Edit(false);
+      setB24Url(''); // не держим секрет в стейте
+      setNotification({ type: 'success', message: 'Вебхук Битрикс24 сохранён. Нажмите «Проверить подключение».' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при сохранении вебхука Битрикс24' });
+    }
+  };
+
+  const handleB24Test = async () => {
+    try {
+      const res = await b24TestMutation.mutateAsync();
+      setNotification({
+        type: 'success',
+        message: `Подключение к Битрикс24 успешно${res.user_count != null ? ` · сотрудников на портале: ${res.user_count}` : ''}`,
+      });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось подключиться к Битрикс24' });
+    }
+  };
+
+  const handleB24Disconnect = async () => {
+    try {
+      await b24DisconnectMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'Битрикс24 отключён' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Битрикс24' });
     }
   };
 
@@ -515,38 +561,84 @@ export function SettingsIntegrations() {
           ico={<span className="integ-emoji">🔵</span>}
           iconBg="#EAF3FE"
           name="Битрикс·24"
-          desc="Импорт пользователей и данные о текучке"
-          status="bad">
+          desc="Импорт сотрудников из Битрикс24 через входящий вебхук"
+          status={b24Status?.verified ? 'ok' : (b24Status?.last_test_error ? 'err' : 'bad')}
+          statusLabel={
+            b24Status?.verified ? undefined
+              : b24Status?.last_test_error ? 'Ошибка подключения'
+              : b24Status?.configured ? 'Настроено'
+              : undefined
+          }>
           <div className="integ-section">
-            <div className="form-grid form-grid-2">
-              <FormRow label="URL портала Битрикс·24" required span={2}>
-                <TextInput value="https://logos.bitrix24.ru" mono locked />
-              </FormRow>
-            </div>
-
-            <div className="integ-section-title" style={{marginTop:8}}>Авторизация · OAuth-приложение</div>
-            <div className="form-grid form-grid-2" style={{marginTop:8}}>
-              <FormRow label="Client ID">
-                <TextInput placeholder="local.61f8…" mono locked />
-              </FormRow>
-              <FormRow label="Client Secret">
-                <TextInput type="password" placeholder="••••••••••" mono locked />
-              </FormRow>
-              <FormRow span={2}>
-                <button className="btn btn-secondary btn-sm" disabled>Авторизоваться в Битрикс·24</button>
-              </FormRow>
-            </div>
-          </div>
-
-          <div className="integ-divider"/>
-
-          <div className="integ-section">
-            <div className="integ-section-title">Что синхронизируется</div>
-            <div className="sync-list">
-              <Switch value={true} disabled label="Импортировать пользователей" desc="Настройки в разделе «Общие → Импорт пользователей»"/>
-              <Switch value={true} disabled label="Получать данные о текучке" desc="Статусы сотрудников и даты увольнения для отчёта «Текучка»"/>
-              <Switch value={false} disabled label="Создавать дело в Б24 при найме кандидата"/>
-            </div>
+            {b24Loading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : (b24Status?.configured && !b24Edit) ? (
+              // Настроено — проверка/управление
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <div>Портал: <span className="t-mono">{b24Status.portal}</span> · вебхук сохранён</div>
+                  {b24Status.verified && b24Status.last_test_at && (
+                    <div style={{ fontSize: '12px', color: 'var(--ark-green-600)', marginTop: '4px' }}>
+                      ✓ Подключено{b24Status.user_count != null ? ` · сотрудников: ${b24Status.user_count}` : ''}
+                      {' · '}{new Date(b24Status.last_test_at).toLocaleString('ru')}
+                    </div>
+                  )}
+                  {!b24Status.verified && b24Status.last_test_error && (
+                    <div style={{ fontSize: '12px', color: 'var(--ark-red-600)', marginTop: '4px' }}>
+                      Последняя проверка не прошла: {b24Status.last_test_error}
+                    </div>
+                  )}
+                  {!b24Status.verified && !b24Status.last_test_error && (
+                    <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                      Ещё не проверено — нажмите «Проверить подключение».
+                    </div>
+                  )}
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={handleB24Test} disabled={b24TestMutation.isPending}>
+                    {b24TestMutation.isPending ? 'Проверка...' : 'Проверить подключение'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setB24Url(''); setB24Edit(true); }} disabled={b24TestMutation.isPending}>
+                    Изменить вебхук
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleB24Disconnect} disabled={b24DisconnectMutation.isPending}>
+                    {b24DisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+                <div className="info-banner small" style={{ marginTop: 10 }}>
+                  <Icon name="sparkle" size={14} />
+                  <div>Импорт сотрудников в Глафиру и отчёт «Текучка» — следующий этап (вебхук уже читает данные с портала).</div>
+                </div>
+              </div>
+            ) : (
+              // Не настроено или изменение вебхука — форма
+              <div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="URL входящего вебхука" required span={2}>
+                    <TextInput
+                      value={b24Url}
+                      onChange={(v) => setB24Url(v)}
+                      placeholder="https://портал.bitrix24.ru/rest/1/код/"
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="info-banner small">
+                  <Icon name="alert-triangle" size={14} />
+                  <div>В Битрикс24: <strong>Приложения → Разработчикам → Другое → Входящий вебхук</strong>. Дайте права <strong>user</strong> (и <strong>department</strong>), скопируйте URL и вставьте сюда. Код вебхука — секрет, хранится зашифрованным.</div>
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={handleB24Save} disabled={b24SaveMutation.isPending || !b24Url.trim()}>
+                    {b24SaveMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                  {b24Edit && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => setB24Edit(false)} disabled={b24SaveMutation.isPending}>
+                      Отмена
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </IntegrationCard>
       </div>

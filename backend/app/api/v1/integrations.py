@@ -11,6 +11,7 @@ from ...database import get_db
 from ...models import User
 from ...services.integrations.hh import service as hh_service
 from ...services.integrations.smtp import service as smtp_service
+from ...services.integrations.bitrix24 import service as b24_service
 from ...config import settings
 
 
@@ -33,6 +34,10 @@ class SmtpConfigRequest(BaseModel):
 
 class SmtpTestRequest(BaseModel):
     to: str
+
+
+class B24ConfigRequest(BaseModel):
+    webhook_url: str
 
 router = APIRouter()
 
@@ -196,3 +201,62 @@ async def disconnect_smtp(
     await smtp_service.disconnect(session, current_user.company_id, current_user.id)
     await session.commit()
     return {"message": "SMTP отключён"}
+
+
+# ---------------------------------------------------------------------------
+# Битрикс24 (входящий вебхук)
+# ---------------------------------------------------------------------------
+
+@router.post("/bitrix24/config")
+async def save_b24_config(
+    data: B24ConfigRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Сохранить URL входящего вебхука Битрикс24. Возвращает статус (без секрета)."""
+    await b24_service.save_config(
+        session, current_user.company_id, current_user.id, webhook_url=data.webhook_url
+    )
+    await session.commit()
+    return await b24_service.get_status(session, current_user.company_id)
+
+
+@router.get("/bitrix24/status")
+async def get_b24_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Статус интеграции Битрикс24 (URL вебхука/секрет не возвращаются)."""
+    return await b24_service.get_status(session, current_user.company_id)
+
+
+@router.post("/bitrix24/test")
+async def test_b24(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Проверить подключение к Битрикс24 (реальный вызов user.get)."""
+    # test_connection коммитит сам (успех и сбой) — чтобы last_test_* сохранилось.
+    return await b24_service.test_connection(
+        session, current_user.company_id, current_user.id
+    )
+
+
+@router.get("/bitrix24/users")
+async def preview_b24_users(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Превью сотрудников с портала (первая страница). Импорт в Глафиру — отдельный этап."""
+    return await b24_service.preview_users(session, current_user.company_id)
+
+
+@router.post("/bitrix24/disconnect")
+async def disconnect_b24(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Отключить Битрикс24 (status=disconnected; конфиг остаётся)."""
+    await b24_service.disconnect(session, current_user.company_id, current_user.id)
+    await session.commit()
+    return {"message": "Битрикс24 отключён"}
