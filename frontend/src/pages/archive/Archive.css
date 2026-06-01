@@ -1,13 +1,18 @@
-/* ============ ARCHIVE (scoped 1:1 to project/ эталон) ============ */
-.archive-page .archive-head {
+/* ============ ARCHIVE (1:1 по project/ эталону) ============
+   Корень страницы — общий .content-inner (как в эталоне). Архив-специфичные
+   правила скоупим под .content-inner; .btn/.seg-sm/.dropdown ограничены
+   контекстом .filter-bar / .empty-pane, чтобы не задеть другие .content-inner
+   страницы (Главная/Вакансии/Настройки). */
+
+.content-inner .archive-head {
   display: flex; flex-direction: column; gap: 4px;
   margin-bottom: 18px;
 }
-.archive-page .archive-head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; color: var(--fg-1); }
-.archive-page .archive-head .sub { font-size: 13px; color: var(--fg-2); }
+.content-inner .archive-head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; color: var(--fg-1); }
+.content-inner .archive-head .sub { font-size: 13px; color: var(--fg-2); }
 
 /* ---- Filter bar ---- */
-.archive-page .filter-bar {
+.content-inner .filter-bar {
   display: flex; align-items: center; gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 18px;
@@ -16,23 +21,23 @@
   border: 1px solid var(--border-1);
   border-radius: 10px;
 }
-.archive-page .filter-group { display: flex; align-items: center; gap: 6px; }
-.archive-page .filter-label {
+.content-inner .filter-bar .filter-group { display: flex; align-items: center; gap: 6px; }
+.content-inner .filter-bar .filter-label {
   font-size: 11px; color: var(--fg-3);
   text-transform: uppercase; letter-spacing: 0.04em;
   font-weight: 500;
 }
-.archive-page .filter-spacer { flex: 1; }
+.content-inner .filter-bar .filter-spacer { flex: 1; }
 
 /* ---- Segmented control ---- */
-.archive-page .seg-sm {
+.content-inner .filter-bar .seg-sm {
   display: inline-flex;
   background: #fff;
   padding: 2px;
   border-radius: 6px;
   border: 1px solid var(--border-1);
 }
-.archive-page .seg-sm button {
+.content-inner .filter-bar .seg-sm button {
   border: 0; background: transparent;
   padding: 4px 10px;
   font: inherit; font-size: 12px;
@@ -40,14 +45,14 @@
   cursor: pointer;
   color: var(--fg-2);
 }
-.archive-page .seg-sm button.active {
+.content-inner .filter-bar .seg-sm button.active {
   background: var(--ark-blue-50); color: var(--accent);
   font-weight: 500;
 }
 
 /* ---- Dropdown (Заказчик / Рекрутер) ---- */
-.archive-page .dropdown-wrap { position: relative; display: inline-block; }
-.archive-page .dropdown {
+.content-inner .filter-bar .dropdown-wrap { position: relative; display: inline-block; }
+.content-inner .filter-bar .dropdown {
   height: 28px; padding: 0 10px;
   border-radius: 6px;
   background: #fff;
@@ -58,11 +63,11 @@
   color: var(--fg-1);
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.archive-page .dropdown:hover { border-color: var(--ark-gray-400); }
-.archive-page .dropdown.active { border-color: var(--accent); color: var(--accent); }
+.content-inner .filter-bar .dropdown:hover { border-color: var(--ark-gray-400); }
+.content-inner .filter-bar .dropdown.active { border-color: var(--accent); color: var(--accent); }
 
-.archive-page .dropdown-overlay { position: fixed; inset: 0; z-index: 40; }
-.archive-page .dropdown-menu {
+.content-inner .filter-bar .dropdown-overlay { position: fixed; inset: 0; z-index: 40; }
+.content-inner .filter-bar .dropdown-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -77,7 +82,7 @@
   padding: 6px;
   font-size: 13px;
 }
-.archive-page .dropdown-menu button {
+.content-inner .filter-bar .dropdown-menu button {
   display: flex; align-items: center; width: 100%;
   padding: 7px 10px;
   border: 0; background: transparent;
@@ -88,15 +93,16 @@
   text-align: left;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.archive-page .dropdown-menu button:hover { background: var(--bg-3-hover); }
-.archive-page .dropdown-menu button.active {
+.content-inner .filter-bar .dropdown-menu button:hover { background: var(--bg-3-hover); }
+.content-inner .filter-bar .dropdown-menu button.active {
   background: var(--ark-blue-50);
   color: var(--accent);
   font-weight: 600;
 }
 
-/* ---- Buttons (scoped kit) ---- */
-.archive-page .btn {
+/* ---- Buttons (эталон-набор, ограничены контекстом архива) ---- */
+.content-inner .filter-bar .btn,
+.content-inner .empty-pane .btn {
   height: 32px; padding: 0 14px;
   border-radius: 6px;
   border: 1px solid transparent;
@@ -106,20 +112,26 @@
   display: inline-flex; align-items: center; gap: 6px;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.archive-page .btn-secondary { background: #fff; color: var(--fg-1); border-color: var(--border-1); }
-.archive-page .btn-secondary:hover { background: var(--bg-3-hover); }
-.archive-page .btn-ghost { background: transparent; color: var(--fg-2); }
-.archive-page .btn-ghost:hover { background: var(--bg-3-hover); color: var(--fg-1); }
-.archive-page .btn-sm { height: 26px; padding: 0 10px; font-size: 12px; }
-.archive-page .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(42, 138, 240, .35); }
+.content-inner .filter-bar .btn-secondary,
+.content-inner .empty-pane .btn-secondary { background: #fff; color: var(--fg-1); border-color: var(--border-1); }
+.content-inner .filter-bar .btn-secondary:hover,
+.content-inner .empty-pane .btn-secondary:hover { background: var(--bg-3-hover); }
+.content-inner .filter-bar .btn-ghost,
+.content-inner .empty-pane .btn-ghost { background: transparent; color: var(--fg-2); }
+.content-inner .filter-bar .btn-ghost:hover,
+.content-inner .empty-pane .btn-ghost:hover { background: var(--bg-3-hover); color: var(--fg-1); }
+.content-inner .filter-bar .btn-sm,
+.content-inner .empty-pane .btn-sm { height: 26px; padding: 0 10px; font-size: 12px; }
+.content-inner .filter-bar .btn:focus-visible,
+.content-inner .empty-pane .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(42, 138, 240, .35); }
 
 /* ---- Archive grid ---- */
-.archive-page .archive-grid {
+.content-inner .archive-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
-.archive-page .arch-card {
+.content-inner .arch-card {
   background: #fff;
   border: 1px solid var(--border-1);
   border-radius: 10px;
@@ -129,27 +141,27 @@
   position: relative;
   transition: box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-.archive-page .arch-card:hover {
+.content-inner .arch-card:hover {
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
   border-color: var(--ark-gray-400);
 }
-.archive-page .arch-card .top-row {
+.content-inner .arch-card .top-row {
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px;
 }
-.archive-page .result-badge {
+.content-inner .result-badge {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; font-weight: 600;
   padding: 3px 8px;
   border-radius: 4px;
   letter-spacing: -0.01em;
 }
-.archive-page .result-badge.success { background: var(--ark-green-100); color: var(--ark-green-600); }
-.archive-page .result-badge.fail    { background: var(--ark-gray-200); color: var(--fg-2); }
-.archive-page .result-badge.frozen  { background: var(--ark-violet-100); color: var(--ark-violet-500); }
+.content-inner .result-badge.success { background: var(--ark-green-100); color: var(--ark-green-600); }
+.content-inner .result-badge.fail    { background: var(--ark-gray-200); color: var(--fg-2); }
+.content-inner .result-badge.frozen  { background: var(--ark-violet-100); color: var(--ark-violet-500); }
 
-.archive-page .arch-card .more-btn {
+.content-inner .arch-card .more-btn {
   width: 24px; height: 24px;
   border-radius: 4px; border: 0;
   background: transparent; color: var(--fg-3);
@@ -157,10 +169,10 @@
   display: flex; align-items: center; justify-content: center;
   transition: opacity var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
-.archive-page .arch-card:hover .more-btn { opacity: 1; }
-.archive-page .arch-card .more-btn:hover { background: var(--ark-gray-200); color: var(--fg-1); }
+.content-inner .arch-card:hover .more-btn { opacity: 1; }
+.content-inner .arch-card .more-btn:hover { background: var(--ark-gray-200); color: var(--fg-1); }
 
-.archive-page .arch-card .title {
+.content-inner .arch-card .title {
   font-size: 15px; font-weight: 600;
   letter-spacing: -0.01em; line-height: 1.3;
   color: var(--fg-1);
@@ -168,43 +180,43 @@
   -webkit-box-orient: vertical; overflow: hidden;
   min-height: 39px;
 }
-.archive-page .arch-card .meta {
+.content-inner .arch-card .meta {
   font-size: 12px; color: var(--fg-2);
   line-height: 1.4;
 }
-.archive-page .arch-card .meta .sep { margin: 0 6px; color: var(--fg-3); }
-.archive-page .arch-card .stats-row {
+.content-inner .arch-card .meta .sep { margin: 0 6px; color: var(--fg-3); }
+.content-inner .arch-card .stats-row {
   display: flex; gap: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--border-2);
 }
-.archive-page .arch-card .stat-cell {
+.content-inner .arch-card .stat-cell {
   display: flex; flex-direction: column; gap: 2px;
 }
-.archive-page .arch-card .stat-val {
+.content-inner .arch-card .stat-val {
   font-size: 13px; font-weight: 600;
   font-family: var(--font-mono);
   letter-spacing: -0.01em;
   color: var(--fg-1);
 }
-.archive-page .arch-card .stat-lbl {
+.content-inner .arch-card .stat-lbl {
   font-size: 11px; color: var(--fg-3);
 }
 
-/* ---- Empty state (no results) ---- */
-.archive-page .empty-pane {
+/* ---- Empty state (нет результатов) ---- */
+.content-inner .empty-pane {
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   gap: 16px;
   padding: 40px;
   text-align: center;
 }
-.archive-page .empty-illust {
+.content-inner .empty-pane .empty-illust {
   width: 96px; height: 96px;
   border-radius: 50%;
   background: var(--bg-panel);
   display: flex; align-items: center; justify-content: center;
   color: var(--fg-3);
 }
-.archive-page .empty-pane h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--fg-1); }
-.archive-page .empty-pane p { margin: 0; max-width: 360px; color: var(--fg-2); font-size: 13px; line-height: 1.5; }
+.content-inner .empty-pane h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--fg-1); }
+.content-inner .empty-pane p { margin: 0; max-width: 360px; color: var(--fg-2); font-size: 13px; line-height: 1.5; }

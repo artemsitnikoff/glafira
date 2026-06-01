@@ -891,26 +891,5 @@
   font-family: var(--font-mono);
 }
 
-/* GLOBAL primitive — общий с VacanciesArchivePage (поиск).
-   НЕ скоупить под .cnd-funnel-wrap: используется и в воронке, и в архиве.
-   TODO(backlog): вынести в общий ui-слой, чтобы архив не зависел от Funnel.css. */
-.submenu-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: var(--radius-md);
-}
-
-.submenu-search input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: var(--fg-1);
-}
-
-.submenu-search input::placeholder {
-  color: var(--fg-3);
-}
+/* .submenu-search — общий примитив (поиск), перенесён целиком 1:1 по эталону
+   в global.css. Раньше жил здесь неполным (без bg/border/focus). */

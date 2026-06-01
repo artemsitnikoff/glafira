@@ -102,7 +102,7 @@ export default function VacanciesArchivePage() {
 
   if (isLoading) {
     return (
-      <div className="content-inner archive-page">
+      <div className="content-inner">
         <div className="archive-head">
           <h1>Архив вакансий</h1>
           <Skeleton width={180} height={14} />
@@ -123,7 +123,7 @@ export default function VacanciesArchivePage() {
   }
 
   return (
-    <div className="content-inner archive-page">
+    <div className="content-inner">
       <div className="archive-head">
         <h1>Архив вакансий</h1>
         <div className="sub">

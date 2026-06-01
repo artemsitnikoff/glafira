@@ -1,11 +1,5 @@
 /* === HomePage (Главная) === */
-
-/* ============ CONTENT WRAPPER ============ */
-.content-inner {
-  padding: 14px 28px 32px;
-  max-width: 1480px;
-  margin: 0 auto;
-}
+/* .content-inner — общий примитив страницы, перенесён в global.css */
 
 /* ============ PAGE HEADER ============ */
 .page-header {

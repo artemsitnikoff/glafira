@@ -57,7 +57,48 @@ a {
   overflow: auto;
   min-height: 0;
   scrollbar-gutter: stable;
-  /* padding задаёт .content-inner внутри (см. HomePage.css и далее по мере пересборки страниц) */
+  /* padding задаёт .content-inner (общий примитив, ниже) */
+}
+
+/* Эталон app.css:492 — общий padded-контейнер страницы.
+   Общий примитив (Главная, Вакансии, Архив, табы Настроек): держим в global.css,
+   чтобы страница была корректно отбита даже при deep-link, а не зависела от
+   загрузки чужого CSS-чанка. */
+.content-inner {
+  padding: 14px 28px 32px;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+/* Эталон app.css:355 — поисковый примитив (submenu/архив/воронка).
+   Общий, НЕ скоупить (CLAUDE.md §5). Раньше жил неполным в Funnel.css —
+   поднят сюда целиком 1:1 по эталону. */
+.submenu-search {
+  height: 32px;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+.submenu-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-1);
+}
+.submenu-search input::placeholder {
+  color: var(--fg-3);
+}
+.submenu-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(42, 138, 240, 0.2);
 }
 
 /* Эталон app.css:3204-3215 — стиль скроллбара */
