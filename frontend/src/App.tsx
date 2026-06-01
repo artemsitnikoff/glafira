@@ -6,6 +6,7 @@ import type { UserMe } from '@/api/aliases';
 import AppLayout from '@/components/AppLayout';
 import LoginPage from '@/pages/LoginPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import { RoleGuard } from '@/components/RoleGuard';
 
 // Lazy-загружаемые страницы
 const HomePage = lazy(() => import('@/pages/HomePage'));
@@ -73,16 +74,54 @@ export default function App() {
         <Route path="home" element={<HomePage />} />
         <Route path="vacancies" element={<VacanciesPage />} />
         <Route path="vacancies/archive" element={<VacanciesArchivePage />} />
-        <Route path="vacancies/new" element={<VacancyFormPage />} />
+        <Route
+          path="vacancies/new"
+          element={
+            <RoleGuard roles={['admin', 'recruiter']}>
+              <VacancyFormPage />
+            </RoleGuard>
+          }
+        />
         <Route path="vacancies/:id/edit" element={<VacancyFormPage />} />
         <Route path="vacancies/:id" element={<VacancyDetailPage />} />
         <Route path="vacancies/:id/candidates/:cid" element={<VacancyDetailPage />} />
-        <Route path="candidates" element={<CandidatesPoolPage />} />
-        <Route path="candidates/:id" element={<CandidatePoolDetailPage />} />
+        <Route
+          path="candidates"
+          element={
+            <RoleGuard roles={['admin', 'recruiter']}>
+              <CandidatesPoolPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="candidates/:id"
+          element={
+            <RoleGuard roles={['admin', 'recruiter']}>
+              <CandidatePoolDetailPage />
+            </RoleGuard>
+          }
+        />
         <Route path="pulse" element={<PulseComingSoon />} />
         <Route path="pulse/:employeeId" element={<PulseComingSoon />} />
-        <Route path="analytics" element={<AnalyticsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route
+          path="analytics"
+          element={
+            <RoleGuard roles={['admin', 'recruiter']}>
+              <AnalyticsPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="settings"
+          element={
+            <RoleGuard
+              roles={['admin', 'recruiter']}
+              fallbackPath="/home"
+            >
+              <SettingsPage />
+            </RoleGuard>
+          }
+        />
       </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>

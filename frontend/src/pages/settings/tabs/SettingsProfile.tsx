@@ -2,8 +2,12 @@ import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { PageHead, Card, FormRow, TextInput, Select, Switch } from '../components/FormComponents';
 
-export function SettingsProfile() {
-  // All controls are disabled for "скоро"
+interface SettingsProfileProps {
+  readOnly?: boolean;
+}
+
+export function SettingsProfile({ readOnly: _ = false }: SettingsProfileProps) {
+  // All controls are disabled for "скоро" (не зависит от readOnly - всё заблокировано в любом случае)
   const form = {
     fio: 'Анна Седова',
     role: 'Старший рекрутер',

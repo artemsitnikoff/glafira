@@ -114,7 +114,11 @@ async function applyReasonDiff(draft: ReasonDraft[], server: RejectReasonOut[]):
   }
 }
 
-export function SettingsFunnel() {
+interface SettingsFunnelProps {
+  readOnly?: boolean;
+}
+
+export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
   const queryClient = useQueryClient();
   const { data: templates } = useFunnelTemplates();
   const [selected, setSelected] = useState<string>('default'); // 'default' | id шаблона
@@ -290,15 +294,16 @@ export function SettingsFunnel() {
         <span key={reason.key} className={`reason-chip reason-chip-${side === 'candidate' ? 'cand' : 'co'}`}>
           <span className={`r-bullet ${side === 'company' ? 'co' : ''}`} />
           <input className="reason-chip-input" value={reason.label} size={Math.max(reason.label.length, 4)}
-            onChange={(e) => renameReason(reason.key, e.target.value)} />
+            onChange={readOnly ? undefined : (e) => renameReason(reason.key, e.target.value)}
+            disabled={readOnly} />
           {reason.is_system ? (
             <span className="reason-chip-lock" title="Системная причина — нельзя удалить"><Icon name="lock" size={11} /></span>
-          ) : (
+          ) : !readOnly ? (
             <button className="reason-chip-x" aria-label="Удалить" onClick={() => deleteReason(reason.key)}><Icon name="x" size={11} /></button>
-          )}
+          ) : null}
         </span>
       ))}
-      <button className="reason-chip-add" onClick={() => addReason(side)}><Icon name="plus" size={12} />Добавить</button>
+      {!readOnly && <button className="reason-chip-add" onClick={() => addReason(side)}><Icon name="plus" size={12} />Добавить</button>}
     </div>
   );
 
@@ -307,9 +312,9 @@ export function SettingsFunnel() {
       <PageHead
         title="Воронки и шаблоны"
         subtitle="«По умолчанию» применяется к новым вакансиям. Остальные шаблоны — пресеты для выбора в форме. Изменения этапов вступают в силу по кнопке «Сохранить изменения»"
-        dirty={dirty}
-        onSave={handleSave}
-        onDiscard={dirty ? reseedFromServer : undefined}
+        dirty={dirty && !readOnly}
+        onSave={readOnly ? undefined : handleSave}
+        onDiscard={dirty && !readOnly ? reseedFromServer : undefined}
         saving={saving}
       />
 
@@ -327,7 +332,7 @@ export function SettingsFunnel() {
             {t.name}
           </button>
         ))}
-        <button className="tpl-add" disabled={dirty} onClick={createTemplate} title={dirty ? 'Сначала сохраните или отмените изменения' : undefined}>
+        <button className="tpl-add" disabled={dirty || readOnly} onClick={readOnly ? undefined : createTemplate} title={readOnly ? 'Только просмотр' : (dirty ? 'Сначала сохраните или отмените изменения' : undefined)}>
           <Icon name="plus" size={12} /> Шаблон
         </button>
       </div>
@@ -340,7 +345,7 @@ export function SettingsFunnel() {
             key={`${selectedTemplate.id}-${selectedTemplate.name}`}
             onBlur={(e) => { if (e.target.value.trim() && e.target.value !== selectedTemplate.name) renameTemplate(selectedTemplate.id, e.target.value); }}
           />
-          <button className="btn btn-secondary btn-sm" disabled={dirty} onClick={() => deleteTemplate(selectedTemplate.id)}>
+          <button className="btn btn-secondary btn-sm" disabled={dirty || readOnly} onClick={readOnly ? undefined : () => deleteTemplate(selectedTemplate.id)}>
             Удалить шаблон
           </button>
         </div>
@@ -361,13 +366,13 @@ export function SettingsFunnel() {
             return (
               <div key={stage.stage_key} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
                 <div className="nv-fn-arrows">
-                  <button className="nv-fn-arr" disabled={isProtected || idx <= 1} title={isProtected ? 'Этап зафиксирован' : 'Выше'} onClick={() => moveStage(idx, -1)}>▲</button>
-                  <button className="nv-fn-arr" disabled={isProtected || idx >= draftStages.length - 3} title={isProtected ? 'Этап зафиксирован' : 'Ниже'} onClick={() => moveStage(idx, 1)}>▼</button>
+                  <button className="nv-fn-arr" disabled={isProtected || idx <= 1 || readOnly} title={readOnly ? 'Только просмотр' : (isProtected ? 'Этап зафиксирован' : 'Выше')} onClick={readOnly ? undefined : () => moveStage(idx, -1)}>▲</button>
+                  <button className="nv-fn-arr" disabled={isProtected || idx >= draftStages.length - 3 || readOnly} title={readOnly ? 'Только просмотр' : (isProtected ? 'Этап зафиксирован' : 'Ниже')} onClick={readOnly ? undefined : () => moveStage(idx, 1)}>▼</button>
                 </div>
                 <div className="fn-num">{idx + 1}</div>
                 <div className="fn-body">
                   <div className="fn-row1">
-                    <input className="fn-name" value={stage.label} onChange={(e) => renameStage(idx, e.target.value)} disabled={isProtected} />
+                    <input className="fn-name" value={stage.label} onChange={readOnly ? undefined : (e) => renameStage(idx, e.target.value)} disabled={isProtected || readOnly} />
                     <span className="stage-type-pill" style={{ background: stageType.bg, color: stageType.fg }}>
                       <span className="st-dot" style={{ background: stageType.dot }} />
                       {stageType.label}
@@ -378,13 +383,13 @@ export function SettingsFunnel() {
                   </div>
                   <div className="fn-desc">{stageDescription(stage.stage_key, type)}</div>
                 </div>
-                <button className="row-icon-btn" disabled={isProtected} onClick={() => deleteStage(idx)} title={isProtected ? 'Этап нельзя удалить' : 'Удалить этап'}>
+                <button className="row-icon-btn" disabled={isProtected || readOnly} onClick={readOnly ? undefined : () => deleteStage(idx)} title={readOnly ? 'Только просмотр' : (isProtected ? 'Этап нельзя удалить' : 'Удалить этап')}>
                   <Icon name="x" size={14} />
                 </button>
               </div>
             );
           })}
-          <button className="fn-add" onClick={addStage}><Icon name="plus" size={14} />Добавить этап</button>
+          <button className="fn-add" disabled={readOnly} onClick={readOnly ? undefined : addStage}><Icon name="plus" size={14} />Добавить этап</button>
         </div>
       </Card>
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from ...deps import get_current_user
 from ...core.errors import ValidationError, ForbiddenError
+from ...core.permissions import require_admin, require_settings_read_access
 from ...database import get_db
 from ...models import User
 from ...services.integrations.hh import service as hh_service
@@ -43,7 +44,7 @@ class B24ConfigRequest(BaseModel):
 router = APIRouter()
 
 
-@router.post("/hh/config")
+@router.post("/hh/config", dependencies=[Depends(require_admin)])
 async def save_hh_config(
     data: HhConfigRequest,
     current_user: User = Depends(get_current_user),
@@ -68,7 +69,7 @@ async def save_hh_config(
     return {"authorize_url": authorize_url}
 
 
-@router.get("/hh/status")
+@router.get("/hh/status", dependencies=[Depends(require_settings_read_access)])
 async def get_hh_status(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -78,7 +79,7 @@ async def get_hh_status(
     return status
 
 
-@router.get("/hh/authorize")
+@router.get("/hh/authorize", dependencies=[Depends(require_admin)])
 async def start_hh_authorization(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -120,7 +121,7 @@ async def hh_oauth_callback(
         return RedirectResponse(url=f"{frontend_base}/settings?tab=integrations&hh=error")
 
 
-@router.post("/hh/disconnect")
+@router.post("/hh/disconnect", dependencies=[Depends(require_admin)])
 async def disconnect_hh(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -131,7 +132,7 @@ async def disconnect_hh(
     return {"message": "Интеграция hh.ru отключена"}
 
 
-@router.get("/hh/vacancies")
+@router.get("/hh/vacancies", dependencies=[Depends(require_settings_read_access)])
 async def list_hh_vacancies(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -145,7 +146,7 @@ async def list_hh_vacancies(
 # SMTP (почтовый сервер компании)
 # ---------------------------------------------------------------------------
 
-@router.post("/smtp/config")
+@router.post("/smtp/config", dependencies=[Depends(require_admin)])
 async def save_smtp_config(
     data: SmtpConfigRequest,
     current_user: User = Depends(get_current_user),
@@ -169,7 +170,7 @@ async def save_smtp_config(
     return await smtp_service.get_status(session, current_user.company_id)
 
 
-@router.get("/smtp/status")
+@router.get("/smtp/status", dependencies=[Depends(require_settings_read_access)])
 async def get_smtp_status(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -178,7 +179,7 @@ async def get_smtp_status(
     return await smtp_service.get_status(session, current_user.company_id)
 
 
-@router.post("/smtp/test")
+@router.post("/smtp/test", dependencies=[Depends(require_admin)])
 async def test_smtp(
     data: SmtpTestRequest,
     current_user: User = Depends(get_current_user),
@@ -193,7 +194,7 @@ async def test_smtp(
     return result
 
 
-@router.post("/smtp/disconnect")
+@router.post("/smtp/disconnect", dependencies=[Depends(require_admin)])
 async def disconnect_smtp(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -208,7 +209,7 @@ async def disconnect_smtp(
 # Битрикс24 (входящий вебхук)
 # ---------------------------------------------------------------------------
 
-@router.post("/bitrix24/config")
+@router.post("/bitrix24/config", dependencies=[Depends(require_admin)])
 async def save_b24_config(
     data: B24ConfigRequest,
     current_user: User = Depends(get_current_user),
@@ -222,7 +223,7 @@ async def save_b24_config(
     return await b24_service.get_status(session, current_user.company_id)
 
 
-@router.get("/bitrix24/status")
+@router.get("/bitrix24/status", dependencies=[Depends(require_settings_read_access)])
 async def get_b24_status(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -231,7 +232,7 @@ async def get_b24_status(
     return await b24_service.get_status(session, current_user.company_id)
 
 
-@router.post("/bitrix24/test")
+@router.post("/bitrix24/test", dependencies=[Depends(require_admin)])
 async def test_b24(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -243,7 +244,7 @@ async def test_b24(
     )
 
 
-@router.get("/bitrix24/users")
+@router.get("/bitrix24/users", dependencies=[Depends(require_settings_read_access)])
 async def preview_b24_users(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
@@ -301,7 +302,7 @@ async def import_b24_users(
     return BitrixImportResult.model_validate(result)
 
 
-@router.post("/bitrix24/disconnect")
+@router.post("/bitrix24/disconnect", dependencies=[Depends(require_admin)])
 async def disconnect_b24(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)

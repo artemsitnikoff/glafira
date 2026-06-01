@@ -32,7 +32,11 @@ function ColorPalette({ value, onChange }: { value: string | null; onChange: (c:
   );
 }
 
-export function SettingsTags() {
+interface SettingsTagsProps {
+  readOnly?: boolean;
+}
+
+export function SettingsTags({ readOnly = false }: SettingsTagsProps) {
   const { data: tags, isLoading } = useTags();
   const createTag = useCreateTag();
   const updateTag = useUpdateTag();
@@ -133,18 +137,19 @@ export function SettingsTags() {
           <div style={{ flex: 1 }} />
           <button
             className="btn btn-primary btn-sm"
-            onClick={() => {
+            onClick={readOnly ? undefined : () => {
               setNewName('');
               setNewColor(TAG_PALETTE[0]);
               setCreating((c) => !c);
             }}
+            disabled={readOnly}
           >
             <Icon name="plus" size={14} />
             Новый тег
           </button>
         </div>
 
-        {creating && (
+        {creating && !readOnly && (
           <div className="tag-edit-row">
             <input
               className="tag-edit-input"
@@ -218,12 +223,16 @@ export function SettingsTags() {
                     {formatDate(t.created_at)}
                   </div>
                   <div className="tt-actions">
-                    <button className="row-icon-btn" title="Изменить" onClick={() => startEdit(t)}>
-                      <Icon name="edit" size={15} />
-                    </button>
-                    <button className="row-icon-btn" title="Удалить" onClick={() => handleDelete(t)}>
-                      <Icon name="trash" size={15} />
-                    </button>
+                    {!readOnly && (
+                      <>
+                        <button className="row-icon-btn" title="Изменить" onClick={() => startEdit(t)}>
+                          <Icon name="edit" size={15} />
+                        </button>
+                        <button className="row-icon-btn" title="Удалить" onClick={() => handleDelete(t)}>
+                          <Icon name="trash" size={15} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )

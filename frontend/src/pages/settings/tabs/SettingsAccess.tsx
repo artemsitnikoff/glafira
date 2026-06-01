@@ -35,7 +35,11 @@ const ROLE_INFO = [
 const roleLabel = { admin: 'Администратор', recruiter: 'Рекрутёр', manager: 'Нанимающий менеджер' };
 const roleClass = { admin: 'admin', recruiter: 'recruiter', manager: 'manager' };
 
-export function SettingsAccess() {
+interface SettingsAccessProps {
+  readOnly?: boolean;
+}
+
+export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -151,14 +155,14 @@ export function SettingsAccess() {
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => setIsImportModalOpen(true)}
-              disabled={!canImportFromB24}
-              title={!canImportFromB24 ? 'Подключите Битрикс24' : 'Импорт пользователей из Битрикс24'}
+              disabled={!canImportFromB24 || readOnly}
+              title={readOnly ? 'Только просмотр' : (!canImportFromB24 ? 'Подключите Битрикс24' : 'Импорт пользователей из Битрикс24')}
             >
               <Icon name="download" size={14} />Импорт из Б24
             </button>
           )}
           {isAdmin && (
-            <button className="btn btn-primary btn-sm" disabled>
+            <button className="btn btn-primary btn-sm" disabled={true || readOnly}>
               <Icon name="plus" size={14} />Пригласить
             </button>
           )}
@@ -205,7 +209,7 @@ export function SettingsAccess() {
                   </span>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  {isAdmin && (
+                  {isAdmin && !readOnly && (
                     <UserActionMenu
                       user={u}
                       currentUserId={user?.id || ''}

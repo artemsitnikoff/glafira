@@ -5,6 +5,8 @@ from typing import Annotated
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...core.pagination import PageParams
+from ...core.errors import ForbiddenError
+from ...core.permissions import can_manager_access_candidate
 from ...database import get_db
 from ...schemas.candidate import (
     CandidateCreate,
@@ -46,9 +48,14 @@ async def get_candidates(
     stage: str | None = Query(None),
     tags: str | None = Query(None),
     added_period: str | None = Query(None),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Managers cannot access general candidate pool
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не имеют доступа к общей базе кандидатов")
+
     return await get_candidates_paginated(
         session=session,
         company_id=company_id,
@@ -72,9 +79,15 @@ async def get_candidates(
 @router.get("/{candidate_id}", response_model=CandidateDetail)
 async def get_candidate(
     candidate_id: UUID,
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Check manager access to candidate
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
     return await get_candidate_detail(session, candidate_id, company_id)
 
 
@@ -85,6 +98,10 @@ async def create_candidate_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Managers cannot create candidates
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут создавать кандидатов")
+
     result = await create_candidate(session, data, company_id, user.id)
     await session.commit()
     return result
@@ -117,9 +134,15 @@ async def delete_candidate_route(
 @router.get("/{candidate_id}/applications", response_model=list[ApplicationHistoryItem])
 async def get_candidate_applications_route(
     candidate_id: UUID,
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Check manager access to candidate
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
     return await get_candidate_applications(session, candidate_id, company_id)
 
 
@@ -131,6 +154,10 @@ async def add_candidate_tag_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Managers cannot add tags
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут добавлять теги кандидатам")
+
     await add_candidate_tag(session, candidate_id, data.tag_id, company_id, user.id)
     await session.commit()
     return {"status": "success"}

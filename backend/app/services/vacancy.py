@@ -17,7 +17,7 @@ from ..core.errors import NotFoundError, ForbiddenError, ValidationError, Confli
 from ..services.audit import audit
 
 
-async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID) -> VacancySidebar:
+async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role: str = None, user_id: UUID = None) -> VacancySidebar:
     """Get sidebar data with counts"""
     # Active vacancies with counts
     query = (
@@ -47,9 +47,23 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID) -> Vacanc
             Vacancy.company_id == company_id,
             Vacancy.status == "active"
         )
-        .group_by(Vacancy.id, Vacancy.name, Vacancy.sort_order)
-        .order_by(Vacancy.sort_order, Vacancy.name)
     )
+
+    # Apply role-based filtering for managers
+    if user_role == "manager" and user_id:
+        # Manager can only see assigned vacancies
+        query = query.outerjoin(
+            VacancyTeam,
+            and_(
+                VacancyTeam.vacancy_id == Vacancy.id,
+                VacancyTeam.user_id == user_id
+            )
+        ).where(
+            # User is assigned via VacancyTeam OR responsible_user_id
+            (VacancyTeam.user_id == user_id) | (Vacancy.responsible_user_id == user_id)
+        )
+
+    query = query.group_by(Vacancy.id, Vacancy.name, Vacancy.sort_order).order_by(Vacancy.sort_order, Vacancy.name)
 
     result = await session.execute(query)
     rows = result.fetchall()
@@ -86,7 +100,9 @@ async def get_vacancies_paginated(
     status: str | None = None,
     search: str | None = None,
     sort: str | None = None,
-    order: str = "desc"
+    order: str = "desc",
+    user_role: str = None,
+    user_id: UUID = None
 ) -> Paginated[VacancyDetail]:
     """Get paginated list of vacancies with full VacancyDetail"""
     # Base query with all needed joins
@@ -101,6 +117,21 @@ async def get_vacancies_paginated(
         .where(Vacancy.company_id == company_id)
     )
 
+    # Apply role-based filtering for managers
+    if user_role == "manager" and user_id:
+        # Manager can only see assigned vacancies
+        base_query = base_query.outerjoin(
+            VacancyTeam,
+            and_(
+                VacancyTeam.vacancy_id == Vacancy.id,
+                VacancyTeam.user_id == user_id
+            )
+        ).where(
+            Vacancy.company_id == company_id,
+            # User is assigned via VacancyTeam OR responsible_user_id
+            (VacancyTeam.user_id == user_id) | (Vacancy.responsible_user_id == user_id)
+        )
+
     if status:
         base_query = base_query.where(Vacancy.status == status)
 
@@ -109,6 +140,21 @@ async def get_vacancies_paginated(
 
     # Count total
     count_query = select(func.count(Vacancy.id)).where(Vacancy.company_id == company_id)
+
+    # Apply role-based filtering for managers in count query too
+    if user_role == "manager" and user_id:
+        count_query = count_query.outerjoin(
+            VacancyTeam,
+            and_(
+                VacancyTeam.vacancy_id == Vacancy.id,
+                VacancyTeam.user_id == user_id
+            )
+        ).where(
+            Vacancy.company_id == company_id,
+            # User is assigned via VacancyTeam OR responsible_user_id
+            (VacancyTeam.user_id == user_id) | (Vacancy.responsible_user_id == user_id)
+        )
+
     if status:
         count_query = count_query.where(Vacancy.status == status)
     if search:

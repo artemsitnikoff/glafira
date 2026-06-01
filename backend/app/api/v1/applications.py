@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_db
 from ...deps import get_current_company_id, get_current_user
 from ...models import User
+from ...core.errors import ForbiddenError
+from ...core.permissions import is_user_assigned_to_vacancy
 from ...schemas.application import (
     ApplicationRow,
     BulkMoveRequest,
@@ -54,8 +56,14 @@ async def get_applications_for_vacancy_funnel(
     order: str = Query("desc", pattern="^(asc|desc)$"),
     candidate_id: UUID | None = Query(None),
     session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
+    # Check manager access to vacancy
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     return await get_applications_for_vacancy_paginated(
         session,
         vacancy_id,

@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '@/store/authStore';
+import { AccessDenied } from '@/components/ui/AccessDenied';
+import { Icon } from '@/components/ui/Icon';
 import { SettingsTopTabs } from './components/SettingsTopTabs';
 import { SettingsProfile } from './tabs/SettingsProfile';
 import { SettingsGeneral } from './tabs/SettingsGeneral';
@@ -23,14 +26,25 @@ const SET_SECTIONS = [
 export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
 
   // Parse active tab from URL
   const searchParams = new URLSearchParams(location.search);
   const urlTab = searchParams.get('tab') as SettingsTab;
   const [activeTab, setActiveTab] = useState<SettingsTab>(urlTab || 'profile');
 
-  // Admin check - TODO: get from auth context
-  const isAdmin = true;
+  const isAdmin = user?.role === 'admin';
+  const isRecruiter = user?.role === 'recruiter';
+
+  // manager вообще не должен сюда попасть (есть RoleGuard), но для страховки
+  if (user?.role === 'manager') {
+    return (
+      <AccessDenied
+        title="Нет доступа к настройкам"
+        description="Настройки системы доступны только администраторам и рекрутёрам. Обратитесь к администратору."
+      />
+    );
+  }
 
   // Update URL when tab changes
   useEffect(() => {
@@ -52,21 +66,23 @@ export default function SettingsPage() {
   };
 
   const renderActiveTab = () => {
+    const readOnly = !isAdmin; // рекрутёр видит настройки в режиме "только чтение"
+
     switch (activeTab) {
       case 'profile':
-        return <SettingsProfile />;
+        return <SettingsProfile readOnly={readOnly} />;
       case 'general':
-        return <SettingsGeneral />;
+        return <SettingsGeneral readOnly={readOnly} />;
       case 'funnel':
-        return <SettingsFunnel />;
+        return <SettingsFunnel readOnly={readOnly} />;
       case 'access':
-        return <SettingsAccess />;
+        return <SettingsAccess readOnly={readOnly} />;
       case 'tags':
-        return <SettingsTags />;
+        return <SettingsTags readOnly={readOnly} />;
       case 'integrations':
-        return <SettingsIntegrations />;
+        return <SettingsIntegrations readOnly={readOnly} />;
       default:
-        return <SettingsProfile />;
+        return <SettingsProfile readOnly={readOnly} />;
     }
   };
 
@@ -74,6 +90,19 @@ export default function SettingsPage() {
     <div className="settings-shell">
       <div className="set-content">
         <SettingsTopTabs active={activeTab} onChange={handleTabChange} isAdmin={isAdmin} sections={SET_SECTIONS} />
+
+        {/* Баннер для рекрутёра о режиме "только чтение" */}
+        {isRecruiter && (
+          <div className="set-content-inner">
+            <div className="info-banner">
+              <Icon name="activity" size={16} />
+              <div>
+                <strong>Только просмотр</strong> — изменения доступны администратору
+              </div>
+            </div>
+          </div>
+        )}
+
         {renderActiveTab()}
       </div>
     </div>

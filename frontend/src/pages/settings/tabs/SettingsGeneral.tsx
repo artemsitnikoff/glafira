@@ -27,7 +27,11 @@ const DATE_FORMATS = [
   { value: 'DD месяц YYYY', label: 'DD месяц YYYY' }
 ];
 
-export function SettingsGeneral() {
+interface SettingsGeneralProps {
+  readOnly?: boolean;
+}
+
+export function SettingsGeneral({ readOnly = false }: SettingsGeneralProps) {
   const { data: profile, isLoading } = useProfile();
   const updateProfileMutation = useUpdateProfile();
 
@@ -75,8 +79,8 @@ export function SettingsGeneral() {
       <PageHead
         title="Общие настройки"
         subtitle="Персональные настройки пользователя: язык интерфейса, часовой пояс и формат даты"
-        dirty={dirty}
-        onSave={handleSave}
+        dirty={dirty && !readOnly}
+        onSave={readOnly ? undefined : handleSave}
       />
 
       <Card title="Локализация и форматы">
@@ -85,7 +89,8 @@ export function SettingsGeneral() {
             <Select
               value={form.language}
               options={LANGUAGES}
-              onChange={(value) => handleChange('language', value)}
+              onChange={readOnly ? undefined : (value) => handleChange('language', value)}
+              disabled={readOnly}
             />
           </FormRow>
 
@@ -93,7 +98,8 @@ export function SettingsGeneral() {
             <Select
               value={form.timezone}
               options={TIMEZONES}
-              onChange={(value) => handleChange('timezone', value)}
+              onChange={readOnly ? undefined : (value) => handleChange('timezone', value)}
+              disabled={readOnly}
             />
           </FormRow>
 
@@ -101,7 +107,8 @@ export function SettingsGeneral() {
             <Select
               value={form.date_format}
               options={DATE_FORMATS}
-              onChange={(value) => handleChange('date_format', value)}
+              onChange={readOnly ? undefined : (value) => handleChange('date_format', value)}
+              disabled={readOnly}
             />
           </FormRow>
         </div>

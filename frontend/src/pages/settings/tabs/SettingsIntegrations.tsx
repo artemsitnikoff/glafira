@@ -54,7 +54,11 @@ function IntegrationCard({
   );
 }
 
-export function SettingsIntegrations() {
+interface SettingsIntegrationsProps {
+  readOnly?: boolean;
+}
+
+export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -271,6 +275,8 @@ export function SettingsIntegrations() {
       <PageHead title="Интеграции"
         subtitle="Внешние сервисы, с которыми работает Глафира"/>
 
+      {/* Уведомление о режиме "только чтение" для не-админов уже показано в SettingsPage */}
+
       {notification && (
         <div className={notification.type === 'success' ? 'info-banner' : 'error-banner'}
              style={{
@@ -283,7 +289,7 @@ export function SettingsIntegrations() {
         </div>
       )}
 
-      <div className="integ-list">
+      <div className={`integ-list ${readOnly ? 'integ-readonly' : ''}`}>
         {/* HH.RU */}
         <IntegrationCard
           ico={<span className="integ-emoji">🔍</span>}
@@ -312,8 +318,8 @@ export function SettingsIntegrations() {
                 <div className="integ-actions">
                   <button
                     className="btn btn-secondary btn-sm"
-                    onClick={handleHhDisconnect}
-                    disabled={hhDisconnectMutation.isPending}
+                    onClick={readOnly ? undefined : handleHhDisconnect}
+                    disabled={hhDisconnectMutation.isPending || readOnly}
                   >
                     {hhDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
                   </button>
@@ -329,8 +335,8 @@ export function SettingsIntegrations() {
                 <div className="integ-actions">
                   <button
                     className="btn btn-primary btn-sm"
-                    onClick={handleHhConnect}
-                    disabled={hhAuthorizeMutation.isPending}
+                    onClick={readOnly ? undefined : handleHhConnect}
+                    disabled={hhAuthorizeMutation.isPending || readOnly}
                   >
                     {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить'}
                   </button>
@@ -384,12 +390,13 @@ export function SettingsIntegrations() {
                 <div className="integ-actions">
                   <button
                     className="btn btn-primary btn-sm"
-                    onClick={handleHhSaveConfig}
+                    onClick={readOnly ? undefined : handleHhSaveConfig}
                     disabled={
                       hhSaveConfigMutation.isPending ||
                       !hhForm.client_id ||
                       !hhForm.client_secret ||
-                      !hhForm.redirect_uri
+                      !hhForm.redirect_uri ||
+                      readOnly
                     }
                   >
                     {hhSaveConfigMutation.isPending ? 'Сохранение...' : 'Сохранить и подключить'}

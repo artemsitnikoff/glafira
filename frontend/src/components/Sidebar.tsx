@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUiStore } from '@/store/uiStore';
+import { useAuthStore } from '@/store/authStore';
 import { useMe } from '@/api/hooks/useMe';
 import { useSidebar } from '@/api/hooks/useSidebar';
 import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
@@ -26,6 +27,7 @@ export function Sidebar() {
   const { data: sidebar } = useSidebar();
   const { count: alertsCount } = usePulseAlertsCount();
   const ui = useUiStore();
+  const user = useAuthStore((s) => s.user);
 
   // Определяем активный раздел по location.pathname
   const getActiveSection = () => {
@@ -55,6 +57,26 @@ export function Sidebar() {
     navigate('/vacancies/new');
   };
 
+  // Фильтруем навигацию по ролям
+  const getVisibleNavItems = () => {
+    const baseNav = [
+      { id: 'home', label: 'Главная', icon: 'home' as IconName },
+      { id: 'vacancies', label: 'Вакансии', icon: 'briefcase' as IconName, expandable: 'vacancies' },
+      { id: 'candidates', label: 'Кандидаты', icon: 'users' as IconName },
+      { id: 'analytics', label: 'Аналитика', icon: 'chart' as IconName, expandable: 'analytics' },
+      { id: 'pulse', label: 'Пульс-Онбординг', icon: 'heart' as IconName, pip: alertsCount },
+      { id: 'settings', label: 'Настройки', icon: 'settings' as IconName },
+    ];
+
+    // manager видит только Главная, Вакансии, Пульс
+    if (user?.role === 'manager') {
+      return baseNav.filter((item) => ['home', 'vacancies', 'pulse'].includes(item.id));
+    }
+
+    // admin и recruiter видят всё
+    return baseNav;
+  };
+
   const handleVacancySelect = (vacancyId: number) => {
     navigate(`/vacancies/${vacancyId}`);
   };
@@ -68,26 +90,16 @@ export function Sidebar() {
     navigate(`/analytics?report=${reportId}`);
   };
 
-  const nav: Array<{
-    id: string;
-    label: string;
-    icon: IconName;
-    expandable?: string;
-    pip?: number;
-  }> = [
-    { id: 'home', label: 'Главная', icon: 'home' },
-    { id: 'vacancies', label: 'Вакансии', icon: 'briefcase', expandable: 'vacancies' },
-    { id: 'candidates', label: 'Кандидаты', icon: 'users' },
-    { id: 'analytics', label: 'Аналитика', icon: 'chart', expandable: 'analytics' },
-    { id: 'pulse', label: 'Пульс-Онбординг', icon: 'heart', pip: alertsCount },
-    { id: 'settings', label: 'Настройки', icon: 'settings' },
-  ];
+  const nav = getVisibleNavItems();
 
   const renderVacanciesSub = () => (
     <div className="sub-block">
-      <button className="sub-add" onClick={handleNewVacancy}>
-        <Icon name="plus" size={14} /> Новая вакансия
-      </button>
+      {/* Кнопку создания вакансии видят только admin и recruiter */}
+      {user?.role !== 'manager' && (
+        <button className="sub-add" onClick={handleNewVacancy}>
+          <Icon name="plus" size={14} /> Новая вакансия
+        </button>
+      )}
       <div className="sub-search">
         <Icon name="search" size={13} style={{ color: 'var(--fg-3)', flex: 'none' }} />
         <input

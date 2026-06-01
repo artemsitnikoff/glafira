@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from .auth import router as auth_router
 from .users import router as users_router
@@ -18,6 +18,7 @@ from .analytics import router as analytics_router
 from .settings import router as settings_router
 from .audit import router as audit_router
 from .integrations import router as integrations_router
+from ...core.permissions import settings_permission_dependency, integrations_permission_dependency
 
 api_router = APIRouter()
 
@@ -37,6 +38,15 @@ api_router.include_router(verifications_router, tags=["verifications"])
 api_router.include_router(pulse_router, prefix="/pulse", tags=["pulse"])
 api_router.include_router(home_router, prefix="/home", tags=["home"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
-api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
+api_router.include_router(
+    settings_router,
+    prefix="/settings",
+    tags=["settings"],
+    dependencies=[Depends(settings_permission_dependency)]
+)
 api_router.include_router(audit_router, prefix="/audit-log", tags=["audit"])
-api_router.include_router(integrations_router, prefix="/integrations", tags=["integrations"])
+api_router.include_router(
+    integrations_router,
+    prefix="/integrations",
+    tags=["integrations"],
+)

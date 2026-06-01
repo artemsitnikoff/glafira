@@ -4,6 +4,8 @@ from uuid import UUID
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
+from ...core.errors import ForbiddenError
+from ...core.permissions import is_user_assigned_to_vacancy
 from ...services.integrations.hh import service as hh_service
 from ...schemas.vacancy import (
     VacancyDetail,
@@ -44,10 +46,11 @@ router = APIRouter()
 @router.get("/sidebar", response_model=VacancySidebar)
 async def get_sidebar_data(
     session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Get sidebar data with counts"""
-    return await get_vacancy_sidebar(session, company_id)
+    return await get_vacancy_sidebar(session, company_id, current_user.role, current_user.id)
 
 
 @router.get("", response_model=Paginated[VacancyDetail])
@@ -59,12 +62,14 @@ async def list_vacancies(
     sort: str | None = Query(None),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Get list of vacancies with pagination"""
     from ...services.vacancy import get_vacancies_paginated
     result = await get_vacancies_paginated(
-        session, company_id, page, page_size, status, search, sort, order
+        session, company_id, page, page_size, status, search, sort, order,
+        current_user.role, current_user.id
     )
     return result
 
@@ -73,10 +78,16 @@ async def list_vacancies(
 async def get_vacancy_by_id(
     vacancy_id: UUID,
     session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Get vacancy by ID"""
     vacancy = await get_vacancy(session, vacancy_id, company_id)
+
+    # Check manager access
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
 
     # Build response - field validator handles team conversion automatically
     data = VacancyDetail.model_validate(vacancy)
@@ -95,6 +106,10 @@ async def create_new_vacancy(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Create new vacancy"""
+    # Check manager access
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут создавать вакансии")
+
     vacancy = await create_vacancy(session, vacancy_data, company_id, current_user.id)
     await session.commit()
 
@@ -157,9 +172,15 @@ async def archive_vacancy_by_id(
 async def get_vacancy_stages_with_counts(
     vacancy_id: UUID,
     session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Get vacancy stages with application counts"""
+    # Check manager access
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     return await get_vacancy_stages(session, vacancy_id, company_id)
 
 
@@ -225,9 +246,15 @@ async def reorder_stages(
 async def get_vacancy_reject_reasons(
     vacancy_id: UUID,
     session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
     """Причины отказа вакансии. Если их нет — копируются из дефолтов компании (инвариант непустоты)."""
+    # Check manager access
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await get_vacancy(session, vacancy_id, company_id)  # проверка владения (NotFound при чужой/несущ.)
     reasons = await ensure_vacancy_reject_reasons(session, company_id, vacancy_id)
     out = [RejectReasonOut.model_validate(r) for r in reasons]  # собрать ДО commit (greenlet)
