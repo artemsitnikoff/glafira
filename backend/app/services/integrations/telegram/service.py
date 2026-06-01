@@ -78,6 +78,38 @@ async def send_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, p
     return {"state": "pending_code", "code_type": result.get("code_type")}
 
 
+async def connect_session(session: AsyncSession, company_id: UUID, user_id: UUID, *, session_string: str) -> dict:
+    """Подключить Telegram ГОТОВОЙ строкой сессии (минуя номер/код).
+
+    Сессия проверяется на авторизацию, шифруется Fernet и сохраняется. Наружу/в логи
+    сама строка не попадает.
+    """
+    session_string = (session_string or "").strip()
+    if not session_string:
+        raise ValidationError("Вставьте строку сессии (StringSession)")
+
+    result = await tg_client.connect_with_session(session_string)
+    user = result.get("user") or {}
+    config = {
+        "phone": user.get("phone"),
+        "session": encrypt_text(result["session"]),
+        "phone_code_hash": None,
+        "code_type": None,
+        "state": "connected",
+        "tg_user": user,
+        "last_test_at": None,
+        "last_test_ok": False,
+        "last_test_error": None,
+    }
+    row = await _upsert(session, company_id, config, "connected")
+    await audit(
+        session, action="telegram_connected", entity_type="integration",
+        entity_id=row.id, after={"tg_user_id": user.get("id"), "via": "session"},
+        actor_user_id=user_id, company_id=company_id,
+    )
+    return {"state": "connected", "user": user}
+
+
 async def resend_code(session: AsyncSession, company_id: UUID, user_id: UUID) -> dict:
     """Повторно запросить код (next_type, обычно App → SMS)."""
     row = await _get_row(session, company_id)

@@ -174,6 +174,30 @@ async def sign_in_password(session_str: str, password: str) -> dict:
         await client.disconnect()
 
 
+async def connect_with_session(session_str: str) -> dict:
+    """Подключение по ГОТОВОЙ StringSession (минуя номер/код).
+
+    Проверяет, что сессия авторизована, и возвращает данные аккаунта. Строку сессии
+    НЕ логируем (это полный доступ к аккаунту).
+    """
+    api_id, api_hash = _api_creds()
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise AppError(code="TG_SESSION_INVALID", message="Строка сессии недействительна или не авторизована", status_code=400)
+        me = await client.get_me()
+        logger.info("[tg] connect_with_session -> authorized id=%s username=%s", getattr(me, "id", None), getattr(me, "username", None))
+        return {"status": "connected", "session": client.session.save(), "user": _me_dict(me)}
+    except AppError:
+        raise
+    except Exception as e:
+        logger.exception("[tg] connect_with_session -> %s: %s", type(e).__name__, e)
+        raise AppError(code="TG_SESSION_ERROR", message="Не удалось подключиться по строке сессии", status_code=400, details={"reason": str(e)})
+    finally:
+        await client.disconnect()
+
+
 async def send_to_self(session_str: str, text: str) -> None:
     """Тест: отправить сообщение себе («Избранное»)."""
     api_id, api_hash = _api_creds()

@@ -7,7 +7,7 @@ import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutatio
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
 import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
 import { useTelegramStatus } from '@/api/hooks/useTelegramIntegration';
-import { useTgSendCode, useTgResendCode, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
+import { useTgSendCode, useTgResendCode, useTgConnectSession, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -276,6 +276,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const { data: tgStatus, isLoading: tgLoading } = useTelegramStatus();
   const tgSendCodeMutation = useTgSendCode();
   const tgResendCodeMutation = useTgResendCode();
+  const tgConnectSessionMutation = useTgConnectSession();
   const tgConfirmCodeMutation = useTgConfirmCode();
   const tgConfirmPasswordMutation = useTgConfirmPassword();
   const tgTestMutation = useTgTest();
@@ -284,6 +285,8 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const [tgPhone, setTgPhone] = useState('');
   const [tgCode, setTgCode] = useState('');
   const [tgPassword, setTgPassword] = useState('');
+  const [tgSession, setTgSession] = useState('');
+  const [tgShowSession, setTgShowSession] = useState(false);
   // Ошибка показывается ИНЛАЙН в карточке Telegram (карточка внизу страницы —
   // верхний notification-баннер вне зоны видимости при работе с ней).
   const [tgError, setTgError] = useState<string | null>(null);
@@ -297,6 +300,19 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     } catch (error) {
       const e = error as unknown as ApiError;
       setTgError(e.error?.message || 'Не удалось отправить код');
+    }
+  };
+
+  const handleTgConnectSession = async () => {
+    setTgError(null);
+    try {
+      await tgConnectSessionMutation.mutateAsync({ session: tgSession.trim() });
+      setTgSession('');
+      setTgShowSession(false);
+      setNotification({ type: 'success', message: 'Telegram подключён по сессии.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setTgError(e.error?.message || 'Не удалось подключиться по строке сессии');
     }
   };
 
@@ -856,6 +872,37 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                     {tgSendCodeMutation.isPending ? 'Отправка...' : 'Получить код'}
                   </button>
                 </div>
+
+                {!tgShowSession ? (
+                  <button
+                    type="button"
+                    onClick={() => setTgShowSession(true)}
+                    disabled={readOnly}
+                    style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--accent)', cursor: readOnly ? 'default' : 'pointer', fontSize: 12, padding: 0 }}
+                  >
+                    Код не приходит? Подключить готовой строкой сессии →
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="info-banner small">
+                      <Icon name="alert-triangle" size={14} />
+                      <div>Строка сессии (StringSession) = <strong>полный доступ к аккаунту</strong>, вставляйте только свою. На сервере <strong>api_id/api_hash</strong> должны совпадать с теми, которыми сгенерирована сессия (иначе не подойдёт).</div>
+                    </div>
+                    <div className="form-grid form-grid-2">
+                      <FormRow label="Строка сессии (StringSession)" required span={2}>
+                        <TextInput type="password" value={tgSession} onChange={(v) => setTgSession(v)} placeholder="1ApWapz…" mono />
+                      </FormRow>
+                    </div>
+                    <div className="integ-actions">
+                      <button className="btn btn-primary btn-sm" onClick={handleTgConnectSession} disabled={tgConnectSessionMutation.isPending || !tgSession.trim() || readOnly}>
+                        {tgConnectSessionMutation.isPending ? 'Подключение...' : 'Подключить по сессии'}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => { setTgShowSession(false); setTgSession(''); }} disabled={readOnly}>
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

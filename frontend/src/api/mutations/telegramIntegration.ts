@@ -12,6 +12,17 @@ export interface TgStepResult {
 
 const KEY = ['integrations', 'telegram', 'status'];
 
+export function useTgConnectSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { session: string }): Promise<TgStepResult> => {
+      const r = await api.post('/integrations/telegram/connect-session', data);
+      return r.data as TgStepResult;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: KEY }); },
+  });
+}
+
 export function useTgResendCode() {
   const qc = useQueryClient();
   return useMutation({

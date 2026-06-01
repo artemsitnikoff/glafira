@@ -54,6 +54,10 @@ class TgConfirmCodeRequest(BaseModel):
 class TgConfirmPasswordRequest(BaseModel):
     password: str
 
+
+class TgConnectSessionRequest(BaseModel):
+    session: str
+
 router = APIRouter()
 
 
@@ -347,6 +351,18 @@ async def tg_send_code(
 ):
     """Шаг 1: запросить код на номер."""
     result = await tg_service.send_code(session, current_user.company_id, current_user.id, phone=data.phone)
+    await session.commit()
+    return result
+
+
+@router.post("/telegram/connect-session", dependencies=[Depends(require_admin)])
+async def tg_connect_session(
+    data: TgConnectSessionRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Подключить Telegram готовой строкой сессии (StringSession), минуя код."""
+    result = await tg_service.connect_session(session, current_user.company_id, current_user.id, session_string=data.session)
     await session.commit()
     return result
 
