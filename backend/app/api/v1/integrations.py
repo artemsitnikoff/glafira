@@ -351,6 +351,17 @@ async def tg_send_code(
     return result
 
 
+@router.post("/telegram/resend-code", dependencies=[Depends(require_admin)])
+async def tg_resend_code(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Повторно запросить код (next_type, обычно App → SMS)."""
+    result = await tg_service.resend_code(session, current_user.company_id, current_user.id)
+    await session.commit()
+    return result
+
+
 @router.post("/telegram/confirm-code", dependencies=[Depends(require_admin)])
 async def tg_confirm_code(
     data: TgConfirmCodeRequest,

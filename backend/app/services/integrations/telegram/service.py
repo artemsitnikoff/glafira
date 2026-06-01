@@ -78,6 +78,28 @@ async def send_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, p
     return {"state": "pending_code", "code_type": result.get("code_type")}
 
 
+async def resend_code(session: AsyncSession, company_id: UUID, user_id: UUID) -> dict:
+    """Повторно запросить код (next_type, обычно App → SMS)."""
+    row = await _get_row(session, company_id)
+    if not row or not row.config or row.config.get("state") != "pending_code":
+        raise ValidationError("Сначала запросите код (введите номер)")
+
+    c = dict(row.config)
+    session_str = decrypt_text(c["session"])
+    result = await tg_client.resend_code(session_str, c["phone"], c["phone_code_hash"])
+
+    c["session"] = encrypt_text(result["session"])
+    c["phone_code_hash"] = result["phone_code_hash"]
+    c["code_type"] = result.get("code_type")
+    row.config = c
+    await session.flush()
+    await audit(
+        session, action="telegram_code_resent", entity_type="integration",
+        entity_id=row.id, after={"phone": c["phone"]}, actor_user_id=user_id, company_id=company_id,
+    )
+    return {"state": "pending_code", "code_type": result.get("code_type")}
+
+
 async def confirm_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, code: str) -> dict:
     """Шаг 2: ввод кода. Может вернуть state='pending_password' (если 2FA)."""
     row = await _get_row(session, company_id)

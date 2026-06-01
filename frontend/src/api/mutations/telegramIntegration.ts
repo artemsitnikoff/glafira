@@ -7,9 +7,21 @@ type MessageResult = components['schemas']['MessageResult'];
 export interface TgStepResult {
   state: 'pending_code' | 'pending_password' | 'connected';
   user?: { id: string; username?: string | null } | null;
+  code_type?: string | null;
 }
 
 const KEY = ['integrations', 'telegram', 'status'];
+
+export function useTgResendCode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<TgStepResult> => {
+      const r = await api.post('/integrations/telegram/resend-code');
+      return r.data as TgStepResult;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: KEY }); },
+  });
+}
 
 export function useTgSendCode() {
   const qc = useQueryClient();

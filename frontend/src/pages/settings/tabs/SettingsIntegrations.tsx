@@ -7,7 +7,7 @@ import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutatio
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
 import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
 import { useTelegramStatus } from '@/api/hooks/useTelegramIntegration';
-import { useTgSendCode, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
+import { useTgSendCode, useTgResendCode, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -275,6 +275,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   // ---------------- Telegram (user-аккаунт, MTProto) ----------------
   const { data: tgStatus, isLoading: tgLoading } = useTelegramStatus();
   const tgSendCodeMutation = useTgSendCode();
+  const tgResendCodeMutation = useTgResendCode();
   const tgConfirmCodeMutation = useTgConfirmCode();
   const tgConfirmPasswordMutation = useTgConfirmPassword();
   const tgTestMutation = useTgTest();
@@ -296,6 +297,17 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     } catch (error) {
       const e = error as unknown as ApiError;
       setTgError(e.error?.message || 'Не удалось отправить код');
+    }
+  };
+
+  const handleTgResendCode = async () => {
+    setTgError(null);
+    try {
+      await tgResendCodeMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'Код отправлен повторно.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setTgError(e.error?.message || 'Не удалось переотправить код');
     }
   };
 
@@ -802,6 +814,9 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 <div className="integ-actions">
                   <button className="btn btn-primary btn-sm" onClick={handleTgConfirmCode} disabled={tgConfirmCodeMutation.isPending || !tgCode.trim() || readOnly}>
                     {tgConfirmCodeMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleTgResendCode} disabled={tgResendCodeMutation.isPending || readOnly}>
+                    {tgResendCodeMutation.isPending ? 'Отправка...' : 'Отправить заново'}
                   </button>
                   <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={readOnly}>Отмена</button>
                 </div>

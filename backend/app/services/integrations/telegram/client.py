@@ -14,6 +14,7 @@ api_id/api_hash — из .env (TELEGRAM_API_ID / TELEGRAM_API_HASH), одно п
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.tl.functions.auth import ResendCodeRequest
 from telethon.errors import (
     SessionPasswordNeededError,
     PhoneCodeInvalidError,
@@ -71,6 +72,31 @@ async def send_code(phone: str) -> dict:
         raise
     except Exception as e:
         raise AppError(code="TG_SEND_CODE_ERROR", message="Не удалось отправить код Telegram", status_code=400, details={"reason": str(e)})
+    finally:
+        await client.disconnect()
+
+
+async def resend_code(session_str: str, phone: str, phone_code_hash: str) -> dict:
+    """Повторная отправка кода по СЛЕДУЮЩЕМУ каналу (next_type): обычно App → SMS.
+
+    Помогает, когда первый код (в приложение) не дошёл — Telegram переключает на SMS.
+    """
+    api_id, api_hash = _api_creds()
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    try:
+        await client.connect()
+        sent = await client(ResendCodeRequest(phone=phone, phone_code_hash=phone_code_hash))
+        return {
+            "session": client.session.save(),
+            "phone_code_hash": sent.phone_code_hash,
+            "code_type": type(sent.type).__name__,
+        }
+    except FloodWaitError as e:
+        raise AppError(code="TG_FLOOD", message=f"Слишком частые запросы, подождите {e.seconds} сек", status_code=400, details={"seconds": e.seconds})
+    except AppError:
+        raise
+    except Exception as e:
+        raise AppError(code="TG_RESEND_ERROR", message="Не удалось переотправить код", status_code=400, details={"reason": str(e)})
     finally:
         await client.disconnect()
 
