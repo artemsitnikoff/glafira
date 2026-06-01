@@ -283,19 +283,24 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const [tgPhone, setTgPhone] = useState('');
   const [tgCode, setTgCode] = useState('');
   const [tgPassword, setTgPassword] = useState('');
+  // Ошибка показывается ИНЛАЙН в карточке Telegram (карточка внизу страницы —
+  // верхний notification-баннер вне зоны видимости при работе с ней).
+  const [tgError, setTgError] = useState<string | null>(null);
 
   const handleTgSendCode = async () => {
+    setTgError(null);
     try {
       await tgSendCodeMutation.mutateAsync({ phone: tgPhone.trim() });
       setTgCode('');
       setNotification({ type: 'success', message: `Код отправлен в Telegram на ${tgPhone.trim()}` });
     } catch (error) {
       const e = error as unknown as ApiError;
-      setNotification({ type: 'error', message: e.error?.message || 'Не удалось отправить код' });
+      setTgError(e.error?.message || 'Не удалось отправить код');
     }
   };
 
   const handleTgConfirmCode = async () => {
+    setTgError(null);
     try {
       const res = await tgConfirmCodeMutation.mutateAsync({ code: tgCode.trim() });
       setTgCode('');
@@ -306,39 +311,42 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
       }
     } catch (error) {
       const e = error as unknown as ApiError;
-      setNotification({ type: 'error', message: e.error?.message || 'Неверный код' });
+      setTgError(e.error?.message || 'Неверный код');
     }
   };
 
   const handleTgConfirmPassword = async () => {
+    setTgError(null);
     try {
       await tgConfirmPasswordMutation.mutateAsync({ password: tgPassword });
       setTgPassword('');
       setNotification({ type: 'success', message: 'Telegram подключён.' });
     } catch (error) {
       const e = error as unknown as ApiError;
-      setNotification({ type: 'error', message: e.error?.message || 'Неверный пароль 2FA' });
+      setTgError(e.error?.message || 'Неверный пароль 2FA');
     }
   };
 
   const handleTgTest = async () => {
+    setTgError(null);
     try {
       await tgTestMutation.mutateAsync();
       setNotification({ type: 'success', message: 'Тестовое сообщение отправлено вам в «Избранное».' });
     } catch (error) {
       const e = error as unknown as ApiError;
-      setNotification({ type: 'error', message: e.error?.message || 'Не удалось отправить тестовое сообщение' });
+      setTgError(e.error?.message || 'Не удалось отправить тестовое сообщение');
     }
   };
 
   const handleTgDisconnect = async () => {
+    setTgError(null);
     try {
       await tgDisconnectMutation.mutateAsync();
       setTgPhone('');
       setNotification({ type: 'success', message: 'Telegram отключён.' });
     } catch (error) {
       const e = error as unknown as ApiError;
-      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Telegram' });
+      setTgError(e.error?.message || 'Ошибка при отключении Telegram');
     }
   };
 
@@ -736,6 +744,15 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
               : undefined
           }>
           <div className="integ-section">
+            {tgError && (
+              <div className="error-banner" style={{ marginBottom: 12 }}>
+                <Icon name="alert-triangle" size={16} />
+                <div>{tgError}</div>
+                <button type="button" onClick={() => setTgError(null)} aria-label="Закрыть">
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+            )}
             {tgLoading ? (
               <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
             ) : tgStatus?.connected ? (

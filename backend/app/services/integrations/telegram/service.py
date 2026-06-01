@@ -48,7 +48,12 @@ async def _upsert(session: AsyncSession, company_id: UUID, config: dict, status:
 
 async def send_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, phone: str) -> dict:
     """Шаг 1: запросить SMS-код на номер."""
-    phone = (phone or "").strip()
+    # Нормализуем: пробелы/скобки/дефисы убираем, ведущий + сохраняем
+    # (+7 (999) 123-45-67 → +79991234567).
+    raw = (phone or "").strip()
+    has_plus = raw.startswith("+")
+    digits = re.sub(r"\D", "", raw)
+    phone = ("+" + digits) if has_plus else digits
     if not PHONE_RE.match(phone):
         raise ValidationError("Укажите корректный номер в международном формате (напр. +79991234567)")
 
