@@ -9,6 +9,7 @@ from ...core.permissions import is_user_assigned_to_vacancy
 from ...services.integrations.hh import service as hh_service
 from ...schemas.vacancy import (
     VacancyDetail,
+    ArchivedVacancyItem,
     VacancyCreate,
     VacancyUpdate,
     VacancyArchive,
@@ -33,6 +34,7 @@ from ...services.vacancy import (
     archive_vacancy,
     duplicate_vacancy,
     get_vacancy_sidebar,
+    get_archived_vacancies,
     get_vacancy_stages,
     add_vacancy_stage,
     rename_vacancy_stage,
@@ -52,6 +54,16 @@ async def get_sidebar_data(
 ):
     """Get sidebar data with counts"""
     return await get_vacancy_sidebar(session, company_id, current_user.role, current_user.id)
+
+
+@router.get("/archived", response_model=list[ArchivedVacancyItem])
+async def get_archived_vacancies_list(
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Архивные вакансии с агрегатами (кандидаты/нанято) — для страницы Архив."""
+    return await get_archived_vacancies(session, company_id, current_user.role, current_user.id)
 
 
 @router.get("", response_model=Paginated[VacancyDetail])

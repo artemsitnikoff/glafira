@@ -34,6 +34,19 @@ class VacancySidebar(BaseModel):
     archived_count: int
 
 
+class ArchivedVacancyItem(BaseModel):
+    """Архивная вакансия с агрегатами для страницы Архив."""
+    id: UUID
+    name: str
+    client_name: str | None = None
+    recruiter_name: str | None = None
+    archive_result: str | None = None  # hired | cancelled | frozen
+    closed_at: date | None = None
+    created_at: datetime
+    candidates: int  # всего заявок прошло
+    hired: int       # заявок в этапе hired
+
+
 class VacancyStageCount(BaseModel):
     stage_key: str
     label: str

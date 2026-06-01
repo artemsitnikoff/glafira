@@ -135,7 +135,7 @@ export function Sidebar() {
         >
           <Icon name="archive" size={15} />
           <span>Архив</span>
-          <span className="sub-count">—</span>
+          <span className="sub-count">{sidebar?.archived_count ?? 0}</span>
         </div>
       </div>
     </div>

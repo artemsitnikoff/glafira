@@ -86,6 +86,60 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
     return VacancySidebar(items=items, archived_count=archived_count)
 
 
+async def get_archived_vacancies(
+    session: AsyncSession, company_id: UUID, user_role: str = None, user_id: UUID = None
+) -> list[dict]:
+    """Архивные вакансии с агрегатами (всего кандидатов / нанято) для страницы Архив."""
+    query = (
+        select(
+            Vacancy.id,
+            Vacancy.name,
+            Client.name.label("client_name"),
+            User.full_name.label("recruiter_name"),
+            Vacancy.archive_result,
+            Vacancy.closed_at,
+            Vacancy.created_at,
+            func.count(Application.id).label("candidates"),
+            func.count(
+                case((Application.stage == "hired", 1), else_=None)
+            ).label("hired"),
+        )
+        .select_from(Vacancy)
+        .outerjoin(Application, Application.vacancy_id == Vacancy.id)
+        .outerjoin(Client, Client.id == Vacancy.client_id)
+        .outerjoin(User, User.id == Vacancy.responsible_user_id)
+        .where(Vacancy.company_id == company_id, Vacancy.status == "archived")
+    )
+
+    # Менеджер видит только назначенные вакансии
+    if user_role == "manager" and user_id:
+        query = query.outerjoin(
+            VacancyTeam,
+            and_(VacancyTeam.vacancy_id == Vacancy.id, VacancyTeam.user_id == user_id),
+        ).where((VacancyTeam.user_id == user_id) | (Vacancy.responsible_user_id == user_id))
+
+    query = query.group_by(
+        Vacancy.id, Vacancy.name, Client.name, User.full_name,
+        Vacancy.archive_result, Vacancy.closed_at, Vacancy.created_at,
+    ).order_by(Vacancy.closed_at.desc(), Vacancy.name)
+
+    rows = (await session.execute(query)).fetchall()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "client_name": r.client_name,
+            "recruiter_name": r.recruiter_name,
+            "archive_result": r.archive_result,
+            "closed_at": r.closed_at,
+            "created_at": r.created_at,
+            "candidates": r.candidates,
+            "hired": r.hired,
+        }
+        for r in rows
+    ]
+
+
 
 
 async def get_vacancies_paginated(
