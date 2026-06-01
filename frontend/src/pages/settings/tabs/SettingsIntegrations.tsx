@@ -781,7 +781,18 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
               // Ввод кода
               <div>
                 <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                  Код отправлен в Telegram на <span className="t-mono">{tgStatus.phone}</span>. Введите его:
+                  {tgStatus.code_type === 'SentCodeTypeApp' ? (
+                    <>Код отправлен <strong>в приложение Telegram</strong> — откройте чат <strong>«Telegram»</strong> (служебные сообщения, отправитель 42777). Это <strong>не SMS</strong>. </>
+                  ) : tgStatus.code_type === 'SentCodeTypeSms' || tgStatus.code_type === 'SentCodeTypeFragmentSms' ? (
+                    <>Код отправлен по <strong>SMS</strong> на <span className="t-mono">{tgStatus.phone}</span>. </>
+                  ) : tgStatus.code_type === 'SentCodeTypeCall' ? (
+                    <>Вам <strong>позвонят</strong> и продиктуют код на <span className="t-mono">{tgStatus.phone}</span>. </>
+                  ) : tgStatus.code_type === 'SentCodeTypeMissedCall' ? (
+                    <>Будет <strong>сброшенный звонок</strong> — код это последние цифры входящего номера. </>
+                  ) : (
+                    <>Код отправлен на <span className="t-mono">{tgStatus.phone}</span>. Проверьте <strong>приложение Telegram</strong> (чат «Telegram») и SMS. </>
+                  )}
+                  Введите его:
                 </div>
                 <div className="form-grid form-grid-2">
                   <FormRow label="Код из Telegram" required>
@@ -823,7 +834,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 </div>
                 <div className="info-banner small">
                   <Icon name="alert-triangle" size={14} />
-                  <div>Вход в <strong>ваш аккаунт Telegram</strong> для отправки сообщений из-под него. Код придёт в Telegram. ⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
+                  <div>Вход в <strong>ваш аккаунт Telegram</strong> для отправки сообщений из-под него. Код обычно приходит <strong>в приложение Telegram</strong> (чат «Telegram»), а не по SMS. ⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
                 </div>
                 <div className="integ-actions">
                   <button className="btn btn-primary btn-sm" onClick={handleTgSendCode} disabled={tgSendCodeMutation.isPending || !tgPhone.trim() || readOnly}>

@@ -46,13 +46,21 @@ def _me_dict(me) -> dict:
 
 
 async def send_code(phone: str) -> dict:
-    """Шаг 1: запросить код на номер. Возвращает {session, phone_code_hash}."""
+    """Шаг 1: запросить код на номер. Возвращает {session, phone_code_hash, code_type}.
+
+    code_type — КАК Telegram доставил код (SentCodeTypeApp/Sms/Call/...). При наличии
+    активной сессии Telegram код уходит В ПРИЛОЖЕНИЕ (чат «Telegram»), а не по SMS.
+    """
     api_id, api_hash = _api_creds()
     client = TelegramClient(StringSession(), api_id, api_hash)
     try:
         await client.connect()
         sent = await client.send_code_request(phone)
-        return {"session": client.session.save(), "phone_code_hash": sent.phone_code_hash}
+        return {
+            "session": client.session.save(),
+            "phone_code_hash": sent.phone_code_hash,
+            "code_type": type(sent.type).__name__,
+        }
     except PhoneNumberInvalidError:
         raise AppError(code="TG_PHONE_INVALID", message="Неверный номер телефона", status_code=400)
     except ApiIdInvalidError:

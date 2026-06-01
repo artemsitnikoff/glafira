@@ -63,6 +63,7 @@ async def send_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, p
         "phone": phone,
         "session": encrypt_text(result["session"]),
         "phone_code_hash": result["phone_code_hash"],
+        "code_type": result.get("code_type"),
         "state": "pending_code",
         "tg_user": None,
         "last_test_at": None,
@@ -74,7 +75,7 @@ async def send_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, p
         session, action="telegram_code_sent", entity_type="integration",
         entity_id=row.id, after={"phone": phone}, actor_user_id=user_id, company_id=company_id,
     )
-    return {"state": "pending_code"}
+    return {"state": "pending_code", "code_type": result.get("code_type")}
 
 
 async def confirm_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, code: str) -> dict:
@@ -134,7 +135,7 @@ async def get_status(session: AsyncSession, company_id: UUID) -> dict:
     if not row or not row.config or not row.config.get("state"):
         return {
             "configured": False, "connected": False, "state": None,
-            "phone": None, "tg_username": None,
+            "phone": None, "tg_username": None, "code_type": None,
             "last_test_at": None, "last_test_ok": False, "last_test_error": None,
         }
     c = row.config
@@ -145,6 +146,7 @@ async def get_status(session: AsyncSession, company_id: UUID) -> dict:
         "state": c.get("state"),
         "phone": c.get("phone"),
         "tg_username": tg_user.get("username"),
+        "code_type": c.get("code_type"),
         "last_test_at": c.get("last_test_at"),
         "last_test_ok": bool(c.get("last_test_ok")),
         "last_test_error": c.get("last_test_error"),

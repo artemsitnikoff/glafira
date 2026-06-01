@@ -8,6 +8,7 @@ export interface TelegramStatus {
   state?: 'pending_code' | 'pending_password' | 'connected' | 'disconnected' | null;
   phone?: string | null;
   tg_username?: string | null;
+  code_type?: string | null; // SentCodeTypeApp | ...Sms | ...Call | ...
   last_test_at?: string | null;
   last_test_ok?: boolean;
   last_test_error?: string | null;
