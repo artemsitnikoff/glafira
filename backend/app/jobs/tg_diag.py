@@ -100,8 +100,80 @@ async def main(phone: str) -> None:
         await client.disconnect()
 
 
+async def check_session(session_str: str) -> None:
+    """Проверка ГОТОВОЙ StringSession с api_id/api_hash из .env. Печатает точную причину."""
+    api_id = settings.TELEGRAM_API_ID
+    api_hash = settings.TELEGRAM_API_HASH
+
+    print("=" * 56)
+    print(" Telegram диагностика готовой сессии")
+    print("=" * 56)
+    print(f"TELEGRAM_API_ID:    {'SET (' + str(api_id) + ')' if api_id else 'MISSING'}")
+    print(f"TELEGRAM_API_HASH:  {'SET (len=' + str(len(api_hash)) + ', ' + _mask(api_hash) + ')' if api_hash else 'MISSING'}")
+    print(f"длина строки сессии: {len(session_str)} символов (рабочая StringSession обычно 300–360)")
+
+    if not api_id or not api_hash:
+        print("\n!!! api creds отсутствуют в .env.")
+        return
+    try:
+        api_id_int = int(api_id)
+    except (TypeError, ValueError):
+        print(f"\n!!! TELEGRAM_API_ID не целое число: {api_id!r}")
+        return
+
+    try:
+        ss = StringSession(session_str)
+    except Exception as e:  # noqa: BLE001
+        print(f"\n!!! StringSession не распарсилась: {type(e).__name__}: {e}")
+        print("    Строка повреждена/обрезана/не StringSession. Скопируйте её ЦЕЛИКОМ.")
+        return
+
+    client = TelegramClient(ss, api_id_int, api_hash)
+    try:
+        await client.connect()
+        print(f"connected:          {client.is_connected()}")
+        try:
+            print(f"DC сессии:          {client.session.dc_id}")
+        except Exception:
+            pass
+        try:
+            authorized = await client.is_user_authorized()
+            print(f"is_user_authorized: {authorized}")
+            if authorized:
+                me = await client.get_me()
+                print("\n=== СЕССИЯ АВТОРИЗОВАНА ✓ ===")
+                print(f"id={getattr(me, 'id', None)} username={getattr(me, 'username', None)} phone={getattr(me, 'phone', None)}")
+                print("Эту строку можно вставлять в UI «Подключить готовой строкой сессии».")
+            else:
+                print("\n=== НЕ АВТОРИЗОВАНА ===")
+                print("Пробую get_me для точной причины...")
+                try:
+                    await client.get_me()
+                except Exception as e:  # noqa: BLE001
+                    print(f"get_me: {type(e).__name__}: {e}")
+                print(
+                    "\nЧастые причины:\n"
+                    "  • строка обрезана/с пробелами — скопируйте ЦЕЛИКОМ;\n"
+                    "  • api_id/api_hash в .env НЕ те, чем создана сессия (сессия привязана к приложению);\n"
+                    "  • сессия отозвана (Завершить сеанс) в другом проекте."
+                )
+        except Exception as e:  # noqa: BLE001
+            print(f"\n=== ОШИБКА проверки ===\n{type(e).__name__}: {e}")
+            traceback.print_exc()
+    finally:
+        await client.disconnect()
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("usage: python -m app.jobs.tg_diag +79991234567")
+        print("usage:")
+        print("  python -m app.jobs.tg_diag +79991234567        # проверить отправку кода")
+        print('  python -m app.jobs.tg_diag --session "1ApW…"   # проверить готовую сессию')
         sys.exit(1)
-    asyncio.run(main(sys.argv[1].strip()))
+    if sys.argv[1] == "--session":
+        if len(sys.argv) < 3:
+            print('usage: python -m app.jobs.tg_diag --session "1ApW…"')
+            sys.exit(1)
+        asyncio.run(check_session(sys.argv[2].strip()))
+    else:
+        asyncio.run(main(sys.argv[1].strip()))
