@@ -282,10 +282,12 @@ async def get_import_candidates(session: AsyncSession, company_id: UUID) -> list
     # Get all users
     users = await b24_client.get_all_users(webhook)
 
-    # Convert to import format
+    # Convert to import format. Уволенных (ACTIVE=N) НЕ показываем для импорта.
     result = []
     for user in users:
-        result.append(_simplify_user_for_import(user, departments_map))
+        candidate = _simplify_user_for_import(user, departments_map)
+        if candidate["active"]:
+            result.append(candidate)
 
     return result
 

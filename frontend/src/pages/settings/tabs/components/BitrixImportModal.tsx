@@ -11,7 +11,7 @@ interface Props {
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Администратор' },
   { value: 'recruiter', label: 'Рекрутёр' },
-  { value: 'manager', label: 'Менеджер' },
+  { value: 'manager', label: 'Нанимающий менеджер' },
 ];
 
 type ImportStep = 'select' | 'result';

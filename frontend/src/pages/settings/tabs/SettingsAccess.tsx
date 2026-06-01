@@ -32,7 +32,7 @@ const ROLE_INFO = [
   },
 ];
 
-const roleLabel = { admin: 'Администратор', recruiter: 'Рекрутёр', manager: 'Менеджер' };
+const roleLabel = { admin: 'Администратор', recruiter: 'Рекрутёр', manager: 'Нанимающий менеджер' };
 const roleClass = { admin: 'admin', recruiter: 'recruiter', manager: 'manager' };
 
 export function SettingsAccess() {
@@ -134,7 +134,7 @@ export function SettingsAccess() {
               { value: '', label: 'Все роли' },
               { value: 'admin', label: 'Администраторы' },
               { value: 'recruiter', label: 'Рекрутёры' },
-              { value: 'manager', label: 'Менеджеры' }
+              { value: 'manager', label: 'Нанимающие менеджеры' }
             ]}
           />
           <Select

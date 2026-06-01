@@ -34,6 +34,8 @@ B24_USERS = [
      "WORK_POSITION": "Разработчик", "ACTIVE": "Y", "UF_DEPARTMENT": ["2"]},
     {"ID": "30", "NAME": "Мария", "LAST_NAME": "Сидорова", "EMAIL": "",
      "WORK_POSITION": "Дизайнер", "ACTIVE": True, "UF_DEPARTMENT": []},
+    {"ID": "40", "NAME": "Уволенный", "LAST_NAME": "Сотрудник", "EMAIL": "fired@example.com",
+     "WORK_POSITION": "Бывший", "ACTIVE": "N", "UF_DEPARTMENT": ["1"]},
 ]
 
 
@@ -96,7 +98,9 @@ async def test_get_import_candidates(db_session, admin_user, fernet_key):
     with patch(DEPT_GET, new=AsyncMock(return_value=B24_DEPTS)), \
          patch(USERS_GET, new=AsyncMock(return_value=B24_USERS)):
         cands = await b24.get_import_candidates(db_session, admin_user.company_id)
+    # уволенный (id 40, ACTIVE=N) исключён → остаются 3 активных
     assert len(cands) == 3
+    assert all(c["b24_id"] != "40" for c in cands)
     assert cands[0]["b24_id"] == "10"
     assert cands[0]["department_name"] == "Отдел продаж"
     assert cands[2]["email"] is None  # Мария без email
