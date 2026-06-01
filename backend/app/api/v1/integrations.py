@@ -13,6 +13,7 @@ from ...models import User
 from ...services.integrations.hh import service as hh_service
 from ...services.integrations.smtp import service as smtp_service
 from ...services.integrations.bitrix24 import service as b24_service
+from ...services.integrations.telegram import service as tg_service
 from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixImportRequest, BitrixImportResult
 from ...config import settings
 
@@ -40,6 +41,18 @@ class SmtpTestRequest(BaseModel):
 
 class B24ConfigRequest(BaseModel):
     webhook_url: str
+
+
+class TgSendCodeRequest(BaseModel):
+    phone: str
+
+
+class TgConfirmCodeRequest(BaseModel):
+    code: str
+
+
+class TgConfirmPasswordRequest(BaseModel):
+    password: str
 
 router = APIRouter()
 
@@ -311,3 +324,73 @@ async def disconnect_b24(
     await b24_service.disconnect(session, current_user.company_id, current_user.id)
     await session.commit()
     return {"message": "Битрикс24 отключён"}
+
+
+# ---------------------------------------------------------------------------
+# Telegram (user-аккаунт, MTProto) — «писать из-под пользователя»
+# ---------------------------------------------------------------------------
+
+@router.get("/telegram/status", dependencies=[Depends(require_settings_read_access)])
+async def get_tg_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Статус Telegram-интеграции (сессия/секреты не возвращаются)."""
+    return await tg_service.get_status(session, current_user.company_id)
+
+
+@router.post("/telegram/send-code", dependencies=[Depends(require_admin)])
+async def tg_send_code(
+    data: TgSendCodeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Шаг 1: запросить код на номер."""
+    result = await tg_service.send_code(session, current_user.company_id, current_user.id, phone=data.phone)
+    await session.commit()
+    return result
+
+
+@router.post("/telegram/confirm-code", dependencies=[Depends(require_admin)])
+async def tg_confirm_code(
+    data: TgConfirmCodeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Шаг 2: ввод кода (может вернуть state='pending_password' при 2FA)."""
+    result = await tg_service.confirm_code(session, current_user.company_id, current_user.id, code=data.code)
+    await session.commit()
+    return result
+
+
+@router.post("/telegram/confirm-password", dependencies=[Depends(require_admin)])
+async def tg_confirm_password(
+    data: TgConfirmPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Шаг 2б: облачный пароль 2FA."""
+    result = await tg_service.confirm_password(session, current_user.company_id, current_user.id, password=data.password)
+    await session.commit()
+    return result
+
+
+@router.post("/telegram/test", dependencies=[Depends(require_admin)])
+async def tg_test(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Тест: отправить сообщение себе («Избранное»)."""
+    # send_test коммитит сам (оба пути).
+    return await tg_service.send_test(session, current_user.company_id, current_user.id)
+
+
+@router.post("/telegram/disconnect", dependencies=[Depends(require_admin)])
+async def tg_disconnect(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Отключить Telegram (сессия удаляется полностью)."""
+    await tg_service.disconnect(session, current_user.company_id, current_user.id)
+    await session.commit()
+    return {"message": "Telegram отключён"}

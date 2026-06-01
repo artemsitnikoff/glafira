@@ -6,6 +6,8 @@ import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
 import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
+import { useTelegramStatus } from '@/api/hooks/useTelegramIntegration';
+import { useTgSendCode, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -267,6 +269,76 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     } catch (error) {
       const e = error as unknown as ApiError;
       setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Битрикс24' });
+    }
+  };
+
+  // ---------------- Telegram (user-аккаунт, MTProto) ----------------
+  const { data: tgStatus, isLoading: tgLoading } = useTelegramStatus();
+  const tgSendCodeMutation = useTgSendCode();
+  const tgConfirmCodeMutation = useTgConfirmCode();
+  const tgConfirmPasswordMutation = useTgConfirmPassword();
+  const tgTestMutation = useTgTest();
+  const tgDisconnectMutation = useTgDisconnect();
+
+  const [tgPhone, setTgPhone] = useState('');
+  const [tgCode, setTgCode] = useState('');
+  const [tgPassword, setTgPassword] = useState('');
+
+  const handleTgSendCode = async () => {
+    try {
+      await tgSendCodeMutation.mutateAsync({ phone: tgPhone.trim() });
+      setTgCode('');
+      setNotification({ type: 'success', message: `Код отправлен в Telegram на ${tgPhone.trim()}` });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось отправить код' });
+    }
+  };
+
+  const handleTgConfirmCode = async () => {
+    try {
+      const res = await tgConfirmCodeMutation.mutateAsync({ code: tgCode.trim() });
+      setTgCode('');
+      if (res.state === 'pending_password') {
+        setNotification({ type: 'success', message: 'Код принят. Введите облачный пароль (2FA).' });
+      } else {
+        setNotification({ type: 'success', message: 'Telegram подключён.' });
+      }
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Неверный код' });
+    }
+  };
+
+  const handleTgConfirmPassword = async () => {
+    try {
+      await tgConfirmPasswordMutation.mutateAsync({ password: tgPassword });
+      setTgPassword('');
+      setNotification({ type: 'success', message: 'Telegram подключён.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Неверный пароль 2FA' });
+    }
+  };
+
+  const handleTgTest = async () => {
+    try {
+      await tgTestMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'Тестовое сообщение отправлено вам в «Избранное».' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось отправить тестовое сообщение' });
+    }
+  };
+
+  const handleTgDisconnect = async () => {
+    try {
+      await tgDisconnectMutation.mutateAsync();
+      setTgPhone('');
+      setNotification({ type: 'success', message: 'Telegram отключён.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Telegram' });
     }
   };
 
@@ -648,11 +720,108 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
             )}
           </div>
         </IntegrationCard>
+
+        {/* TELEGRAM (user-аккаунт, MTProto) */}
+        <IntegrationCard
+          ico={<span className="integ-emoji">✈️</span>}
+          iconBg="#EAF3FE"
+          name="Telegram (аккаунт)"
+          desc="Сообщения кандидатам из-под вашего аккаунта Telegram"
+          status={tgStatus?.connected ? 'ok' : (tgStatus?.last_test_error ? 'err' : 'bad')}
+          statusLabel={
+            tgStatus?.connected ? undefined
+              : tgStatus?.state === 'pending_code' ? 'Введите код'
+              : tgStatus?.state === 'pending_password' ? 'Пароль 2FA'
+              : tgStatus?.last_test_error ? 'Ошибка отправки'
+              : undefined
+          }>
+          <div className="integ-section">
+            {tgLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : tgStatus?.connected ? (
+              // Подключено
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Подключён{tgStatus.tg_username ? ` как @${tgStatus.tg_username}` : ''}
+                  {tgStatus.phone ? ` (${tgStatus.phone})` : ''}.
+                  {tgStatus.last_test_ok && tgStatus.last_test_at && (
+                    <span style={{ color: 'var(--ark-green-600)' }}> ✓ тест отправлен {new Date(tgStatus.last_test_at).toLocaleString('ru')}</span>
+                  )}
+                  {tgStatus.last_test_error && (
+                    <span style={{ color: 'var(--ark-red-600)' }}> Последний тест: {tgStatus.last_test_error}</span>
+                  )}
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={handleTgTest} disabled={tgTestMutation.isPending || readOnly}>
+                    {tgTestMutation.isPending ? 'Отправка...' : 'Отправить тестовое сообщение'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={tgDisconnectMutation.isPending || readOnly}>
+                    {tgDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+              </div>
+            ) : tgStatus?.state === 'pending_code' ? (
+              // Ввод кода
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Код отправлен в Telegram на <span className="t-mono">{tgStatus.phone}</span>. Введите его:
+                </div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Код из Telegram" required>
+                    <TextInput value={tgCode} onChange={(v) => setTgCode(v)} placeholder="12345" mono />
+                  </FormRow>
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={handleTgConfirmCode} disabled={tgConfirmCodeMutation.isPending || !tgCode.trim() || readOnly}>
+                    {tgConfirmCodeMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={readOnly}>Отмена</button>
+                </div>
+              </div>
+            ) : tgStatus?.state === 'pending_password' ? (
+              // 2FA облачный пароль
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  У аккаунта включён облачный пароль (2FA). Введите его:
+                </div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Облачный пароль (2FA)" required>
+                    <TextInput type="password" value={tgPassword} onChange={(v) => setTgPassword(v)} placeholder="••••••••" mono />
+                  </FormRow>
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={handleTgConfirmPassword} disabled={tgConfirmPasswordMutation.isPending || !tgPassword || readOnly}>
+                    {tgConfirmPasswordMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={readOnly}>Отмена</button>
+                </div>
+              </div>
+            ) : (
+              // Не подключено — ввод номера
+              <div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Номер телефона" required>
+                    <TextInput value={tgPhone} onChange={(v) => setTgPhone(v)} placeholder="+79991234567" mono />
+                  </FormRow>
+                </div>
+                <div className="info-banner small">
+                  <Icon name="alert-triangle" size={14} />
+                  <div>Вход в <strong>ваш аккаунт Telegram</strong> для отправки сообщений из-под него. Код придёт в Telegram. ⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={handleTgSendCode} disabled={tgSendCodeMutation.isPending || !tgPhone.trim() || readOnly}>
+                    {tgSendCodeMutation.isPending ? 'Отправка...' : 'Получить код'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </IntegrationCard>
       </div>
 
       <div className="info-banner muted">
         <Icon name="sparkle" size={14}/>
-        <div>В будущих релизах сюда добавятся карточки <b>Авито Работа</b> и публикация в <b>Telegram-каналы</b>.</div>
+        <div>В будущих релизах сюда добавится карточка <b>Авито Работа</b>.</div>
       </div>
     </div>
   );

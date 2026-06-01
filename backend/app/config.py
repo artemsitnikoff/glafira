@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     AVITO_CLIENT_ID: str = ""
     AVITO_CLIENT_SECRET: str = ""
 
+    # Telegram MTProto user-аккаунт (my.telegram.org) — одно приложение на инстанс.
+    TELEGRAM_API_ID: int = 0
+    TELEGRAM_API_HASH: str = ""
+
     FERNET_KEY: str | None = None
 
     # Deployment
