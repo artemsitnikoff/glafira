@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from ..core.errors import NotFoundError, ValidationError
 from ..core.stages import STAGES
-from ..models import Application, Candidate, Consent, Event, StageHistory, User, VacancyStage
+from ..models import Application, Candidate, CandidateTag, Consent, Event, StageHistory, User, VacancyStage
 from ..schemas.application import (
     ApplicationRow,
     BulkMoveRequest,
@@ -50,6 +50,7 @@ async def get_applications_for_vacancy_paginated(
     ready_relocate: bool | None = None,
     added_period: str | None = None,
     repeat: bool | None = None,
+    tags: list[str] | None = None,
     sort: str | None = None,
     order: str = "desc",
     candidate_id: UUID | None = None,
@@ -121,6 +122,22 @@ async def get_applications_for_vacancy_paginated(
             base_filters.append(Application.created_at >= cutoff)
     if repeat is not None:
         base_filters.append(Application.is_repeat == repeat)
+    if tags:
+        tag_uuids = []
+        for t in tags:
+            try:
+                tag_uuids.append(UUID(t))
+            except (ValueError, TypeError, AttributeError):
+                pass
+        if tag_uuids:
+            base_filters.append(
+                exists().where(
+                    and_(
+                        CandidateTag.candidate_id == Candidate.id,
+                        CandidateTag.tag_id.in_(tag_uuids),
+                    )
+                )
+            )
 
     count_stmt = (
         select(func.count(Application.id))

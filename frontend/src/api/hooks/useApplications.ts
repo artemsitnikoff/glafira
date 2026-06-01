@@ -15,6 +15,7 @@ export type ApplicationFilters = {
   ready_relocate?: boolean;
   added_period?: string;
   repeat?: boolean;
+  tags?: string[]; // id тегов
   sort?: string;
   order?: 'asc' | 'desc';
   page?: number;
@@ -64,6 +65,7 @@ export function useApplications(
       if (filters.ready_relocate !== undefined) params.append('ready_relocate', filters.ready_relocate.toString());
       if (filters.added_period) params.append('added_period', filters.added_period);
       if (filters.repeat !== undefined) params.append('repeat', filters.repeat.toString());
+      if (filters.tags && filters.tags.length) filters.tags.forEach(t => params.append('tags', t));
       if (filters.sort) params.append('sort', filters.sort);
       if (filters.order) params.append('order', filters.order);
       if (filters.page) params.append('page', filters.page.toString());

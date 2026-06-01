@@ -12,6 +12,24 @@ class TagOut(ORMBase):
     color: str | None = None
 
 
+class TagManageOut(ORMBase):
+    id: UUID
+    name: str
+    color: str | None = None
+    usage_count: int = 0
+    created_at: datetime
+
+
+class TagCreate(BaseModel):
+    name: str
+    color: str | None = None
+
+
+class TagUpdate(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
 class CandidateExperienceOut(ORMBase):
     position: str
     company: str | None = None

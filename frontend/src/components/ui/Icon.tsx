@@ -51,6 +51,7 @@ import {
   Clipboard,
   Info,
   Link,
+  Pencil,
 } from 'lucide-react';
 
 const iconMap = {
@@ -62,6 +63,7 @@ const iconMap = {
   settings: Settings,
   search: Search,
   plus: Plus,
+  edit: Pencil,
   archive: Archive,
   bell: Bell,
   'chevron-down': ChevronDown,

@@ -10,6 +10,7 @@ import { Icon } from '@/components/ui/Icon'
 import { Avatar } from '@/components/ui/Avatar'
 import { ScoreLabel } from '@/components/ui/ScoreLabel'
 import { StageChip } from '@/components/ui/StageChip'
+import { CandidateTagPicker } from '@/components/CandidateTagPicker'
 import { MessIconRound } from '@/components/ui/MessIconRound'
 
 // Import existing tabs with fromPool prop support
@@ -220,24 +221,10 @@ export function CandidatePoolDetailPage() {
         </div>
 
         {/* Теги */}
-        {candidate.tags && candidate.tags.length > 0 && (
-          <div className="cfp-tags-row">
-            <span className="cfp-tags-k">Теги:</span>
-            {candidate.tags.map((tag) => (
-              <span
-                key={tag.id}
-                className="tag-chip"
-                style={{ backgroundColor: tag.color || undefined }}
-              >
-                {tag.name}
-              </span>
-            ))}
-            {/* Добавление тегов из карточки-пула пока не реализовано → честно disabled */}
-            <button className="add-tag-button" disabled title="Скоро">
-              + Добавить тег
-            </button>
-          </div>
-        )}
+        <div className="cfp-tags-row">
+          <span className="cfp-tags-k">Теги:</span>
+          <CandidateTagPicker candidateId={candidate.id} assigned={candidate.tags ?? []} />
+        </div>
       </div>
 
       {/* История участия в вакансиях */}

@@ -7,7 +7,7 @@ from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...schemas.base import MessageResult
-from ...schemas.candidate import TagOut
+from ...schemas.candidate import TagOut, TagManageOut, TagCreate, TagUpdate
 from ...schemas.settings import (
     ProfileOut,
     ProfileUpdate,
@@ -45,6 +45,7 @@ from ...services.settings import (
     billing,
     default_funnel,
     funnel_templates as funnel_templates_svc,
+    tags as tags_svc,
 )
 from ...services import candidate as candidate_service
 from ...core.errors import FeatureNotImplementedError
@@ -344,15 +345,58 @@ async def get_billing(
     return BillingOut.model_validate(billing_data)
 
 
-# Tags endpoint
-@router.get("/tags", response_model=list[TagOut])
+# Tags endpoints
+@router.get("/tags", response_model=list[TagManageOut])
 async def list_tags(
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    """Get all tags for the company"""
-    tags = await candidate_service.list_company_tags(session, company_id)
-    return [TagOut.model_validate(tag) for tag in tags]
+    """Список тегов компании с числом использований."""
+    return await tags_svc.list_tags_with_counts(session, company_id)
+
+
+@router.post("/tags", response_model=TagManageOut, status_code=201)
+async def create_tag(
+    data: TagCreate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Создать тег."""
+    tag = await tags_svc.create_tag(
+        session, company_id, current_user.id, name=data.name, color=data.color
+    )
+    await session.commit()
+    return await tags_svc.get_tag_manage(session, company_id, tag.id)
+
+
+@router.patch("/tags/{tag_id}", response_model=TagManageOut)
+async def update_tag(
+    tag_id: UUID,
+    data: TagUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Переименовать тег / сменить цвет."""
+    await tags_svc.update_tag(
+        session, company_id, current_user.id, tag_id, name=data.name, color=data.color
+    )
+    await session.commit()
+    return await tags_svc.get_tag_manage(session, company_id, tag_id)
+
+
+@router.delete("/tags/{tag_id}", response_model=MessageResult)
+async def delete_tag(
+    tag_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Удалить тег (снимается со всех кандидатов)."""
+    await tags_svc.delete_tag(session, company_id, current_user.id, tag_id)
+    await session.commit()
+    return {"message": "Тег удалён"}
 
 
 # Company Default Funnel endpoints

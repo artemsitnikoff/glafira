@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import type { ApplicationFilters } from '@/api/hooks/useApplications';
+import { useTags } from '@/api/hooks/useTags';
 
 type Props = {
   onClose: () => void;
@@ -47,11 +48,12 @@ type Draft = {
   ready_relocate: boolean;
   added_period: string; // '' = «Всё время» (неактивно)
   repeat: boolean;
+  tags: string[];       // id выбранных тегов
 };
 
 const EMPTY_DRAFT: Draft = {
   score_min: 0, salary_max: 500, source: [], city: '',
-  messenger: [], ready_relocate: false, added_period: '', repeat: false,
+  messenger: [], ready_relocate: false, added_period: '', repeat: false, tags: [],
 };
 
 const asArray = (v: string | string[] | undefined): string[] =>
@@ -67,6 +69,7 @@ function filtersToDraft(f: ApplicationFilters): Draft {
     ready_relocate: !!f.ready_relocate,
     added_period: f.added_period && f.added_period !== 'all' ? f.added_period : '',
     repeat: !!f.repeat,
+    tags: asArray(f.tags),
   };
 }
 
@@ -85,6 +88,7 @@ function applyDraft(base: ApplicationFilters, d: Draft): ApplicationFilters {
     ready_relocate: d.ready_relocate ? true : undefined,
     added_period: d.added_period ? d.added_period : undefined,
     repeat: d.repeat ? true : undefined,
+    tags: d.tags.length ? d.tags : undefined,
   };
 }
 
@@ -92,6 +96,7 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
   const [openSections, setOpenSections] = useState(new Set(['ai', 'salary', 'source']));
   // Черновик инициализируется из уже применённых фильтров.
   const [draft, setDraft] = useState<Draft>(() => filtersToDraft(filters));
+  const { data: tagsData } = useTags();
 
   const toggleSection = (id: string) => {
     setOpenSections(prev => {
@@ -101,7 +106,7 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
     });
   };
 
-  const toggleInArray = (key: 'source' | 'messenger', id: string) => {
+  const toggleInArray = (key: 'source' | 'messenger' | 'tags', id: string) => {
     setDraft(d => {
       const arr = d[key];
       return { ...d, [key]: arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id] };
@@ -116,7 +121,8 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
     draft.messenger.length +
     (draft.ready_relocate ? 1 : 0) +
     (draft.added_period ? 1 : 0) +
-    (draft.repeat ? 1 : 0);
+    (draft.repeat ? 1 : 0) +
+    draft.tags.length;
 
   const apply = () => { onFiltersChange(applyDraft(filters, draft)); onClose(); };
   const resetAll = () => { onFiltersChange(applyDraft(filters, EMPTY_DRAFT)); onClose(); };
@@ -222,6 +228,22 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
               <span>Только повторно откликнувшиеся</span>
             </label>
           </FilterSection>
+
+          {tagsData && tagsData.length > 0 && (
+            <FilterSection title="Теги" count={draft.tags.length} open={openSections.has('tags')} onToggle={() => toggleSection('tags')}>
+              <div className="fdr-chip-row">
+                {tagsData.map(tag => (
+                  <button
+                    key={tag.id}
+                    className={`filter-chip ${draft.tags.includes(tag.id) ? 'active' : ''}`}
+                    onClick={() => toggleInArray('tags', tag.id)}
+                  >
+                    {tag.name}
+                  </button>
+                ))}
+              </div>
+            </FilterSection>
+          )}
         </div>
 
         <div className="fdr-foot">

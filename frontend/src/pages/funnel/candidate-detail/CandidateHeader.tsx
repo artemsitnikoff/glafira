@@ -6,6 +6,7 @@ import { MessIconRound } from '@/components/ui/MessIconRound';
 import { messengerChannel } from '@/lib/messengers';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
 import { PdnBadge } from '@/components/PdnBadge';
+import { CandidateTagPicker } from '@/components/CandidateTagPicker';
 
 type Props = {
   candidateId: string | null | undefined;
@@ -114,7 +115,9 @@ export function CandidateHeader({ candidateId, application }: Props) {
             <span className="cd-salary-label">ожидания</span>
           </div>
           <div className="cd-tags-row">
-            <button className="tag-add">+ Добавить тег</button>
+            {candidateId && (
+              <CandidateTagPicker candidateId={candidateId} assigned={candidate.tags ?? []} />
+            )}
           </div>
         </div>
 

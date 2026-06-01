@@ -56,6 +56,7 @@ export default function VacancyDetailPage() {
     ready_relocate: searchParams.get('ready_relocate') === 'true' || undefined,
     added_period: searchParams.get('added_period') || undefined,
     repeat: searchParams.get('repeat') === 'true' || undefined,
+    tags: searchParams.getAll('tags').length ? searchParams.getAll('tags') : undefined,
     sort: searchParams.get('sort') || 'ai_score', // дефолт — AI-скоринг (совпадает с подсветкой колонки)
     order: (searchParams.get('order') as 'asc' | 'desc') || 'desc',
   };
@@ -70,7 +71,8 @@ export default function VacancyDetailPage() {
     arrLen(filters.messenger) +
     (filters.ready_relocate ? 1 : 0) +
     (filters.added_period ? 1 : 0) +
-    (filters.repeat ? 1 : 0);
+    (filters.repeat ? 1 : 0) +
+    arrLen(filters.tags);
 
   // Get applications for finding current candidate's application
   const { data: applicationsData } = useApplications(id!, filters);
@@ -101,7 +103,7 @@ export default function VacancyDetailPage() {
 
     // Чистим ВСЕ фильтр-ключи (вызыватели передают полный объект filters).
     ['stage', 'search', 'score_min', 'salary_max', 'source', 'city', 'messenger',
-     'ready_relocate', 'added_period', 'repeat', 'sort', 'order'].forEach(k => params.delete(k));
+     'ready_relocate', 'added_period', 'repeat', 'tags', 'sort', 'order'].forEach(k => params.delete(k));
 
     // Пишем заново; массивы (source/messenger) — несколькими значениями.
     const setParam = (key: string, value: unknown) => {

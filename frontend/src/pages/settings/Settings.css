@@ -640,7 +640,7 @@
 /* ---------------- Tags ---------------- */
 .tags-table {
   display: grid;
-  grid-template-columns: minmax(180px, 1.6fr) 2fr 110px 110px 1fr 40px;
+  grid-template-columns: minmax(200px, 2fr) 120px 130px 110px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-1);
   border-radius: 8px;
@@ -667,8 +667,9 @@
 .tt-row:hover > div { background: var(--bg-3-hover); }
 .tt-desc { color: var(--fg-2); font-size: 12px; }
 .tt-desc .muted { color: var(--ark-gray-400); }
-.tt-num { font-weight: 600; }
-.tt-num, .tt-row > div:nth-child(3) { justify-content: flex-end; }
+.tt-num { font-weight: 600; justify-content: flex-end; }
+.tt-empty { padding: 22px 14px; color: var(--fg-3); font-size: 13px; grid-column: 1 / -1; }
+.tt-actions { gap: 4px; justify-content: flex-end; }
 
 .tag-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -685,6 +686,30 @@
 .palette-row {
   display: flex; flex-wrap: wrap; gap: 10px;
 }
+
+/* Создание/редактирование тега (инлайн-строка) */
+.tag-edit-row {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--bg-panel-2);
+}
+.tag-edit-input {
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--border-1); border-radius: 6px;
+  background: var(--bg-1); color: var(--fg-1);
+  font-family: inherit; font-size: 13px; min-width: 200px;
+}
+.tag-edit-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(42,138,240,.18); }
+.tag-palette { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tag-swatch {
+  width: 22px; height: 22px; border-radius: 6px;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.tag-swatch:hover { transform: scale(1.1); }
+.tag-swatch.on { border-color: var(--fg-1); }
 
 /* ---------------- Integrations ---------------- */
 .integ-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }

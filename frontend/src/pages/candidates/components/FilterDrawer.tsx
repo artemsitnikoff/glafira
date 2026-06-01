@@ -363,8 +363,8 @@ export function FilterDrawer({ onClose }: FilterDrawerProps) {
                 {tagsData.map(tag => (
                   <button
                     key={tag.id}
-                    className={`filter-chip ${currentFilters.tags.has(tag.name) ? 'active' : ''}`}
-                    onClick={() => toggleSetFilter('tags', tag.name)}
+                    className={`filter-chip ${currentFilters.tags.has(tag.id) ? 'active' : ''}`}
+                    onClick={() => toggleSetFilter('tags', tag.id)}
                   >
                     {tag.name}
                   </button>
