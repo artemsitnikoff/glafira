@@ -65,7 +65,7 @@ export default function VacancyDetailPage() {
   const arrLen = (v: string | string[] | undefined) => (v ? (Array.isArray(v) ? v.length : 1) : 0);
   const activeFilterCount =
     (filters.score_min ? 1 : 0) +
-    (filters.salary_max ? 1 : 0) +
+    (filters.salary_max && filters.salary_max < 500000 ? 1 : 0) + // Учитываем, что salary_max теперь в рублях
     arrLen(filters.source) +
     (filters.city ? 1 : 0) +
     arrLen(filters.messenger) +

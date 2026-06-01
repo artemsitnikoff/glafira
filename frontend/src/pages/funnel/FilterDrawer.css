@@ -95,6 +95,10 @@
 .fdr-slider-val {
   min-width: 56px; text-align: right;
   font-size: 13px; font-weight: 600; color: var(--fg-1);
+  background: var(--bg-1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-1);
 }
 .fdr-tick-row {
   display: flex; justify-content: space-between;
@@ -146,12 +150,19 @@
   cursor: pointer;
   transition: all var(--dur-fast) var(--ease-out);
 }
-.filter-chip:hover { border-color: var(--ark-gray-400); }
+.filter-chip:hover {
+  border-color: var(--accent);
+  background: var(--bg-3-hover);
+}
 .filter-chip.active {
   background: var(--ark-blue-50);
   border-color: var(--ark-blue-100);
   color: var(--accent);
   font-weight: 500;
+}
+.filter-chip.active:hover {
+  background: var(--ark-blue-50);
+  border-color: var(--accent);
 }
 
 /* Бейдж количества активных фильтров на кнопке «Фильтры» */

@@ -62,7 +62,7 @@ const asArray = (v: string | string[] | undefined): string[] =>
 function filtersToDraft(f: ApplicationFilters): Draft {
   return {
     score_min: f.score_min ?? 0,
-    salary_max: f.salary_max ?? 500,
+    salary_max: f.salary_max ? f.salary_max / 1000 : 500, // Конвертация рублей в тысячи для UI
     source: asArray(f.source),
     city: typeof f.city === 'string' ? f.city : '',
     messenger: asArray(f.messenger),
@@ -81,7 +81,7 @@ function applyDraft(base: ApplicationFilters, d: Draft): ApplicationFilters {
     sort: base.sort,
     order: base.order,
     score_min: d.score_min > 0 ? d.score_min : undefined,
-    salary_max: d.salary_max < 500 ? d.salary_max : undefined,
+    salary_max: d.salary_max < 500 ? d.salary_max * 1000 : undefined, // Конвертация тысяч в рубли для API
     source: d.source.length ? d.source : undefined,
     city: d.city.trim() ? d.city.trim() : undefined,
     messenger: d.messenger.length ? d.messenger : undefined,
