@@ -87,7 +87,7 @@
 }
 .fdr-chev { color: var(--fg-3); transition: transform var(--dur-fast) var(--ease-out); }
 .fdr-chev.rot { transform: rotate(180deg); }
-.fdr-section-body { padding: 0 16px 16px; }
+.fdr-section-body { padding: 16px; }
 
 /* Slider */
 .fdr-slider-row { display: flex; align-items: center; gap: 12px; }
