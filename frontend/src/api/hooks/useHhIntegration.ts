@@ -3,7 +3,10 @@ import { api } from '../client';
 
 // Локальные типы для интеграции с hh.ru (openapi не регенерён)
 export interface HhStatus {
+  configured: boolean;
   connected: boolean;
+  redirect_uri?: string;
+  client_id_masked?: string;
   hh_employer_id?: string;
   connected_at?: string;
   expires_at?: string;

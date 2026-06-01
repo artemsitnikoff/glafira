@@ -5,7 +5,31 @@ import type { components } from '@/api/types';
 
 type MessageResult = components['schemas']['MessageResult'];
 
+// Локальные типы (openapi не регенерён)
+interface HhConfigRequest {
+  client_id: string;
+  client_secret: string;
+  redirect_uri: string;
+}
+
+interface HhConfigResponse {
+  authorize_url: string;
+}
+
 // Интеграции с hh.ru
+export function useHhSaveConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: HhConfigRequest): Promise<HhConfigResponse> => {
+      const response = await api.post('/integrations/hh/config', data);
+      return response.data as HhConfigResponse;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'hh', 'status'] });
+    },
+  });
+}
+
 export function useHhAuthorize() {
   return useMutation({
     mutationFn: async (): Promise<HhAuthorizeResponse> => {

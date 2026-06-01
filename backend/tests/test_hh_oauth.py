@@ -28,18 +28,170 @@ def mock_hh_config(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_start_oauth_creates_state_and_returns_url(db_session, admin_user, mock_hh_config):
-    """Тест создания OAuth state и генерации authorize URL"""
+async def test_save_config_stores_encrypted_secret(db_session, admin_user, fernet_key):
+    """Тест сохранения конфигурации с шифрованием client_secret"""
+    # Сохраняем конфигурацию
+    integration = await hh_service.save_config(
+        db_session,
+        admin_user.company_id,
+        admin_user.id,
+        "test_client_id",
+        "test_client_secret",
+        "https://test.com/callback"
+    )
+
+    # Проверяем что конфигурация записана
+    assert integration.client_id == "test_client_id"
+    assert integration.redirect_uri == "https://test.com/callback"
+    assert integration.client_secret != "test_client_secret"  # Должен быть зашифрован
+
+    # Проверяем что client_secret правильно расшифровывается
+    decrypted_secret = decrypt_text(integration.client_secret)
+    assert decrypted_secret == "test_client_secret"
+
+    # Проверяем что токены пока null
+    assert integration.access_token is None
+    assert integration.refresh_token is None
+    assert integration.expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_save_config_updates_existing_and_clears_tokens_on_client_id_change(db_session, admin_user, fernet_key):
+    """Тест обновления конфигурации с обнулением токенов при смене client_id"""
+    # Создаем интеграцию с токенами
+    integration = HhIntegration(
+        company_id=admin_user.company_id,
+        client_id="old_client_id",
+        client_secret=encrypt_text("old_client_secret"),
+        redirect_uri="https://old.com/callback",
+        access_token=encrypt_text("access_token"),
+        refresh_token=encrypt_text("refresh_token"),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        hh_employer_id="123456"
+    )
+    db_session.add(integration)
+    await db_session.commit()
+    old_id = integration.id
+
+    # Обновляем конфигурацию с новым client_id
+    updated_integration = await hh_service.save_config(
+        db_session,
+        admin_user.company_id,
+        admin_user.id,
+        "new_client_id",  # Изменился
+        "new_client_secret",
+        "https://new.com/callback"
+    )
+
+    # Проверяем что это та же запись
+    assert updated_integration.id == old_id
+
+    # Проверяем что конфигурация обновилась
+    assert updated_integration.client_id == "new_client_id"
+    assert updated_integration.redirect_uri == "https://new.com/callback"
+    decrypted_secret = decrypt_text(updated_integration.client_secret)
+    assert decrypted_secret == "new_client_secret"
+
+    # Проверяем что токены обнулены (из-за смены client_id)
+    assert updated_integration.access_token is None
+    assert updated_integration.refresh_token is None
+    assert updated_integration.expires_at is None
+    assert updated_integration.hh_employer_id is None
+
+
+@pytest.mark.asyncio
+async def test_save_config_updates_without_clearing_tokens_when_client_id_same(db_session, admin_user, fernet_key):
+    """Тест обновления конфигурации без обнуления токенов если client_id не изменился"""
+    # Создаем интеграцию с токенами
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    integration = HhIntegration(
+        company_id=admin_user.company_id,
+        client_id="same_client_id",
+        client_secret=encrypt_text("old_client_secret"),
+        redirect_uri="https://old.com/callback",
+        access_token=encrypt_text("access_token"),
+        refresh_token=encrypt_text("refresh_token"),
+        expires_at=expires_at,
+        hh_employer_id="123456"
+    )
+    db_session.add(integration)
+    await db_session.commit()
+
+    # Обновляем конфигурацию с тем же client_id
+    updated_integration = await hh_service.save_config(
+        db_session,
+        admin_user.company_id,
+        admin_user.id,
+        "same_client_id",  # Не изменился
+        "new_client_secret",
+        "https://new.com/callback"
+    )
+
+    # Проверяем что конфигурация обновилась
+    assert updated_integration.client_id == "same_client_id"
+    assert updated_integration.redirect_uri == "https://new.com/callback"
+    decrypted_secret = decrypt_text(updated_integration.client_secret)
+    assert decrypted_secret == "new_client_secret"
+
+    # Проверяем что токены ОСТАЛИСЬ (client_id не изменился)
+    assert updated_integration.access_token is not None
+    assert updated_integration.refresh_token is not None
+    assert updated_integration.expires_at == expires_at
+    assert updated_integration.hh_employer_id == "123456"
+
+
+@pytest.mark.asyncio
+async def test_save_config_validation_errors(db_session, admin_user):
+    """Тест валидации при сохранении конфигурации"""
+    # Пустой client_id
+    with pytest.raises(ValidationError, match="Все поля обязательны"):
+        await hh_service.save_config(
+            db_session, admin_user.company_id, admin_user.id, "", "secret", "uri"
+        )
+
+    # Пустой client_secret
+    with pytest.raises(ValidationError, match="Все поля обязательны"):
+        await hh_service.save_config(
+            db_session, admin_user.company_id, admin_user.id, "id", "", "uri"
+        )
+
+    # Пустой redirect_uri
+    with pytest.raises(ValidationError, match="Все поля обязательны"):
+        await hh_service.save_config(
+            db_session, admin_user.company_id, admin_user.id, "id", "secret", ""
+        )
+
+
+@pytest.mark.asyncio
+async def test_start_oauth_without_config_raises_error(db_session, admin_user):
+    """Тест ошибки при start_oauth без сохранённой конфигурации"""
+    with pytest.raises(ValidationError, match="Сначала сохраните настройки hh.ru"):
+        await hh_service.start_oauth(db_session, admin_user.company_id, admin_user.id)
+
+
+@pytest.mark.asyncio
+async def test_start_oauth_with_config_creates_state_and_returns_url(db_session, admin_user, fernet_key):
+    """Тест создания OAuth state и генерации authorize URL с сохранённой конфигурацией"""
+    # Сначала сохраняем конфигурацию
+    await hh_service.save_config(
+        db_session,
+        admin_user.company_id,
+        admin_user.id,
+        "test_client_id",
+        "test_client_secret",
+        "https://test.com/callback"
+    )
+
     # Мокаем hh клиент
     with patch('app.services.integrations.hh.service.hh_client') as mock_client:
-        mock_client.build_authorize_url.return_value = "https://hh.ru/oauth/authorize?client_id=test&state=abc123"
+        mock_client.build_authorize_url.return_value = "https://hh.ru/oauth/authorize?client_id=test_client_id&state=abc123"
 
         # Вызываем start_oauth
         authorize_url = await hh_service.start_oauth(db_session, admin_user.company_id, admin_user.id)
 
         # Проверяем что URL сгенерирован
         assert "https://hh.ru/oauth/authorize" in authorize_url
-        assert "client_id=test" in authorize_url
+        assert "client_id=test_client_id" in authorize_url
         assert "state=" in authorize_url
 
         # Проверяем что state создан в БД
@@ -52,15 +204,27 @@ async def test_start_oauth_creates_state_and_returns_url(db_session, admin_user,
         assert oauth_state.user_id == admin_user.id
         assert oauth_state.expires_at > datetime.now(timezone.utc)
 
-        # Проверяем что hh_client.build_authorize_url был вызван с правильным state
+        # Проверяем что hh_client.build_authorize_url был вызван с правильными параметрами
         mock_client.build_authorize_url.assert_called_once()
-        called_state = mock_client.build_authorize_url.call_args[0][0]
-        assert called_state == oauth_state.state
+        call_args = mock_client.build_authorize_url.call_args[0]
+        assert call_args[0] == oauth_state.state  # state
+        assert call_args[1] == "test_client_id"   # client_id
+        assert call_args[2] == "https://test.com/callback"  # redirect_uri
 
 
 @pytest.mark.asyncio
-async def test_complete_oauth_creates_integration(db_session, admin_user, fernet_key, mock_hh_config):
-    """Тест успешного завершения OAuth и создания интеграции"""
+async def test_complete_oauth_creates_integration(db_session, admin_user, fernet_key):
+    """Тест успешного завершения OAuth и обновления интеграции"""
+    # Сначала сохраняем конфигурацию
+    await hh_service.save_config(
+        db_session,
+        admin_user.company_id,
+        admin_user.id,
+        "test_client_id",
+        "test_client_secret",
+        "https://test.com/callback"
+    )
+
     # Создаем state запись
     from sqlalchemy import select
     oauth_state = HhOauthState(
@@ -114,8 +278,10 @@ async def test_complete_oauth_creates_integration(db_session, admin_user, fernet
         deleted_state = result.scalar_one_or_none()
         assert deleted_state is None
 
-        # Проверяем что hh API были вызваны
-        mock_client.exchange_code.assert_called_once_with("test_code")
+        # Проверяем что hh API были вызваны с правильными параметрами
+        mock_client.exchange_code.assert_called_once_with(
+            "test_code", "test_client_id", "test_client_secret", "https://test.com/callback"
+        )
         mock_client.get_me.assert_called_once_with("test_access_token")
 
 
@@ -165,11 +331,14 @@ async def test_get_valid_access_token_returns_current_when_valid(db_session, adm
 
 
 @pytest.mark.asyncio
-async def test_get_valid_access_token_refreshes_when_expired(db_session, admin_user, fernet_key, mock_hh_config):
+async def test_get_valid_access_token_refreshes_when_expired(db_session, admin_user, fernet_key):
     """Тест обновления токена, если он истек или истекает скоро"""
-    # Создаем интеграцию с истекающим токеном
+    # Создаем интеграцию с истекающим токеном и конфигурацией
     integration = HhIntegration(
         company_id=admin_user.company_id,
+        client_id="test_client_id",
+        client_secret=encrypt_text("test_client_secret"),
+        redirect_uri="https://test.com/callback",
         access_token=encrypt_text("old_access_token"),
         refresh_token=encrypt_text("old_refresh_token"),
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=2),  # Истечет через 2 минуты (< 5 минут)
@@ -195,8 +364,10 @@ async def test_get_valid_access_token_refreshes_when_expired(db_session, admin_u
         # Должен вернуть новый токен
         assert token == "new_access_token"
 
-        # Проверяем что refresh был вызван с правильным refresh_token
-        mock_client.refresh_tokens.assert_called_once_with("old_refresh_token")
+        # Проверяем что refresh был вызван с правильными параметрами
+        mock_client.refresh_tokens.assert_called_once_with(
+            "old_refresh_token", "test_client_id", "test_client_secret"
+        )
 
         # Проверяем что интеграция обновилась
         await db_session.refresh(integration)
@@ -205,11 +376,14 @@ async def test_get_valid_access_token_refreshes_when_expired(db_session, admin_u
 
 
 @pytest.mark.asyncio
-async def test_disconnect_removes_integration(db_session, admin_user, fernet_key):
-    """Тест отключения интеграции"""
-    # Создаем интеграцию
+async def test_disconnect_nullifies_tokens_but_keeps_config(db_session, admin_user, fernet_key):
+    """Тест отключения интеграции (обнуляет токены, но оставляет config)"""
+    # Создаем интеграцию с конфигурацией и токенами
     integration = HhIntegration(
         company_id=admin_user.company_id,
+        client_id="test_client_id",
+        client_secret=encrypt_text("test_client_secret"),
+        redirect_uri="https://test.com/callback",
         access_token=encrypt_text("access_token"),
         refresh_token=encrypt_text("refresh_token"),
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
@@ -221,13 +395,24 @@ async def test_disconnect_removes_integration(db_session, admin_user, fernet_key
     # Отключаем
     await hh_service.disconnect(db_session, admin_user.company_id, admin_user.id)
 
-    # Проверяем что интеграция удалена
+    # Проверяем что интеграция осталась, но токены обнулены
     from sqlalchemy import select
     result = await db_session.execute(
         select(HhIntegration).where(HhIntegration.company_id == admin_user.company_id)
     )
-    deleted_integration = result.scalar_one_or_none()
-    assert deleted_integration is None
+    updated_integration = result.scalar_one_or_none()
+    assert updated_integration is not None
+
+    # Конфигурация должна остаться
+    assert updated_integration.client_id == "test_client_id"
+    assert updated_integration.client_secret is not None  # Зашифровано
+    assert updated_integration.redirect_uri == "https://test.com/callback"
+
+    # Токены должны быть обнулены
+    assert updated_integration.access_token is None
+    assert updated_integration.refresh_token is None
+    assert updated_integration.expires_at is None
+    assert updated_integration.hh_employer_id is None
 
 
 @pytest.mark.asyncio
@@ -238,27 +423,30 @@ async def test_disconnect_not_found_raises_error(db_session, admin_user):
 
 
 @pytest.mark.asyncio
-async def test_get_status_returns_connected_false_when_no_integration(db_session, admin_user):
+async def test_get_status_returns_not_configured_when_no_integration(db_session, admin_user):
     """Тест статуса когда интеграции нет"""
     status = await hh_service.get_status(db_session, admin_user.company_id)
 
-    assert status == {"connected": False}
+    expected = {
+        "configured": False,
+        "connected": False,
+        "redirect_uri": None,
+        "client_id_masked": None,
+        "hh_employer_id": None,
+        "expires_at": None
+    }
+    assert status == expected
 
 
 @pytest.mark.asyncio
-async def test_get_status_returns_full_info_when_connected(db_session, admin_user, fernet_key):
-    """Тест статуса когда интеграция подключена"""
-    # Создаем интеграцию
-    created_at = datetime.now(timezone.utc)
-    expires_at = created_at + timedelta(hours=1)
-
+async def test_get_status_configured_but_not_connected(db_session, admin_user, fernet_key):
+    """Тест статуса когда конфигурация сохранена, но не подключено"""
+    # Создаем интеграцию только с конфигурацией
     integration = HhIntegration(
         company_id=admin_user.company_id,
-        access_token=encrypt_text("access_token"),
-        refresh_token=encrypt_text("refresh_token"),
-        expires_at=expires_at,
-        hh_employer_id="123456",
-        created_at=created_at
+        client_id="test_client_id_long",
+        client_secret=encrypt_text("test_client_secret"),
+        redirect_uri="https://test.com/callback"
     )
     db_session.add(integration)
     await db_session.commit()
@@ -266,9 +454,65 @@ async def test_get_status_returns_full_info_when_connected(db_session, admin_use
     # Получаем статус
     status = await hh_service.get_status(db_session, admin_user.company_id)
 
-    assert status == {
+    expected = {
+        "configured": True,
+        "connected": False,
+        "redirect_uri": "https://test.com/callback",
+        "client_id_masked": "••••long",
+        "hh_employer_id": None,
+        "expires_at": None
+    }
+    assert status == expected
+
+
+@pytest.mark.asyncio
+async def test_get_status_configured_and_connected(db_session, admin_user, fernet_key):
+    """Тест статуса когда интеграция полностью настроена и подключена"""
+    # Создаем интеграцию с конфигурацией и токенами
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    integration = HhIntegration(
+        company_id=admin_user.company_id,
+        client_id="test_client_id_short",
+        client_secret=encrypt_text("test_client_secret"),
+        redirect_uri="https://test.com/callback",
+        access_token=encrypt_text("access_token"),
+        refresh_token=encrypt_text("refresh_token"),
+        expires_at=expires_at,
+        hh_employer_id="123456"
+    )
+    db_session.add(integration)
+    await db_session.commit()
+
+    # Получаем статус
+    status = await hh_service.get_status(db_session, admin_user.company_id)
+
+    expected = {
+        "configured": True,
         "connected": True,
+        "redirect_uri": "https://test.com/callback",
+        "client_id_masked": "••••hort",
         "hh_employer_id": "123456",
-        "connected_at": created_at,
         "expires_at": expires_at
     }
+    assert status == expected
+
+
+@pytest.mark.asyncio
+async def test_get_status_short_client_id_masking(db_session, admin_user, fernet_key):
+    """Тест маскирования короткого client_id"""
+    # Создаем интеграцию с коротким client_id
+    integration = HhIntegration(
+        company_id=admin_user.company_id,
+        client_id="abc",  # Короче 4 символов
+        client_secret=encrypt_text("test_client_secret"),
+        redirect_uri="https://test.com/callback"
+    )
+    db_session.add(integration)
+    await db_session.commit()
+
+    # Получаем статус
+    status = await hh_service.get_status(db_session, admin_user.company_id)
+
+    # Для коротких ID просто ••••
+    assert status["client_id_masked"] == "••••"

@@ -23,6 +23,79 @@ async def get_integration(session: AsyncSession, company_id: UUID) -> Optional[H
     return result.scalar_one_or_none()
 
 
+async def save_config(session: AsyncSession, company_id: UUID, user_id: UUID, client_id: str, client_secret: str, redirect_uri: str) -> HhIntegration:
+    """
+    Сохраняет конфигурацию hh.ru для компании
+
+    Args:
+        session: DB session
+        company_id: ID компании
+        user_id: ID пользователя
+        client_id: ID приложения hh.ru
+        client_secret: секрет приложения hh.ru
+        redirect_uri: redirect URI приложения hh.ru
+
+    Returns:
+        HhIntegration: созданная/обновленная интеграция
+
+    Raises:
+        ValidationError: при пустых credentials
+    """
+    # Валидация
+    if not client_id or not client_secret or not redirect_uri:
+        raise ValidationError("Все поля обязательны: client_id, client_secret, redirect_uri")
+
+    # Проверяем существующую интеграцию
+    existing = await get_integration(session, company_id)
+
+    # Шифруем client_secret
+    encrypted_secret = encrypt_text(client_secret)
+
+    if existing:
+        # Обновляем существующую конфигурацию
+        old_client_id = existing.client_id
+        existing.client_id = client_id
+        existing.client_secret = encrypted_secret
+        existing.redirect_uri = redirect_uri
+
+        # Если client_id изменился, обнуляем токены (токены от другого приложения)
+        if old_client_id != client_id:
+            existing.access_token = None
+            existing.refresh_token = None
+            existing.expires_at = None
+            existing.hh_employer_id = None
+
+        integration = existing
+    else:
+        # Создаем новую
+        integration = HhIntegration(
+            company_id=company_id,
+            client_id=client_id,
+            client_secret=encrypted_secret,
+            redirect_uri=redirect_uri
+        )
+        session.add(integration)
+
+    await session.commit()
+
+    # Записываем в аудит
+    await audit(
+        session,
+        action="hh_config_saved",
+        entity_type="hh_integration",
+        entity_id=integration.id,
+        after={
+            "client_id": client_id,
+            "redirect_uri": redirect_uri
+        },
+        actor_user_id=user_id,
+        company_id=company_id
+    )
+    await session.commit()
+
+    return integration
+
+
 async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) -> str:
     """
     Начинает OAuth flow, создает state запись и возвращает authorize URL
@@ -36,8 +109,13 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
         str: URL для редиректа в браузер
 
     Raises:
-        ValidationError: при ошибке конфигурации
+        ValidationError: при отсутствии конфигурации
     """
+    # Читаем конфигурацию из БД
+    integration = await get_integration(session, company_id)
+    if not integration or not integration.client_id or not integration.redirect_uri:
+        raise ValidationError("Сначала сохраните настройки hh.ru")
+
     # Генерируем уникальный state
     state = secrets.token_urlsafe(32)
 
@@ -54,8 +132,8 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
     session.add(oauth_state)
     await session.commit()
 
-    # Строим authorize URL
-    authorize_url = hh_client.build_authorize_url(state)
+    # Строим authorize URL с client_id и redirect_uri из БД
+    authorize_url = hh_client.build_authorize_url(state, integration.client_id, integration.redirect_uri)
 
     return authorize_url
 
@@ -95,8 +173,21 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
     user_id = oauth_state.user_id
 
     try:
-        # Обмениваем код на токены
-        token_data = await hh_client.exchange_code(code)
+        # Читаем конфигурацию из БД
+        integration_config = await get_integration(session, company_id)
+        if not integration_config or not integration_config.client_id or not integration_config.client_secret or not integration_config.redirect_uri:
+            raise ValidationError("Конфигурация hh.ru не найдена")
+
+        # Расшифровываем client_secret
+        client_secret = decrypt_text(integration_config.client_secret)
+
+        # Обмениваем код на токены с credentials из БД
+        token_data = await hh_client.exchange_code(
+            code,
+            integration_config.client_id,
+            client_secret,
+            integration_config.redirect_uri
+        )
 
         # Получаем информацию о пользователе
         me_data = await hh_client.get_me(token_data["access_token"])
@@ -113,28 +204,18 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
         encrypted_access = encrypt_text(token_data["access_token"])
         encrypted_refresh = encrypt_text(token_data["refresh_token"])
 
-        # Проверяем существующую интеграцию
-        existing = await get_integration(session, company_id)
-
-        if existing:
-            # Обновляем существующую
-            existing.access_token = encrypted_access
-            existing.refresh_token = encrypted_refresh
-            existing.expires_at = expires_at
-            existing.hh_employer_id = hh_employer_id
-            existing.connected_by_user_id = user_id
-            integration = existing
+        # Используем существующую интеграцию (которая уже есть с конфигом)
+        if integration_config:
+            # Обновляем существующую (токены + employer_id)
+            integration_config.access_token = encrypted_access
+            integration_config.refresh_token = encrypted_refresh
+            integration_config.expires_at = expires_at
+            integration_config.hh_employer_id = hh_employer_id
+            integration_config.connected_by_user_id = user_id
+            integration = integration_config
         else:
-            # Создаем новую
-            integration = HhIntegration(
-                company_id=company_id,
-                access_token=encrypted_access,
-                refresh_token=encrypted_refresh,
-                expires_at=expires_at,
-                hh_employer_id=hh_employer_id,
-                connected_by_user_id=user_id
-            )
-            session.add(integration)
+            # Не должно происходить, так как мы проверили выше
+            raise ValidationError("Конфигурация hh.ru исчезла во время OAuth")
 
         # Удаляем использованный state
         await session.delete(oauth_state)
@@ -166,7 +247,7 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
 
 async def disconnect(session: AsyncSession, company_id: UUID, user_id: UUID):
     """
-    Отключает интеграцию hh.ru
+    Отключает интеграцию hh.ru (обнуляет токены, оставляет config)
 
     Args:
         session: DB session
@@ -181,9 +262,12 @@ async def disconnect(session: AsyncSession, company_id: UUID, user_id: UUID):
     if not integration:
         raise NotFoundError("Интеграция hh.ru не найдена")
 
-    integration_id = integration.id
+    # Обнуляем токены и employer_id, но оставляем config (client_id, client_secret, redirect_uri)
+    integration.access_token = None
+    integration.refresh_token = None
+    integration.expires_at = None
+    integration.hh_employer_id = None
 
-    await session.delete(integration)
     await session.commit()
 
     # Записываем в аудит
@@ -191,11 +275,11 @@ async def disconnect(session: AsyncSession, company_id: UUID, user_id: UUID):
         session,
         action="hh_disconnected",
         entity_type="hh_integration",
-        entity_id=integration_id,
+        entity_id=integration.id,
         actor_user_id=user_id,
         company_id=company_id
     )
-    await session.commit()  # audit() после delete-commit — персистим audit-запись
+    await session.commit()  # audit() после обновления — персистим audit-запись
 
 
 async def get_valid_access_token(session: AsyncSession, company_id: UUID) -> str:
@@ -225,8 +309,18 @@ async def get_valid_access_token(session: AsyncSession, company_id: UUID) -> str
     if now >= expires_soon:
         # Токен истек или истечет скоро, обновляем
         try:
+            # Проверяем что у нас есть client credentials для refresh
+            if not integration.client_id or not integration.client_secret:
+                raise ValidationError("Отсутствуют client credentials для обновления токенов")
+
             current_refresh = decrypt_text(integration.refresh_token)
-            token_data = await hh_client.refresh_tokens(current_refresh)
+            client_secret = decrypt_text(integration.client_secret)
+
+            token_data = await hh_client.refresh_tokens(
+                current_refresh,
+                integration.client_id,
+                client_secret
+            )
 
             # Обновляем токены
             integration.access_token = encrypt_text(token_data["access_token"])
@@ -259,12 +353,35 @@ async def get_status(session: AsyncSession, company_id: UUID) -> dict:
     integration = await get_integration(session, company_id)
 
     if not integration:
-        return {"connected": False}
+        return {
+            "configured": False,
+            "connected": False,
+            "redirect_uri": None,
+            "client_id_masked": None,
+            "hh_employer_id": None,
+            "expires_at": None
+        }
+
+    # Проверяем что конфигурация сохранена
+    configured = bool(integration.client_id)
+
+    # Проверяем что есть валидные токены
+    connected = bool(integration.access_token)
+
+    # Маскируем client_id
+    client_id_masked = None
+    if integration.client_id:
+        if len(integration.client_id) > 4:
+            client_id_masked = "••••" + integration.client_id[-4:]
+        else:
+            client_id_masked = "••••"
 
     return {
-        "connected": True,
+        "configured": configured,
+        "connected": connected,
+        "redirect_uri": integration.redirect_uri,
+        "client_id_masked": client_id_masked,
         "hh_employer_id": integration.hh_employer_id,
-        "connected_at": integration.created_at,
         "expires_at": integration.expires_at
     }
 

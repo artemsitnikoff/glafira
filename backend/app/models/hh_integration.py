@@ -23,9 +23,12 @@ class HhIntegration(Base, TimestampMixin, CompanyMixin):
         nullable=False,
         server_default=text("'00000000-0000-0000-0000-000000000001'")
     )
-    access_token: Mapped[str] = mapped_column(String, nullable=False)
-    refresh_token: Mapped[str] = mapped_column(String, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    client_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    client_secret: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    redirect_uri: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    access_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     hh_employer_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     connected_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),

@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from ...deps import get_current_user
 from ...core.errors import ValidationError
@@ -11,7 +12,38 @@ from ...models import User
 from ...services.integrations.hh import service as hh_service
 from ...config import settings
 
+
+class HhConfigRequest(BaseModel):
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+
 router = APIRouter()
+
+
+@router.post("/hh/config")
+async def save_hh_config(
+    data: HhConfigRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Сохранить конфигурацию hh.ru и начать OAuth"""
+    # Сохраняем конфигурацию
+    await hh_service.save_config(
+        session,
+        current_user.company_id,
+        current_user.id,
+        data.client_id,
+        data.client_secret,
+        data.redirect_uri
+    )
+
+    # Сразу начинаем OAuth flow
+    authorize_url = await hh_service.start_oauth(
+        session, current_user.company_id, current_user.id
+    )
+
+    return {"authorize_url": authorize_url}
 
 
 @router.get("/hh/status")

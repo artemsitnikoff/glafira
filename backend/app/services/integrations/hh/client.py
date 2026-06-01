@@ -23,22 +23,25 @@ def _get_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout, headers=headers)
 
 
-def _check_hh_config():
-    """Проверяет конфигурацию hh.ru интеграции"""
-    if not settings.HH_CLIENT_ID:
-        raise ValidationError("hh.ru не настроен: отсутствует HH_CLIENT_ID")
-    if not settings.HH_CLIENT_SECRET:
-        raise ValidationError("hh.ru не настроен: отсутствует HH_CLIENT_SECRET")
-    if not settings.HH_REDIRECT_URI:
-        raise ValidationError("hh.ru не настроен: отсутствует HH_REDIRECT_URI")
+def _check_credentials(client_id: str, client_secret: str, redirect_uri: str):
+    """Проверяет переданные credentials"""
+    if not client_id:
+        raise ValidationError("hh.ru не настроен: отсутствует client_id")
+    if not client_secret:
+        raise ValidationError("hh.ru не настроен: отсутствует client_secret")
+    if not redirect_uri:
+        raise ValidationError("hh.ru не настроен: отсутствует redirect_uri")
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
     """
     Обменивает authorization_code на токены
 
     Args:
         code: authorization code от hh.ru
+        client_id: ID приложения hh.ru
+        client_secret: секрет приложения hh.ru
+        redirect_uri: redirect URI приложения hh.ru
 
     Returns:
         dict: {access_token, refresh_token, token_type, expires_in}
@@ -46,14 +49,14 @@ async def exchange_code(code: str) -> dict:
     Raises:
         ValidationError: при ошибке API или валидации
     """
-    _check_hh_config()
+    _check_credentials(client_id, client_secret, redirect_uri)
 
     data = {
         "grant_type": "authorization_code",
-        "client_id": settings.HH_CLIENT_ID,
-        "client_secret": settings.HH_CLIENT_SECRET,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "code": code,
-        "redirect_uri": settings.HH_REDIRECT_URI
+        "redirect_uri": redirect_uri
     }
 
     async with _get_client() as client:
@@ -79,12 +82,14 @@ async def exchange_code(code: str) -> dict:
             raise ValidationError(f"Ошибка обмена кода hh.ru: {e}")
 
 
-async def refresh_tokens(refresh_token: str) -> dict:
+async def refresh_tokens(refresh_token: str, client_id: str, client_secret: str) -> dict:
     """
     Обновляет токены через refresh_token
 
     Args:
         refresh_token: refresh token
+        client_id: ID приложения hh.ru
+        client_secret: секрет приложения hh.ru
 
     Returns:
         dict: {access_token, refresh_token, token_type, expires_in}
@@ -92,11 +97,14 @@ async def refresh_tokens(refresh_token: str) -> dict:
     Raises:
         ValidationError: при ошибке API или валидации
     """
-    _check_hh_config()
+    if not client_id or not client_secret:
+        raise ValidationError("hh.ru не настроен: отсутствует client_id или client_secret")
 
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": refresh_token
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret
     }
 
     async with _get_client() as client:
@@ -273,12 +281,14 @@ async def publish_vacancy(access_token: str, payload: dict) -> dict:
             raise ValidationError(f"Ошибка публикации вакансии hh.ru: {e}")
 
 
-def build_authorize_url(state: str) -> str:
+def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
     """
     Строит URL для авторизации через hh.ru
 
     Args:
         state: уникальный state для CSRF защиты
+        client_id: ID приложения hh.ru
+        redirect_uri: redirect URI приложения hh.ru
 
     Returns:
         str: полный URL для редиректа в браузер
@@ -286,12 +296,13 @@ def build_authorize_url(state: str) -> str:
     Raises:
         ValidationError: если нет конфигурации
     """
-    _check_hh_config()
+    if not client_id or not redirect_uri:
+        raise ValidationError("hh.ru не настроен: отсутствует client_id или redirect_uri")
 
     params = {
         "response_type": "code",
-        "client_id": settings.HH_CLIENT_ID,
-        "redirect_uri": settings.HH_REDIRECT_URI,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
         "state": state,
         "role": "employer",
         "force_role": "true",

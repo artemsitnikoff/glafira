@@ -1,7 +1,7 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Textarea, Select, Switch } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
-import { useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
+import { useHhSaveConfig, useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ApiError } from '@/api/aliases';
@@ -52,8 +52,16 @@ export function SettingsIntegrations() {
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const { data: hhStatus, isLoading: hhStatusLoading } = useHhStatus();
+  const hhSaveConfigMutation = useHhSaveConfig();
   const hhAuthorizeMutation = useHhAuthorize();
   const hhDisconnectMutation = useHhDisconnect();
+
+  // Состояние формы hh.ru
+  const [hhForm, setHhForm] = useState({
+    client_id: '',
+    client_secret: '',
+    redirect_uri: `${window.location.origin}/api/v1/integrations/hh/callback`
+  });
 
   // Обработка OAuth-возврата
   useEffect(() => {
@@ -86,6 +94,19 @@ export function SettingsIntegrations() {
       }
     }
   }, [searchParams, setSearchParams]);
+
+  const handleHhSaveConfig = async () => {
+    try {
+      const response = await hhSaveConfigMutation.mutateAsync(hhForm);
+      window.location.href = response.authorize_url;
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({
+        type: 'error',
+        message: e.error?.message || 'Ошибка при сохранении настроек hh.ru'
+      });
+    }
+  };
 
   const handleHhConnect = async () => {
     try {
@@ -154,6 +175,7 @@ export function SettingsIntegrations() {
             {hhStatusLoading ? (
               <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
             ) : hhStatus?.connected ? (
+              // Состояние 3: Подключено
               <div>
                 <div style={{ marginBottom: '12px' }}>
                   <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
@@ -175,18 +197,97 @@ export function SettingsIntegrations() {
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : hhStatus?.configured ? (
+              // Состояние 2: Настроено, но не подключено
               <div>
-                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                  Подключите ваш аккаунт работодателя hh.ru для публикации вакансий и привязки существующих.
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Client ID">
+                    <TextInput
+                      value={hhStatus.client_id_masked || ''}
+                      placeholder="Настроено"
+                      mono
+                      locked
+                    />
+                  </FormRow>
+                  <FormRow label="Client Secret">
+                    <TextInput
+                      type="password"
+                      value={hhForm.client_secret}
+                      onChange={(value) => setHhForm(prev => ({ ...prev, client_secret: value }))}
+                      placeholder="Введите заново для изменения"
+                      mono
+                    />
+                  </FormRow>
+                  <FormRow label="Redirect URI" span={2}>
+                    <TextInput
+                      value={hhStatus.redirect_uri || hhForm.redirect_uri}
+                      onChange={(value) => setHhForm(prev => ({ ...prev, redirect_uri: value }))}
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleHhConnect}
+                    disabled={hhAuthorizeMutation.isPending || !hhForm.client_secret}
+                  >
+                    {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить'}
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleHhSaveConfig}
+                    disabled={hhSaveConfigMutation.isPending || !hhForm.client_secret}
+                  >
+                    {hhSaveConfigMutation.isPending ? 'Сохранение...' : 'Сохранить и подключить'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Состояние 1: Не настроено
+              <div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Client ID" required>
+                    <TextInput
+                      value={hhForm.client_id}
+                      onChange={(value) => setHhForm(prev => ({ ...prev, client_id: value }))}
+                      placeholder="Введите Client ID"
+                      mono
+                    />
+                  </FormRow>
+                  <FormRow label="Client Secret" required>
+                    <TextInput
+                      type="password"
+                      value={hhForm.client_secret}
+                      onChange={(value) => setHhForm(prev => ({ ...prev, client_secret: value }))}
+                      placeholder="Введите Client Secret"
+                      mono
+                    />
+                  </FormRow>
+                  <FormRow label="Redirect URI" required span={2}>
+                    <TextInput
+                      value={hhForm.redirect_uri}
+                      onChange={(value) => setHhForm(prev => ({ ...prev, redirect_uri: value }))}
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="info-banner small">
+                  <Icon name="alert-triangle" size={14} />
+                  <div>Зарегистрируйте приложение на <strong>dev.hh.ru</strong>, укажите этот Redirect URI, и вставьте Client ID / Client Secret.</div>
                 </div>
                 <div className="integ-actions">
                   <button
                     className="btn btn-primary btn-sm"
-                    onClick={handleHhConnect}
-                    disabled={hhAuthorizeMutation.isPending}
+                    onClick={handleHhSaveConfig}
+                    disabled={
+                      hhSaveConfigMutation.isPending ||
+                      !hhForm.client_id ||
+                      !hhForm.client_secret ||
+                      !hhForm.redirect_uri
+                    }
                   >
-                    {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить hh.ru'}
+                    {hhSaveConfigMutation.isPending ? 'Сохранение...' : 'Сохранить и подключить'}
                   </button>
                 </div>
               </div>
