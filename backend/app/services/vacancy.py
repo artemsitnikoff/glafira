@@ -27,13 +27,9 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
             func.count(Application.id).label("count"),
             func.count(
                 case(
-                    (
-                        and_(
-                            Application.stage == "response",
-                            Application.created_at >= datetime.now(timezone.utc) - timedelta(days=1)
-                        ),
-                        1
-                    ),
+                    # «Новые» (синий бейдж +N): этапы «Отклик» + «Добавлен» —
+                    # кандидаты, с которыми ещё не было работы.
+                    (Application.stage.in_(["response", "added"]), 1),
                     else_=None
                 )
             ).label("new_count")
