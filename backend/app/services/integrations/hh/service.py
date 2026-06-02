@@ -709,41 +709,44 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     )
     vacancies = result.scalars().all()
 
-    # Диагностика: все привязанные вакансии (любой статус) — видно, есть ли привязка
-    # и почему вакансия может не опрашиваться (статус не active).
-    all_linked = (await session.execute(
-        select(Vacancy.id, Vacancy.name, Vacancy.status, Vacancy.hh_vacancy_id).where(
-            Vacancy.company_id == company_id,
-            Vacancy.hh_vacancy_id.isnot(None),
-        )
-    )).all()
-    logger.info(
-        "[hh] poll company=%s: привязанных вакансий всего=%s, активных для опроса=%s",
-        company_id, len(all_linked), len(vacancies),
-    )
-    for v in all_linked:
-        logger.info("[hh] poll linked: name=%s status=%s hh_id=%s", v.name, v.status, v.hh_vacancy_id)
-
-    stats = {"imported": 0, "skipped": 0, "vacancies": len(vacancies)}
+    # Диагностику возвращаем В ОТВЕТЕ (а не в логи — кастомный logger.info может не
+    # выводиться в docker logs, если root-логгер не на INFO). По каждой вакансии:
+    # сколько откликов вернул hh (found), сколько импортировано, и ошибка hh если была.
+    stats = {"imported": 0, "skipped": 0, "vacancies": len(vacancies), "details": []}
     for vacancy in vacancies:
-        page = 0
-        while True:
-            data = await hh_client.get_negotiation_responses(
-                access_token, vacancy.hh_vacancy_id, page=page, per_page=100
-            )
-            items = data.get("items", [])
-            if not items:
-                break
-            for item in items:
-                try:
-                    if await import_response(session, company_id, vacancy, item):
-                        stats["imported"] += 1
-                    else:
+        vstat = {
+            "name": vacancy.name,
+            "status": vacancy.status,
+            "hh_id": vacancy.hh_vacancy_id,
+            "found": None,
+            "imported": 0,
+            "error": None,
+        }
+        try:
+            page = 0
+            while True:
+                data = await hh_client.get_negotiation_responses(
+                    access_token, vacancy.hh_vacancy_id, page=page, per_page=100
+                )
+                if vstat["found"] is None:
+                    vstat["found"] = data.get("found")
+                items = data.get("items", []) or []
+                if not items:
+                    break
+                for item in items:
+                    try:
+                        if await import_response(session, company_id, vacancy, item):
+                            stats["imported"] += 1
+                            vstat["imported"] += 1
+                        else:
+                            stats["skipped"] += 1
+                    except Exception:
                         stats["skipped"] += 1
-                except Exception:
-                    stats["skipped"] += 1
-            if page >= data.get("pages", 1) - 1:
-                break
-            page += 1
+                if page >= (data.get("pages", 1) or 1) - 1:
+                    break
+                page += 1
+        except Exception as e:
+            vstat["error"] = getattr(e, "message", None) or str(e)
+        stats["details"].append(vstat)
 
     return stats

@@ -2,6 +2,7 @@ import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
 import { useHhSaveConfig, useHhAuthorize, useHhDisconnect, useHhPollResponses } from '@/api/mutations/hhIntegration';
+import type { HhPollResult } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
@@ -69,7 +70,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const hhAuthorizeMutation = useHhAuthorize();
   const hhDisconnectMutation = useHhDisconnect();
   const hhPollMutation = useHhPollResponses();
-  const [hhPollResult, setHhPollResult] = useState<{ imported: number; skipped: number; vacancies: number } | null>(null);
+  const [hhPollResult, setHhPollResult] = useState<HhPollResult | null>(null);
 
   const handleHhPollResponses = async () => {
     setHhPollResult(null);
@@ -469,7 +470,22 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                     <div>
                       Импортировано новых: <strong>{hhPollResult.imported}</strong>, пропущено (уже были):{' '}
                       <strong>{hhPollResult.skipped}</strong>. Проверено вакансий: {hhPollResult.vacancies}.
-                      Новые отклики — в этапе «Отклик» соответствующих вакансий.
+                      {hhPollResult.details && hhPollResult.details.length > 0 && (
+                        <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                          {hhPollResult.details.map((d, i) => (
+                            <li key={i} style={{ fontSize: 12, marginBottom: 2 }}>
+                              «{d.name}» (hh {d.hh_id}, {d.status}):{' '}
+                              {d.error ? (
+                                <span style={{ color: 'var(--ark-red-600)' }}>ошибка hh — {d.error}</span>
+                              ) : (
+                                <>
+                                  откликов на hh: <strong>{d.found ?? '—'}</strong>, импортировано: {d.imported}
+                                </>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
                 )}

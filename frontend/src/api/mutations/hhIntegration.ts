@@ -53,13 +53,27 @@ export function useHhDisconnect() {
   });
 }
 
-// Ручной забор откликов с hh.ru (привязанные активные вакансии → этап «Отклик»)
+// Ручной забор откликов с hh.ru (привязанные вакансии → этап «Отклик»)
+export interface HhPollDetail {
+  name: string;
+  status: string;
+  hh_id: string;
+  found: number | null;
+  imported: number;
+  error: string | null;
+}
+export interface HhPollResult {
+  imported: number;
+  skipped: number;
+  vacancies: number;
+  details?: HhPollDetail[];
+}
 export function useHhPollResponses() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<{ imported: number; skipped: number; vacancies: number }> => {
+    mutationFn: async (): Promise<HhPollResult> => {
       const response = await api.post('/integrations/hh/poll-responses');
-      return response.data as { imported: number; skipped: number; vacancies: number };
+      return response.data as HhPollResult;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
