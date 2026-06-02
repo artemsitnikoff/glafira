@@ -40,6 +40,7 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     salary_to: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default=text("'RUB'"))
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recruiter_scoring_instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'active'"))
     archive_result: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     closed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)

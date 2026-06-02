@@ -71,6 +71,7 @@ class VacancyDetail(ORMBase):
     salary_to: int | None = None
     currency: str
     description: str | None = None
+    recruiter_scoring_instructions: str | None = None
     status: str
     glafira_mode: str
     responsible_user_id: UUID | None = None
@@ -112,6 +113,7 @@ class VacancyCreate(BaseModel):
     salary_to: int | None = None
     currency: str = "RUB"
     description: str | None = None
+    recruiter_scoring_instructions: str | None = None
     funnel_template: str = "default"
     glafira_mode: str = "A"
     team: list[UUID] = []
@@ -145,6 +147,7 @@ class VacancyUpdate(BaseModel):
     salary_to: int | None = None
     currency: str | None = None
     description: str | None = None
+    recruiter_scoring_instructions: str | None = None
     status: str | None = None
     glafira_mode: str | None = None
     team: list[UUID] | None = None

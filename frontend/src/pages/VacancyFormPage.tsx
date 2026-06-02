@@ -262,6 +262,9 @@ export default function VacancyFormPage() {
   const [stages, setStages] = useState<Stage[]>(NV_DEFAULT_STAGES);
   // Ошибка сабмита (кнопка создания/сохранения вакансии)
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Инструкции рекрутёра для AI-скоринга (поле вакансии recruiter_scoring_instructions).
+  // Держим отдельным state, чтобы не расширять сгенерённый тип VacancyCreate.
+  const [recruiterScoring, setRecruiterScoring] = useState('');
 
   // Pre-populate form in edit mode
   useEffect(() => {
@@ -289,6 +292,7 @@ export default function VacancyFormPage() {
         auto_qa_to: null,
         auto_reject: false,
       });
+      setRecruiterScoring((vacancy as { recruiter_scoring_instructions?: string | null }).recruiter_scoring_instructions || '');
     }
   }, [editMode, vacancy]);
 
@@ -381,7 +385,10 @@ export default function VacancyFormPage() {
     setSubmitError(null);
     try {
       if (editMode && id) {
-        const updateData: VacancyUpdate = { ...formData };
+        const updateData = {
+          ...formData,
+          recruiter_scoring_instructions: recruiterScoring.trim() || null,
+        } as VacancyUpdate;
         await updateMutation.mutateAsync({ id, data: updateData });
         navigate(`/vacancies/${id}`);
       } else {
@@ -406,6 +413,7 @@ export default function VacancyFormPage() {
           ...formData,
           stages: stageInputs,
           reject_reasons: rejectReasonInputs,
+          recruiter_scoring_instructions: recruiterScoring.trim() || null,
         } as VacancyCreate & { stages: StageInput[]; reject_reasons: typeof rejectReasonInputs };
 
         const result = await createMutation.mutateAsync(payload);
@@ -513,6 +521,8 @@ export default function VacancyFormPage() {
               data={formData}
               onChange={updateFormData}
               clients={clients || []}
+              recruiterScoring={recruiterScoring}
+              onRecruiterScoringChange={setRecruiterScoring}
             />
           )}
           {activeStep === 'funnel' && (
@@ -579,10 +589,14 @@ function DescriptionStep({
   data,
   onChange,
   clients,
+  recruiterScoring,
+  onRecruiterScoringChange,
 }: {
   data: VacancyCreate;
   onChange: (updates: Partial<VacancyCreate>) => void;
   clients: any[];
+  recruiterScoring: string;
+  onRecruiterScoringChange: (v: string) => void;
 }) {
   return (
     <div className="nv-step-body">
@@ -727,6 +741,20 @@ function DescriptionStep({
             placeholder="Требования:&#10;Обязанности:&#10;Условия работы:"
             value={data.description || ''} onChange={e => onChange({ description: e.target.value || null })} />
         </div>
+      </div>
+
+      <div className="nv-field">
+        <label className="nv-label">Оценка для Глафиры AI</label>
+        <div className="nv-h2" style={{ marginTop: 0, marginBottom: 8 }}>
+          Этот текст Глафира учитывает при оценке резюме в баллах. Напишите, что важно именно вам:
+          ключевые навыки, стоп-факторы, на что обратить внимание.
+        </div>
+        <textarea
+          className="nv-textarea"
+          placeholder="Например: обязателен реальный опыт с Kubernetes от 2 лет; не подходят кандидаты без английского B2; ценим стабильность — насторожить, если меняет работу чаще раза в год."
+          value={recruiterScoring}
+          onChange={e => onRecruiterScoringChange(e.target.value)}
+        />
       </div>
     </div>
   );

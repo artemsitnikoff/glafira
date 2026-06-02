@@ -1,5 +1,7 @@
 """Промпты для взаимодействия с Claude API"""
 
+import os
+
 SCORING_SYSTEM_PROMPT = """Ты — опытный HR-аналитик. Твоя задача — создать взвешенный рубрикатор на основе требований вакансии и оценить кандидата по каждому критерию.
 
 АЛГОРИТМ ОЦЕНКИ:
@@ -76,6 +78,16 @@ Email: {candidate_email}
 <<<КОНЕЦ_ОПЫТА>>>
 Навыки: {skills_text}
 Желаемая ЗП: {salary_expectation}"""
+
+
+def build_scoring_system_prompt(recruiter_instructions: str | None = None) -> str:
+    """Системный промпт скоринга из scoring_system.md с подстановкой инструкций рекрутёра."""
+    path = os.path.join(os.path.dirname(__file__), "prompts", "scoring_system.md")
+    with open(path, encoding="utf-8") as f:
+        tmpl = f.read()
+    instr = (recruiter_instructions or "").strip()
+    return tmpl.replace("{recruiter_instructions}", instr if instr else "(особых указаний нет)")
+
 
 SCREENING_SYSTEM_PROMPT_TEMPLATE = """Ты — Глафира, AI-рекрутёр. Твоя задача — провести предварительный скрининг кандидата.
 

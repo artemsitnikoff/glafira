@@ -304,6 +304,7 @@ async def create_vacancy(
         salary_to=vacancy_data.salary_to,
         currency=vacancy_data.currency,
         description=vacancy_data.description,
+        recruiter_scoring_instructions=vacancy_data.recruiter_scoring_instructions,
         funnel_template=vacancy_data.funnel_template,
         glafira_mode=vacancy_data.glafira_mode,
     )
@@ -469,6 +470,8 @@ async def update_vacancy(
         vacancy.currency = vacancy_data.currency
     if vacancy_data.description is not None:
         vacancy.description = vacancy_data.description
+    if vacancy_data.recruiter_scoring_instructions is not None:
+        vacancy.recruiter_scoring_instructions = vacancy_data.recruiter_scoring_instructions
     if vacancy_data.glafira_mode is not None:
         vacancy.glafira_mode = vacancy_data.glafira_mode
 

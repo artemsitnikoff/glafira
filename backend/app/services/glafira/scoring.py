@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from .client import call_json
-from .prompts import SCORING_SYSTEM_PROMPT, SCORING_USER_TEMPLATE
+from .prompts import build_scoring_system_prompt, SCORING_USER_TEMPLATE
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill
@@ -171,7 +171,9 @@ Email: {candidate.email or "не указан"}
 
     # Call Claude API
     response_data = await call_json(
-        system=SCORING_SYSTEM_PROMPT,
+        system=build_scoring_system_prompt(
+            vacancy.recruiter_scoring_instructions if vacancy is not None else None
+        ),
         user=user_prompt,
         max_tokens=8000  # богатая рубрика (до 14 критериев + комментарии + 5 вопросов) не влезала в 2048 → обрыв JSON
     )
