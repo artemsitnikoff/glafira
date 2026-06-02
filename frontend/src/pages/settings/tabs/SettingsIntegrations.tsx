@@ -76,7 +76,17 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     try {
       const res = await hhPollMutation.mutateAsync();
       setHhPollResult(res);
-      setNotification({ type: 'success', message: `Забрано новых откликов: ${res.imported}, пропущено (уже были): ${res.skipped}.` });
+      if (res.vacancies === 0) {
+        setNotification({
+          type: 'error',
+          message: 'Нет привязанных активных вакансий для опроса. Проверьте: вакансия привязана к hh.ru И активна (не закрыта/не на паузе).',
+        });
+      } else {
+        setNotification({
+          type: 'success',
+          message: `Проверено вакансий: ${res.vacancies}. Новых откликов: ${res.imported}, пропущено (уже были): ${res.skipped}.`,
+        });
+      }
     } catch (error) {
       const e = error as unknown as ApiError;
       setNotification({ type: 'error', message: e.error?.message || 'Не удалось забрать отклики с hh.ru' });

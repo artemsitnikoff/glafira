@@ -14,6 +14,10 @@ from ....services.audit import audit
 from ....core.errors import ValidationError, NotFoundError
 from . import client as hh_client
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 async def get_integration(session: AsyncSession, company_id: UUID) -> Optional[HhIntegration]:
     """Получает интеграцию hh.ru для компании"""
@@ -702,6 +706,21 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
         )
     )
     vacancies = result.scalars().all()
+
+    # Диагностика: все привязанные вакансии (любой статус) — видно, есть ли привязка
+    # и почему вакансия может не опрашиваться (статус не active).
+    all_linked = (await session.execute(
+        select(Vacancy.id, Vacancy.name, Vacancy.status, Vacancy.hh_vacancy_id).where(
+            Vacancy.company_id == company_id,
+            Vacancy.hh_vacancy_id.isnot(None),
+        )
+    )).all()
+    logger.info(
+        "[hh] poll company=%s: привязанных вакансий всего=%s, активных для опроса=%s",
+        company_id, len(all_linked), len(vacancies),
+    )
+    for v in all_linked:
+        logger.info("[hh] poll linked: name=%s status=%s hh_id=%s", v.name, v.status, v.hh_vacancy_id)
 
     stats = {"imported": 0, "skipped": 0, "vacancies": len(vacancies)}
     for vacancy in vacancies:
