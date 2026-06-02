@@ -18,6 +18,7 @@ from .analytics import router as analytics_router
 from .settings import router as settings_router
 from .audit import router as audit_router
 from .integrations import router as integrations_router
+from .suggestions import router as suggestions_router
 from ...core.permissions import settings_permission_dependency, integrations_permission_dependency
 
 api_router = APIRouter()
@@ -50,3 +51,4 @@ api_router.include_router(
     prefix="/integrations",
     tags=["integrations"],
 )
+api_router.include_router(suggestions_router, prefix="/suggestions", tags=["suggestions"])

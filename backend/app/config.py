@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     TELEGRAM_API_ID: int = 0
     TELEGRAM_API_HASH: str = ""
 
+    # DaData — подсказки городов (suggestions API использует только API_KEY/Token;
+    # SECRET_KEY нужен лишь для Clean API стандартизации, держим на будущее).
+    DADATA_API_KEY: str = ""
+    DADATA_SECRET_KEY: str = ""
+
     FERNET_KEY: str | None = None
 
     # Deployment

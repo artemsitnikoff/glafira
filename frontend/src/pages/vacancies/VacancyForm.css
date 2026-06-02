@@ -53,6 +53,31 @@
 .nv-wrap .btn.is-disabled { opacity: 0.6; cursor: not-allowed; }
 .nv-wrap .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(42, 138, 240, .35); }
 
+/* Автокомплит города (DaData) — выпадашка подсказок под полем */
+.nv-wrap .nv-city { position: relative; }
+.nv-wrap .nv-city-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  max-height: 260px; overflow-y: auto;
+}
+.nv-wrap .nv-city-opt {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%; text-align: left;
+  padding: 7px 10px;
+  border: 0; background: transparent;
+  border-radius: 6px;
+  cursor: pointer; font: inherit;
+}
+.nv-wrap .nv-city-opt:hover,
+.nv-wrap .nv-city-opt.active { background: var(--bg-3-hover); }
+.nv-wrap .nv-city-name { font-size: 13px; color: var(--fg-1); }
+.nv-wrap .nv-city-region { font-size: 11px; color: var(--fg-3); }
+
 .nv-grid {
   display: flex; flex-direction: column;
   gap: 16px;

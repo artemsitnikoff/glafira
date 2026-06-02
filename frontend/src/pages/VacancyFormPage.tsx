@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import './vacancies/VacancyForm.css';
+import { CityAutocomplete } from './vacancies/CityAutocomplete';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import {
@@ -631,12 +632,7 @@ function DescriptionStep({
 
         <div className="nv-field">
           <label className="nv-label">Город</label>
-          <input
-            className="nv-input"
-            placeholder="Начните вводить город…"
-            value={data.city || ''}
-            onChange={e => onChange({ city: e.target.value || null })}
-          />
+          <CityAutocomplete value={data.city ?? null} onChange={city => onChange({ city })} />
         </div>
 
         <div className="nv-field">
