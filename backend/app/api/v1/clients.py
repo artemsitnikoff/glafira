@@ -61,6 +61,10 @@ async def create_client(
     )
 
     await session.commit()
+    # После commit server-side updated_at/created_at помечены для перезагрузки —
+    # refresh подтягивает их в async-контексте, иначе сериализация ClientOut
+    # триггерит ленивый IO вне greenlet (MissingGreenlet).
+    await session.refresh(client)
     return client
 
 
@@ -95,6 +99,8 @@ async def update_client(
     )
 
     await session.commit()
+    # см. create_client: refresh подтягивает server-side updated_at в async-контексте.
+    await session.refresh(client)
     return client
 
 
