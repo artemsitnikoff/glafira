@@ -800,10 +800,13 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
 
     # Заявка: создать (этап по hh) или оставить как есть (этап не трогаем)
     now = datetime.now(timezone.utc)
+    chat_id_str = str(item.get("chat_id")) if item.get("chat_id") is not None else None
+
     if existing is None:
         application = Application(
             company_id=company_id, candidate_id=candidate.id, vacancy_id=vacancy.id,
-            stage=stage, hh_negotiation_id=nid, created_at=now, selected_at=now,
+            stage=stage, hh_negotiation_id=nid, hh_chat_id=chat_id_str,
+            created_at=now, selected_at=now,
         )
         session.add(application)
     else:
@@ -914,6 +917,28 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                     items = data.get("items", []) or []
                     if not items:
                         break
+                    # Собираем map hh_negotiation_id → chat_id для бэкфилла существующих
+                    nid_to_chat_id = {}
+                    for item in items:
+                        nid = str(item.get("id"))
+                        chat_id = item.get("chat_id")
+                        if nid and chat_id is not None:
+                            nid_to_chat_id[nid] = str(chat_id)
+
+                    # Бэкфилл chat_id для существующих Applications с пустым hh_chat_id
+                    if nid_to_chat_id:
+                        existing_apps_result = await session.execute(
+                            select(Application).where(
+                                Application.company_id == company_id,
+                                Application.hh_negotiation_id.in_(list(nid_to_chat_id.keys())),
+                                Application.hh_chat_id.is_(None)
+                            )
+                        )
+                        existing_apps = existing_apps_result.scalars().all()
+                        for app in existing_apps:
+                            if app.hh_negotiation_id in nid_to_chat_id:
+                                app.hh_chat_id = nid_to_chat_id[app.hh_negotiation_id]
+
                     for item in items:
                         nid = str(item.get("id"))
                         # Уже импортирован → пропускаем БЕЗ фетча резюме (только новые грузим).

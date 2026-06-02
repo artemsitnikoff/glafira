@@ -36,17 +36,18 @@ class TestHhMessaging:
             candidate_id=sample_candidate.id,
             vacancy_id=vacancy.id,
             stage="response",
-            hh_negotiation_id="12345"
+            hh_negotiation_id="12345",
+            hh_chat_id="chat_567"
         )
         async_session.add(application)
         await async_session.flush()
 
         # Мокаем hh-вызовы
         with patch('app.services.message.get_valid_access_token') as mock_token, \
-             patch('app.services.message.hh_client.send_negotiation_message') as mock_send:
+             patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
             mock_token.return_value = "test_token"
-            mock_send.return_value = {"id": "msg_123", "status": "sent"}
+            mock_send.return_value = {"id": "msg_123"}
 
             message_data = MessageCreate(
                 channel="hh",
@@ -64,7 +65,7 @@ class TestHhMessaging:
 
             # Проверяем, что hh-методы были вызваны
             mock_token.assert_called_once_with(async_session, sample_company.id)
-            mock_send.assert_called_once_with("test_token", "12345", "Тестовое сообщение")
+            mock_send.assert_called_once_with("test_token", "chat_567", "Тестовое сообщение")
 
             # Проверяем результат
             assert result.channel == "hh"
@@ -97,7 +98,7 @@ class TestHhMessaging:
                 sample_user.id
             )
 
-        assert "Канал hh недоступен: у кандидата нет отклика hh" in str(exc_info.value)
+        assert "Канал hh недоступен: у кандидата нет чата hh" in str(exc_info.value)
 
         # Проверяем, что сообщение НЕ сохранено
         from sqlalchemy import select
@@ -128,17 +129,18 @@ class TestHhMessaging:
             candidate_id=sample_candidate.id,
             vacancy_id=vacancy.id,
             stage="response",
-            hh_negotiation_id="12345"
+            hh_negotiation_id="12345",
+            hh_chat_id="chat_567"
         )
         async_session.add(application)
         await async_session.flush()
 
         # Мокаем ошибку hh API
         with patch('app.services.message.get_valid_access_token') as mock_token, \
-             patch('app.services.message.hh_client.send_negotiation_message') as mock_send:
+             patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
             mock_token.return_value = "test_token"
-            mock_send.side_effect = ValidationError("hh.ru ошибка отправки (HTTP 403): Access denied")
+            mock_send.side_effect = ValidationError("Нет прав на чат hh")
 
             message_data = MessageCreate(
                 channel="hh",
@@ -155,7 +157,7 @@ class TestHhMessaging:
                     sample_user.id
                 )
 
-            assert "hh.ru ошибка отправки" in str(exc_info.value)
+            assert "Нет прав на чат hh" in str(exc_info.value)
 
             # Проверяем, что сообщение НЕ сохранено (no fake sent)
             from sqlalchemy import select
@@ -177,7 +179,7 @@ class TestHhMessaging:
 
         # Мокаем hh-методы, чтобы убедиться, что они НЕ вызываются
         with patch('app.services.message.get_valid_access_token') as mock_token, \
-             patch('app.services.message.hh_client.send_negotiation_message') as mock_send:
+             patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
             result = await send_message(
                 async_session,
@@ -201,6 +203,120 @@ class TestHhMessaging:
             saved_message = await async_session.get(Message, result.id)
             assert saved_message.external_id is None
             assert saved_message.channel == "telegram"
+
+    @pytest.mark.asyncio
+    async def test_send_hh_message_lazy_backfill_chat_id(
+        self, async_session, sample_company, sample_user, sample_candidate
+    ):
+        """Отправка hh без chat_id, но есть negotiation_id -> ленивый get_negotiation даёт chat_id -> шлём"""
+
+        from app.models import Vacancy, Application
+
+        vacancy = Vacancy(
+            company_id=sample_company.id,
+            name="Test Vacancy",
+            description="Test Description",
+            status="active"
+        )
+        async_session.add(vacancy)
+        await async_session.flush()
+
+        # Заявка БЕЗ hh_chat_id, но С hh_negotiation_id
+        application = Application(
+            company_id=sample_company.id,
+            candidate_id=sample_candidate.id,
+            vacancy_id=vacancy.id,
+            stage="response",
+            hh_negotiation_id="12345",
+            hh_chat_id=None
+        )
+        async_session.add(application)
+        await async_session.flush()
+
+        # Мокаем hh-вызовы
+        with patch('app.services.message.get_valid_access_token') as mock_token, \
+             patch('app.services.message.hh_client.get_negotiation') as mock_get_neg, \
+             patch('app.services.message.hh_client.send_chat_message') as mock_send:
+
+            mock_token.return_value = "test_token"
+            mock_get_neg.return_value = {"chat_id": 567}
+            mock_send.return_value = {"id": "msg_123"}
+
+            message_data = MessageCreate(
+                channel="hh",
+                body="Тестовое сообщение",
+                application_id=application.id
+            )
+
+            result = await send_message(
+                async_session,
+                sample_candidate.id,
+                message_data,
+                sample_company.id,
+                sample_user.id
+            )
+
+            # Проверяем, что методы были вызваны в правильном порядке
+            mock_token.assert_called_once_with(async_session, sample_company.id)
+            mock_get_neg.assert_called_once_with("test_token", "12345")
+            mock_send.assert_called_once_with("test_token", "567", "Тестовое сообщение")
+
+            # Проверяем, что chat_id сохранён в Application
+            await async_session.refresh(application)
+            assert application.hh_chat_id == "567"
+
+    @pytest.mark.asyncio
+    async def test_send_hh_message_no_chat_id_no_negotiation_id_error(
+        self, async_session, sample_company, sample_user, sample_candidate
+    ):
+        """Отправка hh без chat_id и negotiation_id -> 400, не сохранено"""
+
+        from app.models import Vacancy, Application
+
+        vacancy = Vacancy(
+            company_id=sample_company.id,
+            name="Test Vacancy",
+            description="Test Description",
+            status="active"
+        )
+        async_session.add(vacancy)
+        await async_session.flush()
+
+        # Заявка БЕЗ hh_chat_id И БЕЗ hh_negotiation_id
+        application = Application(
+            company_id=sample_company.id,
+            candidate_id=sample_candidate.id,
+            vacancy_id=vacancy.id,
+            stage="response",
+            hh_negotiation_id=None,
+            hh_chat_id=None
+        )
+        async_session.add(application)
+        await async_session.flush()
+
+        message_data = MessageCreate(
+            channel="hh",
+            body="Тестовое сообщение",
+            application_id=application.id
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            await send_message(
+                async_session,
+                sample_candidate.id,
+                message_data,
+                sample_company.id,
+                sample_user.id
+            )
+
+        assert "Канал hh недоступен: у кандидата нет чата hh" in str(exc_info.value)
+
+        # Проверяем, что сообщение НЕ сохранено
+        from sqlalchemy import select
+        result = await async_session.execute(
+            select(Message).where(Message.candidate_id == sample_candidate.id)
+        )
+        assert not result.fetchall()
 
     @pytest.mark.asyncio
     async def test_message_deduplication_by_external_id(self, async_session, sample_company, sample_candidate):
@@ -244,103 +360,182 @@ class TestHhMessaging:
         # Первое сообщение должно существовать
         assert existing_count >= 1
 
+    @pytest.mark.asyncio
+    async def test_poll_chat_messages_applicant_saved_employer_skipped(self, async_session, sample_company, sample_candidate):
+        """poll: APPLICANT-сообщение сохраняется, EMPLOYER пропускается, дедуп по external_id"""
+
+        from app.models import Vacancy, Application
+        from app.jobs.poll_hh_messages import poll_chat_messages
+
+        vacancy = Vacancy(
+            company_id=sample_company.id,
+            name="Test Vacancy",
+            description="Test Description",
+            status="active"
+        )
+        async_session.add(vacancy)
+        await async_session.flush()
+
+        application = Application(
+            company_id=sample_company.id,
+            candidate_id=sample_candidate.id,
+            vacancy_id=vacancy.id,
+            stage="response",
+            hh_chat_id="chat_123"
+        )
+        async_session.add(application)
+        await async_session.flush()
+
+        # Мокаем ответ hh Chats API
+        mock_messages = {
+            "messages": [
+                {
+                    "id": "msg_1",
+                    "type": "SIMPLE",
+                    "creation_time": "2024-01-15T10:00:00+0300",
+                    "sender_display_info": {"role": "APPLICANT"},
+                    "payload": {"text": "Сообщение от кандидата"}
+                },
+                {
+                    "id": "msg_2",
+                    "type": "SIMPLE",
+                    "creation_time": "2024-01-15T10:01:00+0300",
+                    "sender_display_info": {"role": "EMPLOYER"},
+                    "payload": {"text": "Сообщение от работодателя"}
+                },
+                {
+                    "id": "msg_3",
+                    "type": "PARTICIPANT_LEFT",
+                    "creation_time": "2024-01-15T10:02:00+0300",
+                    "sender_display_info": {"role": "APPLICANT"},
+                    "payload": {"text": null}
+                }
+            ]
+        }
+
+        with patch('app.jobs.poll_hh_messages.hh_client.get_chat_messages') as mock_get:
+            mock_get.return_value = mock_messages
+
+            imported = await poll_chat_messages(
+                async_session,
+                sample_company.id,
+                "chat_123",
+                sample_candidate.id,
+                application.id,
+                "test_token"
+            )
+
+            # Должно быть импортировано только 1 сообщение (от APPLICANT с типом SIMPLE)
+            assert imported == 1
+
+            # Проверяем, что сохранилось только сообщение от кандидата
+            from sqlalchemy import select
+            result = await async_session.execute(
+                select(Message).where(
+                    Message.candidate_id == sample_candidate.id,
+                    Message.channel == "hh",
+                    Message.direction == "in"
+                )
+            )
+            messages = result.scalars().all()
+            assert len(messages) == 1
+            assert messages[0].body == "Сообщение от кандидата"
+            assert messages[0].external_id == "msg_1"
+
 
 class TestHhClient:
     """Тесты hh API клиента (моки)"""
 
     @pytest.mark.asyncio
-    async def test_get_negotiation_messages_success(self):
-        """Тест получения сообщений переписки"""
+    async def test_get_chat_messages_success(self):
+        """Тест получения сообщений чата"""
 
         with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
             mock_client = AsyncMock()
             mock_response = AsyncMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
-                "items": [
-                    {"id": "1", "text": "Тест", "author": {"participant_type": "applicant"}}
-                ]
+                "messages": [
+                    {
+                        "id": "1",
+                        "type": "SIMPLE",
+                        "payload": {"text": "Тест"},
+                        "sender_display_info": {"role": "APPLICANT"}
+                    }
+                ],
+                "has_more": False
             }
             mock_client.get.return_value = mock_response
             mock_client_factory.return_value.__aenter__.return_value = mock_client
 
-            from app.services.integrations.hh.client import get_negotiation_messages
+            from app.services.integrations.hh.client import get_chat_messages
 
-            result = await get_negotiation_messages("test_token", "neg_123")
+            result = await get_chat_messages("test_token", "chat_123")
 
-            assert result["items"][0]["text"] == "Тест"
+            assert result["messages"][0]["payload"]["text"] == "Тест"
             mock_client.get.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_send_negotiation_message_primary_path(self):
-        """Тест отправки сообщения основным путём"""
+    async def test_send_chat_message_success(self):
+        """Тест отправки сообщения в чат через Chats API"""
+
+        with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
+            mock_client = AsyncMock()
+            mock_response = AsyncMock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"id": "msg_123"}
+            mock_client.post.return_value = mock_response
+            mock_client_factory.return_value.__aenter__.return_value = mock_client
+
+            from app.services.integrations.hh.client import send_chat_message
+
+            result = await send_chat_message("test_token", "chat_123", "Привет")
+
+            assert result["id"] == "msg_123"
+            mock_client.post.assert_called_once()
+            # Проверяем, что вызван с правильными данными
+            call_args = mock_client.post.call_args
+            assert "json" in call_args.kwargs
+            assert call_args.kwargs["json"]["text"] == "Привет"
+            assert "idempotency_key" in call_args.kwargs["json"]
+
+    @pytest.mark.asyncio
+    async def test_send_chat_message_403_error(self):
+        """Тест обработки 403 Forbidden (нет прав на чат)"""
+
+        with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
+            mock_client = AsyncMock()
+            mock_response = AsyncMock()
+            mock_response.status_code = 403
+            mock_client.post.return_value = mock_response
+            mock_client_factory.return_value.__aenter__.return_value = mock_client
+
+            from app.services.integrations.hh.client import send_chat_message
+
+            with pytest.raises(ValidationError) as exc_info:
+                await send_chat_message("test_token", "chat_123", "Привет")
+
+            assert "Нет прав на чат hh" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_get_negotiation_success(self):
+        """Тест получения информации об отклике для извлечения chat_id"""
 
         with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
             mock_client = AsyncMock()
             mock_response = AsyncMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {"id": "msg_123"}
-            mock_response.content = b'{"id": "msg_123"}'
-            mock_client.post.return_value = mock_response
+            mock_response.json.return_value = {
+                "id": "neg_123",
+                "chat_id": 567,
+                "state": {"id": "response"}
+            }
+            mock_client.get.return_value = mock_response
             mock_client_factory.return_value.__aenter__.return_value = mock_client
 
-            from app.services.integrations.hh.client import send_negotiation_message
+            from app.services.integrations.hh.client import get_negotiation
 
-            result = await send_negotiation_message("test_token", "neg_123", "Привет")
+            result = await get_negotiation("test_token", "neg_123")
 
-            assert result["id"] == "msg_123"
-            mock_client.post.assert_called_once()
-            # Проверяем, что вызван основной путь с JSON
-            call_args = mock_client.post.call_args
-            assert "json" in call_args.kwargs
-            assert call_args.kwargs["json"]["message"] == "Привет"
-
-    @pytest.mark.asyncio
-    async def test_send_negotiation_message_fallback_path(self):
-        """Тест отправки сообщения через fallback при 404"""
-
-        with patch('app.services.integrations.hh.client._get_client') as mock_client_factory, \
-             patch('app.services.integrations.hh.client.logger') as mock_logger:
-
-            mock_client = AsyncMock()
-
-            # Первый вызов (основной путь) возвращает 404
-            mock_response_404 = AsyncMock()
-            mock_response_404.status_code = 404
-
-            # Второй вызов (fallback) возвращает успех
-            mock_response_success = AsyncMock()
-            mock_response_success.status_code = 200
-            mock_response_success.json.return_value = {"status": "ok"}
-            mock_response_success.content = b'{"status": "ok"}'
-
-            mock_client.post.side_effect = [mock_response_404, mock_response_success]
-            mock_client_factory.return_value.__aenter__.return_value = mock_client
-
-            from app.services.integrations.hh.client import send_negotiation_message
-
-            result = await send_negotiation_message("test_token", "neg_123", "Привет")
-
-            assert result["status"] == "ok"
-            assert mock_client.post.call_count == 2
-
-            # Проверяем логирование fallback
-            mock_logger.info.assert_called_with("hh send ok via legacy /negotiations/{nid}")
-
-    @pytest.mark.asyncio
-    async def test_send_negotiation_message_410_gone_error(self):
-        """Тест обработки 410 Gone (метод отключён)"""
-
-        with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
-            mock_client = AsyncMock()
-            mock_response = AsyncMock()
-            mock_response.status_code = 410
-            mock_client.post.return_value = mock_response
-            mock_client_factory.return_value.__aenter__.return_value = mock_client
-
-            from app.services.integrations.hh.client import send_negotiation_message
-
-            with pytest.raises(ValidationError) as exc_info:
-                await send_negotiation_message("test_token", "neg_123", "Привет")
-
-            assert "hh-переписка недоступна (метод отключён hh)" in str(exc_info.value)
+            assert result["chat_id"] == 567
+            mock_client.get.assert_called_once()

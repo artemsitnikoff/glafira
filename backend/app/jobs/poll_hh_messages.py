@@ -1,10 +1,10 @@
 """
-Cron 3 — ИМПОРТ входящих сообщений с hh.ru.
+Cron 3 — ИМПОРТ входящих сообщений с hh.ru через новый Chats API.
 
-Тянет новые сообщения от соискателей для всех переписок (Applications с hh_negotiation_id).
+Тянет новые сообщения от соискателей для всех чатов (Applications с hh_chat_id).
 Дедуплицирует по external_id, сохраняет только входящие от соискателей.
 
-⚠️  Требует подключённого hh.ru + доступа работодателя к откликам.
+⚠️  Требует подключённого hh.ru + доступа работодателя к чатам.
 
 Запуск: cron на VPS, раз в 2 минуты (flock — не запускать поверх ещё идущего):
 */2 * * * * /usr/bin/flock -n /tmp/glafira-hh-messages.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_messages' >> /var/www/glafira/hh-messages.log 2>&1
@@ -28,26 +28,26 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-async def poll_negotiation_messages(session, company_id, negotiation_id, candidate_id, application_id, access_token):
+async def poll_chat_messages(session, company_id, chat_id, candidate_id, application_id, access_token):
     """
-    Импортирует новые входящие сообщения для одной переписки.
+    Импортирует новые входящие сообщения для одного чата через Chats API.
     Returns количество импортированных сообщений.
     """
     imported = 0
 
     try:
-        # Получить все сообщения переписки
-        messages_data = await hh_client.get_negotiation_messages(access_token, negotiation_id)
-        messages = messages_data.get("items", [])
+        # Получить все сообщения чата
+        messages_data = await hh_client.get_chat_messages(access_token, chat_id, limit=50, order="prev")
+        messages = messages_data.get("messages", [])
 
         for msg in messages:
-            # Определить автора - ищем поле автора в различных вариантах
-            author = msg.get("author", {})
-            participant_type = author.get("participant_type")
-            author_type = author.get("type")
+            # Определить тип сообщения и автора
+            msg_type = msg.get("type")
+            sender_info = msg.get("sender_display_info", {})
+            sender_role = sender_info.get("role")
 
-            # Сохраняем только сообщения от соискателя
-            if participant_type != "applicant" and author_type != "applicant":
+            # Сохраняем только SIMPLE сообщения от APPLICANT
+            if msg_type != "SIMPLE" or sender_role != "APPLICANT":
                 continue
 
             # Проверить дедуп по external_id
@@ -66,13 +66,14 @@ async def poll_negotiation_messages(session, company_id, negotiation_id, candida
             if existing.scalar_one_or_none():
                 continue  # Уже импортировано
 
-            # Извлечь содержимое и время
-            body = msg.get("text", "").strip()
+            # Извлечь текст из payload
+            payload = msg.get("payload", {})
+            body = payload.get("text", "").strip() if payload.get("text") else ""
             if not body:
                 continue
 
             # Время отправки
-            created_at_str = msg.get("created_at")
+            created_at_str = msg.get("creation_time")
             sent_at = datetime.now(timezone.utc)
             if created_at_str:
                 try:
@@ -100,49 +101,49 @@ async def poll_negotiation_messages(session, company_id, negotiation_id, candida
             imported += 1
 
     except Exception as e:
-        logger.error(f"Ошибка импорта сообщений переписки {negotiation_id}: {e}")
+        logger.error(f"Ошибка импорта сообщений чата {chat_id}: {e}")
 
     return imported
 
 
 async def poll_company_messages(session, company_id):
     """Импортирует входящие сообщения для одной компании. Returns {imported}."""
-    stats = {"imported": 0, "negotiations": 0}
+    stats = {"imported": 0, "chats": 0}
 
     try:
         # Получить токен
         access_token = await get_valid_access_token(session, company_id)
 
-        # Найти все заявки с hh_negotiation_id
+        # Найти все заявки с hh_chat_id
         result = await session.execute(
-            select(Application.hh_negotiation_id, Application.candidate_id, Application.id)
+            select(Application.hh_chat_id, Application.candidate_id, Application.id)
             .where(
                 Application.company_id == company_id,
-                Application.hh_negotiation_id.isnot(None)
+                Application.hh_chat_id.isnot(None)
             )
         )
 
-        negotiations = result.fetchall()
-        logger.info(f"Компания {company_id}: найдено {len(negotiations)} переписок hh")
+        chats = result.fetchall()
+        logger.info(f"Компания {company_id}: найдено {len(chats)} чатов hh")
 
-        for negotiation_id, candidate_id, application_id in negotiations:
+        for chat_id, candidate_id, application_id in chats:
             try:
-                imported = await poll_negotiation_messages(
+                imported = await poll_chat_messages(
                     session,
                     company_id,
-                    negotiation_id,
+                    chat_id,
                     candidate_id,
                     application_id,
                     access_token
                 )
                 stats["imported"] += imported
-                stats["negotiations"] += 1
+                stats["chats"] += 1
             except Exception as e:
-                logger.error(f"Ошибка обработки переписки {negotiation_id}: {e}")
+                logger.error(f"Ошибка обработки чата {chat_id}: {e}")
                 continue
 
         await session.commit()
-        logger.info(f"Компания {company_id}: импортировано {stats['imported']} новых сообщений из {stats['negotiations']} переписок")
+        logger.info(f"Компания {company_id}: импортировано {stats['imported']} новых сообщений из {stats['chats']} чатов")
 
     except Exception as e:
         # Откат при сбое commit для изоляции ошибок
@@ -172,12 +173,12 @@ async def main():
             for company_id in company_ids:
                 stats = await poll_company_messages(session, company_id)
                 total_stats["imported"] += stats["imported"]
-                total_stats["negotiations"] += stats["negotiations"]
+                total_stats["negotiations"] += stats["chats"]
                 total_stats["companies"] += 1
 
         logger.info(
             f"Импорт сообщений завершён: {total_stats['companies']} компаний, "
-            f"новых сообщений {total_stats['imported']}, переписок {total_stats['negotiations']}"
+            f"новых сообщений {total_stats['imported']}, чатов {total_stats['negotiations']}"
         )
 
     except Exception as e:

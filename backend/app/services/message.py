@@ -152,17 +152,21 @@ async def send_message(
 
     # Реальная отправка для канала hh
     if message_data.channel == "hh":
-        # Найти hh_negotiation_id
+        # Найти chat_id
+        hh_chat_id = None
         hh_negotiation_id = None
+        target_application = None
 
         if message_data.application_id:
             # Проверяем указанную заявку
-            if validated_application and validated_application.hh_negotiation_id:
+            if validated_application:
+                hh_chat_id = validated_application.hh_chat_id
                 hh_negotiation_id = validated_application.hh_negotiation_id
+                target_application = validated_application
         else:
-            # Ищем любую заявку кандидата с hh_negotiation_id
+            # Ищем любую заявку кандидата с chat_id или negotiation_id
             app_result = await session.execute(
-                select(Application.hh_negotiation_id)
+                select(Application)
                 .where(
                     Application.candidate_id == candidate_id,
                     Application.company_id == company_id,
@@ -170,24 +174,39 @@ async def send_message(
                 )
                 .limit(1)
             )
-            result = app_result.scalar_one_or_none()
-            if result:
-                hh_negotiation_id = result
+            target_application = app_result.scalar_one_or_none()
+            if target_application:
+                hh_chat_id = target_application.hh_chat_id
+                hh_negotiation_id = target_application.hh_negotiation_id
 
-        if not hh_negotiation_id:
-            raise ValidationError("Канал hh недоступен: у кандидата нет отклика hh")
-
-        # Получить токен и отправить
+        # Получить токен
         access_token = await get_valid_access_token(session, company_id)
-        hh_response = await hh_client.send_negotiation_message(
+
+        # Резолв chat_id если нет
+        if not hh_chat_id and hh_negotiation_id:
+            # Ленивый бэкфилл: получаем chat_id из negotiation
+            negotiation_data = await hh_client.get_negotiation(access_token, hh_negotiation_id)
+            chat_id_from_negotiation = negotiation_data.get("chat_id")
+            if chat_id_from_negotiation:
+                hh_chat_id = str(chat_id_from_negotiation)
+                # Сохраняем chat_id в Application для будущих отправок
+                if target_application:
+                    target_application.hh_chat_id = hh_chat_id
+                    await session.flush()
+
+        if not hh_chat_id:
+            raise ValidationError("Канал hh недоступен: у кандидата нет чата hh")
+
+        # Отправить через новый Chats API
+        hh_response = await hh_client.send_chat_message(
             access_token,
-            hh_negotiation_id,
+            hh_chat_id,
             message_data.body
         )
 
-        # Извлечь external_id из ответа hh (если есть)
+        # Извлечь external_id из ответа hh
         if isinstance(hh_response, dict):
-            external_id = hh_response.get("id") or hh_response.get("message_id")
+            external_id = hh_response.get("id")
 
     # Create message (только после успешной отправки для hh)
     message = Message(

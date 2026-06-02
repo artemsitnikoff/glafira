@@ -1,6 +1,7 @@
 """hh.ru API клиент для OAuth и API вызовов"""
 
 import logging
+import uuid
 
 import httpx
 from urllib.parse import urlencode
@@ -314,16 +315,18 @@ async def publish_vacancy(access_token: str, payload: dict) -> dict:
             raise ValidationError(f"Ошибка публикации вакансии hh.ru: {e}")
 
 
-async def get_negotiation_messages(access_token: str, negotiation_id: str) -> dict:
+async def get_chat_messages(access_token: str, chat_id: str, limit: int = 50, order: str = "prev") -> dict:
     """
-    Получает сообщения переписки с кандидатом
+    Получает сообщения чата с кандидатом через новый Chats API
 
     Args:
         access_token: access token
-        negotiation_id: ID отклика/переписки на hh.ru
+        chat_id: ID чата на hh.ru
+        limit: максимальное количество сообщений (1-50)
+        order: порядок сообщений ("prev" | "next")
 
     Returns:
-        dict: ответ hh.ru с полями {"items": [...]}
+        dict: ответ hh.ru с полями {"items": [...], "has_more": bool}
 
     Raises:
         ValidationError: при ошибке API
@@ -333,88 +336,123 @@ async def get_negotiation_messages(access_token: str, negotiation_id: str) -> di
     async with _get_client() as client:
         try:
             response = await client.get(
-                f"{settings.HH_API_BASE}/negotiations/{negotiation_id}/messages",
-                headers=headers
+                f"{settings.HH_API_BASE}/common/chats/{chat_id}/messages",
+                headers=headers,
+                params={"limit": limit, "order": order}
             )
 
-            if response.status_code >= 400:
-                raise ValidationError(f"hh.ru ошибка чтения сообщений (HTTP {response.status_code}): {response.text[:200]}")
+            if response.status_code == 403:
+                raise ValidationError("Нет прав на чат hh")
+            elif response.status_code == 404:
+                raise ValidationError("Чат hh не найден")
+            elif response.status_code == 410:
+                raise ValidationError("hh-чат недоступен")
+            elif response.status_code >= 400:
+                raise ValidationError(f"hh.ru ошибка чтения чата (HTTP {response.status_code}): {response.text[:200]}")
 
             result = response.json()
 
             if not isinstance(result, dict):
-                raise ValidationError("Некорректный формат ответа hh.ru /negotiations/.../messages")
+                raise ValidationError("Некорректный формат ответа hh.ru /common/chats/.../messages")
 
             return result
 
         except httpx.HTTPError as e:
-            raise ValidationError(f"Ошибка получения сообщений hh.ru: {e}")
+            raise ValidationError(f"Ошибка получения сообщений чата hh.ru: {e}")
 
 
-async def send_negotiation_message(access_token: str, negotiation_id: str, text: str) -> dict:
+async def send_chat_message(access_token: str, chat_id: str, text: str) -> dict:
     """
-    Отправляет сообщение кандидату с фоллбэком на legacy API
+    Отправляет сообщение в чат кандидату через новый Chats API
 
     Args:
         access_token: access token
-        negotiation_id: ID отклика/переписки на hh.ru
+        chat_id: ID чата на hh.ru
         text: текст сообщения
 
     Returns:
-        dict: ответ hh.ru (возможно содержит id созданного сообщения)
+        dict: ответ hh.ru с id созданного сообщения
 
     Raises:
-        ValidationError: при ошибке API или недоступности переписки
+        ValidationError: при ошибке API или недоступности чата
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    payload = {
+        "text": text,
+        "idempotency_key": str(uuid.uuid4())
+    }
+
+    async with _get_client() as client:
+        try:
+            response = await client.post(
+                f"{settings.HH_API_BASE}/common/chats/{chat_id}/messages",
+                headers=headers,
+                json=payload
+            )
+
+            if response.status_code == 403:
+                raise ValidationError("Нет прав на чат hh")
+            elif response.status_code == 404:
+                raise ValidationError("Чат hh не найден")
+            elif response.status_code == 410:
+                raise ValidationError("hh-чат недоступен")
+            elif response.status_code == 409:
+                raise ValidationError("Конфликт при отправке сообщения hh (дублирующий idempotency_key)")
+            elif response.status_code == 400:
+                raise ValidationError(f"Некорректные аргументы отправки hh: {response.text[:200]}")
+            elif response.status_code >= 400:
+                raise ValidationError(f"hh.ru ошибка отправки чата (HTTP {response.status_code}): {response.text[:200]}")
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru POST /common/chats/.../messages")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка отправки сообщения в чат hh.ru: {e}")
+
+
+async def get_negotiation(access_token: str, negotiation_id: str) -> dict:
+    """
+    Получает информацию об отклике/переписке (для извлечения chat_id)
+
+    Args:
+        access_token: access token
+        negotiation_id: ID отклика на hh.ru
+
+    Returns:
+        dict: объект отклика с полем chat_id
+
+    Raises:
+        ValidationError: при ошибке API
     """
     headers = {"Authorization": f"Bearer {access_token}"}
 
     async with _get_client() as client:
         try:
-            # ОСНОВНОЙ путь: POST /negotiations/{id}/messages с JSON
-            response = await client.post(
-                f"{settings.HH_API_BASE}/negotiations/{negotiation_id}/messages",
-                headers=headers,
-                json={"message": text}
+            response = await client.get(
+                f"{settings.HH_API_BASE}/negotiations/{negotiation_id}",
+                headers=headers
             )
 
-            if response.status_code == 410:
-                raise ValidationError("hh-переписка недоступна (метод отключён hh)")
-            elif response.status_code == 403:
-                raise ValidationError("Нет прав на переписку в hh (проверьте доступ работодателя)")
-            elif response.status_code == 401:
-                raise ValidationError("Токен hh недействителен или истёк")
-            elif response.status_code in (404, 405, 400):
-                # ФОЛЛБЭК: legacy POST /negotiations/{id} с form-data
-                logger.info(f"hh основной путь недоступен ({response.status_code}), пробуем legacy")
-
-                legacy_response = await client.post(
-                    f"{settings.HH_API_BASE}/negotiations/{negotiation_id}",
-                    headers=headers,
-                    data={"message": text}
-                )
-
-                if legacy_response.status_code == 410:
-                    raise ValidationError("hh-переписка недоступна (метод отключён hh)")
-                elif legacy_response.status_code == 403:
-                    raise ValidationError("Нет прав на переписку в hh (проверьте доступ работодателя)")
-                elif legacy_response.status_code == 401:
-                    raise ValidationError("Токен hh недействителен или истёк")
-                elif legacy_response.status_code >= 400:
-                    raise ValidationError(f"hh.ru ошибка отправки legacy (HTTP {legacy_response.status_code}): {legacy_response.text[:200]}")
-
-                logger.info("hh send ok via legacy /negotiations/{nid}")
-                result = legacy_response.json() if legacy_response.content else {}
-                return result
-
+            if response.status_code == 403:
+                raise ValidationError("Нет прав на отклик hh")
+            elif response.status_code == 404:
+                raise ValidationError("Отклик hh не найден")
             elif response.status_code >= 400:
-                raise ValidationError(f"hh.ru ошибка отправки (HTTP {response.status_code}): {response.text[:200]}")
+                raise ValidationError(f"hh.ru ошибка получения отклика (HTTP {response.status_code}): {response.text[:200]}")
 
-            logger.info("hh send ok via /messages")
-            result = response.json() if response.content else {}
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru GET /negotiations/.../")
+
             return result
 
         except httpx.HTTPError as e:
-            raise ValidationError(f"Ошибка отправки сообщения hh.ru: {e}")
+            raise ValidationError(f"Ошибка получения отклика hh.ru: {e}")
 
 
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
