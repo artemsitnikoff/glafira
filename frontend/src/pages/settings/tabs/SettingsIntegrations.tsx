@@ -479,17 +479,18 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                 <span style={{ color: 'var(--ark-red-600)' }}>ошибка hh — {d.error}</span>
                               ) : (
                                 <>
-                                  откликов на hh: <strong>{d.found ?? '—'}</strong>, импортировано: {d.imported}
+                                  откликов на hh: <strong>{d.found ?? '—'}</strong>
+                                  {d.hidden ? <>, скрыто hh: <strong>{d.hidden}</strong></> : null}, импортировано: {d.imported}
                                 </>
-                              )}
-                              {d.debug && (
-                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)', wordBreak: 'break-all', marginTop: 2 }}>
-                                  {d.debug}
-                                </div>
                               )}
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {hhPollResult.details?.some((d) => (d.hidden || 0) > 0) && (
+                        <div style={{ marginTop: 4, fontSize: 11 }}>
+                          Часть откликов скрыта hh.ru — станут доступны после оплаты их просмотра на стороне hh.ru.
+                        </div>
                       )}
                     </div>
                   </div>

@@ -59,9 +59,9 @@ export interface HhPollDetail {
   status: string;
   hh_id: string;
   found: number | null;
+  hidden?: number | null;
   imported: number;
   error: string | null;
-  debug?: string;
 }
 export interface HhPollResult {
   imported: number;
