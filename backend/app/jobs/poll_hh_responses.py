@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from ..config import settings
 from ..models import HhIntegration, Vacancy
 from ..services.integrations.hh import service as hh_service, client as hh_client
+from ..services.glafira.scoring import score_pending_applications
 from sqlalchemy import select
 
 # Настройка логирования
@@ -34,7 +35,7 @@ async def poll_company_responses(session, company_id):
     Returns:
         dict: статистика {imported: int, skipped: int}
     """
-    stats = {"imported": 0, "skipped": 0}
+    stats = {"imported": 0, "skipped": 0, "scored": 0}
 
     try:
         # Тот же забор, что по кнопке в UI: коллекции «Отклик» + «Отказ», полный
@@ -45,7 +46,22 @@ async def poll_company_responses(session, company_id):
         stats["skipped"] = result.get("skipped", 0)
         logger.info(f"Компания {company_id}: импортировано {stats['imported']}, пропущено {stats['skipped']}")
     except Exception as e:
+        # Сессия одна на все компании в цикле — после сбоя commit её обязательно
+        # откатить, иначе следующий шаг (авто-оценка) и следующая компания получат
+        # «грязную» сессию.
+        await session.rollback()
         logger.error(f"Ошибка обработки компании {company_id}: {e}")
+
+    # Фоновая авто-оценка: Глафира оценивает неоценённые отклики «Отклик» пачкой
+    # (отдельными коммитами внутри). Делаем даже если забор упал — могли остаться
+    # неоценённые с прошлых проходов. Отказы и вакансии без описания не трогает.
+    try:
+        score_stats = await score_pending_applications(session, company_id, limit=10)
+        stats["scored"] = score_stats.get("scored", 0)
+        if stats["scored"]:
+            logger.info(f"Компания {company_id}: авто-оценено {stats['scored']}")
+    except Exception as e:
+        logger.error(f"Ошибка авто-оценки компании {company_id}: {e}")
 
     return stats
 
@@ -56,9 +72,11 @@ async def main():
 
     # Создаём сессию
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    async_session = async_sessionmaker(engine)
+    # expire_on_commit=False — как в app/database.py: объекты не протухают после
+    # commit (per-candidate коммиты в авто-оценке + ORM-объекты в импорте).
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-    total_stats = {"imported": 0, "skipped": 0, "companies": 0}
+    total_stats = {"imported": 0, "skipped": 0, "scored": 0, "companies": 0}
 
     try:
         async with async_session() as session:
@@ -72,11 +90,13 @@ async def main():
                 stats = await poll_company_responses(session, company_id)
                 total_stats["imported"] += stats["imported"]
                 total_stats["skipped"] += stats["skipped"]
+                total_stats["scored"] += stats["scored"]
                 total_stats["companies"] += 1
 
         logger.info(
             f"Опрос завершён: {total_stats['companies']} компаний, "
-            f"импортировано {total_stats['imported']}, пропущено {total_stats['skipped']}"
+            f"импортировано {total_stats['imported']}, пропущено {total_stats['skipped']}, "
+            f"авто-оценено {total_stats['scored']}"
         )
 
     except Exception as e:

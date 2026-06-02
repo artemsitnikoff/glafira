@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GLAFIRA_MODEL: str = "anthropic/claude-sonnet-4-6"
     GLAFIRA_VERIFY_MODE: str = "mock"
+    # Сколько откликов авто-оценивать за один проход cron (раз в 5 мин). Каждая
+    # оценка = платный вызов LLM, поэтому потолок расхода регулируется этим числом.
+    GLAFIRA_AUTOSCORE_BATCH: int = 10
 
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"

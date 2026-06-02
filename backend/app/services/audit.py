@@ -13,7 +13,7 @@ async def audit(
     entity_id: UUID,
     before: dict | None = None,
     after: dict | None = None,
-    actor_user_id: UUID,
+    actor_user_id: UUID | None,  # None — для системных/AI-действий (actor_type='ai'/'system')
     company_id: UUID,
     actor_type: str = "human"
 ) -> AuditLog:

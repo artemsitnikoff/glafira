@@ -1,11 +1,12 @@
 """Скоринг кандидатов через Claude API"""
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -16,6 +17,8 @@ from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill
 from ...schemas.glafira import RequirementMatch
 from ...services.audit import audit
+
+logger = logging.getLogger(__name__)
 
 
 class _ScoringLLMOutput(BaseModel):
@@ -64,7 +67,7 @@ async def score_candidate(
     candidate_id: UUID,
     vacancy_id: UUID | None,  # если None — общая оценка
     company_id: UUID,
-    actor_user_id: UUID
+    actor_user_id: UUID | None = None  # None → авто-скоринг (actor_type='ai', без юзера)
 ) -> AiEvaluation:
     """Score candidate for a specific vacancy or general evaluation"""
 
@@ -232,6 +235,9 @@ Email: {candidate.email or "не указан"}
     )
 
     session.add(evaluation)
+    # flush до построения Event/audit: id у evaluation = server_default
+    # gen_random_uuid(), без flush он None → в Event.entities и audit попал бы «None».
+    await session.flush()
 
     # Update candidate ai_score
     candidate.ai_score = response_data['score']
@@ -277,3 +283,100 @@ Email: {candidate.email or "не указан"}
 
     await session.flush()
     return evaluation
+
+
+async def score_pending_applications(
+    session: AsyncSession,
+    company_id: UUID,
+    *,
+    limit: int | None = None,
+) -> dict:
+    """Фоновая авто-оценка неоценённых откликов этапа «Отклик».
+
+    Берёт до `limit` заявок компании с stage='response', пустым ai_score и БЕЗ
+    уже существующей оценки, у которых вакансия активна/на паузе и имеет описание
+    (требования для рубрики), кандидат не удалён — и прогоняет каждую через
+    score_candidate с actor_type='ai' (без юзера).
+
+    Каждый кандидат — ОТДЕЛЬНЫЙ commit: ошибка LLM по одному (parse/сеть) не
+    валит остальных и не откатывает уже импортированные отклики. Отказы
+    (discard_*) и вакансии без описания НЕ трогаем — пустая трата токенов.
+
+    Экономика: каждая оценка = платный вызов LLM. Потолок за один проход —
+    `limit` (по умолчанию settings.GLAFIRA_AUTOSCORE_BATCH=10), cron раз в 5 мин.
+    При всплеске N откликов разгребётся за ceil(N/limit) проходов; дубли и отказы
+    отсечены на уровне запроса, повторных вызовов на одну заявку нет.
+
+    Returns: {scored, failed, skipped_no_key}
+    """
+    # Без ключа OpenRouter живых вызовов нет — не гоняем впустую (каждый
+    # score_candidate сразу упал бы GlafiraParseError).
+    if not settings.OPENROUTER_API_KEY:
+        return {"scored": 0, "failed": 0, "skipped_no_key": True}
+
+    if limit is None:
+        limit = settings.GLAFIRA_AUTOSCORE_BATCH
+
+    # Заявки с УЖЕ существующей оценкой исключаем на уровне запроса — чтобы не
+    # платить за повторный вызов и не плодить дубли AiEvaluation (race с ручной
+    # оценкой). Аналог _find_existing_evaluation из API-эндпоинта.
+    already_scored = (
+        select(AiEvaluation.id)
+        .where(
+            AiEvaluation.application_id == Application.id,
+            AiEvaluation.company_id == company_id,
+        )
+        .exists()
+    )
+
+    result = await session.execute(
+        select(Application.candidate_id, Application.vacancy_id)
+        .join(Vacancy, Vacancy.id == Application.vacancy_id)
+        .join(Candidate, Candidate.id == Application.candidate_id)
+        .where(
+            Application.company_id == company_id,
+            Application.stage == "response",
+            Application.ai_score.is_(None),
+            ~already_scored,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None),
+            Vacancy.company_id == company_id,
+            Vacancy.deleted_at.is_(None),
+            Vacancy.status.in_(("active", "paused")),
+            Vacancy.description.isnot(None),
+            func.length(func.trim(Vacancy.description)) > 0,
+        )
+        .order_by(Application.created_at.asc())
+        .limit(limit)
+    )
+    rows = result.all()
+
+    scored = 0
+    failed = 0
+    for candidate_id, vacancy_id in rows:
+        try:
+            evaluation = await score_candidate(
+                session,
+                candidate_id=candidate_id,
+                vacancy_id=vacancy_id,
+                company_id=company_id,
+                actor_user_id=None,
+            )
+            # Снимаем значения ДО commit — после commit объект может протухнуть
+            # (expire_on_commit), и доступ к полю в async дал бы MissingGreenlet.
+            score_val, verdict_val = evaluation.score, evaluation.verdict
+            await session.commit()
+            scored += 1
+            logger.info(
+                "Авто-оценка candidate=%s vacancy=%s → score=%s вердикт=%s",
+                candidate_id, vacancy_id, score_val, verdict_val,
+            )
+        except Exception as e:  # noqa: BLE001 — изолируем сбой одного кандидата
+            await session.rollback()
+            failed += 1
+            logger.warning(
+                "Авто-скоринг пропущен candidate=%s vacancy=%s: %s",
+                candidate_id, vacancy_id, e,
+            )
+
+    return {"scored": scored, "failed": failed, "skipped_no_key": False}
