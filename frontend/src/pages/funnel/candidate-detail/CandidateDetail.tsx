@@ -127,7 +127,7 @@ export function CandidateDetail({ application, onClose, isResolving, vacancyId }
         {candidateId && activeTab === 'resume' && <ResumeTab candidateId={candidateId} applicationId={applicationId} onOpenAI={() => setActiveTab('evaluation')} />}
         {candidateId && applicationId && activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} vacancyId={vacancyId} />}
         {candidateId && activeTab === 'verification' && <VerificationTab candidateId={candidateId} />}
-        {candidateId && activeTab === 'chat' && <ChatTab candidateId={candidateId} />}
+        {candidateId && activeTab === 'chat' && <ChatTab candidateId={candidateId} candidate={candidateDetailQuery.data} />}
         {candidateId && activeTab === 'docs' && <DocumentsTab candidateId={candidateId} />}
         {candidateId && activeTab === 'comments' && <CommentsTab candidateId={candidateId} />}
         {candidateId && activeTab === 'actions' && <AllActionsTab candidateId={candidateId} />}

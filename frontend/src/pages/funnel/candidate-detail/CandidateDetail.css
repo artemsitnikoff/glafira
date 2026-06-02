@@ -632,7 +632,8 @@
 .cnd-funnel-wrap .cand-detail .chat-ch-trigger-label { font-weight: 600; }
 .cnd-funnel-wrap .cand-detail .chat-ch-menu {
   position: absolute;
-  top: calc(100% + 4px); left: 0;
+  /* открываем ВВЕРХ: селектор внизу компоуза, вниз меню режется экраном */
+  bottom: calc(100% + 4px); left: 0;
   z-index: 30;
   min-width: 180px;
   background: #fff;
@@ -643,13 +644,13 @@
   display: flex; flex-direction: column; gap: 1px;
 }
 .cnd-funnel-wrap .cand-detail .chat-ch-opt {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 10px;
   background: transparent;
   border: none;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--fg-1);
   cursor: pointer;
   text-align: left;
