@@ -128,7 +128,7 @@ async def seed_glafira_settings(session: AsyncSession) -> None:
             auto_reject_below=30,
             auto_select_above=80,
             days_no_response=7,
-            stop_words=[],
+            stop_words={},
             default_mode="A",
         )
     )

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -52,6 +52,13 @@ class GlafiraSettingsOut(ORMBase):
     turnover_source: str
     created_at: datetime
     updated_at: datetime
+
+    @field_validator('stop_words', mode='before')
+    @classmethod
+    def _normalize_stop_words(cls, v):
+        # Историческая рассинхронизация: базовый seed раньше писал [] (list),
+        # а поле объявлено dict. Нормализуем любой не-dict (list/None) к {}.
+        return v if isinstance(v, dict) else {}
 
 
 class GlafiraSettingsUpdate(BaseModel):

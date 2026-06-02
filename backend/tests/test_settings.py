@@ -7,6 +7,20 @@ from sqlalchemy import select
 from app.models import User, GlafiraSettings, RejectReason, Integration, EmailTemplate, SurveyTemplate
 
 
+def test_glafira_settings_out_normalizes_list_stop_words():
+    """Регрессия: исторический stop_words=[] (list) не должен ломать GlafiraSettingsOut (ждёт dict)."""
+    from datetime import datetime
+    from uuid import uuid4
+    from app.schemas.settings import GlafiraSettingsOut
+    out = GlafiraSettingsOut(
+        id=uuid4(), company_id=uuid4(), tone="friendly", use_informal=True,
+        emoji_level="moderate", auto_reject_below=30, auto_select_above=80,
+        days_no_response=7, stop_words=[], default_mode="A", turnover_source="none",
+        created_at=datetime.now(), updated_at=datetime.now(),
+    )
+    assert out.stop_words == {}
+
+
 @pytest_asyncio.fixture
 async def auth_headers(async_client: AsyncClient, admin_user: User) -> dict:
     """Get auth headers for admin user"""
