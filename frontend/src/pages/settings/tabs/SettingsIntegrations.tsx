@@ -489,9 +489,9 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                   , создано: <strong>{d.imported}</strong>, обновлено: <strong>{d.updated ?? 0}</strong>
                                 </>
                               )}
-                              {d.sample && (
+                              {d.all_collections && Object.keys(d.all_collections).length > 0 && (
                                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)', wordBreak: 'break-all', marginTop: 2 }}>
-                                  {d.sample}
+                                  коллекции hh: {Object.entries(d.all_collections).map(([k, v]) => `${k}=${v ?? '?'}`).join(', ')}
                                 </div>
                               )}
                             </li>
