@@ -85,7 +85,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
       } else {
         setNotification({
           type: 'success',
-          message: `Проверено вакансий: ${res.vacancies}. Новых откликов: ${res.imported}, пропущено (уже были): ${res.skipped}.`,
+          message: `Проверено вакансий: ${res.vacancies}. Создано: ${res.imported}, обновлено: ${res.updated ?? 0}, пропущено: ${res.skipped}.`,
         });
       }
     } catch (error) {
@@ -486,7 +486,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                       {(d.by_collection.discard ?? 0) + (d.by_collection.discard_by_applicant ?? 0)})
                                     </>
                                   )}
-                                  , импортировано: <strong>{d.imported}</strong>
+                                  , создано: <strong>{d.imported}</strong>, обновлено: <strong>{d.updated ?? 0}</strong>
                                 </>
                               )}
                             </li>

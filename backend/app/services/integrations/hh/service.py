@@ -641,38 +641,18 @@ async def publish_vacancy_to_hh(session: AsyncSession, vacancy_id: UUID, company
     return hh_vacancy_id
 
 
-async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vacancy", item: dict) -> bool:
+async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vacancy", item: dict) -> str:
+    """Импорт ИЛИ обновление одного отклика hh. Возвращает 'created' | 'updated'.
+
+    Существующий (по hh_negotiation_id) НЕ пропускается — обновляем данные кандидата
+    и пересоздаём опыт/навыки/образование (старый импорт мог быть беднее). Этап
+    существующей заявки НЕ трогаем (чтобы не откатывать кандидата, которого
+    рекрутёр уже продвинул). Контакты hh часто скрыты до оплаты — тогда phone/email
+    остаются None.
     """
-    Импортирует один отклик с hh.ru
-
-    ⚠️  Точные имена полей resume НЕ проверены без реального hh.ru токена
-
-    Args:
-        session: DB session
-        company_id: ID компании
-        vacancy: объект вакансии
-        item: данные отклика с hh.ru
-
-    Returns:
-        bool: True если создан новый Application, False если пропущен (дедуп)
-    """
-
-    # Дедуп по hh_negotiation_id
     nid = str(item["id"])
 
-    existing_result = await session.execute(
-        select(Application).where(
-            Application.hh_negotiation_id == nid,
-            Application.company_id == company_id
-        )
-    )
-    existing = existing_result.scalar_one_or_none()
-
-    if existing:
-        return False  # Уже импортирован
-
-    # Полный маппинг резюме hh → кандидат (контакты hh часто скрыты до оплаты —
-    # тогда phone/email будут None, это нормально).
+    # --- Маппинг резюме hh → поля кандидата ---
     resume = item.get("resume") or {}
     first_name = (resume.get("first_name") or "").strip()
     last_name = (resume.get("last_name") or "").strip()
@@ -698,108 +678,122 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         last_company = e0.get("company")
         last_period = _hh_period(e0.get("start"), e0.get("end"))
 
-    # resume_text — желаемая должность + «о себе» (для AI-скоринга)
     rt_parts = []
     if title:
         rt_parts.append(f"Желаемая должность: {title}")
     if resume.get("skills"):
         rt_parts.append(str(resume.get("skills")))
     resume_text = "\n\n".join(rt_parts) or None
+    resume_id = (str(resume.get("id"))[:120] if resume.get("id") else None)
 
-    candidate = Candidate(
-        company_id=company_id,
-        first_name=first_name or "Неизвестно",
-        last_name=last_name or "",
-        middle_name=middle_name,
-        city=(city[:120] if city else None),
-        gender=(gender[:10] if gender else None),
-        phone=(phone[:20] if phone else None),
-        email=(email[:255] if email else None),
-        salary_expectation=salary_amount if isinstance(salary_amount, int) else None,
-        currency=(str(salary_currency)[:3] if salary_currency else "RUB"),
-        last_position=(last_position[:255] if last_position else None),
-        last_company=(last_company[:255] if last_company else None),
-        last_period=(last_period[:120] if last_period else None),
-        resume_text=resume_text,
-        source="hh",
-        preferred_channel="hh",
-        external_source="hh",
-        external_id=(str(resume.get("id"))[:120] if resume.get("id") else None),
-    )
-    session.add(candidate)
-    await session.flush()  # Получаем candidate.id
+    state_id = (item.get("state") or {}).get("id") or "response"
+    stage = "rejected" if state_id in ("discard", "discard_by_applicant") else "response"
 
-    # Опыт работы → CandidateExperience
+    # --- Существующая заявка? (create-or-update) ---
+    existing = (await session.execute(
+        select(Application).where(
+            Application.hh_negotiation_id == nid,
+            Application.company_id == company_id,
+        )
+    )).scalar_one_or_none()
+
+    if existing:
+        candidate = await session.get(Candidate, existing.candidate_id)
+        is_new = candidate is None
+        if candidate is None:
+            candidate = Candidate(company_id=company_id, source="hh", first_name="Неизвестно", last_name="")
+            session.add(candidate)
+    else:
+        candidate = Candidate(company_id=company_id, source="hh", first_name="Неизвестно", last_name="")
+        session.add(candidate)
+        is_new = True
+
+    # Заполняем поля (непустым значением — не затираем уже заполненное пустым)
+    candidate.first_name = first_name or candidate.first_name or "Неизвестно"
+    candidate.last_name = last_name or candidate.last_name or ""
+    if middle_name:
+        candidate.middle_name = middle_name
+    if city:
+        candidate.city = city[:120]
+    if gender:
+        candidate.gender = gender[:10]
+    if phone:
+        candidate.phone = phone[:20]
+    if email:
+        candidate.email = email[:255]
+    if isinstance(salary_amount, int):
+        candidate.salary_expectation = salary_amount
+    if salary_currency:
+        candidate.currency = str(salary_currency)[:3]
+    if last_position:
+        candidate.last_position = last_position[:255]
+    if last_company:
+        candidate.last_company = last_company[:255]
+    if last_period:
+        candidate.last_period = last_period[:120]
+    if resume_text:
+        candidate.resume_text = resume_text
+    candidate.source = "hh"
+    candidate.external_source = "hh"
+    if resume_id:
+        candidate.external_id = resume_id
+    await session.flush()
+
+    # Опыт/навыки/образование: при обновлении заменяем старые (от прежнего импорта)
+    if not is_new:
+        await session.execute(delete(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id))
+        await session.execute(delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id))
+        await session.execute(delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id))
+
     for idx, exp in enumerate(experiences):
         pos = (exp.get("position") or "").strip()
         if not pos:
             continue
         session.add(CandidateExperience(
-            company_id=company_id,
-            candidate_id=candidate.id,
-            position=pos[:255],
+            company_id=company_id, candidate_id=candidate.id, position=pos[:255],
             company=((exp.get("company") or "")[:255] or None),
             period=_hh_period(exp.get("start"), exp.get("end")),
-            description=(exp.get("description") or None),
-            order_index=idx,
+            description=(exp.get("description") or None), order_index=idx,
         ))
-
-    # Ключевые навыки → CandidateSkill
     for idx, sk in enumerate(resume.get("skill_set") or []):
         s = str(sk).strip()
         if s:
             session.add(CandidateSkill(
-                company_id=company_id, candidate_id=candidate.id,
-                skill=s[:120], order_index=idx,
+                company_id=company_id, candidate_id=candidate.id, skill=s[:120], order_index=idx,
             ))
-
-    # Образование → CandidateEducation
     for idx, ed in enumerate((resume.get("education") or {}).get("primary") or []):
         inst = (ed.get("name") or ed.get("organization") or "").strip()
         if not inst:
             continue
         session.add(CandidateEducation(
-            company_id=company_id,
-            candidate_id=candidate.id,
-            institution=inst[:255],
+            company_id=company_id, candidate_id=candidate.id, institution=inst[:255],
             specialty=((ed.get("organization") or ed.get("result") or "")[:255] or None),
-            years=(str(ed.get("year"))[:40] if ed.get("year") else None),
-            order_index=idx,
+            years=(str(ed.get("year"))[:40] if ed.get("year") else None), order_index=idx,
         ))
 
-    # Этап определяем по статусу отклика у работодателя на hh (item.state.id):
-    # отклонённые на hh (discard / discard_by_applicant) → «Отказ», остальные → «Отклик».
-    state_id = (item.get("state") or {}).get("id") or "response"
-    stage = "rejected" if state_id in ("discard", "discard_by_applicant") else "response"
-
-    # Создаём Application
+    # Заявка: создать (этап по hh) или оставить как есть (этап не трогаем)
     now = datetime.now(timezone.utc)
-    application = Application(
-        company_id=company_id,
-        candidate_id=candidate.id,
-        vacancy_id=vacancy.id,
-        stage=stage,
-        hh_negotiation_id=nid,
-        created_at=now,
-        selected_at=now
-    )
-    session.add(application)
+    if existing is None:
+        application = Application(
+            company_id=company_id, candidate_id=candidate.id, vacancy_id=vacancy.id,
+            stage=stage, hh_negotiation_id=nid, created_at=now, selected_at=now,
+        )
+        session.add(application)
+    else:
+        application = existing
+    await session.flush()
 
-    # Запись в аудит
     await audit(
         session,
-        action="hh_response_imported",
+        action=("hh_response_imported" if existing is None else "hh_response_updated"),
         entity_type="application",
         entity_id=application.id,
-        after={
-            "candidate_name": f"{first_name} {last_name}".strip(),
-            "hh_negotiation_id": nid
-        },
+        after={"candidate_name": f"{first_name} {last_name}".strip(), "hh_negotiation_id": nid, "stage": stage},
         actor_type="system",
-        company_id=company_id
+        company_id=company_id,
     )
 
-    return True
+    return "created" if existing is None else "updated"
 
 
 async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
@@ -833,7 +827,7 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     # import_response по item.state.id.
     wanted = ("response", "discard", "discard_by_applicant")
 
-    stats = {"imported": 0, "skipped": 0, "vacancies": len(vacancies), "details": []}
+    stats = {"imported": 0, "updated": 0, "skipped": 0, "vacancies": len(vacancies), "details": []}
     for vacancy in vacancies:
         vstat = {
             "name": vacancy.name,
@@ -841,6 +835,7 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
             "hh_id": vacancy.hh_vacancy_id,
             "found": 0,
             "imported": 0,
+            "updated": 0,
             "by_collection": {},
             "error": None,
         }
@@ -850,22 +845,33 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                 cid = coll.get("id")
                 if cid not in wanted:
                     continue
-                vstat["by_collection"][cid] = coll.get("count")
-                vstat["found"] += coll.get("count") or 0
                 url = coll.get("url")
                 if not url:
+                    vstat["by_collection"][cid] = coll.get("count") or 0
                     continue
+                coll_found = None
                 page = 0
                 while True:
                     data = await hh_client.get_collection_page(access_token, url, page=page, per_page=50)
+                    if coll_found is None:
+                        # реальное число откликов коллекции (а не coll.count, которого может не быть)
+                        coll_found = data.get("found")
+                        if coll_found is None:
+                            coll_found = coll.get("count")
+                        vstat["by_collection"][cid] = coll_found or 0
+                        vstat["found"] += coll_found or 0
                     items = data.get("items", []) or []
                     if not items:
                         break
                     for item in items:
                         try:
-                            if await import_response(session, company_id, vacancy, item):
+                            res = await import_response(session, company_id, vacancy, item)
+                            if res == "created":
                                 stats["imported"] += 1
                                 vstat["imported"] += 1
+                            elif res == "updated":
+                                stats["updated"] += 1
+                                vstat["updated"] += 1
                             else:
                                 stats["skipped"] += 1
                         except Exception:

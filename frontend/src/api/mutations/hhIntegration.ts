@@ -61,10 +61,12 @@ export interface HhPollDetail {
   found: number | null;
   by_collection?: Record<string, number | null>;
   imported: number;
+  updated?: number;
   error: string | null;
 }
 export interface HhPollResult {
   imported: number;
+  updated?: number;
   skipped: number;
   vacancies: number;
   details?: HhPollDetail[];
