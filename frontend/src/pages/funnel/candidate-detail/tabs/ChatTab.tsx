@@ -23,7 +23,9 @@ const CHANNELS = [
 
 export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   const actualCandidateId = candidateId || candidate?.id;
-  const [activeChannel, setActiveChannel] = useState('telegram');
+  const [activeChannel, setActiveChannel] = useState(() =>
+    candidate?.source === 'hh' ? 'hh' : 'telegram'
+  );
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
   const { data: messages, isLoading } = useMessages(actualCandidateId);
@@ -31,6 +33,10 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
 
   const channelMeta = (id: string) => CHANNELS.find(x => x.id === id) || CHANNELS[0];
   const active = channelMeta(activeChannel);
+
+  // Фильтр каналов для селектора: hh только для hh-кандидатов
+  const isHhCandidate = candidate?.source === 'hh';
+  const availableChannels = CHANNELS.filter(c => c.id !== 'hh' || isHhCandidate);
 
   // Группировка сообщений по vacancy_id для fromPool режима (упрощённо - можно убрать)
   const messageGroups = fromPool && messages ? (() => {
@@ -175,7 +181,7 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
             </button>
             {open && (
               <div className="chat-ch-menu">
-                {CHANNELS.map(ch => (
+                {availableChannels.map(ch => (
                   <button
                     type="button"
                     key={ch.id}
