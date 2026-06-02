@@ -698,11 +698,13 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
 
     access_token = await get_valid_access_token(session, company_id)
 
+    # По кнопке опрашиваем ВСЕ привязанные вакансии (любой ATS-статус): hh-публикация
+    # может быть активна, даже если вакансия в ATS закрыта/в архиве — отклики всё
+    # равно нужно забрать. (Авто-cron — только active, чтобы не дёргать лишнее.)
     result = await session.execute(
         select(Vacancy).where(
             Vacancy.company_id == company_id,
             Vacancy.hh_vacancy_id.isnot(None),
-            Vacancy.status == "active",
         )
     )
     vacancies = result.scalars().all()
