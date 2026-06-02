@@ -1,7 +1,7 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
-import { useHhSaveConfig, useHhAuthorize, useHhDisconnect } from '@/api/mutations/hhIntegration';
+import { useHhSaveConfig, useHhAuthorize, useHhDisconnect, useHhPollResponses } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
@@ -68,6 +68,20 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const hhSaveConfigMutation = useHhSaveConfig();
   const hhAuthorizeMutation = useHhAuthorize();
   const hhDisconnectMutation = useHhDisconnect();
+  const hhPollMutation = useHhPollResponses();
+  const [hhPollResult, setHhPollResult] = useState<{ imported: number; skipped: number; vacancies: number } | null>(null);
+
+  const handleHhPollResponses = async () => {
+    setHhPollResult(null);
+    try {
+      const res = await hhPollMutation.mutateAsync();
+      setHhPollResult(res);
+      setNotification({ type: 'success', message: `Забрано новых откликов: ${res.imported}, пропущено (уже были): ${res.skipped}.` });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось забрать отклики с hh.ru' });
+    }
+  };
 
   // Состояние формы hh.ru
   const [hhForm, setHhForm] = useState({
@@ -425,12 +439,36 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 </div>
                 <div className="integ-actions">
                   <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleHhPollResponses}
+                    disabled={hhPollMutation.isPending || readOnly}
+                  >
+                    {hhPollMutation.isPending ? 'Забираем…' : 'Забрать отклики'}
+                  </button>
+                  <button
                     className="btn btn-secondary btn-sm"
                     onClick={readOnly ? undefined : handleHhDisconnect}
                     disabled={hhDisconnectMutation.isPending || readOnly}
                   >
                     {hhDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
                   </button>
+                </div>
+                {hhPollResult && (
+                  <div className="info-banner small" style={{ marginTop: 10 }}>
+                    <Icon name="check" size={14} />
+                    <div>
+                      Импортировано новых: <strong>{hhPollResult.imported}</strong>, пропущено (уже были):{' '}
+                      <strong>{hhPollResult.skipped}</strong>. Проверено вакансий: {hhPollResult.vacancies}.
+                      Новые отклики — в этапе «Отклик» соответствующих вакансий.
+                    </div>
+                  </div>
+                )}
+                <div className="info-banner small" style={{ marginTop: 10 }}>
+                  <Icon name="alert-triangle" size={14} />
+                  <div>
+                    Отклики тянутся автоматически (каждые ~5 мин, если на сервере настроен cron) либо по
+                    кнопке выше. Требуется <strong>платный доступ работодателя</strong> hh.ru к откликам.
+                  </div>
                 </div>
               </div>
             ) : hhStatus?.configured && !editConfig ? (

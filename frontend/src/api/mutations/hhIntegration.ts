@@ -53,6 +53,21 @@ export function useHhDisconnect() {
   });
 }
 
+// Ручной забор откликов с hh.ru (привязанные активные вакансии → этап «Отклик»)
+export function useHhPollResponses() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<{ imported: number; skipped: number; vacancies: number }> => {
+      const response = await api.post('/integrations/hh/poll-responses');
+      return response.data as { imported: number; skipped: number; vacancies: number };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vacancies'] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+    },
+  });
+}
+
 // Привязка/отвязка вакансий
 export function useHhLinkVacancy() {
   const queryClient = useQueryClient();

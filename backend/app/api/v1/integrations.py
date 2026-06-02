@@ -159,6 +159,17 @@ async def list_hh_vacancies(
     return vacancies
 
 
+@router.post("/hh/poll-responses", dependencies=[Depends(require_admin)])
+async def hh_poll_responses(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Ручной забор откликов с hh.ru (привязанные активные вакансии → этап «Отклик»)."""
+    result = await hh_service.poll_responses_now(session, current_user.company_id)
+    await session.commit()
+    return result
+
+
 # ---------------------------------------------------------------------------
 # SMTP (почтовый сервер компании)
 # ---------------------------------------------------------------------------

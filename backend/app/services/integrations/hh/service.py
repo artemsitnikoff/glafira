@@ -658,7 +658,7 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         company_id=company_id,
         candidate_id=candidate.id,
         vacancy_id=vacancy.id,
-        stage="added",
+        stage="response",  # отклик с hh попадает в этап «Отклик» (не «Добавлен»)
         hh_negotiation_id=nid,
         created_at=now,
         selected_at=now
@@ -680,3 +680,49 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     )
 
     return True
+
+
+async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
+    """Ручной забор откликов с hh.ru для привязанных АКТИВНЫХ вакансий компании.
+
+    Тот же импорт, что cron-джоб poll_hh_responses, но по запросу из UI (мгновенно).
+    Требует подключённого hh + ПЛАТНОГО доступа работодателя (negotiations).
+    """
+    integration = await get_integration(session, company_id)
+    if not integration or not integration.hh_employer_id:
+        raise ValidationError("hh.ru не подключён")
+
+    access_token = await get_valid_access_token(session, company_id)
+
+    result = await session.execute(
+        select(Vacancy).where(
+            Vacancy.company_id == company_id,
+            Vacancy.hh_vacancy_id.isnot(None),
+            Vacancy.status == "active",
+        )
+    )
+    vacancies = result.scalars().all()
+
+    stats = {"imported": 0, "skipped": 0, "vacancies": len(vacancies)}
+    for vacancy in vacancies:
+        page = 0
+        while True:
+            data = await hh_client.get_negotiation_responses(
+                access_token, vacancy.hh_vacancy_id, page=page, per_page=100
+            )
+            items = data.get("items", [])
+            if not items:
+                break
+            for item in items:
+                try:
+                    if await import_response(session, company_id, vacancy, item):
+                        stats["imported"] += 1
+                    else:
+                        stats["skipped"] += 1
+                except Exception:
+                    stats["skipped"] += 1
+            if page >= data.get("pages", 1) - 1:
+                break
+            page += 1
+
+    return stats
