@@ -7,14 +7,14 @@ URL вебхука содержит секретный код → шифрует
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date as date_type
 from uuid import UUID
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....models import Integration, User
+from ....models import Integration, User, Employee
 from ....schemas.user import UserCreate
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
@@ -85,6 +85,37 @@ def _simplify_user_for_import(u: dict, departments_map: dict[str, str]) -> dict:
         "department_name": ", ".join(department_names) or None,
         "active": is_active,
     }
+
+
+def _b24_is_active(active) -> bool:
+    """B24 отдаёт ACTIVE как bool или строку 'Y'/'N'/'true'/'1'."""
+    return active is True or (isinstance(active, str) and active.upper() in ("Y", "TRUE", "1"))
+
+
+def _parse_b24_date(raw, fallback: date_type) -> date_type:
+    """Парсит дату Б24 (ISO/RFC) устойчиво. При любой ошибке → fallback.
+
+    Б24 отдаёт даты в разных форматах ('2021-05-01T03:00:00+03:00',
+    '2021-05-01T03:00:00', '01.05.2021'). Берём только дату.
+    """
+    if not raw or not isinstance(raw, str):
+        return fallback
+    raw = raw.strip()
+    if not raw:
+        return fallback
+    # ISO 8601 (с/без таймзоны). fromisoformat в py3.11 принимает суффикс 'Z' не всегда — убираем.
+    iso = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(iso).date()
+    except (ValueError, TypeError):
+        pass
+    # Запасные форматы Б24
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(raw[:len(fmt) + 4], fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return fallback
 
 
 async def save_config(
@@ -410,6 +441,154 @@ async def import_users(
         "emailed": emailed,
         "shown": shown,
         "skipped": skipped
+    }
+
+
+async def import_employees_from_b24(
+    session: AsyncSession,
+    company_id: UUID,
+    user_id: UUID,
+) -> dict:
+    """Импортирует ВСЕХ сотрудников из Б24 в таблицу `employees` (для расчёта Текучки).
+
+    Идемпотентно (upsert по company_id + external_source='bitrix24' + external_id=ID).
+    Импортированные сотрудники НЕ попадают в Пульс (external_source != NULL).
+
+    ⚠️ Б24 НЕ отдаёт точную дату увольнения. Поэтому для уволенных (ACTIVE=N) у
+    которых left_at ещё не зафиксирован, ставим left_at = СЕГОДНЯ — это дата
+    ОБНАРУЖЕНИЯ увольнения, а не реальная дата ухода. Текучка по таким строкам
+    приблизительна. Если left_at уже стоял (увольнение зафиксировали ранее) —
+    не перезаписываем.
+    """
+    row = await _get_row(session, company_id)
+    if not row or not row.config or not row.config.get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    webhook = await _decrypted_webhook(row)
+    today = date_type.today()
+
+    # Отделы для маппинга ID → имя
+    departments = await b24_client.get_departments(webhook)
+    departments_map = {str(d.get("ID", "")): str(d.get("NAME", "")) for d in departments}
+
+    all_users = await b24_client.get_all_users(webhook)
+
+    # Существующие импортированные Employee этой компании — по external_id
+    existing_rows = (await session.execute(
+        select(Employee).where(
+            Employee.company_id == company_id,
+            Employee.external_source == PROVIDER,
+        )
+    )).scalars().all()
+    existing_by_ext_id = {e.external_id: e for e in existing_rows}
+
+    created = 0
+    updated = 0
+    marked_left = 0
+    total = 0
+
+    for u in all_users:
+        ext_id = str(u.get("ID", "")).strip()
+        if not ext_id:
+            continue
+        total += 1
+
+        name = (u.get("NAME") or "").strip()
+        last_name = (u.get("LAST_NAME") or "").strip()
+        full_name = f"{name} {last_name}".strip() or f"Сотрудник {ext_id}"
+        position = (u.get("WORK_POSITION") or "").strip() or None
+
+        # Отдел: первый из UF_DEPARTMENT → имя через departments_map
+        dept_ids = u.get("UF_DEPARTMENT") or []
+        if not isinstance(dept_ids, list):
+            dept_ids = [dept_ids] if dept_ids else []
+        department = None
+        for did in dept_ids:
+            dn = departments_map.get(str(did))
+            if dn:
+                department = dn
+                break
+
+        # Дата старта: UF_EMPLOYMENT_DATE → DATE_REGISTER → today
+        start_date = _parse_b24_date(
+            u.get("UF_EMPLOYMENT_DATE") or u.get("DATE_REGISTER"), today
+        )
+
+        is_active = _b24_is_active(u.get("ACTIVE"))
+
+        existing = existing_by_ext_id.get(ext_id)
+
+        if existing:
+            # Upsert: обновляем поля профиля
+            existing.full_name = full_name
+            existing.position = position
+            existing.department = department
+            existing.start_date = start_date
+
+            if is_active:
+                # Снова активен → определяем статус по проходу испытательного срока.
+                # left_at НЕ трогаем (если был — оставляем; в Б24 нет точной даты, не реанимируем вслепую).
+                if existing.left_at is None:
+                    probation_end = start_date + timedelta(days=existing.probation_days)
+                    existing.status = "passed" if probation_end <= today else "onboarding"
+            else:
+                # Уволен в Б24. left_at ставим только если ещё не зафиксирован (см. docstring).
+                if existing.left_at is None:
+                    existing.left_at = today  # дата ОБНАРУЖЕНИЯ увольнения, не точная
+                    marked_left += 1
+                existing.status = "left"
+
+            updated += 1
+        else:
+            if is_active:
+                probation_end = start_date + timedelta(days=90)
+                status = "passed" if probation_end <= today else "onboarding"
+                left_at = None
+            else:
+                # Уже уволен на момент первого импорта → left_at = today (приблизительно).
+                status = "left"
+                left_at = today
+                marked_left += 1
+
+            employee = Employee(
+                company_id=company_id,
+                candidate_id=None,
+                application_id=None,
+                manager_user_id=None,  # Б24-руководителей на наших users надёжно не маппим
+                full_name=full_name,
+                position=position,
+                department=department,
+                start_date=start_date,
+                status=status,
+                left_at=left_at,
+                external_source=PROVIDER,
+                external_id=ext_id,
+            )
+            session.add(employee)
+            created += 1
+
+    await session.flush()
+
+    await audit(
+        session,
+        action="bitrix24_import_employees",
+        entity_type="integration",
+        entity_id=row.id,
+        after={
+            "created": created,
+            "updated": updated,
+            "marked_left": marked_left,
+            "total": total,
+        },
+        actor_user_id=user_id,
+        company_id=company_id,
+    )
+
+    return {
+        "created": created,
+        "updated": updated,
+        "marked_left": marked_left,
+        "total": total,
     }
 
 

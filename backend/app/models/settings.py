@@ -112,6 +112,8 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
     days_no_response: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("7"))
     stop_words: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     default_mode: Mapped[str] = mapped_column(String(1), nullable=False, server_default=text("'A'"))
+    # Источник данных о текучке: 'none' (не подключён) | 'bitrix24' (импорт сотрудников из Б24).
+    turnover_source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'none'"))
 
     # Constraints
     __table_args__ = (
@@ -122,6 +124,10 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
         CheckConstraint(
             "default_mode IN ('A', 'B', 'C')",
             name="check_glafira_default_mode"
+        ),
+        CheckConstraint(
+            "turnover_source IN ('none', 'bitrix24')",
+            name="check_glafira_turnover_source"
         ),
     )
 

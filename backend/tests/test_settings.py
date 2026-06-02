@@ -43,6 +43,34 @@ async def test_glafira_invalid_thresholds_returns_400(async_client: AsyncClient,
     assert r.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+async def test_glafira_turnover_source_default_is_none(async_client: AsyncClient, auth_headers: dict):
+    """GET без правок → turnover_source='none' (server_default)."""
+    r = await async_client.get("/api/v1/settings/glafira", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["turnover_source"] == "none"
+
+
+async def test_glafira_turnover_source_saves(async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User):
+    """PATCH turnover_source='bitrix24' → SELECT из БД показывает ровно это значение."""
+    r = await async_client.patch("/api/v1/settings/glafira", headers=auth_headers,
+        json={"turnover_source": "bitrix24"})
+    assert r.status_code == 200, r.text
+    assert r.json()["turnover_source"] == "bitrix24"
+
+    row = (await db_session.execute(
+        select(GlafiraSettings).where(GlafiraSettings.company_id == admin_user.company_id)
+    )).scalar_one()
+    assert row.turnover_source == "bitrix24"
+
+
+async def test_glafira_turnover_source_invalid_returns_400(async_client: AsyncClient, auth_headers: dict):
+    """Недопустимое значение turnover_source → 400 ValidationError."""
+    r = await async_client.patch("/api/v1/settings/glafira", headers=auth_headers,
+        json={"turnover_source": "sap"})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 async def test_reject_reason_crud_roundtrip(async_client: AsyncClient, auth_headers: dict, admin_user: User, db_session: AsyncSession):
     """POST → GET list содержит, DELETE → is_active=false, GET без include_inactive → отсутствует."""
     r1 = await async_client.post("/api/v1/settings/reject-reasons", headers=auth_headers,

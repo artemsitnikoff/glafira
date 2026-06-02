@@ -319,6 +319,22 @@ async def import_b24_users(
     return BitrixImportResult.model_validate(result)
 
 
+@router.post("/bitrix24/import-employees", dependencies=[Depends(require_admin)])
+async def import_b24_employees(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Импорт сотрудников из Битрикс24 в таблицу employees (для расчёта Текучки, admin only).
+
+    Идемпотентно (upsert). Возвращает {created, updated, marked_left, total}.
+    """
+    result = await b24_service.import_employees_from_b24(
+        session, current_user.company_id, current_user.id
+    )
+    await session.commit()
+    return result
+
+
 @router.post("/bitrix24/disconnect", dependencies=[Depends(require_admin)])
 async def disconnect_b24(
     current_user: User = Depends(get_current_user),

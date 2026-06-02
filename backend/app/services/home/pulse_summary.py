@@ -20,9 +20,11 @@ async def compute_pulse_summary(session: AsyncSession, company_id: UUID, period:
     else:
         start_date = None
 
-    # 1. Количество сотрудников на адаптации
+    # 1. Количество сотрудников на адаптации.
+    # external_source IS NULL: Б24-импортированные сотрудники в Пульс не входят.
     onboarding_query = select(func.count(Employee.id)).where(
         Employee.company_id == company_id,
+        Employee.external_source.is_(None),
         Employee.status == 'onboarding'
     )
     if start_date:
@@ -37,6 +39,7 @@ async def compute_pulse_summary(session: AsyncSession, company_id: UUID, period:
         prev_start = start_date - timedelta(days=period_days)
         prev_onboarding_query = select(func.count(Employee.id)).where(
             Employee.company_id == company_id,
+            Employee.external_source.is_(None),
             Employee.status == 'onboarding',
             Employee.start_date >= prev_start.date(),
             Employee.start_date < start_date.date()
@@ -51,6 +54,7 @@ async def compute_pulse_summary(session: AsyncSession, company_id: UUID, period:
         func.count(Employee.id)
     ).where(
         Employee.company_id == company_id,
+        Employee.external_source.is_(None),
         Employee.status == 'onboarding'
     ).group_by(Employee.risk_level)
 
@@ -106,6 +110,7 @@ async def compute_pulse_summary(session: AsyncSession, company_id: UUID, period:
     if start_date:
         silent_employees_query = select(func.count(func.distinct(Employee.id))).where(
             Employee.company_id == company_id,
+            Employee.external_source.is_(None),
             Employee.status == 'onboarding',
             ~Employee.id.in_(
                 select(PulseSurvey.employee_id).where(
@@ -116,11 +121,13 @@ async def compute_pulse_summary(session: AsyncSession, company_id: UUID, period:
         )
         total_employees_query = select(func.count(Employee.id)).where(
             Employee.company_id == company_id,
+            Employee.external_source.is_(None),
             Employee.status == 'onboarding'
         )
     else:
         silent_employees_query = select(func.count(func.distinct(Employee.id))).where(
             Employee.company_id == company_id,
+            Employee.external_source.is_(None),
             Employee.status == 'onboarding',
             ~Employee.id.in_(
                 select(PulseSurvey.employee_id).where(
@@ -130,6 +137,7 @@ async def compute_pulse_summary(session: AsyncSession, company_id: UUID, period:
         )
         total_employees_query = select(func.count(Employee.id)).where(
             Employee.company_id == company_id,
+            Employee.external_source.is_(None),
             Employee.status == 'onboarding'
         )
 
@@ -242,9 +250,10 @@ async def _compute_attention_hr(session: AsyncSession, company_id: UUID, now: da
     """Вычисляет список сотрудников, требующих внимания HR"""
     attention_hr = []
 
-    # Получаем всех сотрудников на адаптации
+    # Получаем всех сотрудников на адаптации (Б24-импортированные исключены).
     employees_query = select(Employee).where(
         Employee.company_id == company_id,
+        Employee.external_source.is_(None),
         Employee.status == 'onboarding'
     )
     employees_result = await session.execute(employees_query)

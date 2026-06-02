@@ -13,6 +13,11 @@ class ClientCreate(ClientBase):
     pass
 
 
+class ClientUpdate(BaseModel):
+    name: Optional[str] = None
+    contact_person: Optional[str] = None
+
+
 class ClientOut(ClientBase):
     model_config = ConfigDict(from_attributes=True)
 

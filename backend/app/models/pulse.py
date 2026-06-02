@@ -23,16 +23,23 @@ class Employee(Base, TimestampMixin, CompanyMixin):
         nullable=False,
         server_default=text("'00000000-0000-0000-0000-000000000001'")
     )
-    candidate_id: Mapped[uuid.UUID] = mapped_column(
+    # nullable=True: сотрудники, импортированные из внешних систем (Б24), не имеют
+    # ATS-кандидата. Инвариант «Employee из hire всегда с candidate» осознанно ослаблен —
+    # действует только для наймов внутри ATS (create_employee_from_hire всегда ставит candidate_id).
+    candidate_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("candidates.id", ondelete="RESTRICT"),
-        nullable=False
+        nullable=True
     )
     application_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("applications.id", ondelete="SET NULL"),
         nullable=True
     )
+    # Внешний источник сотрудника: NULL = создан внутри ATS (найм); 'bitrix24' = импортирован из Б24.
+    external_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # ID сотрудника в внешней системе (Б24 user ID) — для идемпотентного upsert при импорте.
+    external_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     position: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
@@ -81,6 +88,12 @@ class Employee(Base, TimestampMixin, CompanyMixin):
         # DB-бэкстоп к app-level идемпотентности найма (SELECT-then-INSERT в
         # create_employee_from_hire) против гонки двойного найма из одной заявки.
         UniqueConstraint("application_id", name="uq_employees_application_id"),
+        # Идемпотентность импорта из внешних систем: один внешний юзер = один Employee.
+        # В Postgres NULL не конфликтует в UNIQUE, поэтому ATS-наймы (external_*=NULL)
+        # дубли не образуют — ограничение работает только для импортированных строк.
+        UniqueConstraint(
+            "company_id", "external_source", "external_id", name="uq_employee_external"
+        ),
     )
 
     # Relationships

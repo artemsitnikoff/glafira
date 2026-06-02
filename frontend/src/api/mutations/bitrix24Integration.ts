@@ -10,6 +10,14 @@ export interface Bitrix24TestResponse {
   user_count: number | null;
 }
 
+// Результат импорта сотрудников из Б24 (openapi не регенерён)
+export interface Bitrix24ImportEmployeesResult {
+  created: number;
+  updated: number;
+  marked_left: number;
+  total: number;
+}
+
 export function useBitrix24SaveConfig() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -32,6 +40,21 @@ export function useBitrix24Test() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations', 'bitrix24', 'status'] });
+    },
+  });
+}
+
+export function useBitrix24ImportEmployees() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<Bitrix24ImportEmployeesResult> => {
+      const response = await api.post('/integrations/bitrix24/import-employees');
+      return response.data as Bitrix24ImportEmployeesResult;
+    },
+    onSuccess: () => {
+      // Импорт сотрудников меняет Пульс/«Текучку» — инвалидируем смежные кэши
+      queryClient.invalidateQueries({ queryKey: ['pulse'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     },
   });
 }

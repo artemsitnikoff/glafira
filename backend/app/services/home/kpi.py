@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from ...core.periods import parse_home_period
-from ...models import Vacancy, Application, Candidate, Employee, Message
+from ...models import Vacancy, Application, Candidate, Employee, Message, GlafiraSettings
 from ...schemas.home import HomeKpi, KpiCard
 
 
@@ -143,8 +143,26 @@ async def _get_avg_time_to_hire(session: AsyncSession, company_id: UUID, period_
     return current, previous
 
 
-async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days: int | None) -> tuple[float, float | None]:
-    """Текучесть 90 дней"""
+async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days: int | None) -> tuple[float | None, float | None]:
+    """Текучесть 90 дней.
+
+    Источник данных о текучке настраивается (GlafiraSettings.turnover_source),
+    как в analytics/turnover.py — главная не должна расходиться с отчётом «Текучка»:
+    - 'none' → источник не подключён, KPI не считаем (value=None, фронт покажет «—»);
+    - 'bitrix24' → считаем ТОЛЬКО по импортированным из Б24 сотрудникам
+      (external_source == 'bitrix24'; у ATS-наймов нет надёжных left_at).
+    """
+    source_row = await session.execute(
+        select(GlafiraSettings.turnover_source).where(
+            GlafiraSettings.company_id == company_id
+        )
+    )
+    source = source_row.scalar_one_or_none() or 'none'
+
+    if source == 'none':
+        # Источник не подключён — не считаем, фронт покажет «—» (как cost_per_hire).
+        return None, None
+
     now = datetime.now(timezone.utc)
 
     if period_days is None:
@@ -155,12 +173,16 @@ async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days
             Employee.left_at.is_not(None),
             (Employee.left_at - Employee.start_date) < 90
         )
+        if source == 'bitrix24':
+            left_query = left_query.where(Employee.external_source == 'bitrix24')
         left_result = await session.execute(left_query)
         left_count = left_result.scalar() or 0
 
         total_query = select(func.count(Employee.id)).where(
             Employee.company_id == company_id
         )
+        if source == 'bitrix24':
+            total_query = total_query.where(Employee.external_source == 'bitrix24')
         total_result = await session.execute(total_query)
         total_count = total_result.scalar() or 0
 
@@ -178,6 +200,8 @@ async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days
         Employee.start_date <= now.date(),
         (Employee.left_at - Employee.start_date) < 90
     )
+    if source == 'bitrix24':
+        left_query = left_query.where(Employee.external_source == 'bitrix24')
     left_result = await session.execute(left_query)
     left_current = left_result.scalar() or 0
 
@@ -187,6 +211,8 @@ async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days
         Employee.start_date >= start_date.date(),
         Employee.start_date <= now.date()
     )
+    if source == 'bitrix24':
+        total_current_query = total_current_query.where(Employee.external_source == 'bitrix24')
     total_current_result = await session.execute(total_current_query)
     total_current = total_current_result.scalar() or 0
 
@@ -202,6 +228,8 @@ async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days
         Employee.start_date < start_date.date(),
         (Employee.left_at - Employee.start_date) < 90
     )
+    if source == 'bitrix24':
+        left_prev_query = left_prev_query.where(Employee.external_source == 'bitrix24')
     left_prev_result = await session.execute(left_prev_query)
     left_prev = left_prev_result.scalar() or 0
 
@@ -210,6 +238,8 @@ async def _get_turnover_90d(session: AsyncSession, company_id: UUID, period_days
         Employee.start_date >= prev_start.date(),
         Employee.start_date < start_date.date()
     )
+    if source == 'bitrix24':
+        total_prev_query = total_prev_query.where(Employee.external_source == 'bitrix24')
     total_prev_result = await session.execute(total_prev_query)
     total_prev = total_prev_result.scalar() or 0
 

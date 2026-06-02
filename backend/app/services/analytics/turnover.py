@@ -7,12 +7,12 @@ from sqlalchemy import func, select, and_, extract, case, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.periods import resolve_analytics_window
-from ...models import Employee, User
+from ...models import Employee, User, GlafiraSettings
 from ...schemas.analytics import AnalyticsResponse, ChartData, TableData, TableColumn
 from .common import AnalyticsFilters
 
 
-async def _build_cohort_chart(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> ChartData:
+async def _build_cohort_chart(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters, source: str) -> ChartData:
     """Cohort heatmap: retention по месяцам найма"""
     start_date, end_date = window
 
@@ -47,6 +47,9 @@ async def _build_cohort_chart(session: AsyncSession, company_id: UUID, window: t
         if filters.recruiter_ids:
             hired_query = hired_query.where(Employee.recruiter_user_id.in_(filters.recruiter_ids))
 
+        if source == 'bitrix24':
+            hired_query = hired_query.where(Employee.external_source == 'bitrix24')
+
         hired_result = await session.execute(hired_query)
         hired_total = hired_result.scalar() or 0
 
@@ -80,6 +83,9 @@ async def _build_cohort_chart(session: AsyncSession, company_id: UUID, window: t
             if filters.recruiter_ids:
                 retained_query = retained_query.where(Employee.recruiter_user_id.in_(filters.recruiter_ids))
 
+            if source == 'bitrix24':
+                retained_query = retained_query.where(Employee.external_source == 'bitrix24')
+
             retained_result = await session.execute(retained_query)
             retained_count = retained_result.scalar() or 0
 
@@ -100,7 +106,7 @@ async def _build_cohort_chart(session: AsyncSession, company_id: UUID, window: t
     )
 
 
-async def _build_survival_chart(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> ChartData:
+async def _build_survival_chart(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters, source: str) -> ChartData:
     """Survival curve: retention все сотрудники"""
 
     # Точки survival curve через каждые 30 дней до 360
@@ -118,6 +124,9 @@ async def _build_survival_chart(session: AsyncSession, company_id: UUID, window:
 
         if filters.recruiter_ids:
             eligible_query = eligible_query.where(Employee.recruiter_user_id.in_(filters.recruiter_ids))
+
+        if source == 'bitrix24':
+            eligible_query = eligible_query.where(Employee.external_source == 'bitrix24')
 
         eligible_result = await session.execute(eligible_query)
         eligible_count = eligible_result.scalar() or 0
@@ -141,6 +150,9 @@ async def _build_survival_chart(session: AsyncSession, company_id: UUID, window:
         if filters.recruiter_ids:
             survived_query = survived_query.where(Employee.recruiter_user_id.in_(filters.recruiter_ids))
 
+        if source == 'bitrix24':
+            survived_query = survived_query.where(Employee.external_source == 'bitrix24')
+
         survived_result = await session.execute(survived_query)
         survived_count = survived_result.scalar() or 0
 
@@ -154,7 +166,7 @@ async def _build_survival_chart(session: AsyncSession, company_id: UUID, window:
     )
 
 
-async def _build_managers_table(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> TableData:
+async def _build_managers_table(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters, source: str) -> TableData:
     """Таблица по руководителям"""
 
     # Honest avg_tenure_days calculation: AVG((COALESCE(left_at, CURRENT_DATE) - start_date) in days)
@@ -179,6 +191,9 @@ async def _build_managers_table(session: AsyncSession, company_id: UUID, window:
     if filters.recruiter_ids:
         manager_query = manager_query.where(Employee.recruiter_user_id.in_(filters.recruiter_ids))
 
+    if source == 'bitrix24':
+        manager_query = manager_query.where(Employee.external_source == 'bitrix24')
+
     result = await session.execute(manager_query)
     rows = []
 
@@ -202,6 +217,9 @@ async def _build_managers_table(session: AsyncSession, company_id: UUID, window:
             ).self_group()
         )
 
+        if source == 'bitrix24':
+            retention_90d_query = retention_90d_query.where(Employee.external_source == 'bitrix24')
+
         retention_90d_result = await session.execute(retention_90d_query)
         retention_90d_count = retention_90d_result.scalar() or 0
 
@@ -211,6 +229,9 @@ async def _build_managers_table(session: AsyncSession, company_id: UUID, window:
             Employee.manager_user_id == manager_id,
             Employee.start_date + timedelta(days=90) <= date_type.today()
         )
+
+        if source == 'bitrix24':
+            eligible_90d_query = eligible_90d_query.where(Employee.external_source == 'bitrix24')
 
         eligible_90d_result = await session.execute(eligible_90d_query)
         eligible_90d_count = eligible_90d_result.scalar() or 0
@@ -241,16 +262,39 @@ async def _build_managers_table(session: AsyncSession, company_id: UUID, window:
 
 
 async def build_turnover(session: AsyncSession, filters: AnalyticsFilters, company_id: UUID) -> AnalyticsResponse:
-    """Строит отчёт Turnover"""
+    """Строит отчёт Turnover.
+
+    Источник данных о текучке настраивается (GlafiraSettings.turnover_source):
+    - 'none' → источник не подключён, отчёт пуст (фронт покажет заглушку, НЕ считаем);
+    - 'bitrix24' → считаем ТОЛЬКО по импортированным из Б24 сотрудникам
+      (у ATS-наймов нет надёжных left_at, поэтому их в текучку не берём).
+    """
+    source_row = await session.execute(
+        select(GlafiraSettings.turnover_source).where(
+            GlafiraSettings.company_id == company_id
+        )
+    )
+    source = source_row.scalar_one_or_none() or 'none'
+
+    if source == 'none':
+        # Источник не подключён — честно возвращаем пустой отчёт, ничего не считаем.
+        return AnalyticsResponse(
+            report='turnover',
+            period=filters.period,
+            kpis=None,
+            charts=[],
+            tables=[]
+        )
+
     window = resolve_analytics_window(filters.period, filters.date_from, filters.date_to)
 
     charts = [
-        await _build_cohort_chart(session, company_id, window, filters),
-        await _build_survival_chart(session, company_id, window, filters)
+        await _build_cohort_chart(session, company_id, window, filters, source),
+        await _build_survival_chart(session, company_id, window, filters, source)
     ]
 
     tables = [
-        await _build_managers_table(session, company_id, window, filters)
+        await _build_managers_table(session, company_id, window, filters, source)
     ]
 
     return AnalyticsResponse(

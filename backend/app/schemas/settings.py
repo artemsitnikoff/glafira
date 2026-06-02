@@ -49,6 +49,7 @@ class GlafiraSettingsOut(ORMBase):
     days_no_response: int
     stop_words: dict
     default_mode: str
+    turnover_source: str
     created_at: datetime
     updated_at: datetime
 
@@ -62,6 +63,7 @@ class GlafiraSettingsUpdate(BaseModel):
     days_no_response: Optional[int] = None
     stop_words: Optional[dict] = None
     default_mode: Optional[str] = None
+    turnover_source: Optional[str] = None
 
 
 # Reject Reasons schemas

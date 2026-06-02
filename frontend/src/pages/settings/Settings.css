@@ -769,6 +769,27 @@
 .tag-swatch:hover { transform: scale(1.1); }
 .tag-swatch.on { border-color: var(--fg-1); }
 
+/* ---------------- General: заказчики (клиенты) ---------------- */
+.set-content-inner .clients-table {
+  grid-template-columns: minmax(220px, 2fr) minmax(180px, 1.4fr) 90px;
+}
+.set-content-inner .client-edit-row { gap: 10px; }
+.set-content-inner .client-edit-row .tag-edit-input { flex: 1 1 200px; min-width: 160px; }
+
+/* ---------------- General: источник текучки ---------------- */
+.set-content-inner .src-radio-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.set-content-inner .turnover-b24 {
+  display: flex; flex-direction: column; gap: 12px;
+  margin-top: 14px;
+}
+.set-content-inner .import-result-stats {
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
 /* ---------------- Integrations ---------------- */
 .integ-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
 .integ-card {

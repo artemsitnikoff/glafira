@@ -46,6 +46,9 @@ async def update_glafira_settings(
     if data.days_no_response is not None and not (0 < data.days_no_response <= 90):
         raise ValidationError("days_no_response должен быть от 1 до 90")
 
+    if data.turnover_source is not None and data.turnover_source not in ("none", "bitrix24"):
+        raise ValidationError("turnover_source должен быть 'none' или 'bitrix24'")
+
     # Store original values for audit
     before = {
         "tone": settings_obj.tone,
@@ -56,6 +59,7 @@ async def update_glafira_settings(
         "days_no_response": settings_obj.days_no_response,
         "stop_words": settings_obj.stop_words,
         "default_mode": settings_obj.default_mode,
+        "turnover_source": settings_obj.turnover_source,
     }
 
     # Update fields
@@ -75,6 +79,8 @@ async def update_glafira_settings(
         settings_obj.stop_words = data.stop_words
     if data.default_mode is not None:
         settings_obj.default_mode = data.default_mode
+    if data.turnover_source is not None:
+        settings_obj.turnover_source = data.turnover_source
 
     await session.flush()
     await session.refresh(settings_obj)
@@ -89,6 +95,7 @@ async def update_glafira_settings(
         "days_no_response": settings_obj.days_no_response,
         "stop_words": settings_obj.stop_words,
         "default_mode": settings_obj.default_mode,
+        "turnover_source": settings_obj.turnover_source,
     }
 
     await audit(

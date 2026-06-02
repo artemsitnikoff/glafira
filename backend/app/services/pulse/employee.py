@@ -174,8 +174,13 @@ async def list_employees_paginated(
 ) -> Paginated[EmployeeListItem]:
     """Получает список сотрудников с пагинацией и фильтрами"""
 
-    # Handle survey_overdue_days filter with subquery
-    base_filters = [Employee.company_id == company_id]
+    # Handle survey_overdue_days filter with subquery.
+    # external_source IS NULL: импортированные из Б24 сотрудники НЕ попадают в Пульс
+    # (у них нет плана адаптации/онбординга — они существуют только для расчёта Текучки).
+    base_filters = [
+        Employee.company_id == company_id,
+        Employee.external_source.is_(None),
+    ]
 
     if survey_overdue_days is not None:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=survey_overdue_days)

@@ -22,9 +22,11 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     days = PERIOD_DAYS[period]
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days else None
 
-    # Количество сотрудников на адаптации
+    # Количество сотрудников на адаптации.
+    # external_source IS NULL: Б24-импортированные сотрудники в Пульс/KPI не входят.
     onboarding_query = select(func.count(Employee.id)).where(
         Employee.company_id == company_id,
+        Employee.external_source.is_(None),
         Employee.status == 'onboarding'
     )
     if cutoff:
@@ -36,6 +38,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     # Прошли испытательный срок в текущем периоде
     passed_query = select(func.count(Employee.id)).where(
         Employee.company_id == company_id,
+        Employee.external_source.is_(None),
         Employee.status == 'passed'
     )
     if cutoff:
@@ -50,6 +53,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
         prev_cutoff = cutoff - timedelta(days=days)
         prev_passed_query = select(func.count(Employee.id)).where(
             Employee.company_id == company_id,
+            Employee.external_source.is_(None),
             Employee.status == 'passed',
             Employee.updated_at >= prev_cutoff,
             Employee.updated_at < cutoff
@@ -61,6 +65,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     # Ушли в первые 90 дней
     left_90d_query = select(func.count(Employee.id)).where(
         Employee.company_id == company_id,
+        Employee.external_source.is_(None),
         Employee.status == 'left',
         Employee.left_at.is_not(None),
         func.extract('day', Employee.left_at - Employee.start_date) < 90
@@ -73,7 +78,8 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
 
     # Общее количество нанятых в периоде (для расчёта процента)
     total_hired_query = select(func.count(Employee.id)).where(
-        Employee.company_id == company_id
+        Employee.company_id == company_id,
+        Employee.external_source.is_(None)
     )
     if cutoff:
         total_hired_query = total_hired_query.where(Employee.start_date >= cutoff.date())
