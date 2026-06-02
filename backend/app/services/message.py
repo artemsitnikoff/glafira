@@ -1,3 +1,4 @@
+import html
 import math
 from datetime import datetime, timezone
 from uuid import UUID
@@ -11,8 +12,11 @@ from ..models import Candidate, Message, User, Vacancy, Application
 from ..schemas.message import MessageOut, MessageCreate
 from ..schemas.base import Paginated
 from ..services.audit import audit
+from ..services.chat_log import log_chat
 from ..services.integrations.hh import client as hh_client
 from ..services.integrations.hh.service import get_valid_access_token
+from ..services.integrations.smtp.service import send_email
+from ..services.integrations.smtp.templates import render_simple_email
 
 
 async def get_messages_paginated(
@@ -106,6 +110,75 @@ async def get_messages_paginated(
     )
 
 
+async def _send_hh(session, company_id, candidate_id, message_data, validated_application) -> str | None:
+    """Реальная отправка в hh через новый Chats API. Возвращает external_id (id сообщения hh) или None."""
+    hh_chat_id = None
+    hh_negotiation_id = None
+    target_application = None
+
+    if message_data.application_id:
+        if validated_application:
+            hh_chat_id = validated_application.hh_chat_id
+            hh_negotiation_id = validated_application.hh_negotiation_id
+            target_application = validated_application
+    else:
+        # Ищем любую заявку кандидата с chat_id/negotiation_id
+        app_result = await session.execute(
+            select(Application).where(
+                Application.candidate_id == candidate_id,
+                Application.company_id == company_id,
+                Application.hh_negotiation_id.isnot(None),
+            ).limit(1)
+        )
+        target_application = app_result.scalar_one_or_none()
+        if target_application:
+            hh_chat_id = target_application.hh_chat_id
+            hh_negotiation_id = target_application.hh_negotiation_id
+
+    access_token = await get_valid_access_token(session, company_id)
+
+    # Ленивый бэкфилл chat_id из negotiation, если пуст
+    if not hh_chat_id and hh_negotiation_id:
+        negotiation_data = await hh_client.get_negotiation(access_token, hh_negotiation_id)
+        chat_id_from_negotiation = negotiation_data.get("chat_id")
+        if chat_id_from_negotiation:
+            hh_chat_id = str(chat_id_from_negotiation)
+            if target_application:
+                target_application.hh_chat_id = hh_chat_id
+                await session.flush()
+
+    if not hh_chat_id:
+        raise ValidationError("Канал hh недоступен: у кандидата нет чата hh")
+
+    hh_response = await hh_client.send_chat_message(access_token, hh_chat_id, message_data.body)
+    return hh_response.get("id") if isinstance(hh_response, dict) else None
+
+
+async def _send_email(session, company_id, candidate, message_data, validated_application) -> None:
+    """Реальная отправка письма кандидату через SMTP-ядро + единый шаблон писем."""
+    if not candidate.email:
+        raise ValidationError("Канал email недоступен: у кандидата нет email")
+    subject = (
+        f"Сообщение по вакансии «{validated_application.vacancy.name}»"
+        if validated_application and validated_application.vacancy
+        else "Новое сообщение от работодателя"
+    )
+    safe_body = html.escape(message_data.body).replace("\n", "<br>")
+    body_html = render_simple_email(
+        heading="Новое сообщение",
+        body_html=f'<p style="margin:0;font-size:15px;line-height:1.6;color:#1A1F29;">{safe_body}</p>',
+        preheader=message_data.body[:120],
+    )
+    await send_email(
+        session,
+        company_id,
+        to=candidate.email,
+        subject=subject,
+        body_text=message_data.body,
+        body_html=body_html,
+    )
+
+
 async def send_message(
     session: AsyncSession,
     candidate_id: UUID,
@@ -122,7 +195,8 @@ async def send_message(
             Candidate.deleted_at.is_(None)
         )
     )
-    if not candidate_result.scalar_one_or_none():
+    candidate = candidate_result.scalar_one_or_none()
+    if not candidate:
         raise NotFoundError("Кандидат")
 
     # Validate application_id ownership if provided
@@ -149,66 +223,26 @@ async def send_message(
 
     now = datetime.now(timezone.utc)
     external_id = None
+    channel = message_data.channel
+    cand_name = candidate.full_name or "Кандидат"
 
-    # Реальная отправка для канала hh
-    if message_data.channel == "hh":
-        # Найти chat_id
-        hh_chat_id = None
-        hh_negotiation_id = None
-        target_application = None
+    # Каналы с РЕАЛЬНОЙ отправкой: hh (Chats API) и email (SMTP-ядро + единый шаблон).
+    # Прочие (telegram/max/whatsapp/sms) — пока только запись в карточку (рабочего API нет).
+    # Упал реальный канал → лог + проброс, сообщение НЕ сохраняется (никакого фейка «отправлено»).
+    if channel in ("hh", "email"):
+        try:
+            if channel == "hh":
+                external_id = await _send_hh(session, company_id, candidate_id, message_data, validated_application)
+            else:
+                await _send_email(session, company_id, candidate, message_data, validated_application)
+        except Exception as e:
+            log_chat(f"{channel} → {cand_name} • НЕ отправлено: {e}")
+            raise
+        log_chat(f"{channel} → {cand_name} • отправлено")
+    else:
+        log_chat(f"{channel} → {cand_name} • сохранено (канал без реальной отправки)")
 
-        if message_data.application_id:
-            # Проверяем указанную заявку
-            if validated_application:
-                hh_chat_id = validated_application.hh_chat_id
-                hh_negotiation_id = validated_application.hh_negotiation_id
-                target_application = validated_application
-        else:
-            # Ищем любую заявку кандидата с chat_id или negotiation_id
-            app_result = await session.execute(
-                select(Application)
-                .where(
-                    Application.candidate_id == candidate_id,
-                    Application.company_id == company_id,
-                    Application.hh_negotiation_id.isnot(None)
-                )
-                .limit(1)
-            )
-            target_application = app_result.scalar_one_or_none()
-            if target_application:
-                hh_chat_id = target_application.hh_chat_id
-                hh_negotiation_id = target_application.hh_negotiation_id
-
-        # Получить токен
-        access_token = await get_valid_access_token(session, company_id)
-
-        # Резолв chat_id если нет
-        if not hh_chat_id and hh_negotiation_id:
-            # Ленивый бэкфилл: получаем chat_id из negotiation
-            negotiation_data = await hh_client.get_negotiation(access_token, hh_negotiation_id)
-            chat_id_from_negotiation = negotiation_data.get("chat_id")
-            if chat_id_from_negotiation:
-                hh_chat_id = str(chat_id_from_negotiation)
-                # Сохраняем chat_id в Application для будущих отправок
-                if target_application:
-                    target_application.hh_chat_id = hh_chat_id
-                    await session.flush()
-
-        if not hh_chat_id:
-            raise ValidationError("Канал hh недоступен: у кандидата нет чата hh")
-
-        # Отправить через новый Chats API
-        hh_response = await hh_client.send_chat_message(
-            access_token,
-            hh_chat_id,
-            message_data.body
-        )
-
-        # Извлечь external_id из ответа hh
-        if isinstance(hh_response, dict):
-            external_id = hh_response.get("id")
-
-    # Create message (только после успешной отправки для hh)
+    # Create message (для hh/email — только после успешной реальной отправки)
     message = Message(
         company_id=company_id,
         candidate_id=candidate_id,

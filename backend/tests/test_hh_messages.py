@@ -539,3 +539,63 @@ class TestHhClient:
 
             assert result["chat_id"] == 567
             mock_client.get.assert_called_once()
+
+
+class TestEmailMessaging:
+    """Тесты реальной отправки канала email через SMTP-ядро + шаблон"""
+
+    @pytest.mark.asyncio
+    async def test_send_email_success(self, async_session, sample_company, sample_user, sample_candidate):
+        """Канал email при наличии email кандидата -> реально вызывает send_email, сохраняет out"""
+        with patch('app.services.message.send_email') as mock_send_email:
+            mock_send_email.return_value = None
+
+            message_data = MessageCreate(channel="email", body="Здравствуйте, приглашаем на интервью")
+            result = await send_message(
+                async_session, sample_candidate.id, message_data, sample_company.id, sample_user.id
+            )
+
+            mock_send_email.assert_called_once()
+            # письмо ушло на email кандидата
+            assert mock_send_email.call_args.kwargs["to"] == sample_candidate.email
+            assert result.channel == "email"
+            assert result.direction == "out"
+            saved = await async_session.get(Message, result.id)
+            assert saved is not None and saved.channel == "email"
+
+    @pytest.mark.asyncio
+    async def test_send_email_without_candidate_email_error(self, async_session, sample_company, sample_user, sample_candidate):
+        """Канал email без email у кандидата -> ошибка, send_email НЕ вызван, ничего не сохранено"""
+        sample_candidate.email = None
+        await async_session.flush()
+
+        with patch('app.services.message.send_email') as mock_send_email:
+            message_data = MessageCreate(channel="email", body="Текст")
+            with pytest.raises(ValidationError) as exc_info:
+                await send_message(
+                    async_session, sample_candidate.id, message_data, sample_company.id, sample_user.id
+                )
+            assert "email" in str(exc_info.value).lower()
+            mock_send_email.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_email_failure_not_saved(self, async_session, sample_company, sample_user, sample_candidate):
+        """SMTP упал -> ошибка проброшена, сообщение НЕ сохранено (no fake «отправлено»)"""
+        with patch('app.services.message.send_email') as mock_send_email:
+            mock_send_email.side_effect = ValidationError("SMTP не настроен")
+            message_data = MessageCreate(channel="email", body="Текст")
+            with pytest.raises(ValidationError):
+                await send_message(
+                    async_session, sample_candidate.id, message_data, sample_company.id, sample_user.id
+                )
+
+    @pytest.mark.asyncio
+    async def test_telegram_does_not_send_email(self, async_session, sample_company, sample_user, sample_candidate):
+        """Канал telegram (заглушка) -> send_email НЕ вызывается, сообщение сохраняется в БД"""
+        with patch('app.services.message.send_email') as mock_send_email:
+            message_data = MessageCreate(channel="telegram", body="Внутренняя заметка")
+            result = await send_message(
+                async_session, sample_candidate.id, message_data, sample_company.id, sample_user.id
+            )
+            mock_send_email.assert_not_called()
+            assert result.channel == "telegram"

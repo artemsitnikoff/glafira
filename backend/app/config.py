@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # Текстовый журнал оценок (авто + по кнопке). Пишется на том backend_storage
     # (общий для веб- и cron-контейнера, переживает рестарт). Пусто → не вести.
     SCORING_LOG_PATH: str = "/app/storage/scoring.log"
+    # Текстовый журнал чатов (исходящие по всем каналам + входящие hh). Тот же том.
+    CHAT_LOG_PATH: str = "/app/storage/chat.log"
 
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"

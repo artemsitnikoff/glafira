@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from ..config import settings
 from ..models import HhIntegration, Application, Message
+from ..services.chat_log import log_chat
 from ..services.integrations.hh import client as hh_client
 from ..services.integrations.hh.service import get_valid_access_token
 
@@ -99,6 +100,7 @@ async def poll_chat_messages(session, company_id, chat_id, candidate_id, applica
 
             session.add(message)
             imported += 1
+            log_chat(f"hh ← входящее (chat {chat_id}): {body[:80]}")
 
     except Exception as e:
         logger.error(f"Ошибка импорта сообщений чата {chat_id}: {e}")
