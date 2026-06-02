@@ -6,7 +6,7 @@ from uuid import UUID
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -300,21 +300,21 @@ async def score_pending_applications(
     *,
     limit: int | None = None,
 ) -> dict:
-    """Фоновая авто-оценка неоценённых откликов этапа «Отклик».
+    """Фоновая авто-оценка ЛЮБЫХ неоценённых заявок (не только откликов с hh).
 
-    Берёт до `limit` заявок компании с stage='response', пустым ai_score и БЕЗ
-    уже существующей оценки, у которых вакансия активна/на паузе и имеет описание
-    (требования для рубрики), кандидат не удалён — и прогоняет каждую через
-    score_candidate с actor_type='ai' (без юзера).
+    Событие, полностью отвязанное от импорта (cron-джоб score_pending). Берёт до
+    `limit` заявок компании, у которых нет оценки (ai_score IS NULL и нет записи
+    AiEvaluation) и которые НЕ в терминальном этапе («Отказ»/«Нанят»), вакансия не
+    удалена и активна/на паузе, кандидат не удалён — и прогоняет каждую через
+    score_candidate с actor_type='ai' (без юзера). Источник кандидата (hh, ручной,
+    импорт) значения не имеет: оцениваем всех «незаоценённых и не финальных».
 
     Каждый кандидат — ОТДЕЛЬНЫЙ commit: ошибка LLM по одному (parse/сеть) не
-    валит остальных и не откатывает уже импортированные отклики. Отказы
-    (discard_*) и вакансии без описания НЕ трогаем — пустая трата токенов.
+    валит остальных. Дубли отсечены на уровне запроса (NOT EXISTS AiEvaluation).
 
     Экономика: каждая оценка = платный вызов LLM. Потолок за один проход —
-    `limit` (по умолчанию settings.GLAFIRA_AUTOSCORE_BATCH=10), cron раз в 5 мин.
-    При всплеске N откликов разгребётся за ceil(N/limit) проходов; дубли и отказы
-    отсечены на уровне запроса, повторных вызовов на одну заявку нет.
+    `limit` (по умолчанию settings.GLAFIRA_AUTOSCORE_BATCH=10). Cron гоняет
+    периодически; бэклог из N заявок разгребётся за ceil(N/limit) проходов.
 
     Returns: {scored, failed, skipped_no_key}
     """
@@ -345,16 +345,16 @@ async def score_pending_applications(
         .join(Candidate, Candidate.id == Application.candidate_id)
         .where(
             Application.company_id == company_id,
-            Application.stage == "response",
+            # «любой, кто не в Отказе» — но и не «Нанят»: оба терминальные, решение
+            # по ним принято, оценивать = трата токенов впустую.
+            Application.stage.notin_(("rejected", "hired")),
             Application.ai_score.is_(None),
             ~already_scored,
             Candidate.company_id == company_id,
             Candidate.deleted_at.is_(None),
             Vacancy.company_id == company_id,
             Vacancy.deleted_at.is_(None),
-            Vacancy.status.in_(("active", "paused")),
-            Vacancy.description.isnot(None),
-            func.length(func.trim(Vacancy.description)) > 0,
+            Vacancy.status.in_(("active", "paused")),  # архивные вакансии не оцениваем
         )
         .order_by(Application.created_at.asc())
         .limit(limit)

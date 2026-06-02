@@ -846,6 +846,18 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     )
     vacancies = result.scalars().all()
 
+    # Инкрементально: полное резюме (дорогой GET по url) тянем ТОЛЬКО для НОВЫХ
+    # откликов. Заранее берём set уже импортированных hh_negotiation_id компании —
+    # известные пропускаем без фетча резюме. Это и есть «грузить только новых»
+    # (раньше резюме передёргивалось по каждому отклику каждый прогон).
+    existing_rows = await session.execute(
+        select(Application.hh_negotiation_id).where(
+            Application.company_id == company_id,
+            Application.hh_negotiation_id.isnot(None),
+        )
+    )
+    existing_nids = {str(r[0]) for r in existing_rows if r[0] is not None}
+
     # Диагностику возвращаем В ОТВЕТЕ (а не в логи — кастомный logger.info может не
     # выводиться в docker logs, если root-логгер не на INFO). По каждой вакансии:
     # сколько откликов вернул hh (found), сколько импортировано, и ошибка hh если была.
@@ -870,6 +882,7 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
             "found": 0,
             "imported": 0,
             "updated": 0,
+            "skipped": 0,
             "by_collection": {},
             "all_collections": {},
             "error": None,
@@ -902,11 +915,18 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                     if not items:
                         break
                     for item in items:
+                        nid = str(item.get("id"))
+                        # Уже импортирован → пропускаем БЕЗ фетча резюме (только новые грузим).
+                        if nid in existing_nids:
+                            stats["skipped"] += 1
+                            vstat["skipped"] += 1
+                            continue
                         try:
                             res = await import_response(session, company_id, vacancy, item, access_token=access_token)
                             if res == "created":
                                 stats["imported"] += 1
                                 vstat["imported"] += 1
+                                existing_nids.add(nid)
                             elif res == "updated":
                                 stats["updated"] += 1
                                 vstat["updated"] += 1

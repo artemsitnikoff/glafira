@@ -1,12 +1,15 @@
 """
-Джоб для регулярного опроса откликов с hh.ru
+Cron 1 — ИМПОРТ откликов с hh.ru (только импорт, без оценки).
 
-⚠️  Требует подключённого hh.ru + ПЛАТНОГО доступа работодателя (emp_paid)
-⚠️  НЕ проверено без реального токена hh.ru
-⚠️  Точные имена полей resume — TODO (используются .get() с фолбэками)
+Тянет НОВЫЕ отклики привязанных вакансий (по hh_negotiation_id определяем, что уже
+есть, и полное резюме догружаем только для новых — см. poll_responses_now).
+Оценка вынесена в отдельный джоб app/jobs/score_pending.py (cron 2), полностью
+отвязана от импорта.
 
-Запуск: cron на VPS
-*/5 * * * * docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_responses
+⚠️  Требует подключённого hh.ru + доступа работодателя к откликам.
+
+Запуск: cron на VPS, раз в 5 минут (flock — не запускать поверх ещё идущего):
+*/5 * * * * /usr/bin/flock -n /tmp/glafira-hh-import.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_responses' >> /var/www/glafira/hh-import.log 2>&1
 """
 
 import asyncio
@@ -14,9 +17,8 @@ import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from ..config import settings
-from ..models import HhIntegration, Vacancy
-from ..services.integrations.hh import service as hh_service, client as hh_client
-from ..services.glafira.scoring import score_pending_applications
+from ..models import HhIntegration
+from ..services.integrations.hh import service as hh_service
 from sqlalchemy import select
 
 # Настройка логирования
@@ -25,62 +27,43 @@ logger = logging.getLogger(__name__)
 
 
 async def poll_company_responses(session, company_id):
-    """
-    Опрашивает отклики для одной компании
-
-    Args:
-        session: AsyncSession
-        company_id: UUID компании
-
-    Returns:
-        dict: статистика {imported: int, skipped: int}
-    """
-    stats = {"imported": 0, "skipped": 0, "scored": 0}
+    """Импортирует НОВЫЕ отклики для одной компании. Returns {imported, skipped}."""
+    stats = {"imported": 0, "skipped": 0}
 
     try:
-        # Тот же забор, что по кнопке в UI: коллекции «Отклик» + «Отказ», полный
-        # маппинг резюме. poll_responses_now сам проверяет подключение/токен/вакансии.
+        # Коллекции «Отклик» + «Отказ». poll_responses_now сам проверяет
+        # подключение/токен/вакансии и грузит полное резюме ТОЛЬКО для новых
+        # откликов (существующие по hh_negotiation_id пропускает без фетча).
         result = await hh_service.poll_responses_now(session, company_id)
         await session.commit()
         stats["imported"] = result.get("imported", 0)
         stats["skipped"] = result.get("skipped", 0)
-        logger.info(f"Компания {company_id}: импортировано {stats['imported']}, пропущено {stats['skipped']}")
+        logger.info(
+            f"Компания {company_id}: импортировано новых {stats['imported']}, "
+            f"пропущено существующих {stats['skipped']}"
+        )
     except Exception as e:
         # Сессия одна на все компании в цикле — после сбоя commit её обязательно
-        # откатить, иначе следующий шаг (авто-оценка) и следующая компания получат
-        # «грязную» сессию.
+        # откатить, иначе следующая компания получит «грязную» сессию.
         await session.rollback()
-        logger.error(f"Ошибка обработки компании {company_id}: {e}")
-
-    # Фоновая авто-оценка: Глафира оценивает неоценённые отклики «Отклик» пачкой
-    # (отдельными коммитами внутри). Делаем даже если забор упал — могли остаться
-    # неоценённые с прошлых проходов. Отказы и вакансии без описания не трогает.
-    try:
-        score_stats = await score_pending_applications(session, company_id, limit=10)
-        stats["scored"] = score_stats.get("scored", 0)
-        if stats["scored"]:
-            logger.info(f"Компания {company_id}: авто-оценено {stats['scored']}")
-    except Exception as e:
-        logger.error(f"Ошибка авто-оценки компании {company_id}: {e}")
+        logger.error(f"Ошибка импорта откликов компании {company_id}: {e}")
 
     return stats
 
 
 async def main():
-    """Главная функция джоба"""
-    logger.info("Запуск опроса откликов hh.ru")
+    """Главная функция джоба импорта."""
+    logger.info("Запуск импорта откликов hh.ru")
 
-    # Создаём сессию
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    # expire_on_commit=False — как в app/database.py: объекты не протухают после
-    # commit (per-candidate коммиты в авто-оценке + ORM-объекты в импорте).
+    # expire_on_commit=False — как в app/database.py (ORM-объекты импорта живут после commit).
     async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-    total_stats = {"imported": 0, "skipped": 0, "scored": 0, "companies": 0}
+    total_stats = {"imported": 0, "skipped": 0, "companies": 0}
 
     try:
         async with async_session() as session:
-            # Получаем все компании с интеграцией hh.ru
+            # Все компании с интеграцией hh.ru
             result = await session.execute(select(HhIntegration.company_id))
             company_ids = [row[0] for row in result]
 
@@ -90,13 +73,11 @@ async def main():
                 stats = await poll_company_responses(session, company_id)
                 total_stats["imported"] += stats["imported"]
                 total_stats["skipped"] += stats["skipped"]
-                total_stats["scored"] += stats["scored"]
                 total_stats["companies"] += 1
 
         logger.info(
-            f"Опрос завершён: {total_stats['companies']} компаний, "
-            f"импортировано {total_stats['imported']}, пропущено {total_stats['skipped']}, "
-            f"авто-оценено {total_stats['scored']}"
+            f"Импорт завершён: {total_stats['companies']} компаний, "
+            f"новых {total_stats['imported']}, пропущено {total_stats['skipped']}"
         )
 
     except Exception as e:
