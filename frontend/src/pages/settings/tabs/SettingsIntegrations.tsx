@@ -489,6 +489,11 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                   , создано: <strong>{d.imported}</strong>, обновлено: <strong>{d.updated ?? 0}</strong>
                                 </>
                               )}
+                              {d.sample && (
+                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)', wordBreak: 'break-all', marginTop: 2 }}>
+                                  {d.sample}
+                                </div>
+                              )}
                             </li>
                           ))}
                         </ul>

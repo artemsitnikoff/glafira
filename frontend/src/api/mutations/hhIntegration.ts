@@ -62,6 +62,7 @@ export interface HhPollDetail {
   by_collection?: Record<string, number | null>;
   imported: number;
   updated?: number;
+  sample?: string;
   error: string | null;
 }
 export interface HhPollResult {

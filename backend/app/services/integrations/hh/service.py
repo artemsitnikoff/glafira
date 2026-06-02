@@ -862,6 +862,7 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
             "imported": 0,
             "updated": 0,
             "by_collection": {},
+            "sample": None,
             "error": None,
         }
         try:
@@ -886,6 +887,24 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                         vstat["by_collection"][cid] = coll_found or 0
                         vstat["found"] += coll_found or 0
                     items = data.get("items", []) or []
+                    # Диагностика: структура ПОЛНОГО резюме первого отклика — чтобы
+                    # увидеть, где hh кладёт контакты/возраст (контакты откликнувшихся
+                    # должны быть открыты работодателю).
+                    if vstat.get("sample") is None and items:
+                        try:
+                            _r = items[0].get("resume") or {}
+                            _url = _r.get("url")
+                            if _url:
+                                _full = await hh_client.get_resume(access_token, _url)
+                                if isinstance(_full, dict):
+                                    _r = _full
+                            vstat["sample"] = (
+                                f"keys={list(_r.keys())[:20]}; "
+                                f"age={_r.get('age')}; birth_date={_r.get('birth_date')}; "
+                                f"contact={repr(_r.get('contact'))[:280]}"
+                            )
+                        except Exception as _e:
+                            vstat["sample"] = f"sample error: {type(_e).__name__}: {_e}"
                     if not items:
                         break
                     for item in items:
