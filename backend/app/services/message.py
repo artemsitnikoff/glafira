@@ -6,11 +6,13 @@ from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from ..core.errors import NotFoundError
+from ..core.errors import NotFoundError, ValidationError
 from ..models import Candidate, Message, User, Vacancy, Application
 from ..schemas.message import MessageOut, MessageCreate
 from ..schemas.base import Paginated
 from ..services.audit import audit
+from ..services.integrations.hh import client as hh_client
+from ..services.integrations.hh.service import get_valid_access_token
 
 
 async def get_messages_paginated(
@@ -146,8 +148,48 @@ async def send_message(
     user = user_result.scalar_one()
 
     now = datetime.now(timezone.utc)
+    external_id = None
 
-    # Create message
+    # Реальная отправка для канала hh
+    if message_data.channel == "hh":
+        # Найти hh_negotiation_id
+        hh_negotiation_id = None
+
+        if message_data.application_id:
+            # Проверяем указанную заявку
+            if validated_application and validated_application.hh_negotiation_id:
+                hh_negotiation_id = validated_application.hh_negotiation_id
+        else:
+            # Ищем любую заявку кандидата с hh_negotiation_id
+            app_result = await session.execute(
+                select(Application.hh_negotiation_id)
+                .where(
+                    Application.candidate_id == candidate_id,
+                    Application.company_id == company_id,
+                    Application.hh_negotiation_id.isnot(None)
+                )
+                .limit(1)
+            )
+            result = app_result.scalar_one_or_none()
+            if result:
+                hh_negotiation_id = result
+
+        if not hh_negotiation_id:
+            raise ValidationError("Канал hh недоступен: у кандидата нет отклика hh")
+
+        # Получить токен и отправить
+        access_token = await get_valid_access_token(session, company_id)
+        hh_response = await hh_client.send_negotiation_message(
+            access_token,
+            hh_negotiation_id,
+            message_data.body
+        )
+
+        # Извлечь external_id из ответа hh (если есть)
+        if isinstance(hh_response, dict):
+            external_id = hh_response.get("id") or hh_response.get("message_id")
+
+    # Create message (только после успешной отправки для hh)
     message = Message(
         company_id=company_id,
         candidate_id=candidate_id,
@@ -158,7 +200,8 @@ async def send_message(
         sender_user_id=actor_user_id,
         body=message_data.body,
         sent_at=now,
-        created_at=now
+        created_at=now,
+        external_id=external_id
     )
 
     session.add(message)

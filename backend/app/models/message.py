@@ -43,6 +43,7 @@ class Message(Base, CreatedAtMixin, CompanyMixin):
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     sent_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    external_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # Constraints
     __table_args__ = (

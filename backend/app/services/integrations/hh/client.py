@@ -314,6 +314,109 @@ async def publish_vacancy(access_token: str, payload: dict) -> dict:
             raise ValidationError(f"Ошибка публикации вакансии hh.ru: {e}")
 
 
+async def get_negotiation_messages(access_token: str, negotiation_id: str) -> dict:
+    """
+    Получает сообщения переписки с кандидатом
+
+    Args:
+        access_token: access token
+        negotiation_id: ID отклика/переписки на hh.ru
+
+    Returns:
+        dict: ответ hh.ru с полями {"items": [...]}
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/negotiations/{negotiation_id}/messages",
+                headers=headers
+            )
+
+            if response.status_code >= 400:
+                raise ValidationError(f"hh.ru ошибка чтения сообщений (HTTP {response.status_code}): {response.text[:200]}")
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru /negotiations/.../messages")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения сообщений hh.ru: {e}")
+
+
+async def send_negotiation_message(access_token: str, negotiation_id: str, text: str) -> dict:
+    """
+    Отправляет сообщение кандидату с фоллбэком на legacy API
+
+    Args:
+        access_token: access token
+        negotiation_id: ID отклика/переписки на hh.ru
+        text: текст сообщения
+
+    Returns:
+        dict: ответ hh.ru (возможно содержит id созданного сообщения)
+
+    Raises:
+        ValidationError: при ошибке API или недоступности переписки
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    async with _get_client() as client:
+        try:
+            # ОСНОВНОЙ путь: POST /negotiations/{id}/messages с JSON
+            response = await client.post(
+                f"{settings.HH_API_BASE}/negotiations/{negotiation_id}/messages",
+                headers=headers,
+                json={"message": text}
+            )
+
+            if response.status_code == 410:
+                raise ValidationError("hh-переписка недоступна (метод отключён hh)")
+            elif response.status_code == 403:
+                raise ValidationError("Нет прав на переписку в hh (проверьте доступ работодателя)")
+            elif response.status_code == 401:
+                raise ValidationError("Токен hh недействителен или истёк")
+            elif response.status_code in (404, 405, 400):
+                # ФОЛЛБЭК: legacy POST /negotiations/{id} с form-data
+                logger.info(f"hh основной путь недоступен ({response.status_code}), пробуем legacy")
+
+                legacy_response = await client.post(
+                    f"{settings.HH_API_BASE}/negotiations/{negotiation_id}",
+                    headers=headers,
+                    data={"message": text}
+                )
+
+                if legacy_response.status_code == 410:
+                    raise ValidationError("hh-переписка недоступна (метод отключён hh)")
+                elif legacy_response.status_code == 403:
+                    raise ValidationError("Нет прав на переписку в hh (проверьте доступ работодателя)")
+                elif legacy_response.status_code == 401:
+                    raise ValidationError("Токен hh недействителен или истёк")
+                elif legacy_response.status_code >= 400:
+                    raise ValidationError(f"hh.ru ошибка отправки legacy (HTTP {legacy_response.status_code}): {legacy_response.text[:200]}")
+
+                logger.info("hh send ok via legacy /negotiations/{nid}")
+                result = legacy_response.json() if legacy_response.content else {}
+                return result
+
+            elif response.status_code >= 400:
+                raise ValidationError(f"hh.ru ошибка отправки (HTTP {response.status_code}): {response.text[:200]}")
+
+            logger.info("hh send ok via /messages")
+            result = response.json() if response.content else {}
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка отправки сообщения hh.ru: {e}")
+
+
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
     """
     Строит URL для авторизации через hh.ru

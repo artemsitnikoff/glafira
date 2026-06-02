@@ -227,7 +227,9 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
 
       {sendMutation.isError && (
         <div style={{ marginTop: '8px', color: 'var(--stage-rejected)', fontSize: '12px', padding: '0 16px' }}>
-          Ошибка отправки: {sendMutation.error?.message}
+          Не отправлено: {(sendMutation.error as any)?.error?.message
+            || (sendMutation.error as any)?.message
+            || 'сообщение не доставлено'}
         </div>
       )}
     </div>
