@@ -19,6 +19,7 @@ from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError
 from .sender import send_via_smtp
+from .templates import render_credentials_email, render_simple_email
 
 PROVIDER = "smtp"
 ENCRYPTION_MODES = ("tls", "ssl", "none")
@@ -235,7 +236,8 @@ async def send_credentials_email(
         "Рекомендуем сменить пароль после первого входа в систему.\n\n"
         "С уважением,\nКоманда Глафира Рекрутёр"
     )
-    await send_email(session, company_id, to=to, subject=subject, body_text=body_text)
+    body_html = render_credentials_email(full_name=full_name, login=to, temp_password=temp_password)
+    await send_email(session, company_id, to=to, subject=subject, body_text=body_text, body_html=body_html)
 
 
 async def send_test_email(
@@ -264,10 +266,12 @@ async def send_test_email(
         "Если вы его получили — настройки SMTP корректны, и Глафира сможет "
         "отправлять уведомления через ваш почтовый сервер."
     )
-    body_html = (
-        "<p>Это тестовое письмо от ATS <b>«Глафира Рекрутёр»</b>.</p>"
-        "<p>Если вы его получили — настройки SMTP корректны, и Глафира сможет "
-        "отправлять уведомления через ваш почтовый сервер.</p>"
+    body_html = render_simple_email(
+        "Тестовое письмо",
+        "<p style=\"margin:0 0 12px;\">Это тестовое письмо от ATS <strong style=\"color:#0F1620;\">«Глафира Рекрутёр»</strong>.</p>"
+        "<p style=\"margin:0;\">Если вы его получили — настройки SMTP корректны, и Глафира сможет "
+        "отправлять уведомления через ваш почтовый сервер.</p>",
+        preheader="Тестовое письмо от Глафира Рекрутёр",
     )
 
     now = datetime.now(timezone.utc)
