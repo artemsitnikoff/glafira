@@ -260,6 +260,24 @@ async def get_negotiation_responses(access_token: str, vacancy_id: str, page: in
     return await get_collection_page(access_token, url, page, per_page)
 
 
+async def get_resume(access_token: str, resume_url: str) -> dict:
+    """Полное резюме по его url (из отклика). В отличие от краткого resume в списке
+    откликов, содержит опыт с описанием, образование, возраст и контакты
+    (контакты — если hh их открыл/оплачены)."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    async with _get_client() as client:
+        try:
+            r = await client.get(resume_url, headers=headers)
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения резюме hh.ru: {e}")
+        if r.status_code >= 400:
+            raise ValidationError(f"hh.ru ошибка (резюме, HTTP {r.status_code}): {r.text[:200]}")
+        data = r.json()
+        if not isinstance(data, dict):
+            raise ValidationError("Некорректный формат резюме hh.ru")
+        return data
+
+
 async def publish_vacancy(access_token: str, payload: dict) -> dict:
     """
     Публикует вакансию на hh.ru

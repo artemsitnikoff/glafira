@@ -1,7 +1,7 @@
 """Сервис для работы с hh.ru интеграцией"""
 
 import secrets
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from uuid import UUID
 from typing import Optional
 
@@ -641,25 +641,48 @@ async def publish_vacancy_to_hh(session: AsyncSession, vacancy_id: UUID, company
     return hh_vacancy_id
 
 
-async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vacancy", item: dict) -> str:
+async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vacancy", item: dict, access_token: str = None) -> str:
     """Импорт ИЛИ обновление одного отклика hh. Возвращает 'created' | 'updated'.
 
     Существующий (по hh_negotiation_id) НЕ пропускается — обновляем данные кандидата
-    и пересоздаём опыт/навыки/образование (старый импорт мог быть беднее). Этап
-    существующей заявки НЕ трогаем (чтобы не откатывать кандидата, которого
-    рекрутёр уже продвинул). Контакты hh часто скрыты до оплаты — тогда phone/email
-    остаются None.
+    и пересоздаём опыт/навыки/образование. Этап существующей заявки НЕ трогаем.
+    Краткое резюме из списка откликов УРЕЗАНО — догружаем ПОЛНОЕ по resume.url
+    (опыт с описанием, возраст, образование, контакты — если hh их открыл).
     """
     nid = str(item["id"])
 
-    # --- Маппинг резюме hh → поля кандидата ---
+    # --- Полное резюме (догрузка по url; краткое из списка откликов неполное) ---
     resume = item.get("resume") or {}
+    resume_url = resume.get("url")
+    if access_token and resume_url:
+        try:
+            full = await hh_client.get_resume(access_token, resume_url)
+            if isinstance(full, dict):
+                resume = full
+        except Exception:
+            pass  # нет доступа к полному резюме — остаёмся на кратком
+
+    # --- Маппинг резюме hh → поля кандидата ---
     first_name = (resume.get("first_name") or "").strip()
     last_name = (resume.get("last_name") or "").strip()
     middle_name = (resume.get("middle_name") or "").strip() or None
     title = (resume.get("title") or "").strip() or None
     city = (resume.get("area") or {}).get("name")
     gender = (resume.get("gender") or {}).get("id")  # 'male' | 'female'
+
+    # Возраст → birth_date (hh даёт birth_date 'YYYY-MM-DD' или age числом)
+    birth_date = None
+    bd = resume.get("birth_date")
+    if bd:
+        try:
+            birth_date = date.fromisoformat(str(bd)[:10])
+        except (ValueError, TypeError):
+            birth_date = None
+    elif isinstance(resume.get("age"), int):
+        try:
+            birth_date = date(date.today().year - resume["age"], 1, 1)
+        except (ValueError, TypeError):
+            birth_date = None
 
     salary = resume.get("salary") or {}
     salary_amount = salary.get("amount")
@@ -717,6 +740,8 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         candidate.city = city[:120]
     if gender:
         candidate.gender = gender[:10]
+    if birth_date:
+        candidate.birth_date = birth_date
     if phone:
         candidate.phone = phone[:20]
     if email:
@@ -865,7 +890,7 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                         break
                     for item in items:
                         try:
-                            res = await import_response(session, company_id, vacancy, item)
+                            res = await import_response(session, company_id, vacancy, item, access_token=access_token)
                             if res == "created":
                                 stats["imported"] += 1
                                 vstat["imported"] += 1
