@@ -482,6 +482,11 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                   откликов на hh: <strong>{d.found ?? '—'}</strong>, импортировано: {d.imported}
                                 </>
                               )}
+                              {d.debug && (
+                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)', wordBreak: 'break-all', marginTop: 2 }}>
+                                  {d.debug}
+                                </div>
+                              )}
                             </li>
                           ))}
                         </ul>

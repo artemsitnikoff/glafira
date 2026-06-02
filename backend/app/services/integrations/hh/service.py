@@ -730,6 +730,14 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                 )
                 if vstat["found"] is None:
                     vstat["found"] = data.get("found")
+                    # Диагностика структуры ответа hh — видно, что реально вернул API
+                    # (ключи + сырой фрагмент), если found/items не там, где ждём.
+                    vstat["debug"] = (
+                        f"keys={list(data.keys())[:12]}; "
+                        f"items={len(data.get('items') or [])}; "
+                        f"found={data.get('found')}; pages={data.get('pages')}; "
+                        f"raw={repr(data)[:300]}"
+                    )
                 items = data.get("items", []) or []
                 if not items:
                     break

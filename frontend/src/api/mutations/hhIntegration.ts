@@ -61,6 +61,7 @@ export interface HhPollDetail {
   found: number | null;
   imported: number;
   error: string | null;
+  debug?: string;
 }
 export interface HhPollResult {
   imported: number;
