@@ -466,8 +466,8 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 <div className="info-banner small" style={{ marginTop: 10 }}>
                   <Icon name="alert-triangle" size={14} />
                   <div>
-                    Отклики тянутся автоматически (каждые ~5 мин, если на сервере настроен cron) либо по
-                    кнопке выше. Требуется <strong>платный доступ работодателя</strong> hh.ru к откликам.
+                    Тянутся отклики на ваши размещённые вакансии (привязанные и активные) → в этап «Отклик».
+                    Авто-забор — каждые ~5 мин (если на сервере настроен cron), либо вручную кнопкой выше.
                   </div>
                 </div>
               </div>

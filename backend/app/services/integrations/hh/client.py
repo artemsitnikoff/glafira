@@ -1,10 +1,14 @@
 """hh.ru API клиент для OAuth и API вызовов"""
 
+import logging
+
 import httpx
 from urllib.parse import urlencode
 
 from ....config import settings
 from ....core.errors import ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -222,27 +226,38 @@ async def get_negotiation_responses(access_token: str, vacancy_id: str, page: in
         ValidationError: при ошибке API
     """
     async with _get_client() as client:
+        url = f"{settings.HH_API_BASE}/negotiations"
+        params = {"vacancy_id": vacancy_id, "page": page, "per_page": per_page}
         try:
             response = await client.get(
-                f"{settings.HH_API_BASE}/negotiations/response",
+                url,
                 headers={"Authorization": f"Bearer {access_token}"},
-                params={
-                    "vacancy_id": vacancy_id,
-                    "page": page,
-                    "per_page": per_page
-                }
+                params=params,
             )
-            response.raise_for_status()
-
-            result = response.json()
-
-            if not isinstance(result, dict):
-                raise ValidationError("Некорректный формат ответа hh.ru /negotiations/response")
-
-            return result
-
         except httpx.HTTPError as e:
+            logger.warning("[hh] negotiations request error vacancy=%s: %s", vacancy_id, e)
             raise ValidationError(f"Ошибка получения откликов hh.ru: {e}")
+
+        # Тело ошибки от hh содержит причину (нет прав/неверная вакансия/и т.п.) —
+        # логируем и пробрасываем, чтобы было видно в уведомлении и логах.
+        if response.status_code >= 400:
+            logger.warning(
+                "[hh] GET /negotiations HTTP %s vacancy=%s body=%s",
+                response.status_code, vacancy_id, response.text[:500],
+            )
+            raise ValidationError(
+                f"hh.ru вернул ошибку при получении откликов (HTTP {response.status_code}): {response.text[:200]}"
+            )
+
+        result = response.json()
+        if not isinstance(result, dict):
+            raise ValidationError("Некорректный формат ответа hh.ru /negotiations")
+
+        logger.info(
+            "[hh] GET /negotiations vacancy=%s page=%s found=%s items=%s",
+            vacancy_id, page, result.get("found"), len(result.get("items", []) or []),
+        )
+        return result
 
 
 async def publish_vacancy(access_token: str, payload: dict) -> dict:
