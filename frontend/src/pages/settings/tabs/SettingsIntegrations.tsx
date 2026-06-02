@@ -479,17 +479,24 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                 <span style={{ color: 'var(--ark-red-600)' }}>ошибка hh — {d.error}</span>
                               ) : (
                                 <>
-                                  откликов на hh: <strong>{d.found ?? '—'}</strong>
-                                  {d.hidden ? <>, скрыто hh: <strong>{d.hidden}</strong></> : null}, импортировано: {d.imported}
+                                  на hh: <strong>{d.found ?? '—'}</strong>
+                                  {d.by_collection && (
+                                    <>
+                                      {' '}(Отклик: {d.by_collection.response ?? 0}, Отказ:{' '}
+                                      {(d.by_collection.discard ?? 0) + (d.by_collection.discard_by_applicant ?? 0)})
+                                    </>
+                                  )}
+                                  , импортировано: <strong>{d.imported}</strong>
                                 </>
                               )}
                             </li>
                           ))}
                         </ul>
                       )}
-                      {hhPollResult.details?.some((d) => (d.hidden || 0) > 0) && (
-                        <div style={{ marginTop: 4, fontSize: 11 }}>
-                          Часть откликов скрыта hh.ru — станут доступны после оплаты их просмотра на стороне hh.ru.
+                      {hhPollResult.details && hhPollResult.details.length > 0 && (
+                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--fg-3)' }}>
+                          Неразобранные отклики → этап «Отклик», отклонённые на hh → этап «Отказ».
+                          Часть откликов hh может скрывать до оплаты просмотра на их стороне.
                         </div>
                       )}
                     </div>

@@ -59,7 +59,7 @@ export interface HhPollDetail {
   status: string;
   hh_id: string;
   found: number | null;
-  hidden?: number | null;
+  by_collection?: Record<string, number | null>;
   imported: number;
   error: string | null;
 }

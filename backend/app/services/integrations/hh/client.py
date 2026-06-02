@@ -207,77 +207,57 @@ async def get_employer_vacancies(access_token: str, employer_id: str, page: int 
             raise ValidationError(f"Ошибка получения вакансий hh.ru: {e}")
 
 
-async def get_negotiation_responses(access_token: str, vacancy_id: str, page: int = 0, per_page: int = 50) -> dict:
+async def get_negotiation_collections(access_token: str, vacancy_id: str) -> list[dict]:
+    """Список коллекций откликов работодателя по вакансии.
+
+    hh для работодателя на /negotiations?vacancy_id отдаёт КОЛЛЕКЦИИ по статусам
+    (response/consider/interview/discard/…), у каждой свой url для получения откликов.
+    ⚠️ Требует доступа работодателя к откликам на hh.ru.
     """
-    Получает отклики работодателя по вакансии
-
-    ⚠️  Требует ПЛАТНОГО доступа работодателя (emp_paid) на hh.ru
-
-    Args:
-        access_token: access token
-        vacancy_id: ID вакансии на hh.ru
-        page: страница (0-based)
-        per_page: количество записей на странице
-
-    Returns:
-        dict: список откликов {items: [{id, resume: {...}, ...}], pages}
-
-    Raises:
-        ValidationError: при ошибке API
-    """
-    # hh для работодателя на /negotiations?vacancy_id отдаёт КОЛЛЕКЦИИ
-    # (Отклик/Подумать/Интервью…), а не сами отклики. Сами отклики — в коллекции
-    # 'response', к которой ведёт её url. Делаем 2 шага.
     headers = {"Authorization": f"Bearer {access_token}"}
     async with _get_client() as client:
-        # Шаг 1: коллекции по вакансии
         try:
-            base = await client.get(
+            r = await client.get(
                 f"{settings.HH_API_BASE}/negotiations",
                 headers=headers,
                 params={"vacancy_id": vacancy_id},
             )
         except httpx.HTTPError as e:
-            raise ValidationError(f"Ошибка получения откликов hh.ru: {e}")
-        if base.status_code >= 400:
-            raise ValidationError(
-                f"hh.ru ошибка (коллекции, HTTP {base.status_code}): {base.text[:200]}"
-            )
-        bdata = base.json()
-        if not isinstance(bdata, dict):
+            raise ValidationError(f"Ошибка получения коллекций откликов hh.ru: {e}")
+        if r.status_code >= 400:
+            raise ValidationError(f"hh.ru ошибка (коллекции, HTTP {r.status_code}): {r.text[:200]}")
+        data = r.json()
+        if not isinstance(data, dict):
             raise ValidationError("Некорректный формат ответа hh.ru /negotiations")
+        return data.get("collections") or []
 
-        # Если вдруг это уже плоский список откликов — вернуть как есть.
-        if bdata.get("items"):
-            return bdata
 
-        collections = bdata.get("collections") or []
-        resp_coll = next((c for c in collections if c.get("id") == "response"), None)
-        if not resp_coll:
-            return {
-                "items": [], "found": 0, "pages": 0,
-                "_debug": f"нет коллекции response; collections={[c.get('id') for c in collections]}",
-            }
-
-        # url коллекции откликов (hh даёт готовый) либо строим вручную
-        coll_url = resp_coll.get("url") or f"{settings.HH_API_BASE}/negotiations/response?vacancy_id={vacancy_id}"
-
-        # Шаг 2: сами отклики коллекции 'response' (с пагинацией)
-        sep = "&" if "?" in coll_url else "?"
-        full_url = f"{coll_url}{sep}page={page}&per_page={per_page}"
+async def get_collection_page(access_token: str, url: str, page: int = 0, per_page: int = 50) -> dict:
+    """Одна страница откликов коллекции по её url. Возвращает {items, found, pages, ...}."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    sep = "&" if "?" in url else "?"
+    full = f"{url}{sep}page={page}&per_page={per_page}"
+    async with _get_client() as client:
         try:
-            r = await client.get(full_url, headers=headers)
+            r = await client.get(full, headers=headers)
         except httpx.HTTPError as e:
             raise ValidationError(f"Ошибка получения откликов hh.ru: {e}")
         if r.status_code >= 400:
-            raise ValidationError(
-                f"hh.ru ошибка (отклики, HTTP {r.status_code}): {r.text[:200]}"
-            )
-        rdata = r.json()
-        if not isinstance(rdata, dict):
+            raise ValidationError(f"hh.ru ошибка (отклики, HTTP {r.status_code}): {r.text[:200]}")
+        data = r.json()
+        if not isinstance(data, dict):
             raise ValidationError("Некорректный формат откликов hh.ru")
-        rdata.setdefault("_debug", f"coll_count={resp_coll.get('count')} url={coll_url[:120]}")
-        return rdata
+        return data
+
+
+async def get_negotiation_responses(access_token: str, vacancy_id: str, page: int = 0, per_page: int = 50) -> dict:
+    """Отклики коллекции 'response' (обёртка — используется cron-джобом)."""
+    collections = await get_negotiation_collections(access_token, vacancy_id)
+    resp = next((c for c in collections if c.get("id") == "response"), None)
+    if not resp:
+        return {"items": [], "found": 0, "pages": 0}
+    url = resp.get("url") or f"{settings.HH_API_BASE}/negotiations/response?vacancy_id={vacancy_id}"
+    return await get_collection_page(access_token, url, page, per_page)
 
 
 async def publish_vacancy(access_token: str, payload: dict) -> dict:

@@ -8,7 +8,10 @@ from typing import Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....models import HhIntegration, HhOauthState, Vacancy, Application, Candidate
+from ....models import (
+    HhIntegration, HhOauthState, Vacancy, Application, Candidate,
+    CandidateExperience, CandidateSkill, CandidateEducation,
+)
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError, NotFoundError
@@ -17,6 +20,37 @@ from . import client as hh_client
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _hh_phone(contacts) -> Optional[str]:
+    """Телефон из контактов hh-резюме (если hh их не скрыл)."""
+    for c in contacts or []:
+        if (c.get("type") or {}).get("id") in ("cell", "home", "work"):
+            v = c.get("value")
+            if isinstance(v, dict):
+                return v.get("formatted") or v.get("number")
+            if isinstance(v, str):
+                return v
+    return None
+
+
+def _hh_email(contacts) -> Optional[str]:
+    """Email из контактов hh-резюме (если не скрыт)."""
+    for c in contacts or []:
+        if (c.get("type") or {}).get("id") == "email":
+            v = c.get("value")
+            if isinstance(v, str):
+                return v
+    return None
+
+
+def _hh_period(start, end) -> Optional[str]:
+    """Период работы строкой из start/end (формат hh 'YYYY-MM-DD' | None)."""
+    if not start and not end:
+        return None
+    s = (start or "")[:7] if start else "?"
+    e = (end or "")[:7] if end else "по наст. время"
+    return f"{s} — {e}"
 
 
 async def get_integration(session: AsyncSession, company_id: UUID) -> Optional[HhIntegration]:
@@ -637,24 +671,106 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     if existing:
         return False  # Уже импортирован
 
-    # Извлекаем данные кандидата из resume (с фолбэками)
-    resume = item.get("resume", {})
-    first_name = resume.get("first_name", "")
-    last_name = resume.get("last_name", "")
-    area_name = None
-    if resume.get("area"):
-        area_name = resume["area"].get("name")
+    # Полный маппинг резюме hh → кандидат (контакты hh часто скрыты до оплаты —
+    # тогда phone/email будут None, это нормально).
+    resume = item.get("resume") or {}
+    first_name = (resume.get("first_name") or "").strip()
+    last_name = (resume.get("last_name") or "").strip()
+    middle_name = (resume.get("middle_name") or "").strip() or None
+    title = (resume.get("title") or "").strip() or None
+    city = (resume.get("area") or {}).get("name")
+    gender = (resume.get("gender") or {}).get("id")  # 'male' | 'female'
 
-    # Создаём кандидата
+    salary = resume.get("salary") or {}
+    salary_amount = salary.get("amount")
+    salary_currency = salary.get("currency") or "RUB"
+    if salary_currency == "RUR":
+        salary_currency = "RUB"
+
+    phone = _hh_phone(resume.get("contact"))
+    email = _hh_email(resume.get("contact"))
+
+    experiences = resume.get("experience") or []
+    last_position, last_company, last_period = title, None, None
+    if experiences:
+        e0 = experiences[0]
+        last_position = (e0.get("position") or title)
+        last_company = e0.get("company")
+        last_period = _hh_period(e0.get("start"), e0.get("end"))
+
+    # resume_text — желаемая должность + «о себе» (для AI-скоринга)
+    rt_parts = []
+    if title:
+        rt_parts.append(f"Желаемая должность: {title}")
+    if resume.get("skills"):
+        rt_parts.append(str(resume.get("skills")))
+    resume_text = "\n\n".join(rt_parts) or None
+
     candidate = Candidate(
         company_id=company_id,
         first_name=first_name or "Неизвестно",
         last_name=last_name or "",
+        middle_name=middle_name,
+        city=(city[:120] if city else None),
+        gender=(gender[:10] if gender else None),
+        phone=(phone[:20] if phone else None),
+        email=(email[:255] if email else None),
+        salary_expectation=salary_amount if isinstance(salary_amount, int) else None,
+        currency=(str(salary_currency)[:3] if salary_currency else "RUB"),
+        last_position=(last_position[:255] if last_position else None),
+        last_company=(last_company[:255] if last_company else None),
+        last_period=(last_period[:120] if last_period else None),
+        resume_text=resume_text,
         source="hh",
-        city=area_name
+        preferred_channel="hh",
+        external_source="hh",
+        external_id=(str(resume.get("id"))[:120] if resume.get("id") else None),
     )
     session.add(candidate)
     await session.flush()  # Получаем candidate.id
+
+    # Опыт работы → CandidateExperience
+    for idx, exp in enumerate(experiences):
+        pos = (exp.get("position") or "").strip()
+        if not pos:
+            continue
+        session.add(CandidateExperience(
+            company_id=company_id,
+            candidate_id=candidate.id,
+            position=pos[:255],
+            company=((exp.get("company") or "")[:255] or None),
+            period=_hh_period(exp.get("start"), exp.get("end")),
+            description=(exp.get("description") or None),
+            order_index=idx,
+        ))
+
+    # Ключевые навыки → CandidateSkill
+    for idx, sk in enumerate(resume.get("skill_set") or []):
+        s = str(sk).strip()
+        if s:
+            session.add(CandidateSkill(
+                company_id=company_id, candidate_id=candidate.id,
+                skill=s[:120], order_index=idx,
+            ))
+
+    # Образование → CandidateEducation
+    for idx, ed in enumerate((resume.get("education") or {}).get("primary") or []):
+        inst = (ed.get("name") or ed.get("organization") or "").strip()
+        if not inst:
+            continue
+        session.add(CandidateEducation(
+            company_id=company_id,
+            candidate_id=candidate.id,
+            institution=inst[:255],
+            specialty=((ed.get("organization") or ed.get("result") or "")[:255] or None),
+            years=(str(ed.get("year"))[:40] if ed.get("year") else None),
+            order_index=idx,
+        ))
+
+    # Этап определяем по статусу отклика у работодателя на hh (item.state.id):
+    # отклонённые на hh (discard / discard_by_applicant) → «Отказ», остальные → «Отклик».
+    state_id = (item.get("state") or {}).get("id") or "response"
+    stage = "rejected" if state_id in ("discard", "discard_by_applicant") else "response"
 
     # Создаём Application
     now = datetime.now(timezone.utc)
@@ -662,7 +778,7 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         company_id=company_id,
         candidate_id=candidate.id,
         vacancy_id=vacancy.id,
-        stage="response",  # отклик с hh попадает в этап «Отклик» (не «Добавлен»)
+        stage=stage,
         hh_negotiation_id=nid,
         created_at=now,
         selected_at=now
@@ -712,41 +828,51 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     # Диагностику возвращаем В ОТВЕТЕ (а не в логи — кастомный logger.info может не
     # выводиться в docker logs, если root-логгер не на INFO). По каждой вакансии:
     # сколько откликов вернул hh (found), сколько импортировано, и ошибка hh если была.
+    # Забираем коллекции «Отклик» (неразобранные → этап «Отклик») и «Отказ»
+    # (отклонённые на hh → этап «Отказ»). Этап для каждого item определяет
+    # import_response по item.state.id.
+    wanted = ("response", "discard", "discard_by_applicant")
+
     stats = {"imported": 0, "skipped": 0, "vacancies": len(vacancies), "details": []}
     for vacancy in vacancies:
         vstat = {
             "name": vacancy.name,
             "status": vacancy.status,
             "hh_id": vacancy.hh_vacancy_id,
-            "found": None,
+            "found": 0,
             "imported": 0,
+            "by_collection": {},
             "error": None,
         }
         try:
-            page = 0
-            while True:
-                data = await hh_client.get_negotiation_responses(
-                    access_token, vacancy.hh_vacancy_id, page=page, per_page=50
-                )
-                if vstat["found"] is None:
-                    vstat["found"] = data.get("found")
-                    # hidden_count — отклики, скрытые hh до оплаты просмотра на их стороне.
-                    vstat["hidden"] = data.get("hidden_count")
-                items = data.get("items", []) or []
-                if not items:
-                    break
-                for item in items:
-                    try:
-                        if await import_response(session, company_id, vacancy, item):
-                            stats["imported"] += 1
-                            vstat["imported"] += 1
-                        else:
+            collections = await hh_client.get_negotiation_collections(access_token, vacancy.hh_vacancy_id)
+            for coll in collections:
+                cid = coll.get("id")
+                if cid not in wanted:
+                    continue
+                vstat["by_collection"][cid] = coll.get("count")
+                vstat["found"] += coll.get("count") or 0
+                url = coll.get("url")
+                if not url:
+                    continue
+                page = 0
+                while True:
+                    data = await hh_client.get_collection_page(access_token, url, page=page, per_page=50)
+                    items = data.get("items", []) or []
+                    if not items:
+                        break
+                    for item in items:
+                        try:
+                            if await import_response(session, company_id, vacancy, item):
+                                stats["imported"] += 1
+                                vstat["imported"] += 1
+                            else:
+                                stats["skipped"] += 1
+                        except Exception:
                             stats["skipped"] += 1
-                    except Exception:
-                        stats["skipped"] += 1
-                if page >= (data.get("pages", 1) or 1) - 1:
-                    break
-                page += 1
+                    if page >= (data.get("pages", 1) or 1) - 1:
+                        break
+                    page += 1
         except Exception as e:
             vstat["error"] = getattr(e, "message", None) or str(e)
         stats["details"].append(vstat)
