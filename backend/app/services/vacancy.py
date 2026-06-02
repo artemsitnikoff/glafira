@@ -472,6 +472,21 @@ async def update_vacancy(
     if vacancy_data.glafira_mode is not None:
         vacancy.glafira_mode = vacancy_data.glafira_mode
 
+    # client_id: обновляем явно, если поле РЕАЛЬНО прислано (model_fields_set) —
+    # это позволяет и сменить заказчика, и сбросить его в None. Раньше client_id
+    # вообще не обрабатывался → смена заказчика молча терялась.
+    if 'client_id' in vacancy_data.model_fields_set:
+        if vacancy_data.client_id is not None:
+            client_result = await session.execute(
+                select(Client).where(
+                    Client.id == vacancy_data.client_id,
+                    Client.company_id == company_id,
+                )
+            )
+            if not client_result.scalar_one_or_none():
+                raise NotFoundError("Клиент")
+        vacancy.client_id = vacancy_data.client_id
+
     # Handle status update with restore logic
     if hasattr(vacancy_data, 'status') and vacancy_data.status is not None:
         vacancy.status = vacancy_data.status

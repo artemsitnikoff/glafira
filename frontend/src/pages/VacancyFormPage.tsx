@@ -482,7 +482,6 @@ export default function VacancyFormPage() {
           <button className="btn btn-ghost btn-sm" onClick={() => navigate('/vacancies')}>
             <Icon name="x" size={13} /> Отмена
           </button>
-          <button className="btn btn-secondary btn-sm">Сохранить черновик</button>
         </div>
       </div>
 

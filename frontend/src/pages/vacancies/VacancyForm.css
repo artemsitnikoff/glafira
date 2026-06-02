@@ -29,6 +29,30 @@
 .nv-crumb-cur { color: var(--fg-1); font-weight: 500; }
 .nv-top-actions { display: flex; gap: 8px; }
 
+/* Кнопки формы — собственный scoped-кит 1:1 по эталону (project app.css .btn).
+   Раньше .btn-primary/-secondary/-ghost/-sm брались как leak от других экранов
+   (в Button.css есть только .btn база + .btn--sm BEM) → вид «плавал». */
+.nv-wrap .btn {
+  height: 32px; padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: inherit; font-size: 13px; font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.nv-wrap .btn-primary { background: var(--accent); color: #fff; }
+.nv-wrap .btn-primary:hover { background: var(--accent-hover); }
+.nv-wrap .btn-secondary { background: #fff; color: var(--fg-1); border-color: var(--border-1); }
+.nv-wrap .btn-secondary:hover { background: var(--bg-3-hover); }
+.nv-wrap .btn-ghost { background: transparent; color: var(--fg-2); }
+.nv-wrap .btn-ghost:hover { background: var(--bg-3-hover); color: var(--fg-1); }
+.nv-wrap .btn-sm { height: 26px; padding: 0 10px; font-size: 12px; }
+.nv-wrap .btn:disabled,
+.nv-wrap .btn.is-disabled { opacity: 0.6; cursor: not-allowed; }
+.nv-wrap .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(42, 138, 240, .35); }
+
 .nv-grid {
   display: flex; flex-direction: column;
   gap: 16px;
