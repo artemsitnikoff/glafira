@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 
 from .client import call_json
 from .prompts import build_scoring_system_prompt, SCORING_USER_TEMPLATE
+from .scoring_log import log_scoring
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill
@@ -67,7 +68,8 @@ async def score_candidate(
     candidate_id: UUID,
     vacancy_id: UUID | None,  # если None — общая оценка
     company_id: UUID,
-    actor_user_id: UUID | None = None  # None → авто-скоринг (actor_type='ai', без юзера)
+    actor_user_id: UUID | None = None,  # None → авто-скоринг (actor_type='ai', без юзера)
+    source: str = "РУЧНОЙ"  # метка для журнала оценок: АВТО / КНОПКА / РУЧНОЙ
 ) -> AiEvaluation:
     """Score candidate for a specific vacancy or general evaluation"""
 
@@ -282,6 +284,13 @@ Email: {candidate.email or "не указан"}
     )
 
     await session.flush()
+
+    log_scoring(
+        f"{source} • {candidate.full_name} • "
+        f"{vacancy.name if vacancy else 'без вакансии'} • "
+        f"оценка {response_data['score']} ({response_data['verdict']})"
+    )
+
     return evaluation
 
 
@@ -312,6 +321,7 @@ async def score_pending_applications(
     # Без ключа OpenRouter живых вызовов нет — не гоняем впустую (каждый
     # score_candidate сразу упал бы GlafiraParseError).
     if not settings.OPENROUTER_API_KEY:
+        log_scoring("АВТО • оценки не было (нет ключа OpenRouter)")
         return {"scored": 0, "failed": 0, "skipped_no_key": True}
 
     if limit is None:
@@ -361,6 +371,7 @@ async def score_pending_applications(
                 vacancy_id=vacancy_id,
                 company_id=company_id,
                 actor_user_id=None,
+                source="АВТО",  # score_candidate сам пишет строку успеха в журнал
             )
             # Снимаем значения ДО commit — после commit объект может протухнуть
             # (expire_on_commit), и доступ к полю в async дал бы MissingGreenlet.
@@ -374,6 +385,7 @@ async def score_pending_applications(
         except Exception as e:  # noqa: BLE001 — изолируем сбой одного кандидата
             await session.rollback()
             failed += 1
+            log_scoring(f"АВТО • кандидат={candidate_id} • оценки не было (ошибка: {e})")
             logger.warning(
                 "Авто-скоринг пропущен candidate=%s vacancy=%s: %s",
                 candidate_id, vacancy_id, e,

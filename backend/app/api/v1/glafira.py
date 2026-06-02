@@ -18,6 +18,7 @@ from ...schemas.glafira import (
     ScreeningOut
 )
 from ...services.glafira.scoring import score_candidate
+from ...services.glafira.scoring_log import log_scoring
 from ...services.glafira.screening import start_screening, reply_screening
 
 router = APIRouter()
@@ -128,6 +129,10 @@ async def score_candidate_endpoint(
 
     if existing:
         # Оценка не создавалась (вернули существующую) → 200, а не 201
+        log_scoring(
+            f"КНОПКА • кандидат={data.candidate_id} • "
+            f"оценки не было (уже была, балл {existing.score})"
+        )
         response.status_code = 200
         return EvaluationOut(
             id=existing.id,
@@ -152,7 +157,8 @@ async def score_candidate_endpoint(
         candidate_id=data.candidate_id,
         vacancy_id=data.vacancy_id,
         company_id=current_user.company_id,
-        actor_user_id=current_user.id
+        actor_user_id=current_user.id,
+        source="КНОПКА"
     )
 
     await session.commit()

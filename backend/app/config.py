@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Сколько откликов авто-оценивать за один проход cron (раз в 5 мин). Каждая
     # оценка = платный вызов LLM, поэтому потолок расхода регулируется этим числом.
     GLAFIRA_AUTOSCORE_BATCH: int = 10
+    # Текстовый журнал оценок (авто + по кнопке). Пишется на том backend_storage
+    # (общий для веб- и cron-контейнера, переживает рестарт). Пусто → не вести.
+    SCORING_LOG_PATH: str = "/app/storage/scoring.log"
 
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
