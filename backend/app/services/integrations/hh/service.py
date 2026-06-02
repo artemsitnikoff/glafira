@@ -710,7 +710,9 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     resume_id = (str(resume.get("id"))[:120] if resume.get("id") else None)
 
     state_id = (item.get("state") or {}).get("id") or "response"
-    stage = "rejected" if state_id in ("discard", "discard_by_applicant") else "response"
+    # Любая коллекция discard_* (by_employer/by_applicant/no_interaction/
+    # vacancy_closed/to_other_vacancy) — это завершённый/отклонённый отклик → «Отказ».
+    stage = "rejected" if str(state_id).startswith("discard") else "response"
 
     # --- Существующая заявка? (create-or-update) ---
     existing = (await session.execute(
@@ -850,7 +852,14 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     # Забираем коллекции «Отклик» (неразобранные → этап «Отклик») и «Отказ»
     # (отклонённые на hh → этап «Отказ»). Этап для каждого item определяет
     # import_response по item.state.id.
-    wanted = ("response", "discard", "discard_by_applicant")
+    # Забираем «Отклик» (неразобранные) + все коллекции отказа hh. consider/
+    # phone_interview/interview/offer/hired НЕ трогаем (это уже продвинутые на hh —
+    # их этап на нашей стороне определяет рекрутёр, не импорт).
+    wanted = (
+        "response",
+        "discard_by_employer", "discard_by_applicant", "discard_no_interaction",
+        "discard_vacancy_closed", "discard_to_other_vacancy",
+    )
 
     stats = {"imported": 0, "updated": 0, "skipped": 0, "vacancies": len(vacancies), "details": []}
     for vacancy in vacancies:

@@ -483,7 +483,9 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                   {d.by_collection && (
                                     <>
                                       {' '}(Отклик: {d.by_collection.response ?? 0}, Отказ:{' '}
-                                      {(d.by_collection.discard ?? 0) + (d.by_collection.discard_by_applicant ?? 0)})
+                                      {Object.entries(d.by_collection)
+                                        .filter(([k]) => k.startsWith('discard'))
+                                        .reduce((s, [, v]) => s + (v ?? 0), 0)})
                                     </>
                                   )}
                                   , создано: <strong>{d.imported}</strong>, обновлено: <strong>{d.updated ?? 0}</strong>
