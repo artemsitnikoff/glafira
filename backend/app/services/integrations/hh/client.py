@@ -207,7 +207,7 @@ async def get_employer_vacancies(access_token: str, employer_id: str, page: int 
             raise ValidationError(f"Ошибка получения вакансий hh.ru: {e}")
 
 
-async def get_negotiation_responses(access_token: str, vacancy_id: str, page: int = 0, per_page: int = 100) -> dict:
+async def get_negotiation_responses(access_token: str, vacancy_id: str, page: int = 0, per_page: int = 50) -> dict:
     """
     Получает отклики работодателя по вакансии
 

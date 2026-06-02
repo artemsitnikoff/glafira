@@ -102,7 +102,7 @@ async def poll_vacancy_responses(session, access_token, vacancy):
         try:
             # Получаем страницу откликов
             data = await hh_client.get_negotiation_responses(
-                access_token, vacancy.hh_vacancy_id, page=page, per_page=100
+                access_token, vacancy.hh_vacancy_id, page=page, per_page=50
             )
 
             items = data.get("items", [])

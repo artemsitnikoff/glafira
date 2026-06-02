@@ -726,7 +726,7 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
             page = 0
             while True:
                 data = await hh_client.get_negotiation_responses(
-                    access_token, vacancy.hh_vacancy_id, page=page, per_page=100
+                    access_token, vacancy.hh_vacancy_id, page=page, per_page=50
                 )
                 if vstat["found"] is None:
                     vstat["found"] = data.get("found")
