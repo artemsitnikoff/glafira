@@ -11,10 +11,9 @@ type Props = {
 };
 
 export default function StageChipsBar({ stages, currentStage, onStageSelect }: Props) {
-  // Calculate total excluding rejected
-  const totalCount = stages
-    .filter(s => !s.is_terminal || s.stage_key === 'hired')
-    .reduce((sum, s) => sum + s.count, 0);
+  // «Все» = полный total воронки, ВКЛЮЧАЯ «Отказ» и «Нанят» (бэкенд при выборе
+  // «Все» отдаёт список со всеми этапами — счётчик должен совпадать со списком).
+  const totalCount = stages.reduce((sum, s) => sum + s.count, 0);
 
   // Separate stages (включая «Добавлен» — туда попадают вручную добавленные кандидаты)
   const workflowStages = stages.filter(s => !s.is_terminal);
