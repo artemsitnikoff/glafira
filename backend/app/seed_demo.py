@@ -192,15 +192,14 @@ async def cleanup_demo(session: AsyncSession):
     # Доп. защита от НАКОПИВШИХСЯ дублей: demo-сотрудники по ФИО. Ловит «осиротевшие»
     # копии от прошлых прогонов, чей candidate_id уже не указывает на текущих
     # demo-кандидатов (иначе светофор Пульса забивается дублями одних и тех же ФИО).
-    demo_hired_names = [c["full_name"] for c in CANDIDATE_SEEDS
-                        if c.get("target_stage") == "hired" or c.get("archive_result") == "hired"]
-    if demo_hired_names:
-        await session.execute(
-            delete(Employee).where(
-                Employee.company_id == COMPANY_ID,
-                Employee.full_name.in_(demo_hired_names),
-            )
+    # Это единственные demo-кандидаты с target_stage='hired' (становятся Employee).
+    demo_hired_names = ["Денис Новиков", "Леонид Панов", "Артём Лазарев"]
+    await session.execute(
+        delete(Employee).where(
+            Employee.company_id == COMPANY_ID,
+            Employee.full_name.in_(demo_hired_names),
         )
+    )
 
     # Удаляем applications для demo кандидатов
     await session.execute(
