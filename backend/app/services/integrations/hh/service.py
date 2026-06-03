@@ -807,6 +807,9 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         application = Application(
             company_id=company_id, candidate_id=candidate.id, vacancy_id=vacancy.id,
             stage=stage, hh_negotiation_id=nid, hh_chat_id=chat_id_str,
+            # Импортирован из discard-коллекции = УЖЕ отклонён на hh → сразу synced,
+            # чтобы cron не пытался повторно отклонять (вернёт wrong_state).
+            hh_discard_synced_at=(now if stage == "rejected" else None),
             created_at=now, selected_at=now,
         )
         session.add(application)
@@ -997,7 +1000,7 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
     Raises:
         NotFoundError: если интеграция hh.ru не найдена
     """
-    stats = {"discarded": 0, "failed": 0, "skipped_no_token": 0}
+    stats = {"discarded": 0, "already_discarded": 0, "failed": 0, "skipped_no_token": 0}
 
     try:
         # Проверяем доступность токена
@@ -1042,20 +1045,29 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
 
             # 2. Отклоняем на hh.ru
             try:
-                await hh_client.discard_negotiation(access_token, app.hh_negotiation_id)
-
-                # Помечаем как синхронизированный (идемпотентность)
-                app.hh_discard_synced_at = datetime.now(timezone.utc)
-                await session.flush()
-
+                discarded_now = await hh_client.discard_negotiation(access_token, app.hh_negotiation_id)
             except Exception as e:
-                # Ошибка отказа - не помечаем как synced, ретрай на следующем проходе
+                # Транзиентная ошибка (нет прав/сеть) — НЕ помечаем synced, ретрай.
                 log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard НЕ выполнен: {e}")
                 stats["failed"] += 1
                 logger.error(f"Ошибка отказа hh отклика {app.hh_negotiation_id}: {e}")
                 continue
 
-            # 3. Отправляем вежливое сообщение (best-effort)
+            # Помечаем synced в любом случае (discarded_now True ИЛИ False=уже в отказе):
+            # повторять не нужно.
+            app.hh_discard_synced_at = datetime.now(timezone.utc)
+            await session.flush()
+
+            # Отклик уже был в отказе на hh (wrong_state, обычно импортирован из
+            # discard-коллекции) → сообщение НЕ шлём (кандидат уже отклонён).
+            if not discarded_now:
+                await session.commit()
+                log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • уже в отказе на hh (синк не требуется)")
+                stats["already_discarded"] += 1
+                continue
+
+            # 3. Отправляем вежливое сообщение (best-effort) — только тем, кого
+            #    реально отклонили сейчас.
             message_sent = False
             if chat_id:
                 try:

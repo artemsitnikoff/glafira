@@ -455,19 +455,23 @@ async def get_negotiation(access_token: str, negotiation_id: str) -> dict:
             raise ValidationError(f"Ошибка получения отклика hh.ru: {e}")
 
 
-async def discard_negotiation(access_token: str, negotiation_id: str) -> None:
+async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
     """
-    Отклоняет отклик на hh.ru (переводит в статус discard)
+    Отклоняет отклик на hh.ru (переводит employer_state в discard).
 
-    Args:
-        access_token: access token
-        negotiation_id: ID отклика на hh.ru
+    URL `/negotiations/discard/{nid}` — action url из actions[] отклика (метод PUT,
+    аргумент message необязателен).
+
+    Returns:
+        True  — отклик отклонён сейчас (204).
+        False — отклик УЖЕ в недоступном для отказа состоянии (hh 403 wrong_state,
+                как правило уже в discard). Повторять не нужно — цель уже достигнута.
 
     Raises:
-        ValidationError: при ошибке API или недоступности действия
+        ValidationError — прочие ошибки (нет прав/не найден/сеть) → нужен ретрай.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    data = {}  # Минимальное form-тело для простого отказа
+    data = {}  # Минимальное form-тело (message необязателен)
 
     async with _get_client() as client:
         try:
@@ -476,22 +480,27 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> None:
                 headers=headers,
                 data=data
             )
-
-            if response.status_code == 204:
-                # Успех
-                logger.info(f"hh.ru отклик {negotiation_id} успешно отклонён")
-                return
-            elif response.status_code == 400:
-                raise ValidationError(f"Некорректные данные для отказа hh отклика {negotiation_id}: {response.text[:200]}")
-            elif response.status_code == 403:
-                raise ValidationError(f"Невозможно выполнить отказ hh отклика {negotiation_id}: {response.text[:200]}")
-            elif response.status_code == 404:
-                raise ValidationError(f"hh отклик {negotiation_id} не найден")
-            elif response.status_code >= 400:
-                raise ValidationError(f"hh.ru ошибка отказа отклика (HTTP {response.status_code}): {response.text[:200]}")
-
         except httpx.HTTPError as e:
             raise ValidationError(f"Ошибка отказа отклика hh.ru: {e}")
+
+        if response.status_code == 204:
+            logger.info(f"hh.ru отклик {negotiation_id} успешно отклонён")
+            return True
+
+        body = response.text[:300]
+        # 403 wrong_state — отклик уже в недоступном для отказа состоянии (обычно
+        # уже discard, т.к. импортирован из discard-коллекции). Не ошибка: цель
+        # (отказ на hh) уже достигнута. Помечаем synced, не ретраим.
+        if response.status_code == 403 and "wrong_state" in body:
+            logger.info(f"hh.ru отклик {negotiation_id} уже в недоступном для отказа состоянии (wrong_state) — синк не требуется")
+            return False
+        if response.status_code == 400:
+            raise ValidationError(f"Некорректные данные для отказа hh отклика {negotiation_id}: {body}")
+        if response.status_code == 403:
+            raise ValidationError(f"Невозможно выполнить отказ hh отклика {negotiation_id}: {body}")
+        if response.status_code == 404:
+            raise ValidationError(f"hh отклик {negotiation_id} не найден")
+        raise ValidationError(f"hh.ru ошибка отказа отклика (HTTP {response.status_code}): {body}")
 
 
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:

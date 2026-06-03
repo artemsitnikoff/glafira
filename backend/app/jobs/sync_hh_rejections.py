@@ -36,7 +36,7 @@ async def main():
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-    total_stats = {"discarded": 0, "failed": 0, "companies": 0, "skipped_no_token": 0}
+    total_stats = {"discarded": 0, "already_discarded": 0, "failed": 0, "companies": 0, "skipped_no_token": 0}
 
     try:
         async with async_session() as session:
@@ -50,11 +50,11 @@ async def main():
                 try:
                     stats = await sync_company_rejections(session, company_id, limit=20)
                     total_stats["discarded"] += stats["discarded"]
+                    total_stats["already_discarded"] += stats.get("already_discarded", 0)
                     total_stats["failed"] += stats["failed"]
-                    total_stats["companies"] += 1
-
-                    if stats.get("skipped_no_token", 0) == -1:
+                    if stats.get("skipped_no_token", 0) == -1:  # сентинел «нет токена»
                         total_stats["skipped_no_token"] += 1
+                    total_stats["companies"] += 1
 
                 except Exception as e:
                     logger.error(f"Ошибка синхронизации отказов компании {company_id}: {e}")
@@ -63,8 +63,8 @@ async def main():
 
         logger.info(
             f"Синхронизация отказов завершена: {total_stats['companies']} компаний, "
-            f"отклонено {total_stats['discarded']}, ошибок {total_stats['failed']}, "
-            f"пропущено из-за отсутствия токена {total_stats['skipped_no_token']}"
+            f"отклонено {total_stats['discarded']}, уже в отказе {total_stats['already_discarded']}, "
+            f"ошибок {total_stats['failed']}, без токена {total_stats['skipped_no_token']}"
         )
 
     except Exception as e:

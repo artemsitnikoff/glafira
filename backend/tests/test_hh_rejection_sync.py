@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timezone
+from sqlalchemy import select
 
 from app.services.integrations.hh.service import sync_company_rejections, POLITE_REJECTION_TEXT
 from app.models import Application, Candidate, Message
@@ -37,7 +38,7 @@ class TestHhRejectionSync:
              patch('app.services.integrations.hh.client.send_chat_message') as mock_send_msg:
 
             mock_token.return_value = "test_token"
-            mock_discard.return_value = None  # Успешный 204 response
+            mock_discard.return_value = True  # Успешный 204 response
             mock_send_msg.return_value = {"id": "msg_789"}
 
             # Вызываем синхронизацию
@@ -58,7 +59,7 @@ class TestHhRejectionSync:
 
             # Проверяем создание исходящего сообщения
             messages = await db_session.execute(
-                db_session.query(Message).filter(
+                select(Message).where(
                     Message.application_id == application.id,
                     Message.direction == "out",
                     Message.channel == "hh"
@@ -97,7 +98,7 @@ class TestHhRejectionSync:
 
             mock_token.return_value = "test_token"
             mock_get_nego.return_value = {"chat_id": "resolved_chat_789"}
-            mock_discard.return_value = None
+            mock_discard.return_value = True
             mock_send_msg.return_value = {"id": "msg_555"}
 
             stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
@@ -175,7 +176,7 @@ class TestHhRejectionSync:
              patch('app.services.integrations.hh.client.send_chat_message') as mock_send_msg:
 
             mock_token.return_value = "test_token"
-            mock_discard.return_value = None  # Успешно
+            mock_discard.return_value = True  # Успешно
             mock_send_msg.side_effect = Exception("Chat message failed")
 
             stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
@@ -190,7 +191,7 @@ class TestHhRejectionSync:
 
             # Исходящее сообщение не должно было быть сохранено
             messages = await db_session.execute(
-                db_session.query(Message).filter(
+                select(Message).where(
                     Message.application_id == application.id,
                     Message.direction == "out"
                 )
@@ -290,4 +291,42 @@ class TestHhRejectionSync:
             # Пропускаем из-за отсутствия токена
             assert stats["discarded"] == 0
             assert stats["failed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_sync_already_discarded_wrong_state(
+        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+    ):
+        """Тест: отклик уже в отказе на hh (discard→False, wrong_state) → помечаем
+        synced, сообщение НЕ шлём, не считаем ошибкой (не ретраим)."""
+
+        application = Application(
+            company_id=sample_company.id,
+            candidate_id=sample_candidate.id,
+            vacancy_id=sample_vacancy.id,
+            stage="rejected",
+            hh_negotiation_id="test_nego_already_discarded",
+            hh_chat_id="test_chat_ad",
+            reject_reason="Не подходит",
+            reject_side="company"
+        )
+        db_session.add(application)
+        await db_session.commit()
+
+        with patch('app.services.integrations.hh.service.get_valid_access_token') as mock_token, \
+             patch('app.services.integrations.hh.client.discard_negotiation') as mock_discard, \
+             patch('app.services.integrations.hh.client.send_chat_message') as mock_send_msg:
+
+            mock_token.return_value = "test_token"
+            mock_discard.return_value = False  # wrong_state — уже в отказе на hh
+
+            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+
+            assert stats["discarded"] == 0
+            assert stats["already_discarded"] == 1
+            assert stats["failed"] == 0
+            # Сообщение НЕ отправляется (кандидат уже отклонён на hh)
+            mock_send_msg.assert_not_called()
+            # Флаг synced ВЫСТАВЛЕН (повторно не берём)
+            await db_session.refresh(application)
+            assert application.hh_discard_synced_at is not None
             assert stats["skipped_no_token"] == -1  # Индикатор отсутствия токена
