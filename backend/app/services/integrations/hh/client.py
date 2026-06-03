@@ -459,24 +459,27 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
     """
     Отклоняет отклик на hh.ru (переводит employer_state в discard).
 
-    URL `/negotiations/discard/{nid}` — action url из actions[] отклика (метод PUT,
-    аргумент message необязателен).
+    Метод по спеке hh `put-negotiations-collection-to-next-state`:
+    `PUT /negotiations/{collection}` где collection='discard' в ПУТИ, а id отклика —
+    в ТЕЛЕ form-urlencoded как `topic_id` (обязателен). НЕ путать с
+    change-negotiation-action (`PUT /negotiations/discard/{nid}`), который возвращал
+    wrong_state. Сообщение шлём отдельно новым Chats API.
 
     Returns:
         True  — отклик отклонён сейчас (204).
         False — отклик УЖЕ в недоступном для отказа состоянии (hh 403 wrong_state,
-                как правило уже в discard). Повторять не нужно — цель уже достигнута.
+                как правило уже в discard). Повторять не нужно.
 
     Raises:
         ValidationError — прочие ошибки (нет прав/не найден/сеть) → нужен ретрай.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    data = {}  # Минимальное form-тело (message необязателен)
+    data = {"topic_id": negotiation_id}  # id отклика — в теле (collection 'discard' — в пути)
 
     async with _get_client() as client:
         try:
             response = await client.put(
-                f"{settings.HH_API_BASE}/negotiations/discard/{negotiation_id}",
+                f"{settings.HH_API_BASE}/negotiations/discard",
                 headers=headers,
                 data=data
             )
