@@ -16,7 +16,8 @@ const VacancyFormPage = lazy(() => import('@/pages/VacancyFormPage'));
 const VacancyDetailPage = lazy(() => import('@/pages/VacancyDetailPage'));
 const CandidatesPoolPage = lazy(() => import('@/pages/candidates/CandidatesPoolPage').then(m => ({ default: m.CandidatesPoolPage })));
 const CandidatePoolDetailPage = lazy(() => import('@/pages/candidates/CandidatePoolDetailPage').then(m => ({ default: m.CandidatePoolDetailPage })));
-const PulseComingSoon = lazy(() => import('@/pages/pulse/PulseComingSoon').then(m => ({ default: m.PulseComingSoon })));
+const PulsePage = lazy(() => import('@/pages/pulse/PulsePage').then(m => ({ default: m.PulsePage })));
+const PulseEmployeePage = lazy(() => import('@/pages/pulse/PulseEmployeePage').then(m => ({ default: m.PulseEmployeePage })));
 const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
@@ -101,8 +102,8 @@ export default function App() {
             </RoleGuard>
           }
         />
-        <Route path="pulse" element={<PulseComingSoon />} />
-        <Route path="pulse/:employeeId" element={<PulseComingSoon />} />
+        <Route path="pulse" element={<PulsePage />} />
+        <Route path="pulse/:employeeId" element={<PulseEmployeePage />} />
         <Route
           path="analytics"
           element={
