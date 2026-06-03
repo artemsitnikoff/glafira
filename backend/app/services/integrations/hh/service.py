@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import (
     HhIntegration, HhOauthState, Vacancy, Application, Candidate,
-    CandidateExperience, CandidateSkill, CandidateEducation,
+    CandidateExperience, CandidateSkill, CandidateEducation, Message,
 )
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
+from ....services.chat_log import log_chat
 from ....core.errors import ValidationError, NotFoundError
 from . import client as hh_client
 
@@ -965,5 +966,147 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
         except Exception as e:
             vstat["error"] = getattr(e, "message", None) or str(e)
         stats["details"].append(vstat)
+
+    return stats
+
+
+# Константа вежливого текста отказа
+POLITE_REJECTION_TEXT = (
+    "Здравствуйте! Благодарим за интерес к нашей вакансии и время, уделённое отклику. "
+    "К сожалению, по итогам рассмотрения мы приняли решение не продолжать общение по этой позиции. "
+    "Это не оценка вас как специалиста — на данном этапе мы остановились на другой кандидатуре. "
+    "Желаем успехов в поиске работы и будем рады видеть ваш отклик на наши будущие вакансии!"
+)
+
+
+async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit: int = 20) -> dict:
+    """
+    Синхронизирует отказы hh-кандидатов: отклоняет на hh.ru + отправляет вежливое сообщение
+
+    Обрабатывает Applications со stage='rejected', у которых есть hh_negotiation_id
+    и ещё не установлен флаг hh_discard_synced_at (не синхронизированы с hh).
+
+    Args:
+        session: DB session
+        company_id: ID компании
+        limit: максимальное количество отказов за проход (по умолчанию 20)
+
+    Returns:
+        dict: статистика {discarded, failed, skipped_no_token}
+
+    Raises:
+        NotFoundError: если интеграция hh.ru не найдена
+    """
+    stats = {"discarded": 0, "failed": 0, "skipped_no_token": 0}
+
+    try:
+        # Проверяем доступность токена
+        access_token = await get_valid_access_token(session, company_id)
+    except (NotFoundError, ValidationError):
+        logger.warning(f"Компания {company_id}: нет валидного токена hh.ru для синхронизации отказов")
+        stats["skipped_no_token"] = -1  # Индикатор отсутствия токена
+        return stats
+
+    # Выбираем hh-кандидатов, которых отклонили, но ещё не синхронизировали с hh
+    stmt = (
+        select(Application, Candidate)
+        .join(Candidate)
+        .where(
+            Application.company_id == company_id,
+            Application.stage == "rejected",
+            Application.hh_negotiation_id.isnot(None),
+            Application.hh_discard_synced_at.is_(None),
+            Candidate.deleted_at.is_(None)
+        )
+        .limit(limit)
+    )
+
+    result = await session.execute(stmt)
+    applications_with_candidates = result.fetchall()
+
+    logger.info(f"Компания {company_id}: найдено {len(applications_with_candidates)} отклонённых hh-кандидатов для синхронизации")
+
+    for app, candidate in applications_with_candidates:
+        try:
+            # 1. Резолв chat_id (лениво, если не установлен)
+            chat_id = app.hh_chat_id
+            if not chat_id:
+                try:
+                    nego_data = await hh_client.get_negotiation(access_token, app.hh_negotiation_id)
+                    chat_id = nego_data.get("chat_id")
+                    if chat_id:
+                        app.hh_chat_id = chat_id
+                        await session.flush()  # Сохраним chat_id сразу
+                except Exception as e:
+                    logger.warning(f"Не удалось получить chat_id для отклика {app.hh_negotiation_id}: {e}")
+
+            # 2. Отклоняем на hh.ru
+            try:
+                await hh_client.discard_negotiation(access_token, app.hh_negotiation_id)
+
+                # Помечаем как синхронизированный (идемпотентность)
+                app.hh_discard_synced_at = datetime.now(timezone.utc)
+                await session.flush()
+
+            except Exception as e:
+                # Ошибка отказа - не помечаем как synced, ретрай на следующем проходе
+                log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard НЕ выполнен: {e}")
+                stats["failed"] += 1
+                logger.error(f"Ошибка отказа hh отклика {app.hh_negotiation_id}: {e}")
+                continue
+
+            # 3. Отправляем вежливое сообщение (best-effort)
+            message_sent = False
+            if chat_id:
+                try:
+                    msg_response = await hh_client.send_chat_message(
+                        access_token,
+                        chat_id,
+                        POLITE_REJECTION_TEXT
+                    )
+
+                    # Сохраняем исходящее сообщение
+                    message = Message(
+                        company_id=company_id,
+                        candidate_id=candidate.id,
+                        application_id=app.id,
+                        channel="hh",
+                        direction="out",
+                        sender_type="ai",
+                        sender_user_id=None,
+                        body=POLITE_REJECTION_TEXT,
+                        sent_at=datetime.now(timezone.utc),
+                        created_at=datetime.now(timezone.utc),
+                        external_id=str(msg_response.get("id", ""))
+                    )
+                    session.add(message)
+                    message_sent = True
+
+                except Exception as e:
+                    # Ошибка отправки сообщения не откатывает discard
+                    logger.warning(f"Не удалось отправить сообщение отказа в чат {chat_id}: {e}")
+
+            # 4. Коммитим каждую application отдельно
+            await session.commit()
+
+            # Логируем результат
+            if message_sent:
+                log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard + вежливое сообщение отправлено")
+            else:
+                log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard выполнен, сообщение не отправлено")
+
+            stats["discarded"] += 1
+
+        except Exception as e:
+            # Откат транзакции для этой application
+            await session.rollback()
+            stats["failed"] += 1
+            logger.error(f"Критическая ошибка синхронизации отказа application {app.id}: {e}")
+            continue
+
+    logger.info(
+        f"Компания {company_id}: синхронизация отказов завершена. "
+        f"Успешно: {stats['discarded']}, Неудачно: {stats['failed']}"
+    )
 
     return stats

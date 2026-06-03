@@ -455,6 +455,45 @@ async def get_negotiation(access_token: str, negotiation_id: str) -> dict:
             raise ValidationError(f"Ошибка получения отклика hh.ru: {e}")
 
 
+async def discard_negotiation(access_token: str, negotiation_id: str) -> None:
+    """
+    Отклоняет отклик на hh.ru (переводит в статус discard)
+
+    Args:
+        access_token: access token
+        negotiation_id: ID отклика на hh.ru
+
+    Raises:
+        ValidationError: при ошибке API или недоступности действия
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    data = {}  # Минимальное form-тело для простого отказа
+
+    async with _get_client() as client:
+        try:
+            response = await client.put(
+                f"{settings.HH_API_BASE}/negotiations/discard/{negotiation_id}",
+                headers=headers,
+                data=data
+            )
+
+            if response.status_code == 204:
+                # Успех
+                logger.info(f"hh.ru отклик {negotiation_id} успешно отклонён")
+                return
+            elif response.status_code == 400:
+                raise ValidationError(f"Некорректные данные для отказа hh отклика {negotiation_id}: {response.text[:200]}")
+            elif response.status_code == 403:
+                raise ValidationError(f"Невозможно выполнить отказ hh отклика {negotiation_id}: {response.text[:200]}")
+            elif response.status_code == 404:
+                raise ValidationError(f"hh отклик {negotiation_id} не найден")
+            elif response.status_code >= 400:
+                raise ValidationError(f"hh.ru ошибка отказа отклика (HTTP {response.status_code}): {response.text[:200]}")
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка отказа отклика hh.ru: {e}")
+
+
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
     """
     Строит URL для авторизации через hh.ru

@@ -47,6 +47,7 @@ class Application(Base, TimestampMixin, CompanyMixin):
     source: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_negotiation_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_chat_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    hh_discard_synced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     # Constraints
     __table_args__ = (
