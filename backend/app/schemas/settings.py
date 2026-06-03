@@ -137,7 +137,7 @@ class SurveyTemplateOut(ORMBase):
     trigger_day: Optional[int]
     interval_days: Optional[int]
     channels: dict
-    questions: dict
+    questions: list | dict  # список вопросов [{id,text,goal,scale,...}] либо dict-вариант
     is_enabled: bool
     created_at: datetime
     updated_at: datetime
@@ -148,7 +148,7 @@ class SurveyTemplateCreate(BaseModel):
     trigger_day: Optional[int] = None
     interval_days: Optional[int] = None
     channels: dict
-    questions: dict
+    questions: list | dict
     is_enabled: bool = True
 
 
@@ -157,7 +157,7 @@ class SurveyTemplateUpdate(BaseModel):
     trigger_day: Optional[int] = None
     interval_days: Optional[int] = None
     channels: Optional[dict] = None
-    questions: Optional[dict] = None
+    questions: Optional[list | dict] = None
     is_enabled: Optional[bool] = None
 
 
