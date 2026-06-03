@@ -1053,18 +1053,41 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                 logger.error(f"Ошибка отказа hh отклика {app.hh_negotiation_id}: {e}")
                 continue
 
-            # Помечаем synced в любом случае (discarded_now True ИЛИ False=уже в отказе):
-            # повторять не нужно.
+            # discard вернул 403 wrong_state — это НЕ всегда «уже готово». Узнаём
+            # реальное состояние отклика на hh, чтобы не пометить активного как
+            # синхронизированного (баг прошлой версии).
+            if not discarded_now:
+                emp_state = "?"
+                actions_dbg = ""
+                try:
+                    nego = await hh_client.get_negotiation(access_token, app.hh_negotiation_id)
+                    emp_state = str((nego.get("employer_state") or {}).get("id") or nego.get("state") or "?")
+                    actions_dbg = ", ".join(
+                        f"{a.get('id')}={'on' if a.get('enabled') else 'off'}"
+                        for a in (nego.get("actions") or []) if isinstance(a, dict)
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось получить состояние отклика {app.hh_negotiation_id}: {e}")
+
+                if emp_state.startswith("discard"):
+                    # Реально уже в отказе на hh → синк не нужен, сообщение не шлём.
+                    app.hh_discard_synced_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • уже в отказе на hh (state={emp_state})")
+                    stats["already_discarded"] += 1
+                else:
+                    # Отклик АКТИВЕН, но голый discard вернул wrong_state → метод не тот.
+                    # НЕ помечаем synced (ретрай после фикса). Логируем доступные действия
+                    # hh, чтобы подобрать правильный вызов discard.
+                    await session.commit()  # сохраняем разрешённый chat_id; флаг synced НЕ ставим
+                    log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard wrong_state, отклик активен (state={emp_state}); действия hh: [{actions_dbg}]")
+                    logger.error(f"discard wrong_state на активном отклике {app.hh_negotiation_id} (state={emp_state}); actions: [{actions_dbg}]")
+                    stats["failed"] += 1
+                continue
+
+            # discard прошёл (204) → помечаем synced.
             app.hh_discard_synced_at = datetime.now(timezone.utc)
             await session.flush()
-
-            # Отклик уже был в отказе на hh (wrong_state, обычно импортирован из
-            # discard-коллекции) → сообщение НЕ шлём (кандидат уже отклонён).
-            if not discarded_now:
-                await session.commit()
-                log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • уже в отказе на hh (синк не требуется)")
-                stats["already_discarded"] += 1
-                continue
 
             # 3. Отправляем вежливое сообщение (best-effort) — только тем, кого
             #    реально отклонили сейчас.
