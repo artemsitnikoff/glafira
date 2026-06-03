@@ -9,6 +9,7 @@ from app.config import settings
 from app.core.security import get_password_hash
 from app.database import AsyncSessionLocal
 from app.models import Company, GlafiraSettings, RejectReason, User, CompanyDefaultStage, FunnelTemplate, FunnelTemplateStage, SurveyTemplate
+from app.services.settings.survey_templates import DEFAULT_SURVEY_TEMPLATES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -225,46 +226,8 @@ async def seed_funnel_templates(session: AsyncSession) -> None:
     logger.info("Created %d funnel templates for company", len(FUNNEL_TEMPLATE_SEEDS))
 
 
-# Дефолтные шаблоны пульс-опросов адаптации (HR-каденция день 7 / 30 / 90).
-# Вопросы — по методике онбординг-замеров (самочувствие, role clarity, выплаты,
-# руководитель, автономия, retention/eNPS, открытые ответы). scale — человекочитаемая
-# подсказка шкалы. Структура вопроса: {id, text, goal, scale, enabled, optional?}.
-SURVEY_TEMPLATE_SEEDS = [
-    {
-        "name": "Первая неделя — реальность vs ожидания",
-        "trigger_day": 7,
-        "questions": [
-            {"id": "q1", "text": "Как ты себя чувствуешь после первой недели?", "goal": "общее самочувствие", "scale": "😡 😞 😐 🙂 😄", "enabled": True},
-            {"id": "q2", "text": "Понятно ли, что от тебя ждут на этой неделе?", "goal": "понимание роли", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
-            {"id": "q3", "text": "Получил(а) всё необходимое для работы — доступы, оборудование, инструктаж?", "goal": "онбординг и доступы", "scale": "Да / Нет", "enabled": True},
-            {"id": "q4", "text": "Есть ли человек, к которому можно подойти с любым вопросом?", "goal": "поддержка и адаптация в команде", "scale": "Да / Нет", "enabled": True},
-            {"id": "q5", "text": "Понимаешь ли, как твоя работа связана с целями команды?", "goal": "смысл и вовлечённость", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
-            {"id": "q6", "text": "Что сделало бы твою первую неделю лучше?", "goal": "открытый ответ · триггер-слова", "scale": "📝 текст", "enabled": True, "optional": True},
-        ],
-    },
-    {
-        "name": "Первый месяц — пик ухода",
-        "trigger_day": 30,
-        "questions": [
-            {"id": "q1", "text": "Насколько ты доволен(на) работой за последний месяц?", "goal": "общая удовлетворённость", "scale": "😡 😞 😐 🙂 😄", "enabled": True},
-            {"id": "q2", "text": "Оцени своего руководителя по поддержке и обратной связи.", "goal": "оценка руководителя · маршрутизация при ≤2", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
-            {"id": "q3", "text": "Зарплата за прошлый месяц получена в срок и в полном объёме?", "goal": "выплаты вовремя · критичный сигнал при «Нет»", "scale": "Да / Нет", "enabled": True},
-            {"id": "q4", "text": "Хватает ли тебе самостоятельности в принятии решений?", "goal": "автономия", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
-            {"id": "q5", "text": "Что больше всего мешает тебе работать сейчас?", "goal": "открытый ответ · триггер-слова", "scale": "📝 текст", "enabled": True, "optional": False},
-        ],
-    },
-    {
-        "name": "90 дней — решение остаться",
-        "trigger_day": 90,
-        "questions": [
-            {"id": "q1", "text": "Насколько вероятно, что ты останешься в компании на следующие 6 месяцев?", "goal": "намерение остаться", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
-            {"id": "q2", "text": "Насколько вероятно, что порекомендуешь работу здесь другу или знакомому?", "goal": "eNPS", "scale": "0–10 (eNPS)", "enabled": True},
-            {"id": "q3", "text": "Соответствует ли работа тому, что обещали на этапе найма?", "goal": "соответствие ожиданиям", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
-            {"id": "q4", "text": "Видишь ли ты для себя возможности роста через 6–12 месяцев?", "goal": "перспективы роста · драйвер удержания", "scale": "Да / Нет", "enabled": True},
-            {"id": "q5", "text": "Что бы ты изменил(а) в первые 90 дней, если бы мог(ла)?", "goal": "открытый ответ", "scale": "📝 текст", "enabled": True, "optional": False},
-        ],
-    },
-]
+# Дефолтные шаблоны пульс-опросов — единый источник правды в сервисе survey_templates.
+SURVEY_TEMPLATE_SEEDS = DEFAULT_SURVEY_TEMPLATES
 
 
 async def seed_survey_templates(session: AsyncSession) -> None:

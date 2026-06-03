@@ -88,6 +88,21 @@ export function useSurveyTemplates() {
   });
 }
 
+// Создать стандартные шаблоны опросов адаптации (день 7/30/90), если их ещё нет
+export function useProvisionSurveyDefaults() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await client.post('/settings/survey-templates/defaults');
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['survey-templates'] });
+    },
+  });
+}
+
 // Массовый запуск опросов
 export function useBulkRunSurvey() {
   const queryClient = useQueryClient();

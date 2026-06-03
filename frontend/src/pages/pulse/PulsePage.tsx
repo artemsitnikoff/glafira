@@ -4,7 +4,7 @@ import './Pulse.css';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { usePulseKpi, usePulseEmployees, usePulseAlerts } from '@/api/hooks/usePulse';
-import { useSurveyTemplates, useBulkRunSurvey } from '@/api/hooks/usePulse';
+import { useSurveyTemplates, useBulkRunSurvey, useProvisionSurveyDefaults } from '@/api/hooks/usePulse';
 import { useDismissAlert } from '@/api/mutations/pulse';
 import type { EmployeeListItem } from '@/api/aliases';
 
@@ -26,6 +26,7 @@ export function PulsePage() {
   const { data: employeesData } = usePulseEmployees();
   const { data: alerts } = usePulseAlerts({ dismissed: false });
   const { data: surveyTemplates = [] } = useSurveyTemplates();
+  const provisionDefaults = useProvisionSurveyDefaults();
   const bulkRunSurveyMutation = useBulkRunSurvey();
   const dismissAlertMutation = useDismissAlert();
 
@@ -606,8 +607,20 @@ export function PulsePage() {
           {surveyTemplates.length === 0 ? (
             <div style={{padding:'60px 20px', textAlign:'center', color:'var(--fg-3)'}}>
               <div style={{fontSize:16, marginBottom:8}}>📋</div>
-              <div style={{fontSize:14, fontWeight:600, marginBottom:4}}>Шаблоны опросов не настроены</div>
-              <div style={{fontSize:13}}>Настройте шаблоны в разделе Настройки</div>
+              <div style={{fontSize:14, fontWeight:600, marginBottom:4, color:'var(--fg-1)'}}>Шаблонов опросов пока нет</div>
+              <div style={{fontSize:13, marginBottom:16}}>Создайте стандартный набор онбординг-опросов (день 7 / 30 / 90)</div>
+              <button
+                className="btn btn-primary"
+                onClick={() => provisionDefaults.mutate()}
+                disabled={provisionDefaults.isPending}
+              >
+                {provisionDefaults.isPending ? 'Создаю…' : 'Создать стандартные шаблоны'}
+              </button>
+              {provisionDefaults.isError && (
+                <div style={{marginTop:10, fontSize:12, color:'var(--stage-rejected)'}}>
+                  Не удалось создать: {(provisionDefaults.error as any)?.error?.message || 'ошибка'}
+                </div>
+              )}
             </div>
           ) : (
             surveyTemplates.map((template: any) => (

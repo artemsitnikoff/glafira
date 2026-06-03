@@ -282,6 +282,19 @@ async def create_survey_template(
     return SurveyTemplateOut.model_validate(template)
 
 
+@router.post("/survey-templates/defaults", response_model=list[SurveyTemplateOut])
+async def provision_default_survey_templates(
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Создать стандартные шаблоны опросов адаптации (день 7/30/90), если их ещё нет.
+    Идемпотентно — повторный вызов вернёт уже существующие, не дублируя."""
+    templates = await survey_templates.provision_default_survey_templates(session, company_id, current_user.id)
+    await session.commit()
+    return [SurveyTemplateOut.model_validate(t) for t in templates]
+
+
 @router.patch("/survey-templates/{template_id}", response_model=SurveyTemplateOut)
 async def update_survey_template(
     template_id: UUID,
