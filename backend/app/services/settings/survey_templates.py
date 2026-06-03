@@ -89,7 +89,8 @@ async def list_survey_templates(session: AsyncSession, company_id: UUID) -> list
     result = await session.execute(
         select(SurveyTemplate)
         .where(SurveyTemplate.company_id == company_id)
-        .order_by(SurveyTemplate.name)
+        # По дню запуска (день 7 → 30 → 90), затем по имени; null trigger_day — в конец.
+        .order_by(SurveyTemplate.trigger_day.asc().nulls_last(), SurveyTemplate.name)
     )
     return list(result.scalars().all())
 
