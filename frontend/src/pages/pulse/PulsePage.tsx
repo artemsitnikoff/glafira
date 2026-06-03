@@ -2,16 +2,15 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Pulse.css';
 import { Icon } from '@/components/ui/Icon';
+import { Avatar } from '@/components/ui/Avatar';
 import { usePulseKpi, usePulseEmployees, usePulseAlerts } from '@/api/hooks/usePulse';
-import { KpiStrip } from './components/KpiStrip';
-import { AlertsList } from './components/AlertsList';
-import { SegmentChips } from './components/SegmentChips';
-import { EmployeesTable } from './components/EmployeesTable';
+import type { EmployeeListItem, AlertOut } from '@/api/aliases';
 
 export function PulsePage() {
   const navigate = useNavigate();
   const [period, setPeriod] = useState('30d');
-  const [activeSegment, setActiveSegment] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'adapt_day', dir: 'asc' });
 
   const { data: kpi } = usePulseKpi(period);
   const { data: employeesData } = usePulseEmployees();
@@ -19,251 +18,273 @@ export function PulsePage() {
 
   const employees = employeesData?.items || [];
 
-  // Фильтрация сотрудников по сегментам
+  // Фильтрация сотрудников по поиску
   const filteredEmployees = useMemo(() => {
-    if (activeSegment === 'all') return employees;
+    if (!searchQuery) return employees;
 
-    return employees.filter(employee => {
-      switch (activeSegment) {
-        case 'onboarding':
-          return employee.status === 'onboarding';
-        case 'passed':
-          return employee.status === 'passed';
-        case 'high_risk':
-          return employee.risk_level === 'high';
-        case 'no_survey':
-          // LIMITATION: client-side filter applies to current page only.
-          // For full coverage backend would need ?survey_overdue_days=14 param.
-          if (!employee.last_survey_date) return true;
-          const daysSince = Math.floor(
-            (Date.now() - new Date(employee.last_survey_date).getTime()) / (1000 * 60 * 60 * 24)
-          );
-          return daysSince > 14;
-        case 'left':
-          return employee.status === 'left';
-        default:
-          return true;
+    const query = searchQuery.toLowerCase();
+    return employees.filter(employee =>
+      employee.full_name.toLowerCase().includes(query) ||
+      (employee.position && employee.position.toLowerCase().includes(query)) ||
+      (employee.department && employee.department.toLowerCase().includes(query))
+    );
+  }, [employees, searchQuery]);
+
+  // Сортировка
+  const sortedEmployees = useMemo(() => {
+    const sorted = [...filteredEmployees].sort((a, b) => {
+      const aValue = a[sortConfig.key as keyof EmployeeListItem];
+      const bValue = b[sortConfig.key as keyof EmployeeListItem];
+
+      if (aValue === null || aValue === undefined) return 1;
+      if (bValue === null || bValue === undefined) return -1;
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortConfig.dir === 'asc'
+          ? aValue.localeCompare(bValue, 'ru')
+          : bValue.localeCompare(aValue, 'ru');
       }
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortConfig.dir === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+
+      return 0;
     });
-  }, [employees, activeSegment]);
 
-  // Подсчёт для чипов сегментов
-  const segmentCounts = useMemo(() => {
-    return {
-      all: employees.length,
-      onboarding: employees.filter(e => e.status === 'onboarding').length,
-      passed: employees.filter(e => e.status === 'passed').length,
-      high_risk: employees.filter(e => e.risk_level === 'high').length,
-      no_survey: employees.filter(e => {
-        if (!e.last_survey_date) return true;
-        const daysSince = Math.floor(
-          (Date.now() - new Date(e.last_survey_date).getTime()) / (1000 * 60 * 60 * 24)
-        );
-        return daysSince > 14;
-      }).length,
-      left: employees.filter(e => e.status === 'left').length,
-    };
-  }, [employees]);
+    return sorted;
+  }, [filteredEmployees, sortConfig]);
 
-  const segments = [
-    { id: 'all', label: 'Все', count: segmentCounts.all },
-    { id: 'onboarding', label: 'На адаптации', count: segmentCounts.onboarding },
-    { id: 'passed', label: 'Прошли', count: segmentCounts.passed },
-    { id: 'high_risk', label: '🔴 Высокий риск', count: segmentCounts.high_risk },
-    { id: 'no_survey', label: 'Без опроса >14д', count: segmentCounts.no_survey },
-    { id: 'left', label: 'Уволенные', count: segmentCounts.left },
-  ];
+  const handleSort = (key: string) => {
+    setSortConfig(prev => ({
+      key,
+      dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc'
+    }));
+  };
 
-  const handleKpiClick = (metric: string) => {
-    // Переключение на соответствующий сегмент
-    switch (metric) {
-      case 'onboarding':
-        setActiveSegment('onboarding');
-        break;
-      case 'passed':
-        setActiveSegment('passed');
-        break;
-      case 'left':
-        setActiveSegment('left');
-        break;
-      default:
-        break;
-    }
+  const getSortIcon = (key: string) => {
+    if (sortConfig.key !== key) return null;
+    return sortConfig.dir === 'asc' ? '▲' : '▼';
   };
 
   const handleEmployeeClick = (employeeId: string) => {
     navigate(`/pulse/${employeeId}`);
   };
 
-  const handleChatClick = (employeeId: string) => {
-    navigate(`/pulse/${employeeId}?tab=chat`);
+  const getRiskBucketClass = (riskLevel: string): 'red' | 'yellow' | 'green' => {
+    switch (riskLevel) {
+      case 'high': return 'red';
+      case 'mid': return 'yellow';
+      case 'low': return 'green';
+      default: return 'green';
+    }
   };
 
-  const handleSurveyClick = (employeeId: string) => {
-    navigate(`/pulse/${employeeId}?tab=surveys`);
-  };
-
-  const getEmptyStateMessage = () => {
-    if (employees.length === 0) {
-      return {
-        title: 'Нет сотрудников на адаптации',
-        description: 'Здесь появятся ваши сотрудники после первого найма. Закройте первую вакансию — и Пульс начнёт за ними следить.',
-      };
+  const formatLastSurveyDisplay = (employee: EmployeeListItem) => {
+    if (!employee.last_survey_date) {
+      return { day: '—', status: '—' };
     }
 
-    if (kpi?.onboarding_count === 0 && kpi?.passed_probation > 0) {
-      return {
-        title: '🎉 Все ваши сотрудники прошли испытательный',
-        description: 'Отличная работа с адаптацией!',
-      };
-    }
+    const daysSince = Math.floor(
+      (Date.now() - new Date(employee.last_survey_date).getTime()) / (1000 * 60 * 60 * 24)
+    );
 
-    return null;
+    const dayText = daysSince === 0 ? 'Сегодня' : `День ${daysSince}`;
+    const statusClass = employee.last_survey_mood ? 'ok' : 'bad';
+    const statusText = employee.last_survey_mood ? '✓ ответил' : '✗ нет ответа';
+
+    return {
+      day: dayText,
+      status: statusText,
+      statusClass
+    };
   };
-
-  const emptyState = getEmptyStateMessage();
 
   return (
-    <div style={{
-      padding: 'var(--space-6)',
-      backgroundColor: 'var(--bg-1)',
-      minHeight: '100vh'
-    }}>
-      {/* Шапка */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: 'var(--space-6)'
-      }}>
-        <div>
-          <h1 style={{
-            fontSize: '32px',
-            fontWeight: 700,
-            color: 'var(--fg-1)',
-            margin: 0,
-            marginBottom: 'var(--space-1)'
-          }}>
-            Пульс
-          </h1>
-          <p style={{
-            fontSize: '16px',
-            color: 'var(--fg-2)',
-            margin: 0
-          }}>
-            Адаптация и удержание новых сотрудников
-          </p>
-        </div>
-
-        {/* Переключатель периода */}
-        <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          style={{
-            padding: 'var(--space-2) var(--space-3)',
-            fontSize: '14px',
-            backgroundColor: 'var(--bg-2)',
-            border: '1px solid var(--border-1)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--fg-1)',
-            cursor: 'pointer'
-          }}
-        >
-          <option value="7d">Неделя</option>
-          <option value="30d">Месяц</option>
-          <option value="90d">Квартал</option>
-          <option value="all">Всё время</option>
-        </select>
-      </div>
-
-      {/* KPI полоса */}
-      <div style={{ marginBottom: 'var(--space-6)' }}>
-        <KpiStrip kpi={kpi} onKpiClick={handleKpiClick} />
-      </div>
-
-      {/* Алерты Глафиры */}
-      {alerts && alerts.length > 0 && (
-        <div style={{ marginBottom: 'var(--space-6)' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            marginBottom: 'var(--space-4)'
-          }}>
-            <Icon name="alert-triangle" size={16} style={{ color: 'var(--risk-mid)' }} />
-            <h2 style={{
-              fontSize: '18px',
-              fontWeight: 600,
-              color: 'var(--fg-1)',
-              margin: 0
-            }}>
-              Требуют вмешательства
-            </h2>
-            <span style={{
-              padding: '2px 6px',
-              backgroundColor: 'var(--risk-mid-soft)',
-              color: 'var(--risk-mid)',
-              borderRadius: '10px',
-              fontSize: '11px',
-              fontWeight: 600
-            }}>
-              {alerts.length}
-            </span>
+    <div className="pulse-content">
+      <div className="pulse-content-inner">
+        {/* Шапка в стиле эталона */}
+        <div className="pulse-header">
+          <div className="left">
+            <h1>Пульс-Онбординг</h1>
+            <div className="sub">
+              Обновлено несколько минут назад · последний сбор данных: сейчас · {filteredEmployees.length} сотрудников
+            </div>
           </div>
-          <AlertsList alerts={alerts} onEmployeeClick={handleEmployeeClick} />
+          <div className="pulse-header-actions">
+            <select
+              className="dropdown"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+            >
+              <option value="7d">Неделя</option>
+              <option value="30d">Месяц</option>
+              <option value="90d">Квартал</option>
+              <option value="all">Всё время</option>
+            </select>
+          </div>
         </div>
-      )}
 
-      {/* Сегменты */}
-      <div style={{ marginBottom: 'var(--space-4)' }}>
-        <SegmentChips
-          segments={segments}
-          activeSegment={activeSegment}
-          onSegmentChange={setActiveSegment}
-        />
+        {/* KPI полоса в стиле эталона */}
+        <div className="pulse-kpi-grid">
+          <div className="kpi" title="Сотрудники в окне 0–90 дней с момента найма">
+            <div className="kpi-label">На адаптации сейчас</div>
+            <div className="kpi-value-row">
+              <span className="kpi-value">{kpi?.onboarding_count || 0}</span>
+              <span className="kpi-unit">человек</span>
+            </div>
+            <div className="kpi-foot">
+              <span className="kpi-sub">в первые 90 дней</span>
+            </div>
+          </div>
+          <div className="kpi" title="Сотрудники, успешно завершившие испытательный срок">
+            <div className="kpi-label">Прошли испытательный</div>
+            <div className="kpi-value-row">
+              <span className="kpi-value">{kpi?.passed_probation || 0}</span>
+              <span className="kpi-unit">человек</span>
+            </div>
+            <div className="kpi-foot">
+              {kpi?.passed_probation_delta !== undefined && (
+                <span className={`delta ${kpi.passed_probation_delta >= 0 ? 'up' : 'down'}`}>
+                  {kpi.passed_probation_delta >= 0 ? '▲' : '▼'} {Math.abs(kpi.passed_probation_delta)}
+                </span>
+              )}
+              <span className="kpi-sub">к прошлому периоду</span>
+            </div>
+          </div>
+          <div className="kpi" title="Процент ушедших в первые 90 дней">
+            <div className="kpi-label">Ушли в 90 дней</div>
+            <div className="kpi-value-row">
+              <span className="kpi-value">{kpi?.left_in_90d || 0}</span>
+              <span className="kpi-unit">{kpi?.left_in_90d_pct?.toFixed(1) || '0'}%</span>
+            </div>
+            <div className="kpi-foot">
+              <span className="kpi-sub">текучка в адаптации</span>
+            </div>
+          </div>
+          <div className="kpi" title="eNPS новых сотрудников">
+            <div className="kpi-label">eNPS</div>
+            <div className="kpi-value-row">
+              <span className="kpi-value">
+                {kpi?.enps ? `+${kpi.enps}` : '—'}
+              </span>
+              <span className="kpi-unit">{kpi?.enps ? 'из 100' : ''}</span>
+            </div>
+            <div className="kpi-foot">
+              <span className="kpi-sub">лояльность новых</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Алерты Глафиры */}
+        {alerts && alerts.length > 0 && (
+          <>
+            <div className="pulse-section-head">
+              <h2>
+                <Icon name="alert-triangle" size={16}/>
+                Требуют вмешательства
+                <span className="h-count">{alerts.length}</span>
+              </h2>
+            </div>
+            {alerts.map((alert: AlertOut) => (
+              <div key={alert.id} className="alert-row">
+                <div className={`level ${alert.level === 'high' ? 'crit' : 'med'}`}>
+                  {alert.level === 'high' ? '🔴' : '🟡'}
+                </div>
+                <div className="body">
+                  <div className="who" onClick={() => alert.employee_id && handleEmployeeClick(alert.employee_id)} style={{cursor:'pointer'}}>
+                    {/* Ищем сотрудника для получения имени */}
+                    {(() => {
+                      const emp = employees.find(e => e.id === alert.employee_id);
+                      return emp ? emp.full_name : 'Сотрудник';
+                    })()}
+                    <span className="role-tag">· {alert.context || ''}</span>
+                  </div>
+                  <div className="reason">{alert.title}</div>
+                </div>
+                <div className="when">{new Date(alert.created_at).toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit'})}</div>
+                <div className="actions">
+                  <button className="btn btn-secondary btn-sm" onClick={() => alert.employee_id && handleEmployeeClick(alert.employee_id)}>Открыть</button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Поиск */}
+        <div className="pulse-filters">
+          <div className="filter-spacer"/>
+          <div className="pulse-search">
+            <Icon name="search" size={13} style={{color:'var(--fg-3)'}}/>
+            <input
+              placeholder="Поиск по ФИО…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Таблица сотрудников в стиле эталона */}
+        <div className="emp-table">
+          <div className="emp-thead">
+            <div onClick={() => handleSort('full_name')} style={{cursor:'pointer'}}>
+              Сотрудник {getSortIcon('full_name')}
+            </div>
+            <div>Должность</div>
+            <div>Подразделение</div>
+            <div>Руководитель</div>
+            <div onClick={() => handleSort('adapt_day')} style={{cursor:'pointer'}}>
+              День {getSortIcon('adapt_day')}
+            </div>
+            <div onClick={() => handleSort('risk_level')} style={{cursor:'pointer'}}>
+              Risk {getSortIcon('risk_level')}
+            </div>
+            <div>Последний опрос</div>
+          </div>
+          {sortedEmployees.length === 0 ? (
+            <div style={{padding:'40px', textAlign:'center', color:'var(--fg-3)', fontSize:13}}>
+              {searchQuery ? 'По заданным фильтрам никого не найдено' : 'Нет сотрудников на адаптации'}
+            </div>
+          ) : (
+            sortedEmployees.map(employee => {
+              const bucket = getRiskBucketClass(employee.risk_level);
+              const surveyInfo = formatLastSurveyDisplay(employee);
+
+              return (
+                <div key={employee.id} className="emp-trow" onClick={() => handleEmployeeClick(employee.id)}>
+                  <div className="cell-emp">
+                    <Avatar name={employee.full_name} size="sm"/>
+                    <div className="em-text">
+                      <div className="em-name">{employee.full_name}</div>
+                      <div className="em-meta">
+                        Нанят {new Date(employee.start_date).toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: '2-digit'})}
+                      </div>
+                    </div>
+                  </div>
+                  <div>{employee.position || '—'}</div>
+                  <div>{employee.department || '—'}</div>
+                  <div style={{color:'var(--fg-2)'}}>{employee.manager_full_name || '—'}</div>
+                  <div className="day-num">{employee.adapt_day}</div>
+                  <div>
+                    <span className={`risk-pill ${bucket}`}>
+                      <span className="dot"/>
+                      {employee.risk_level === 'high' ? 'Высокий' : employee.risk_level === 'mid' ? 'Средний' : 'Норма'}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="last-survey">
+                      <span className="ls-day">{surveyInfo.day}</span>
+                      <span className={`ls-status ${surveyInfo.statusClass || ''}`}>
+                        {surveyInfo.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
-
-      {/* Таблица сотрудников или Empty State */}
-      {emptyState ? (
-        <div style={{
-          textAlign: 'center',
-          padding: 'var(--space-12)',
-          backgroundColor: 'var(--bg-2)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-1)'
-        }}>
-          <Icon name="users" size={48} style={{
-            color: 'var(--fg-4)',
-            marginBottom: 'var(--space-4)'
-          }} />
-          <h3 style={{
-            fontSize: '18px',
-            fontWeight: 600,
-            color: 'var(--fg-1)',
-            margin: '0 0 var(--space-2) 0'
-          }}>
-            {emptyState.title}
-          </h3>
-          <p style={{
-            fontSize: '14px',
-            color: 'var(--fg-3)',
-            margin: 0,
-            maxWidth: '400px',
-            marginLeft: 'auto',
-            marginRight: 'auto',
-            lineHeight: 1.5
-          }}>
-            {emptyState.description}
-          </p>
-        </div>
-      ) : (
-        <EmployeesTable
-          employees={filteredEmployees}
-          onEmployeeClick={handleEmployeeClick}
-          onChatClick={handleChatClick}
-          onSurveyClick={handleSurveyClick}
-        />
-      )}
     </div>
   );
 }

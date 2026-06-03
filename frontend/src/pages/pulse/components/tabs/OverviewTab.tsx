@@ -1,13 +1,12 @@
 import { Icon } from '@/components/ui/Icon';
 import type { EmployeeDetail } from '@/api/aliases';
-import { useRegenerateAiSummary } from '@/api/mutations/pulse';
 
 type Props = {
   employee: EmployeeDetail;
+  onRegenerateAiSummary?: () => void;
 };
 
-export function OverviewTab({ employee }: Props) {
-  const regenerateAiSummaryMutation = useRegenerateAiSummary();
+export function OverviewTab({ employee, onRegenerateAiSummary }: Props) {
 
   // Расчёт мини-плашек
   const enps = employee.enps ?? null;
@@ -22,7 +21,7 @@ export function OverviewTab({ employee }: Props) {
 
   // Обработчик генерации AI-сводки
   function handleRegenerateAiSummary() {
-    regenerateAiSummaryMutation.mutate(employee.id);
+    onRegenerateAiSummary?.();
   }
 
   // Timeline последних событий (мини-версия)
@@ -97,7 +96,6 @@ export function OverviewTab({ employee }: Props) {
               </div>
               <button
                 onClick={handleRegenerateAiSummary}
-                disabled={regenerateAiSummaryMutation.isPending}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -112,7 +110,7 @@ export function OverviewTab({ employee }: Props) {
                 }}
               >
                 <Icon
-                  name={regenerateAiSummaryMutation.isPending ? 'loader' : 'refresh-cw'}
+                  name="refresh-cw"
                   size={12}
                 />
                 Переоценить
@@ -143,7 +141,6 @@ export function OverviewTab({ employee }: Props) {
               </p>
               <button
                 onClick={handleRegenerateAiSummary}
-                disabled={regenerateAiSummaryMutation.isPending}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -158,7 +155,7 @@ export function OverviewTab({ employee }: Props) {
                 }}
               >
                 <Icon
-                  name={regenerateAiSummaryMutation.isPending ? 'loader' : 'brain'}
+                  name="brain"
                   size={14}
                 />
                 Сгенерировать
