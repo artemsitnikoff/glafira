@@ -69,14 +69,14 @@ async def _make_openrouter_request(client: httpx.AsyncClient, payload: dict) -> 
     return response
 
 
-async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
+async def call_json(*, system: str, user: str, max_tokens: int = 2048, model: str | None = None) -> dict:
     """Call Claude API via OpenRouter expecting JSON response"""
     if not settings.OPENROUTER_API_KEY:
         raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         payload = {
-            "model": settings.GLAFIRA_MODEL,
+            "model": model or settings.GLAFIRA_MODEL,
             "max_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system},
@@ -125,14 +125,14 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048) -> dict:
         raise GlafiraParseError(details={"raw": text[:500], "reason": str(e)})
 
 
-async def call_text(*, system: str, user: str, max_tokens: int = 1024) -> str:
+async def call_text(*, system: str, user: str, max_tokens: int = 1024, model: str | None = None) -> str:
     """Call Claude API via OpenRouter expecting text response"""
     if not settings.OPENROUTER_API_KEY:
         raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         payload = {
-            "model": settings.GLAFIRA_MODEL,
+            "model": model or settings.GLAFIRA_MODEL,
             "max_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system},

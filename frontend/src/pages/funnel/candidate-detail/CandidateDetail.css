@@ -723,158 +723,407 @@
 }
 .cnd-funnel-wrap .cand-detail .chat-compose-hint b { color: var(--fg-1); font-weight: 600; }
 
-/* === VERIFICATION TAB === */
+/* === VERIFICATION TAB (1:1 эталон) === */
 
+/* Гейт согласия ПдН */
 .cnd-funnel-wrap .cand-detail .verify-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 40px 20px;
-  background: var(--bg-panel-2);
-  border-radius: 10px;
-  margin: 20px 0;
+  padding: 56px 32px;
+  gap: 12px;
+  color: var(--fg-2);
 }
 
 .cnd-funnel-wrap .cand-detail .verify-locked-ico {
-  margin-bottom: 16px;
   color: var(--fg-3);
 }
 
 .cnd-funnel-wrap .cand-detail .verify-locked h3 {
-  font-size: 18px;
-  font-weight: 600;
+  margin: 4px 0 0;
+  font-size: 16px;
   color: var(--fg-1);
-  margin: 0 0 12px;
+  font-weight: 600;
 }
 
 .cnd-funnel-wrap .cand-detail .verify-locked p {
-  color: var(--fg-2);
+  max-width: 460px;
   line-height: 1.5;
-  margin: 0 0 20px;
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
+  font-size: 13px;
+  margin: 0;
 }
 
+.cnd-funnel-wrap .cand-detail .verify-locked .btn {
+  margin-top: 8px;
+}
+
+/* Контейнер верификации */
+.cnd-funnel-wrap .cand-detail .verify-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Хедер метаинформации */
 .cnd-funnel-wrap .cand-detail .vf-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
-  background: var(--bg-panel);
+  padding: 8px 12px;
+  background: var(--bg-2);
   border: 1px solid var(--border-1);
   border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--fg-2);
 }
 
 .cnd-funnel-wrap .cand-detail .vf-meta-glyph {
-  color: var(--fg-3);
+  color: var(--ark-green-500);
+  display: inline-flex;
 }
 
+.cnd-funnel-wrap .cand-detail .vf-meta b {
+  color: var(--fg-1);
+  font-weight: 600;
+}
+
+/* Блоки верификации */
 .cnd-funnel-wrap .cand-detail .vf-block {
-  background: #fff;
   border: 1px solid var(--border-1);
   border-radius: 10px;
-  margin-bottom: 16px;
+  background: #fff;
   overflow: hidden;
 }
 
 .cnd-funnel-wrap .cand-detail .vf-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px;
-  background: var(--bg-panel-2);
-  border-bottom: 1px solid var(--border-1);
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-2);
+  background: linear-gradient(180deg, var(--ark-gray-50) 0%, #fff 100%);
 }
 
 .cnd-funnel-wrap .cand-detail .vf-head-left {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 10px;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
 }
 
 .cnd-funnel-wrap .cand-detail .vf-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: var(--bg-3);
-  display: flex;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 7px;
+  background: var(--ark-gray-100);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-3);
-}
-
-.cnd-funnel-wrap .cand-detail .vf-title {
-  font-weight: 600;
-  color: var(--fg-1);
-  margin-bottom: 4px;
-}
-
-.cnd-funnel-wrap .cand-detail .vf-sources {
-  display: flex;
-  gap: 6px;
-}
-
-.cnd-funnel-wrap .cand-detail .vf-src {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.cnd-funnel-wrap .cand-detail .vf-src-api {
-  background: var(--bg-3);
   color: var(--fg-2);
 }
 
-.cnd-funnel-wrap .cand-detail .vf-src-db {
-  background: var(--accent);
-  color: #fff;
+.cnd-funnel-wrap .cand-detail .vf-icon-letter {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-1);
 }
 
-.cnd-funnel-wrap .cand-detail .vf-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 16px;
-  font-size: 12px;
+.cnd-funnel-wrap .cand-detail .vf-icon-letter.ai {
+  color: #C2410C;
+  font-size: 16px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-title {
+  font-size: 13.5px;
   font-weight: 600;
+  color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-sources {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  background: var(--ark-gray-100);
+  color: var(--fg-3);
+  border: 1px solid transparent;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src-api {
+  background: #EAF2FE;
+  color: #1F66D6;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src-reg {
+  background: #F4EEFB;
+  color: #6B3FB5;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src-pub {
+  background: #FEF3E8;
+  color: #A85A11;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-src-ai  {
+  background: #FBE9E5;
+  color: #B6361A;
+}
+
+/* Статусы блоков */
+.cnd-funnel-wrap .cand-detail .vf-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  flex: none;
 }
 
 .cnd-funnel-wrap .cand-detail .vf-st-clean {
-  background: var(--risk-low-soft);
-  color: var(--score-green);
+  background: #E8F4EC;
+  color: var(--ark-green-500);
 }
 
-/* «В разработке» — реальная проверка по госреестрам не подключена (интеграция позже),
-   поэтому статус блока не выдаём за результат, а честно помечаем нейтральной плашкой. */
-.cnd-funnel-wrap .cand-detail .vf-st-dev {
-  background: var(--bg-3);
-  color: var(--fg-3);
+.cnd-funnel-wrap .cand-detail .vf-st-warn  {
+  background: #FEF3E8;
+  color: #A85A11;
 }
 
+.cnd-funnel-wrap .cand-detail .vf-st-risk  {
+  background: #FBE9E5;
+  color: #B6361A;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-st-info  {
+  background: #EAF2FE;
+  color: #1F66D6;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-status .vf-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Тело блока */
 .cnd-funnel-wrap .cand-detail .vf-body {
-  padding: 16px 18px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
 }
 
 .cnd-funnel-wrap .cand-detail .vf-kv {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-2);
 }
 
 .cnd-funnel-wrap .cand-detail .vf-k {
-  font-weight: 500;
-  color: var(--fg-2);
-  min-width: 120px;
+  color: var(--fg-3);
+  font-size: 12px;
+  min-width: 130px;
 }
 
 .cnd-funnel-wrap .cand-detail .vf-v {
   color: var(--fg-1);
+  font-weight: 500;
+  flex: 1;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-copy {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-3);
+  font-size: 13px;
+  padding: 0 4px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-copy:hover {
+  color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-note {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border-radius: 6px;
+  color: var(--fg-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Списки и проверки */
+.cnd-funnel-wrap .cand-detail .vf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-list-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-list-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-list-sub {
+  color: var(--fg-3);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-list-id {
+  color: var(--fg-3);
+  font-size: 11.5px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-empty-row {
+  padding: 6px 10px;
+  color: var(--fg-3);
+  font-size: 12px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 24px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-tick {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #E8F4EC;
+  color: var(--ark-green-500);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-tick::after {
+  content: '';
+  width: 8px;
+  height: 4px;
+  border-left: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+/* Публичные профили */
+.cnd-funnel-wrap .cand-detail .vf-pubs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-pub {
+  display: grid;
+  grid-template-columns: 130px 180px 1fr;
+  gap: 12px;
+  padding: 7px 10px;
+  align-items: baseline;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-pub-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-pub-handle {
+  color: var(--fg-2);
+  font-size: 12.5px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-pub-stat {
+  color: var(--fg-3);
+  font-size: 12px;
+}
+
+/* AI-находки */
+.cnd-funnel-wrap .cand-detail .vf-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-finding {
+  padding: 9px 12px;
+  border-left: 3px solid #C2410C;
+  background: #FFF7F2;
+  border-radius: 0 6px 6px 0;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-finding-quote {
+  font-size: 13px;
+  color: var(--fg-1);
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-finding-src {
+  display: inline-block;
+  margin-top: 4px;
+  color: #1F66D6;
+  font-size: 11.5px;
+  text-decoration: none;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-finding-src:hover {
+  text-decoration: underline;
 }
 
 /* === LEGACY CLASSES (preserve existing functionality) === */

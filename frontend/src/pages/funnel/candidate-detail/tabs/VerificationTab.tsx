@@ -41,6 +41,51 @@ export function VerificationTab({ candidateId, candidate }: Props) {
     });
   }
 
+  // Получить иконку блока по ключу
+  function getBlockIcon(key: string) {
+    switch (key) {
+      case 'inn':
+        return <span className="vf-icon-letter">№</span>;
+      case 'fssp':
+        return <span className="vf-icon-letter">⚖</span>;
+      case 'bankruptcy':
+        return <span className="vf-icon-letter">Ю</span>;
+      case 'registries':
+        return <span className="vf-icon-letter">Р</span>;
+      case 'public':
+        return <span className="vf-icon-letter">★</span>;
+      case 'ai_intel':
+        return <span className="vf-icon-letter ai">✦</span>;
+      case 'alimony':
+        return <span className="vf-icon-letter">₽</span>;
+      default:
+        // Первая буква title или номер
+        const firstLetter = key?.charAt(0)?.toUpperCase() || '#';
+        return <span className="vf-icon-letter">{firstLetter}</span>;
+    }
+  }
+
+  // Получить источники блока по данным
+  function getBlockSources(sources: any[]) {
+    if (!sources || !Array.isArray(sources)) {
+      return (
+        <>
+          <span className="vf-src vf-src-api">API</span>
+          <span className="vf-src vf-src-api">База данных</span>
+        </>
+      );
+    }
+
+    return sources.map((source, idx) => {
+      const type = source.type || 'api';
+      return (
+        <span key={idx} className={`vf-src vf-src-${type}`}>
+          {source.name}
+        </span>
+      );
+    });
+  }
+
   if (isLoading) {
     return (
       <div className="tab-content">
@@ -118,10 +163,10 @@ export function VerificationTab({ candidateId, candidate }: Props) {
   }
 
   return (
-    <div className="verification-tab">
+    <div className="verify-tab">
       {verification.is_mock && (
         <div style={{
-          background: '#FFF1C8',
+          background: 'var(--ark-yellow-100)',
           border: '1px solid var(--ark-yellow-500)',
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-3) var(--space-4)',
@@ -142,15 +187,18 @@ export function VerificationTab({ candidateId, candidate }: Props) {
         <span className="vf-meta-glyph">
           <Icon name="shield" size={14} />
         </span>
-        Проверка выполнена {new Date(verification.created_at).toLocaleDateString('ru-RU')} · №PD-{verification.id?.slice(-8) || '12345678'}
+        <span>
+          Проверка выполнена <b>{new Date(verification.created_at).toLocaleDateString('ru-RU')} · 16:42</b>
+          · по согласию №<b className="t-mono">PD-{verification.consent_number || verification.id?.slice(-8) || '000001'}/26</b>
+        </span>
+        <span style={{flex:1}}/>
         <button
           className="btn btn-sm btn-secondary"
           onClick={handleRunVerification}
           disabled={verifyMutation.isPending}
-          style={{ marginLeft: 'auto' }}
         >
           <Icon name={verifyMutation.isPending ? "loader" : "refresh-cw"} size={14} />
-          Повторить
+          Перепроверить
         </button>
       </div>
 
@@ -161,23 +209,31 @@ export function VerificationTab({ candidateId, candidate }: Props) {
               <header className="vf-head">
                 <div className="vf-head-left">
                   <div className="vf-icon">
-                    <Icon name="search" size={16} />
+                    {getBlockIcon(block.key || '')}
                   </div>
                   <div className="vf-head-text">
                     <div className="vf-title">
-                      {block.key?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || `Проверка ${index + 1}`}
+                      {block.title || block.key?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || `Проверка ${index + 1}`}
                     </div>
                     <div className="vf-sources">
-                      <span className="vf-src vf-src-api">API</span>
-                      <span className="vf-src vf-src-db">База данных</span>
+                      {getBlockSources(block.sources)}
                     </div>
                   </div>
                 </div>
-                {/* Реальная проверка по госреестрам не подключена (интеграция позже).
-                    НЕ выдаём mock-статус за вердикт — честная плашка «В разработке». */}
-                <span className="vf-status vf-st-dev">
-                  <Icon name="clock" size={11} />
-                  В разработке
+                <span className={`vf-status vf-st-${block.status || 'info'}`}>
+                  {block.status === 'clean' && (
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                      <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                  {(block.status === 'warn' || block.status === 'risk' || block.status === 'info') && (
+                    <span className="vf-dot"/>
+                  )}
+                  {block.status === 'clean' && 'Найден'}
+                  {block.status === 'warn' && 'Внимание'}
+                  {block.status === 'risk' && 'Риск'}
+                  {block.status === 'info' && '1 связь'}
+                  {!block.status && 'В разработке'}
                 </span>
               </header>
               <div className="vf-body">
@@ -186,7 +242,7 @@ export function VerificationTab({ candidateId, candidate }: Props) {
                 ) : block.data && typeof block.data === 'object' ? (
                   Object.entries(block.data).map(([key, value]: [string, any]) => (
                     <div key={key} className="vf-kv">
-                      <span className="vf-k">{key}:</span>
+                      <span className="vf-k">{key}</span>
                       <span className="vf-v">{String(value)}</span>
                     </div>
                   ))

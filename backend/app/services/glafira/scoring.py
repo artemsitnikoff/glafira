@@ -13,9 +13,11 @@ from sqlalchemy.orm import joinedload
 from .client import call_json
 from .prompts import build_scoring_system_prompt, SCORING_USER_TEMPLATE
 from .scoring_log import log_scoring
+from .verify import verify_candidate
+from ...core.errors import ConsentRequiredError
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError
-from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill
+from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification
 from ...schemas.glafira import RequirementMatch
 from ...services.audit import audit
 
@@ -382,6 +384,47 @@ async def score_pending_applications(
                 "Авто-оценка candidate=%s vacancy=%s → score=%s вердикт=%s",
                 candidate_id, vacancy_id, score_val, verdict_val,
             )
+
+            # Триггер верификации: если у кандидата есть подписанное согласие
+            # и ещё нет верификации — запускаем верификацию
+            try:
+                # Проверяем есть ли подписанное согласие
+                consent_result = await session.execute(
+                    select(Consent).where(
+                        Consent.candidate_id == candidate_id,
+                        Consent.status == 'signed'
+                    ).limit(1)
+                )
+                consent = consent_result.scalar_one_or_none()
+
+                if consent:
+                    # Проверяем, есть ли уже верификация
+                    verification_result = await session.execute(
+                        select(Verification).where(
+                            Verification.candidate_id == candidate_id
+                        ).limit(1)
+                    )
+                    existing_verification = verification_result.scalar_one_or_none()
+
+                    if not existing_verification:
+                        # Запускаем верификацию
+                        await verify_candidate(
+                            session,
+                            candidate_id=candidate_id,
+                            company_id=company_id,
+                            actor_user_id=None  # AI-триггер из скоринга
+                        )
+                        await session.commit()
+                        logger.info("Автоматическая верификация candidate=%s завершена", candidate_id)
+
+            except (ConsentRequiredError, Exception) as verify_error:
+                # Изолируем ошибки верификации - не ломаем скоринг
+                await session.rollback()
+                # Восстанавливаем коммит скоринга, если он был успешен
+                logger.warning(
+                    "Автоматическая верификация candidate=%s пропущена: %s",
+                    candidate_id, verify_error
+                )
         except Exception as e:  # noqa: BLE001 — изолируем сбой одного кандидата
             await session.rollback()
             failed += 1
