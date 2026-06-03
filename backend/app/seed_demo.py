@@ -189,6 +189,18 @@ async def cleanup_demo(session: AsyncSession):
     await session.execute(
         delete(Employee).where(Employee.candidate_id.in_(demo_candidate_ids_query))
     )
+    # Доп. защита от НАКОПИВШИХСЯ дублей: demo-сотрудники по ФИО. Ловит «осиротевшие»
+    # копии от прошлых прогонов, чей candidate_id уже не указывает на текущих
+    # demo-кандидатов (иначе светофор Пульса забивается дублями одних и тех же ФИО).
+    demo_hired_names = [c["full_name"] for c in CANDIDATE_SEEDS
+                        if c.get("target_stage") == "hired" or c.get("archive_result") == "hired"]
+    if demo_hired_names:
+        await session.execute(
+            delete(Employee).where(
+                Employee.company_id == COMPANY_ID,
+                Employee.full_name.in_(demo_hired_names),
+            )
+        )
 
     # Удаляем applications для demo кандидатов
     await session.execute(

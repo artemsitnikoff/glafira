@@ -123,7 +123,7 @@ export function PulsePage() {
           <span className="day-pill">День {emp.adapt_day}</span>
         </div>
         <div className="risk-row">
-          <span className="risk-num">Risk: <b>{emp.risk_level === 'high' ? '75' : emp.risk_level === 'mid' ? '45' : '15'}</b></span>
+          <span className="risk-num">Риск: <b>{emp.risk_level === 'high' ? 'высокий' : emp.risk_level === 'mid' ? 'средний' : 'низкий'}</b></span>
           <span style={{fontSize:11, color:'var(--fg-3)', fontFamily:'var(--font-mono)'}}>
             {emp.last_survey_date ? surveyInfo.day : '—'}
           </span>
