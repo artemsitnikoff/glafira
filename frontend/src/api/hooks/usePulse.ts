@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { client } from '../client';
 import type { PulseKPI, EmployeeListItem, EmployeeDetail, AlertOut, Paginated } from '../aliases';
 
@@ -73,6 +73,35 @@ export function usePulseAlerts(filters: AlertFilters = {}) {
     queryFn: async () => {
       const response = await client.get<AlertOut[]>(`/pulse/alerts?${params}`);
       return response.data;
+    },
+  });
+}
+
+// Шаблоны опросов из настроек
+export function useSurveyTemplates() {
+  return useQuery({
+    queryKey: ['survey-templates'],
+    queryFn: async () => {
+      const response = await client.get(`/settings/survey-templates`);
+      return response.data;
+    },
+  });
+}
+
+// Массовый запуск опросов
+export function useBulkRunSurvey() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ employee_ids, template_key }: { employee_ids: string[], template_key: string }) => {
+      const response = await client.post('/pulse/employees/bulk/run-survey', {
+        employee_ids,
+        template_key
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pulse', 'employees'] });
     },
   });
 }
