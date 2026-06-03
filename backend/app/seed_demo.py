@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import AsyncSessionLocal
+from app.seed import seed_survey_templates
 from app.models import (
     Company, User, Client, Vacancy, VacancyStage, Candidate,
     Application, StageHistory, Consent, Message, Document,
@@ -1041,6 +1042,10 @@ async def main():
 
             # Шаг 7: Pulse surveys
             await seed_surveys(session)
+
+            # Шаг 7.1: Дефолтные шаблоны пульс-опросов (день 7/30/90) — идемпотентно,
+            # на случай если базовый seed запускали до их добавления.
+            await seed_survey_templates(session)
 
             # Шаг 8: Реальный скоринг (по флагу)
             await seed_real_scoring(session, candidates, applications, admin)
