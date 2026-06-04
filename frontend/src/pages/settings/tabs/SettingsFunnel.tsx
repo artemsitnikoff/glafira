@@ -23,7 +23,7 @@ const FUNNEL_STAGE_TYPES: Record<StageTypeKey, { label: string; dot: string; bg:
 };
 const MIDDLE_FALLBACK = FUNNEL_STAGE_TYPES.middle;
 
-type StageDraft = { stage_key: string; label: string; is_terminal: boolean };
+type StageDraft = { stage_key: string; label: string; is_terminal: boolean; description: string | null };
 type ReasonDraft = { key: string; id?: string; side: 'candidate' | 'company'; label: string; order_index: number; is_system: boolean };
 
 function deriveStageType(stage: StageDraft, index: number): StageTypeKey {
@@ -74,13 +74,21 @@ async function applyStageDiff(draft: StageDraft[], server: DefaultFunnelStage[],
         label: s.label.trim().substring(0, 60),
         order_index: i + 1,
         is_terminal: s.is_terminal,
+        description: s.description?.trim() || null,
       });
     }
   }
   for (const s of draft) {
     const orig = serverByKey.get(s.stage_key);
-    if (orig && orig.label !== s.label.trim()) {
-      await api.patch(`${basePath}/${s.stage_key}`, { label: s.label.trim().substring(0, 60) });
+    if (!orig) continue;
+    const newDesc = s.description?.trim() || null;
+    const labelChanged = orig.label !== s.label.trim();
+    const descChanged = (orig.description ?? null) !== newDesc;
+    if (labelChanged || descChanged) {
+      await api.patch(`${basePath}/${s.stage_key}`, {
+        label: s.label.trim().substring(0, 60),
+        description: newDesc,
+      });
     }
   }
   const draftOrder = draft.map(s => s.stage_key);
@@ -142,7 +150,7 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
 
   useEffect(() => {
     if (serverStages && !dirty) {
-      setDraftStages(serverStages.map(s => ({ stage_key: s.stage_key, label: s.label, is_terminal: s.is_terminal })));
+      setDraftStages(serverStages.map(s => ({ stage_key: s.stage_key, label: s.label, is_terminal: s.is_terminal, description: s.description ?? null })));
     }
   }, [serverStages, dirty]);
 
@@ -161,6 +169,10 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
     setDraftStages(prev => prev ? prev.map((s, i) => i === idx ? { ...s, label } : s) : prev);
     markDirty();
   };
+  const updateStageDescription = (idx: number, description: string) => {
+    setDraftStages(prev => prev ? prev.map((s, i) => i === idx ? { ...s, description } : s) : prev);
+    markDirty();
+  };
   const deleteStage = (idx: number) => {
     setDraftStages(prev => prev ? prev.filter((_, i) => i !== idx) : prev);
     markDirty();
@@ -170,7 +182,7 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
       if (!prev) return prev;
       const stage_key = `s_${Date.now().toString(36)}${newStageCounter.current++}`;
       const next = prev.slice();
-      next.splice(Math.max(prev.length - 2, 1), 0, { stage_key, label: 'Новый этап', is_terminal: false });
+      next.splice(Math.max(prev.length - 2, 1), 0, { stage_key, label: 'Новый этап', is_terminal: false, description: null });
       return next;
     });
     markDirty();
@@ -208,7 +220,7 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
   const reseedFromServer = useCallback(() => {
     setDirty(false);
     setError(null);
-    if (serverStages) setDraftStages(serverStages.map(s => ({ stage_key: s.stage_key, label: s.label, is_terminal: s.is_terminal })));
+    if (serverStages) setDraftStages(serverStages.map(s => ({ stage_key: s.stage_key, label: s.label, is_terminal: s.is_terminal, description: s.description ?? null })));
     if (serverReasons) setDraftReasons(serverReasons.map(r => ({
       key: r.id, id: r.id, side: r.side === 'company' ? 'company' : 'candidate',
       label: r.label, order_index: r.order_index ?? 0, is_system: !!(r as RejectReasonOut).is_system,
@@ -381,7 +393,14 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
                       <span className="nv-locked-pill" title="Зафиксирован"><Icon name="lock" size={11} />закреплён</span>
                     )}
                   </div>
-                  <div className="fn-desc">{stageDescription(stage.stage_key, type)}</div>
+                  <textarea
+                    className="fn-desc-input"
+                    value={stage.description ?? ''}
+                    placeholder={stageDescription(stage.stage_key, type)}
+                    rows={2}
+                    disabled={readOnly}
+                    onChange={readOnly ? undefined : (e) => updateStageDescription(idx, e.target.value)}
+                  />
                 </div>
                 <button className="row-icon-btn" disabled={isProtected || readOnly} onClick={readOnly ? undefined : () => deleteStage(idx)} title={readOnly ? 'Только просмотр' : (isProtected ? 'Этап нельзя удалить' : 'Удалить этап')}>
                   <Icon name="x" size={14} />

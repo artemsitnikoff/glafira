@@ -339,7 +339,8 @@ async def create_vacancy(
                 stage_key=stage_input.stage_key,
                 label=stage_input.label,
                 order_index=stage_input.order_index,
-                is_terminal=stage_input.is_terminal
+                is_terminal=stage_input.is_terminal,
+                description=stage_input.description
             )
             session.add(stage)
     else:
@@ -361,7 +362,8 @@ async def create_vacancy(
                     stage_key=company_stage.stage_key,
                     label=company_stage.label,
                     order_index=company_stage.order_index,
-                    is_terminal=company_stage.is_terminal
+                    is_terminal=company_stage.is_terminal,
+                    description=company_stage.description
                 )
                 session.add(stage)
         else:
@@ -632,6 +634,7 @@ async def duplicate_vacancy(
             company_id=company_id, vacancy_id=new_v.id,
             stage_key=s.stage_key, label=s.label,
             order_index=s.order_index, is_terminal=s.is_terminal,
+            description=s.description,
         ))
 
     # Причины отказа (per-vacancy)
@@ -679,6 +682,7 @@ async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id
             VacancyStage.stage_key,
             VacancyStage.label,
             VacancyStage.is_terminal,
+            VacancyStage.description,
             func.count(Application.id).label("count")
         )
         .select_from(VacancyStage)
@@ -697,7 +701,8 @@ async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id
             VacancyStage.stage_key,
             VacancyStage.label,
             VacancyStage.order_index,
-            VacancyStage.is_terminal
+            VacancyStage.is_terminal,
+            VacancyStage.description
         )
         .order_by(VacancyStage.order_index)
     )
@@ -716,7 +721,8 @@ async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id
             label=row.label,
             color=stage_colors.get(row.stage_key, "#9AA3AE"),
             count=row.count,
-            is_terminal=row.is_terminal
+            is_terminal=row.is_terminal,
+            description=row.description
         ))
 
     return stages
@@ -750,7 +756,8 @@ async def add_vacancy_stage(
         stage_key=stage_data.stage_key,
         label=stage_data.label,
         order_index=stage_data.order_index,
-        is_terminal=stage_data.is_terminal
+        is_terminal=stage_data.is_terminal,
+        description=stage_data.description
     )
 
     session.add(stage)
@@ -801,10 +808,12 @@ async def rename_vacancy_stage(
         raise NotFoundError("Этап")
 
     # Save old value for audit
-    before = {"label": stage.label}
+    before = {"label": stage.label, "description": stage.description}
 
-    # Update label only
+    # Update label; description — только если поле явно передано (не затираем)
     stage.label = stage_data.label
+    if "description" in stage_data.model_fields_set:
+        stage.description = stage_data.description
     await session.flush()
 
     # Audit log
@@ -816,6 +825,7 @@ async def rename_vacancy_stage(
         before=before,
         after={
             "label": stage.label,
+            "description": stage.description,
         },
         actor_user_id=actor_user_id,
         company_id=company_id,

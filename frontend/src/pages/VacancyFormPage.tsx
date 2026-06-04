@@ -119,6 +119,7 @@ type StageInput = {
   label: string;
   order_index: number;
   is_terminal: boolean;
+  description: string | null;
 };
 
 // Описание этапа по stage_key (для предзаполнения карточки этапа в редакторе).
@@ -159,7 +160,7 @@ function mapDefaultFunnelToStages(funnel: DefaultFunnelStage[]): Stage[] {
       id: index + 1,
       name: s.label,
       type,
-      desc: getStageDescription(s.stage_key, type),
+      desc: s.description || getStageDescription(s.stage_key, type),
       stage_key: s.stage_key,
     };
   });
@@ -319,7 +320,7 @@ export default function VacancyFormPage() {
           id: index + 1, // Локальный ID для React key
           name: vStage.label,
           type,
-          desc: getStageDescription(vStage.stage_key, type),
+          desc: vStage.description || getStageDescription(vStage.stage_key, type),
           stage_key: vStage.stage_key,
           count: vStage.count,
         };
@@ -398,6 +399,7 @@ export default function VacancyFormPage() {
           label: stage.name.substring(0, 60), // Ограничение бэка: ≤60 симв
           order_index: index,
           is_terminal: stage.type === 'finalOk' || stage.type === 'finalBad',
+          description: stage.desc?.trim() || null,
         }));
 
         // Причины отказа из формы (сид дефолтов компании ± правки) → привязка к вакансии
@@ -870,6 +872,7 @@ function FunnelStep({
   const [stageError, setStageError] = useState<string | null>(null);
   // Базовое значение названия на момент фокуса — чтобы PATCH'ить только при реальном изменении
   const renameBaseline = useRef<Record<string, string>>({});
+  const descBaseline = useRef<Record<string, string>>({});
 
   // Шаблоны воронок из Настроек (БД). Пусто (до seed) → хардкод-пресеты как fallback.
   const { data: backendTemplates } = useFunnelTemplates();
@@ -1030,6 +1033,33 @@ function FunnelStep({
     }
   };
 
+  // Описание этапа — локальный апдейт (работает в обоих режимах)
+  const updateStageDesc = (idx: number, desc: string) => {
+    const next = stages.slice();
+    next[idx] = { ...next[idx], desc };
+    onStagesChange(next);
+  };
+
+  // Зафиксировать описание на сервере (edit-режим) — по blur, только если реально изменилось.
+  // Шлём вместе с текущим label (PATCH требует label); stage_key неизменен.
+  const commitStageDesc = async (idx: number, desc: string) => {
+    if (!editMode || !vacancyId || !renameStageMutation) return;
+    const stage = stages[idx];
+    if (!stage.stage_key) return;
+    if (desc === descBaseline.current[stage.stage_key]) return;
+    setStageError(null);
+    try {
+      await renameStageMutation.mutateAsync({
+        vacancyId,
+        stageKey: stage.stage_key,
+        data: { label: stage.name.trim().substring(0, 60), description: desc.trim() || null }
+      });
+    } catch (error: any) {
+      const e = error as ApiError;
+      setStageError(e.error?.message || 'Ошибка при сохранении описания этапа');
+    }
+  };
+
   // Проверка блокировки удаления
   const getDeleteDisabledReason = (stage: Stage, idx: number): string | null => {
     if (idx === 0) return 'Первый этап нельзя удалить';
@@ -1144,7 +1174,15 @@ function FunnelStep({
                     </span>
                   )}
                 </div>
-                <div className="fn-desc">{s.desc}</div>
+                <textarea
+                  className="fn-desc-input"
+                  value={s.desc}
+                  placeholder="Что происходит на этапе: инструкции рекрутеру, суть тестового, чек-лист интервью…"
+                  rows={2}
+                  onFocus={(e) => { if (s.stage_key) descBaseline.current[s.stage_key] = e.target.value; }}
+                  onChange={(e) => updateStageDesc(idx, e.target.value)}
+                  onBlur={(e) => commitStageDesc(idx, e.target.value)}
+                />
               </div>
               <button
                 className="row-icon-btn"

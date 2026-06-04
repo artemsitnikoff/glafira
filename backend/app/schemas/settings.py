@@ -194,6 +194,7 @@ class CompanyDefaultStageOut(ORMBase):
     order_index: int
     is_terminal: bool
     color: Optional[str] = None  # Computed from STAGES
+    description: Optional[str] = None
 
 
 class CompanyDefaultStageCreate(BaseModel):
@@ -201,10 +202,12 @@ class CompanyDefaultStageCreate(BaseModel):
     label: str
     order_index: int = 0
     is_terminal: bool = False
+    description: Optional[str] = None
 
 
 class CompanyDefaultStageUpdate(BaseModel):
     label: str
+    description: Optional[str] = None
 
 
 class CompanyDefaultStageReorder(BaseModel):

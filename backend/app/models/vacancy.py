@@ -145,6 +145,8 @@ class VacancyStage(Base, TimestampMixin, CompanyMixin):
     label: Mapped[str] = mapped_column(String(60), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Инструкции/контекст этапа для команды (что делать на этапе, чек-лист и т.п.)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Constraints removed to allow custom stage keys
 

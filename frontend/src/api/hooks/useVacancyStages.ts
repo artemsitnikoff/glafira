@@ -2,7 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import type { components } from '@/api/types';
 
-type VacancyStageCount = components['schemas']['VacancyStageCount'];
+// openapi не регенерился → добавляем description локально (бэк его уже отдаёт)
+type VacancyStageCount = components['schemas']['VacancyStageCount'] & {
+  description?: string | null;
+};
 
 export function useVacancyStages(vacancyId: string) {
   return useQuery({

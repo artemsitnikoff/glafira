@@ -51,6 +51,52 @@ async def test_add_vacancy_stage(
     assert stage.is_terminal == False
 
 
+async def test_stage_description_roundtrip(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    """Описание этапа сохраняется при создании, отдаётся в GET и меняется через PATCH."""
+    created = await async_client.post(
+        "/api/v1/vacancies", headers=auth_headers, json={"name": "Desc Vacancy"},
+    )
+    vacancy_id = created.json()["id"]
+
+    # Создаём этап с описанием
+    resp = await async_client.post(
+        f"/api/v1/vacancies/{vacancy_id}/stages",
+        headers=auth_headers,
+        json={
+            "stage_key": "tz",
+            "label": "Тестовое задание",
+            "order_index": 5,
+            "is_terminal": False,
+            "description": "Выслать ТЗ, дедлайн 3 дня, проверяет техлид.",
+        },
+    )
+    assert resp.status_code == 201
+
+    # GET возвращает описание
+    stages = (await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/stages", headers=auth_headers,
+    )).json()
+    tz = next(s for s in stages if s["stage_key"] == "tz")
+    assert tz["description"] == "Выслать ТЗ, дедлайн 3 дня, проверяет техлид."
+
+    # PATCH меняет описание (и label обязателен в схеме)
+    patched = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}/stages/tz",
+        headers=auth_headers,
+        json={"label": "Тестовое задание", "description": "Обновлённая инструкция."},
+    )
+    assert patched.status_code == 200
+
+    stages2 = (await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/stages", headers=auth_headers,
+    )).json()
+    tz2 = next(s for s in stages2 if s["stage_key"] == "tz")
+    assert tz2["description"] == "Обновлённая инструкция."
+
+
 async def test_add_stage_duplicate_key_fails(
     async_client: AsyncClient,
     auth_headers: dict[str, str],

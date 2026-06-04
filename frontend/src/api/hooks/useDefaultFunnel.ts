@@ -11,6 +11,7 @@ export type DefaultFunnelStage = {
   order_index: number;
   is_terminal: boolean;
   color?: string | null;
+  description?: string | null;
 };
 
 export function useDefaultFunnel() {

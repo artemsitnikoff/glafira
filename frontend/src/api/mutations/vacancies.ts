@@ -12,10 +12,12 @@ type StageCreateRequest = {
   label: string;
   order_index: number;
   is_terminal?: boolean;
+  description?: string | null;
 };
 
 type StageUpdateRequest = {
   label: string;
+  description?: string | null;
 };
 
 type StageReorderRequest = {

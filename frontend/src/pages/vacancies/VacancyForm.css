@@ -861,6 +861,31 @@
 .nv-step-body .fn-name:focus { border-bottom-color: var(--accent); }
 .nv-step-body .fn-desc { font-size: 12px; color: var(--fg-2); line-height: 1.4; }
 
+/* Редактируемое описание этапа (инструкции для команды) */
+.nv-step-body .fn-desc-input {
+  width: 100%;
+  margin-top: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-2);
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 34px;
+  transition: border-color .12s, background .12s;
+}
+.nv-step-body .fn-desc-input::placeholder { color: var(--fg-3); }
+.nv-step-body .fn-desc-input:hover { border-color: var(--border-1); }
+.nv-step-body .fn-desc-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(42,138,240,.14);
+}
+
 .nv-step-body .stage-type-pill {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; font-weight: 600;

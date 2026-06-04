@@ -77,6 +77,7 @@ async def create_default_stage(
         label=data.label.strip(),
         order_index=data.order_index or 0,
         is_terminal=data.is_terminal or False,
+        description=data.description,
     )
 
     session.add(stage)
@@ -93,6 +94,7 @@ async def create_default_stage(
             "label": stage.label,
             "order_index": stage.order_index,
             "is_terminal": stage.is_terminal,
+            "description": stage.description,
         },
         actor_user_id=actor_user_id,
         company_id=company_id,
@@ -121,13 +123,15 @@ async def update_default_stage(
         raise ValidationError("label не может быть пустым")
 
     # Store original values for audit
-    before = {"label": stage.label}
+    before = {"label": stage.label, "description": stage.description}
 
     stage.label = data.label.strip()
+    if "description" in data.model_fields_set:
+        stage.description = data.description
     await session.flush()
 
     # Audit log
-    after = {"label": stage.label}
+    after = {"label": stage.label, "description": stage.description}
 
     await audit(
         session,

@@ -12,6 +12,7 @@ class StageInput(BaseModel):
     label: str = Field(..., max_length=60)
     order_index: int
     is_terminal: bool = False
+    description: str | None = None  # инструкции/контекст этапа для команды
 
 
 class RejectReasonInput(BaseModel):
@@ -53,6 +54,7 @@ class VacancyStageCount(BaseModel):
     color: str
     count: int
     is_terminal: bool
+    description: str | None = None
 
 
 class VacancyDetail(ORMBase):
@@ -168,11 +170,13 @@ class VacancyStageCreate(BaseModel):
     label: str = Field(..., max_length=60)
     order_index: int
     is_terminal: bool = False
+    description: str | None = None
 
 
 class VacancyStageUpdate(BaseModel):
-    """Schema for updating stage (only label can be changed)"""
+    """Schema for updating stage (label и/или описание; stage_key неизменен)"""
     label: str = Field(..., max_length=60)
+    description: str | None = None
 
 
 class VacancyStageReorder(BaseModel):

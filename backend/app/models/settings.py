@@ -201,6 +201,7 @@ class FunnelTemplateStage(Base):
     label: Mapped[str] = mapped_column(String(60), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class CompanyDefaultStage(Base, CompanyMixin):
@@ -221,3 +222,4 @@ class CompanyDefaultStage(Base, CompanyMixin):
     label: Mapped[str] = mapped_column(String(60), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
