@@ -183,6 +183,26 @@ def _osint_stub_blocks(note: str) -> list[dict]:
     ]
 
 
+def _osint_pending_blocks() -> list[dict]:
+    """Блоки OSINT в состоянии «идёт разведка» — пока fill_candidate_osint не заполнит."""
+    return [
+        {
+            "key": "public_expertise",
+            "title": "Публичная экспертиза",
+            "sources": [{"name": s, "type": "web"} for s in _OSINT_PLATFORMS],
+            "status": "info",
+            "data": {"profiles": [], "pending": True},
+        },
+        {
+            "key": "mentions",
+            "title": "Упоминания",
+            "sources": [{"name": "Веб-поиск", "type": "web"}],
+            "status": "info",
+            "data": {"mentions": [], "pending": True},
+        },
+    ]
+
+
 async def _build_osint_blocks(candidate: Candidate) -> list[dict]:
     """Интернет-разведка кандидата через claude CLI (WebSearch/WebFetch).
 
@@ -315,6 +335,64 @@ def _build_government_stub_blocks() -> list[dict]:
     return gov_blocks
 
 
+async def fill_candidate_osint(candidate_id: UUID, company_id: UUID) -> None:
+    """Дозаполнить OSINT-блоки последней верификации кандидата (фоном/инлайн в кроне).
+
+    Открывает СВОЮ сессию (для фоновой задачи из HTTP-эндпоинта). Заменяет pending-блоки
+    «Публичная экспертиза»/«Упоминания» результатами разведки, пересчитывает overall-статус.
+    Полностью изолирована: любой сбой → лог, без падения.
+    """
+    from ...database import AsyncSessionLocal
+    try:
+        async with AsyncSessionLocal() as session:
+            res = await session.execute(
+                select(Verification)
+                .where(Verification.candidate_id == candidate_id, Verification.company_id == company_id)
+                .order_by(Verification.created_at.desc())
+                .limit(1)
+            )
+            verification = res.scalar_one_or_none()
+            if not verification:
+                return
+            cres = await session.execute(
+                select(Candidate).where(
+                    Candidate.id == candidate_id,
+                    Candidate.company_id == company_id,
+                    Candidate.deleted_at.is_(None),
+                )
+            )
+            candidate = cres.scalar_one_or_none()
+            if not candidate:
+                return
+
+            osint = await _build_osint_blocks(candidate)  # медленно (WebSearch)
+
+            # Заменить pending-блоки результатами, остальные сохранить
+            others = [b for b in (verification.blocks or []) if b.get("key") not in ("public_expertise", "mentions")]
+            new_blocks = others + osint
+            statuses = [b.get("status") for b in new_blocks]
+            if "risk" in statuses:
+                overall = "risk"
+            elif "warn" in statuses:
+                overall = "warn"
+            elif "info" in statuses:
+                overall = "info"
+            else:
+                overall = "clean"
+
+            verification.blocks = new_blocks  # переприсвоение → SQLAlchemy зафиксирует JSONB
+            verification.status = overall
+            await session.commit()
+            logger.info(
+                "[osint] разведка дозаполнена candidate=%s: %d профилей, %d упоминаний",
+                candidate_id,
+                len(osint[0]["data"].get("profiles", [])),
+                len(osint[1]["data"].get("mentions", [])),
+            )
+    except Exception as e:  # noqa: BLE001 — фон, не роняем процесс
+        logger.warning("[osint] фоновая разведка не удалась candidate=%s: %s", candidate_id, e)
+
+
 async def verify_candidate(
     session: AsyncSession,
     *,
@@ -357,9 +435,9 @@ async def verify_candidate(
     gov_blocks = _build_government_stub_blocks()
     blocks.extend(gov_blocks)
 
-    # 3. Интернет-разведка: публичная экспертиза + упоминания (claude CLI, WebSearch)
-    osint_blocks = await _build_osint_blocks(candidate)
-    blocks.extend(osint_blocks)
+    # 3. Интернет-разведка идёт ДОЛГО (4 платформы + упоминания = 60–90с) — не блокируем
+    #    HTTP-запрос/скоринг: кладём блоки как «идёт разведка», заполняет fill_candidate_osint.
+    blocks.extend(_osint_pending_blocks())
 
     # Determine overall status: risk > warn > info > clean
     statuses = [block["status"] for block in blocks]

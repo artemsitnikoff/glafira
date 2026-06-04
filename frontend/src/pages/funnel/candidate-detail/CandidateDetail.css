@@ -1064,6 +1064,24 @@
   color: var(--fg-3);
 }
 
+/* OSINT: состояние «идёт разведка» (фоновая дозаливка, поллинг) */
+.cnd-funnel-wrap .cand-detail .vf-searching {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-searching svg {
+  animation: vfSpin 0.9s linear infinite;
+}
+
+@keyframes vfSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* OSINT: плашка PII-firewall */
 .cnd-funnel-wrap .cand-detail .vf-firewall {
   display: flex;

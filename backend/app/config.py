@@ -32,9 +32,9 @@ class Settings(BaseSettings):
     CLAUDE_TOKEN_FILE: str = ""
     CLAUDE_CLI_PATH: str = "claude"
     GLAFIRA_OSINT_MODEL: str = "opus"  # модель CLI (alias 'opus'/'sonnet' или полный id); '' = дефолт CLI
-    # Сек на одну разведку. Держим ПОД таймаутом gateway (nginx обычно 60с) — иначе
-    # POST /verify оборвётся раньше коммита. Превышение → честная заглушка, не фейк.
-    GLAFIRA_OSINT_TIMEOUT: int = 50
+    # Сек на одну разведку. Разведка идёт В ФОНЕ (fill_candidate_osint), не блокирует
+    # HTTP-запрос → можно держать с запасом (4 платформы + упоминания = 60–90с).
+    GLAFIRA_OSINT_TIMEOUT: int = 120
     # Сколько откликов авто-оценивать за один проход cron (раз в 5 мин). Каждая
     # оценка = платный вызов LLM, поэтому потолок расхода регулируется этим числом.
     GLAFIRA_AUTOSCORE_BATCH: int = 10

@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 from .client import call_json
 from .prompts import build_scoring_system_prompt, SCORING_USER_TEMPLATE
 from .scoring_log import log_scoring
-from .verify import verify_candidate
+from .verify import verify_candidate, fill_candidate_osint
 from ...core.errors import ConsentRequiredError
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError
@@ -416,6 +416,8 @@ async def score_pending_applications(
                         )
                         await session.commit()
                         logger.info("Автоматическая верификация candidate=%s завершена", candidate_id)
+                        # Разведка инлайн (крон — без HTTP-таймаута; своя сессия внутри)
+                        await fill_candidate_osint(candidate_id, company_id)
 
             except (ConsentRequiredError, Exception) as verify_error:
                 # Изолируем ошибки верификации - не ломаем скоринг

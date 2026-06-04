@@ -40,6 +40,13 @@ function prettyUrl(url: string): string {
 
 // Блок «Публичная экспертиза» — карточки найденных профилей (GitHub/Habr/StackExchange/TGStat).
 function renderProfiles(data: any) {
+  if (data?.pending) {
+    return (
+      <p className="vf-searching">
+        <Icon name="loader" size={14} /> Идёт разведка по открытым источникам…
+      </p>
+    );
+  }
   const profiles: any[] = Array.isArray(data?.profiles) ? data.profiles : [];
   if (!profiles.length) {
     return <p className="vf-empty">{data?.note || 'Профили не найдены'}</p>;
@@ -60,6 +67,13 @@ function renderProfiles(data: any) {
 
 // Блок «Упоминания» — цитаты со ссылкой на источник.
 function renderMentions(data: any) {
+  if (data?.pending) {
+    return (
+      <p className="vf-searching">
+        <Icon name="loader" size={14} /> Идёт разведка по открытым источникам…
+      </p>
+    );
+  }
   const mentions: any[] = Array.isArray(data?.mentions) ? data.mentions : [];
   if (!mentions.length) {
     return <p className="vf-empty">{data?.note || 'Упоминаний не найдено'}</p>;

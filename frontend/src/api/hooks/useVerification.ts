@@ -15,5 +15,12 @@ export function useVerification(candidateId: string | null) {
       }
     },
     enabled: !!candidateId,
+    // Разведка дозаполняется в фоне — пока блоки в pending, опрашиваем каждые 5с.
+    refetchInterval: (query) => {
+      const v = query.state.data as VerificationOut | null | undefined;
+      const pending = !!v && Array.isArray(v.blocks)
+        && v.blocks.some((b: any) => b?.data?.pending === true);
+      return pending ? 5000 : false;
+    },
   });
 }

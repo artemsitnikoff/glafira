@@ -1,5 +1,6 @@
 """Verification API endpoints"""
 
+import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,9 +11,13 @@ from ...deps import get_current_user, get_db
 from ...core.errors import NotFoundError
 from ...models import User, Consent
 from ...schemas.verification import VerificationOut, VerifyBlock
-from ...services.glafira.verify import verify_candidate, get_candidate_verification
+from ...services.glafira.verify import verify_candidate, get_candidate_verification, fill_candidate_osint
 
 router = APIRouter()
+
+# Держим ссылки на фоновые задачи разведки, иначе GC может убить их на полпути
+# (asyncio.create_task без сильной ссылки — известная ловушка).
+_osint_bg_tasks: set = set()
 
 
 @router.post("/candidates/{candidate_id}/verify", response_model=VerificationOut, status_code=201)
@@ -31,6 +36,12 @@ async def verify_candidate_endpoint(
     )
 
     await session.commit()
+
+    # Интернет-разведка идёт в фоне (60–90с) — не держим HTTP-запрос. Своя сессия внутри.
+    # Фронт подхватит результат поллингом (pending → заполнено).
+    _task = asyncio.create_task(fill_candidate_osint(candidate_id, current_user.company_id))
+    _osint_bg_tasks.add(_task)
+    _task.add_done_callback(_osint_bg_tasks.discard)
 
     # Get consent number
     consent_result = await session.execute(
