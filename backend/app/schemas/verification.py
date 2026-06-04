@@ -8,7 +8,7 @@ from .base import ORMBase
 
 
 class VerifyBlock(BaseModel):
-    key: str  # 'inn'|'fssp'|'bankruptcy'|'registries'|'public'|'ai_intel'|'alimony'
+    key: str  # 'contacts'|'inn'|'fssp'|'bankruptcy'|'registries'|'alimony'|'public_expertise'|'mentions'
     title: str  # человекочитаемое название блока на русском
     sources: list[dict]  # [{name, type}] — откуда взяли
     status: str  # 'clean'|'info'|'warn'|'risk'

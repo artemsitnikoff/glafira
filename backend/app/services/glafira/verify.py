@@ -1,6 +1,8 @@
 """Верификация кандидатов"""
 
+import json
 import logging
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -8,11 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import settings
-from ...core.errors import ConsentRequiredError, NotFoundError, GlafiraParseError
+from ...core.errors import ConsentRequiredError, NotFoundError
 from ...models import Candidate, Consent, Verification, Event
 from ...services.audit import audit
 from ...services.dadata import clean_phone, clean_email, clean_name
-from .client import call_json
+from .claude_cli import claude_cli_complete
 
 logger = logging.getLogger(__name__)
 
@@ -114,75 +116,146 @@ async def _build_contacts_block(candidate: Candidate) -> dict:
     }
 
 
-async def _build_ai_intel_block(candidate: Candidate, contacts_data: dict) -> dict:
-    """Создать блок AI-анализа на основе имеющихся данных"""
-    verify_model = settings.GLAFIRA_VERIFY_MODEL or settings.GLAFIRA_MODEL
+# Источник правды по платформам публичной экспертизы (для шапки блока).
+_OSINT_PLATFORMS = ["GitHub", "Habr Career", "Stack Exchange", "TGStat"]
 
-    # Подготовим данные для анализа
-    analysis_data = {
-        "resume_text": candidate.resume_text or "",
-        "personal_info": {
-            "full_name": candidate.full_name,
-            "birth_date": str(candidate.birth_date) if candidate.birth_date else None,
-            "city": candidate.city,
-            "phone": candidate.phone,
-            "email": candidate.email,
-            "position": candidate.last_position,
-            "company": candidate.last_company
-        },
-        "dadata_results": contacts_data
-    }
+_OSINT_SYSTEM_PROMPT = """Ты — AI-разведчик для HR. По НЕКОНТАКТНЫМ данным кандидата (ФИО, город, должность, компания, год рождения) найди в ОТКРЫТОМ интернете его публичную профессиональную активность. Используй WebSearch и WebFetch.
 
-    system_prompt = """Вы — AI-аналитик безопасности для HR. Анализируете ТОЛЬКО предоставленные данные о кандидате.
+ЧТО ИСКАТЬ:
+1. Профили на профессиональных платформах: GitHub, Habr / Habr Career, Stack Overflow / Stack Exchange, TGStat (телеграм-каналы), при наличии — vc.ru, профильные конференции.
+2. Упоминания: доклады на конференциях, статьи, интервью, новости — с короткой цитатой и ссылкой.
 
-КРИТИЧЕСКИ ВАЖНО:
-- НЕ выдумывайте внешние факты (нет веб-поиска, соцсетей, баз данных)
-- НЕ утверждайте что "нашли профиль", "проверили в интернете", "найдены упоминания"
-- Анализируйте ТОЛЬКО согласованность предоставленных данных
+СТРАТЕГИЯ: 3–6 запросов. Сначала «ФИО + компания/должность». Частая фамилия — сужай по городу/компании/тематике. Если кандидат — полный омоним публичной личности, НЕ приписывай ему чужое.
 
-Анализируйте:
-1. Полноту и качество предоставленной информации
-2. Согласованность данных между собой
-3. Результаты стандартизации контактов (если есть)
-4. Явные несоответствия или пропуски
+КРИТИЧЕСКИ ВАЖНО (анти-галлюцинация):
+- Включай находку, ТОЛЬКО если у тебя есть реальный URL, который ты реально нашёл/открыл. Нет URL — не включай.
+- НЕ выдумывай профили, ники и числа (звёзды, репозитории, карму, репутацию, подписчиков, ER). Не видел метрику — оставь поле stats пустым.
+- НЕ приписывай чужие профили по одному совпадению имени без подтверждающего контекста (город/компания/тематика).
+- Лучше пустые списки, чем выдуманные данные.
+- НЕ ищи и НЕ упоминай телефоны, email, паспортные/персональные данные.
 
-Ответьте в JSON:
+ФОРМАТ — ТОЛЬКО JSON, без markdown-обёртки и текста до/после:
 {
-  "summary": "Краткая оценка (1-2 предложения)",
-  "flags": ["список выявленных проблем/особенностей"],
-  "confidence": число_от_0_до_1
-}"""
+  "profiles": [
+    {"platform": "GitHub", "handle": "@ник или /users/...", "url": "https://...", "stats": "412 ★ · 28 repo · активность 2 г. (или пусто)"}
+  ],
+  "mentions": [
+    {"quote": "короткая цитата упоминания", "url": "https://..."}
+  ]
+}
+Ничего не нашёл — верни {"profiles": [], "mentions": []}."""
 
-    user_prompt = f"Данные кандидата для анализа:\n\n{analysis_data}"
 
+def _parse_osint_json(raw: str) -> dict | None:
+    """Разобрать JSON из ответа CLI (с устойчивостью к обёрткам/преамбуле)."""
+    text = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    text = re.sub(r"\s*```$", "", text)
     try:
-        result = await call_json(
-            system=system_prompt,
-            user=user_prompt,
-            max_tokens=1024,
-            model=verify_model
-        )
+        return json.loads(text)
+    except (ValueError, TypeError):
+        pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except (ValueError, TypeError):
+            return None
+    return None
 
-        return {
-            "key": "ai_intel",
-            "title": "AI-оценка Глафиры",
-            "sources": [{"name": "Глафира AI", "type": "ai"}],
-            "status": "info",  # AI-анализ всегда информационный
-            "data": {
-                "summary": result.get("summary", ""),
-                "flags": result.get("flags", []),
-                "confidence": result.get("confidence", 0.0)
-            }
-        }
-    except (GlafiraParseError, Exception) as e:
-        logger.warning("AI-анализ верификации неудачен: %s", e)
-        return {
-            "key": "ai_intel",
-            "title": "AI-оценка Глафиры",
-            "sources": [{"name": "Глафира AI", "type": "ai"}],
+
+def _osint_stub_blocks(note: str) -> list[dict]:
+    """Честные заглушки двух OSINT-блоков, когда разведка не выполнена/недоступна."""
+    return [
+        {
+            "key": "public_expertise",
+            "title": "Публичная экспертиза",
+            "sources": [{"name": s, "type": "web"} for s in _OSINT_PLATFORMS],
             "status": "info",
-            "data": {"status": "AI-оценка недоступна"}
+            "data": {"profiles": [], "note": note},
+        },
+        {
+            "key": "mentions",
+            "title": "Упоминания",
+            "sources": [{"name": "Веб-поиск", "type": "web"}],
+            "status": "info",
+            "data": {"mentions": [], "note": note},
+        },
+    ]
+
+
+async def _build_osint_blocks(candidate: Candidate) -> list[dict]:
+    """Интернет-разведка кандидата через claude CLI (WebSearch/WebFetch).
+
+    PII-firewall: в запрос к ИИ уходят ТОЛЬКО ФИО, город, должность, компания и год
+    рождения — телефон/email/паспортные данные НЕ передаются. Возвращает два блока:
+    «Публичная экспертиза» (профили) и «Упоминания». Любой сбой → честная заглушка.
+    """
+    if not candidate.full_name:
+        return _osint_stub_blocks("Недостаточно данных для разведки (нет ФИО)")
+    if not settings.CLAUDE_CODE_OAUTH_TOKEN:
+        return _osint_stub_blocks("Интернет-разведка не настроена")
+
+    # PII-firewall — только неконтактные идентификаторы
+    parts = [f"ФИО: {candidate.full_name}"]
+    if candidate.city:
+        parts.append(f"Город: {candidate.city}")
+    if candidate.last_position:
+        parts.append(f"Должность: {candidate.last_position}")
+    if candidate.last_company:
+        parts.append(f"Компания: {candidate.last_company}")
+    if candidate.birth_date:
+        parts.append(f"Год рождения: {candidate.birth_date.year}")
+    query = "\n".join(parts)
+
+    raw = await claude_cli_complete(
+        prompt=f"Данные кандидата (только публично-неконтактные):\n{query}\n\nВерни ТОЛЬКО JSON.",
+        system=_OSINT_SYSTEM_PROMPT,
+        allowed_tools="WebSearch,WebFetch",
+    )
+    if not raw:
+        return _osint_stub_blocks("Разведка недоступна (CLI/токен не настроены или сбой)")
+
+    data = _parse_osint_json(raw)
+    if data is None:
+        logger.warning("[osint] не удалось разобрать JSON разведки")
+        return _osint_stub_blocks("Не удалось разобрать результат разведки")
+
+    # Только находки с реальным URL — остальное отбрасываем (анти-галлюцинация)
+    profiles = [
+        {
+            "platform": str(p.get("platform", "")).strip(),
+            "handle": str(p.get("handle", "")).strip(),
+            "url": str(p.get("url", "")).strip(),
+            "stats": str(p.get("stats", "")).strip(),
         }
+        for p in (data.get("profiles") or [])
+        if isinstance(p, dict) and str(p.get("url", "")).startswith("http")
+    ]
+    mentions = [
+        {
+            "quote": str(m.get("quote", "")).strip(),
+            "url": str(m.get("url", "")).strip(),
+        }
+        for m in (data.get("mentions") or [])
+        if isinstance(m, dict) and str(m.get("url", "")).startswith("http")
+    ]
+
+    return [
+        {
+            "key": "public_expertise",
+            "title": "Публичная экспертиза",
+            "sources": [{"name": s, "type": "web"} for s in _OSINT_PLATFORMS],
+            "status": "info",
+            "data": {"profiles": profiles, "found": len(profiles)},
+        },
+        {
+            "key": "mentions",
+            "title": "Упоминания",
+            "sources": [{"name": "Веб-поиск", "type": "web"}],
+            "status": "info",
+            "data": {"mentions": mentions, "found": len(mentions)},
+        },
+    ]
 
 
 def _build_government_stub_blocks() -> list[dict]:
@@ -284,9 +357,9 @@ async def verify_candidate(
     gov_blocks = _build_government_stub_blocks()
     blocks.extend(gov_blocks)
 
-    # 3. AI analysis of available data only
-    ai_block = await _build_ai_intel_block(candidate, contacts_block["data"])
-    blocks.append(ai_block)
+    # 3. Интернет-разведка: публичная экспертиза + упоминания (claude CLI, WebSearch)
+    osint_blocks = await _build_osint_blocks(candidate)
+    blocks.extend(osint_blocks)
 
     # Determine overall status: risk > warn > info > clean
     statuses = [block["status"] for block in blocks]

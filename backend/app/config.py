@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     GLAFIRA_MODEL: str = "anthropic/claude-sonnet-4-6"
     GLAFIRA_VERIFY_MODE: str = "mock"
     GLAFIRA_VERIFY_MODEL: str = ""  # пустая строка → используется GLAFIRA_MODEL
+
+    # Интернет-разведка кандидата (верификация) идёт через claude CLI с WebSearch/WebFetch
+    # (как в ArkadyJarvis) — НЕ через OpenRouter. Нужен долгоживущий OAuth-токен из
+    # `claude setup-token` в CLAUDE_CODE_OAUTH_TOKEN. Пусто → разведка не выполняется
+    # (блоки «Публичная экспертиза»/«Упоминания» честно покажут «не выполнялась»).
+    CLAUDE_CODE_OAUTH_TOKEN: str = ""
+    CLAUDE_CLI_PATH: str = "claude"
+    GLAFIRA_OSINT_MODEL: str = "opus"  # модель CLI (alias 'opus'/'sonnet' или полный id); '' = дефолт CLI
+    # Сек на одну разведку. Держим ПОД таймаутом gateway (nginx обычно 60с) — иначе
+    # POST /verify оборвётся раньше коммита. Превышение → честная заглушка, не фейк.
+    GLAFIRA_OSINT_TIMEOUT: int = 50
     # Сколько откликов авто-оценивать за один проход cron (раз в 5 мин). Каждая
     # оценка = платный вызов LLM, поэтому потолок расхода регулируется этим числом.
     GLAFIRA_AUTOSCORE_BATCH: int = 10

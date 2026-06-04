@@ -50,17 +50,11 @@ class TestRealVerification:
             "qc": 0
         }
 
-        # Mock AI response
-        mock_ai_result = {
-            "summary": "Данные кандидата выглядят корректными",
-            "flags": [],
-            "confidence": 0.8
-        }
-
+        # OSINT отключён (токен пуст в тестах) → блоки разведки честные заглушки.
         with patch('app.services.glafira.verify.clean_phone', return_value=mock_phone_result), \
              patch('app.services.glafira.verify.clean_email', return_value=mock_email_result), \
              patch('app.services.glafira.verify.clean_name', return_value=mock_name_result), \
-             patch('app.services.glafira.verify.call_json', return_value=mock_ai_result):
+             patch('app.services.glafira.verify.claude_cli_complete', return_value=None):
 
             verification = await verify_candidate(
                 db_session,
@@ -74,9 +68,9 @@ class TestRealVerification:
             assert verification.is_mock is False  # Real verification
             assert verification.status in ['clean', 'info', 'warn', 'risk']
 
-            # Check blocks structure
+            # Check blocks structure: contacts + 5 gov stubs + public_expertise + mentions
             blocks = verification.blocks
-            assert len(blocks) >= 6  # contacts + 5 gov stubs + ai_intel
+            assert len(blocks) >= 8
 
             # Find contacts block
             contacts_block = next((b for b in blocks if b["key"] == "contacts"), None)
@@ -96,11 +90,15 @@ class TestRealVerification:
                 assert gov_block["data"]["status"] == "Не подключено"
                 assert "152-ФЗ" in gov_block["data"]["note"]
 
-            # Check AI block
-            ai_block = next((b for b in blocks if b["key"] == "ai_intel"), None)
-            assert ai_block is not None
-            assert ai_block["title"] == "AI-оценка Глафиры"
-            assert ai_block["sources"] == [{"name": "Глафира AI", "type": "ai"}]
+            # Check OSINT blocks (публичная экспертиза + упоминания)
+            pe_block = next((b for b in blocks if b["key"] == "public_expertise"), None)
+            assert pe_block is not None
+            assert pe_block["title"] == "Публичная экспертиза"
+            assert "profiles" in pe_block["data"]
+            mentions_block = next((b for b in blocks if b["key"] == "mentions"), None)
+            assert mentions_block is not None
+            assert mentions_block["title"] == "Упоминания"
+            assert "mentions" in mentions_block["data"]
 
     async def test_contacts_block_handles_missing_dadata_keys(self, test_candidate):
         """Test contacts block when DaData keys are not configured"""
@@ -169,17 +167,46 @@ class TestRealVerification:
             assert "долгов нет" not in str(block["data"]).lower()
             assert "активен" not in str(block["data"]).lower()
 
-    async def test_ai_block_handles_llm_failure(self, test_candidate):
-        """Test AI block gracefully handles LLM failures"""
+    async def test_osint_blocks_graceful_on_failure(self, test_candidate):
+        """OSINT-блоки честно деградируют, когда CLI/токен недоступны (без фейка)."""
+        from app.services.glafira.verify import _build_osint_blocks
 
-        with patch('app.services.glafira.verify.call_json', side_effect=Exception("LLM error")):
-            from app.services.glafira.verify import _build_ai_intel_block
+        # Токен задан, но CLI вернул None (сбой) → честные заглушки
+        with patch('app.services.glafira.verify.settings.CLAUDE_CODE_OAUTH_TOKEN', 'test-token'), \
+             patch('app.services.glafira.verify.claude_cli_complete', return_value=None):
 
-            ai_block = await _build_ai_intel_block(test_candidate, {})
+            blocks = await _build_osint_blocks(test_candidate)
 
-            assert ai_block["key"] == "ai_intel"
-            assert ai_block["status"] == "info"
-            assert ai_block["data"]["status"] == "AI-оценка недоступна"
+            assert [b["key"] for b in blocks] == ["public_expertise", "mentions"]
+            assert blocks[0]["status"] == "info"
+            assert blocks[0]["data"]["profiles"] == []
+            assert blocks[1]["data"]["mentions"] == []
+            assert "note" in blocks[0]["data"]
+
+    async def test_osint_filters_findings_without_url(self, test_candidate):
+        """Анти-галлюцинация: находки без реального URL отбрасываются."""
+        from app.services.glafira.verify import _build_osint_blocks
+
+        osint_json = (
+            '{"profiles": ['
+            '{"platform": "GitHub", "handle": "@real", "url": "https://github.com/real", "stats": "12 repo"},'
+            '{"platform": "Habr", "handle": "@fake", "url": "", "stats": "выдумка"}'
+            '], "mentions": ['
+            '{"quote": "реальное", "url": "https://conf.ru/2025"},'
+            '{"quote": "без ссылки", "url": ""}'
+            ']}'
+        )
+        with patch('app.services.glafira.verify.settings.CLAUDE_CODE_OAUTH_TOKEN', 'test-token'), \
+             patch('app.services.glafira.verify.claude_cli_complete', return_value=osint_json):
+
+            blocks = await _build_osint_blocks(test_candidate)
+
+            profiles = blocks[0]["data"]["profiles"]
+            mentions = blocks[1]["data"]["mentions"]
+            assert len(profiles) == 1
+            assert profiles[0]["url"] == "https://github.com/real"
+            assert len(mentions) == 1
+            assert mentions[0]["url"] == "https://conf.ru/2025"
 
     async def test_verification_creates_event_and_audit(
         self, db_session, test_candidate, signed_consent
@@ -189,7 +216,7 @@ class TestRealVerification:
         with patch('app.services.glafira.verify.clean_phone', return_value=None), \
              patch('app.services.glafira.verify.clean_email', return_value=None), \
              patch('app.services.glafira.verify.clean_name', return_value=None), \
-             patch('app.services.glafira.verify.call_json', return_value={"summary": "test", "flags": [], "confidence": 0.5}):
+             patch('app.services.glafira.verify.claude_cli_complete', return_value=None):
 
             verification = await verify_candidate(
                 db_session,

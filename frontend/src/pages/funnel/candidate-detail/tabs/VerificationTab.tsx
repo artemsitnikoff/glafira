@@ -33,6 +33,51 @@ function vfScalar(value: any): string {
   return String(value);
 }
 
+// URL для показа: без протокола и финального слэша.
+function prettyUrl(url: string): string {
+  return String(url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+// Блок «Публичная экспертиза» — карточки найденных профилей (GitHub/Habr/StackExchange/TGStat).
+function renderProfiles(data: any) {
+  const profiles: any[] = Array.isArray(data?.profiles) ? data.profiles : [];
+  if (!profiles.length) {
+    return <p className="vf-empty">{data?.note || 'Профили не найдены'}</p>;
+  }
+  return (
+    <div className="vf-profiles">
+      <div className="vf-profiles-cap">Найдены профили</div>
+      {profiles.map((p, i) => (
+        <a key={i} className="vf-profile" href={p.url} target="_blank" rel="noopener noreferrer">
+          <span className="vf-profile-platform">{p.platform || '—'}</span>
+          {p.handle && <span className="vf-profile-handle">{p.handle}</span>}
+          {p.stats && <span className="vf-profile-stats">{p.stats}</span>}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+// Блок «Упоминания» — цитаты со ссылкой на источник.
+function renderMentions(data: any) {
+  const mentions: any[] = Array.isArray(data?.mentions) ? data.mentions : [];
+  if (!mentions.length) {
+    return <p className="vf-empty">{data?.note || 'Упоминаний не найдено'}</p>;
+  }
+  return (
+    <div className="vf-mentions">
+      {mentions.map((m, i) => (
+        <div key={i} className="vf-mention">
+          {m.quote && <p className="vf-mention-quote">«{m.quote}»</p>}
+          <a className="vf-mention-src" href={m.url} target="_blank" rel="noopener noreferrer">
+            {prettyUrl(m.url)}
+          </a>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type Props = {
   candidateId?: string;
   candidate?: any;
@@ -91,7 +136,10 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
       case 'registries':
         return <span className="vf-icon-letter">Р</span>;
       case 'public':
-        return <span className="vf-icon-letter">★</span>;
+      case 'public_expertise':
+        return <span className="vf-icon-letter ai">★</span>;
+      case 'mentions':
+        return <span className="vf-icon-letter ai">“</span>;
       case 'ai_intel':
         return <span className="vf-icon-letter ai">✦</span>;
       case 'alimony':
@@ -309,7 +357,11 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
                 </span>
               </header>
               <div className="vf-body">
-                {typeof block.data === 'string' ? (
+                {block.key === 'public_expertise' ? (
+                  renderProfiles(block.data)
+                ) : block.key === 'mentions' ? (
+                  renderMentions(block.data)
+                ) : typeof block.data === 'string' ? (
                   <p>{block.data}</p>
                 ) : block.data && typeof block.data === 'object' && Object.keys(block.data).length > 0 ? (
                   Object.entries(block.data)
@@ -349,6 +401,16 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
         <div className="empty-state">
           <Icon name="search" size={24} className="empty-state__icon" />
           <p className="empty-state__text">Нет данных верификации</p>
+        </div>
+      )}
+
+      {verification.blocks?.some(b => b.key === 'public_expertise' || b.key === 'mentions') && (
+        <div className="vf-firewall">
+          <Icon name="shield" size={13} />
+          <span>
+            PII-firewall: в запрос к ИИ передавались только ФИО, город и должность —
+            телефон, email и паспортные данные не передавались. Каждая находка — с источником (URL).
+          </span>
         </div>
       )}
     </div>

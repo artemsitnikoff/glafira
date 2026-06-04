@@ -329,8 +329,9 @@ class TestGlafiraVerification:
         body = response.json()
 
         # Check all required verification blocks are present
+        # (contacts via DaData + честные госреестр-заглушки + OSINT-разведка)
         blocks = body['blocks']
-        required_blocks = ['inn', 'fssp', 'bankruptcy', 'registries', 'public', 'ai_intel', 'alimony']
+        required_blocks = ['contacts', 'inn', 'fssp', 'bankruptcy', 'registries', 'alimony', 'public_expertise', 'mentions']
 
         # blocks is now a list of objects, not a dict
         block_keys = [block['key'] for block in blocks]

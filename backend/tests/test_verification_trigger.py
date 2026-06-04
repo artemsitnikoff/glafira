@@ -51,7 +51,7 @@ class TestVerificationTrigger:
              patch('app.services.glafira.verify.clean_phone', return_value=None), \
              patch('app.services.glafira.verify.clean_email', return_value=None), \
              patch('app.services.glafira.verify.clean_name', return_value=None), \
-             patch('app.services.glafira.verify.call_json', return_value={"summary": "test", "flags": [], "confidence": 0.5}):
+             patch('app.services.glafira.verify.claude_cli_complete', return_value=None):
 
             result = await score_pending_applications(
                 db_session,
