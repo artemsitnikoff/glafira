@@ -1,0 +1,260 @@
+/* Публичная страница опроса — standalone, стиль «письма»: цветной фон + белая карточка.
+   Scoped к .spub-*. Использует токены проекта (ark-палитра). */
+
+.spub-bg {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px 64px;
+  box-sizing: border-box;
+  background: linear-gradient(160deg, var(--ark-blue-50) 0%, var(--ark-violet-100) 100%);
+  font-family: var(--font-sans);
+  color: var(--fg-1);
+}
+
+.spub-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--ark-white);
+  border: 1px solid var(--border-1);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(15, 22, 32, 0.10);
+  overflow: hidden;
+}
+
+.spub-brandbar {
+  height: 6px;
+  background: linear-gradient(90deg, var(--ark-blue-500), var(--ark-violet-500));
+}
+
+/* --- Состояния --- */
+.spub-state {
+  padding: 64px 28px;
+  text-align: center;
+  color: var(--fg-3);
+  font-size: var(--fs-14);
+}
+.spub-state-err { color: var(--risk-high); }
+
+/* --- Шапка --- */
+.spub-header {
+  padding: 28px 28px 8px;
+}
+.spub-company {
+  font-size: var(--fs-12);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+.spub-title {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0 0 10px;
+  color: var(--fg-1);
+}
+.spub-sub {
+  font-size: var(--fs-14);
+  line-height: 1.5;
+  color: var(--fg-2);
+  margin: 0;
+}
+
+/* --- Вопросы --- */
+.spub-questions {
+  padding: 12px 28px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.spub-q {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.spub-q-text {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: var(--fs-15);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--fg-1);
+}
+.spub-q-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-active);
+  color: var(--accent);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.spub-opt {
+  font-weight: 400;
+  color: var(--fg-3);
+  font-size: var(--fs-13);
+}
+
+/* --- Эмодзи-шкала --- */
+.spub-emoji-row {
+  display: flex;
+  gap: 8px;
+  padding-left: 32px;
+}
+.spub-emoji {
+  flex: 1;
+  font-size: 26px;
+  line-height: 1;
+  padding: 10px 0;
+  background: var(--bg-2);
+  border: 1.5px solid var(--border-1);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  filter: grayscale(0.4);
+  opacity: 0.7;
+}
+.spub-emoji:hover { transform: translateY(-2px); }
+.spub-emoji.active {
+  border-color: var(--accent);
+  background: var(--bg-active);
+  filter: none;
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+/* --- Числовые шкалы (1–5 / 0–10) --- */
+.spub-pills {
+  display: flex;
+  gap: 8px;
+  padding-left: 32px;
+}
+.spub-pills-nps { flex-wrap: wrap; }
+.spub-pill {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 6px;
+  background: var(--bg-2);
+  border: 1.5px solid var(--border-1);
+  border-radius: 10px;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.spub-pill:hover { border-color: var(--ark-gray-400); }
+.spub-pill.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--ark-white);
+}
+
+/* --- Да / Нет --- */
+.spub-yesno {
+  display: flex;
+  gap: 10px;
+  padding-left: 32px;
+}
+.spub-yn {
+  flex: 1;
+  height: 44px;
+  background: var(--bg-2);
+  border: 1.5px solid var(--border-1);
+  border-radius: 12px;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.spub-yn:hover { border-color: var(--ark-gray-400); }
+.spub-yn.active {
+  border-color: var(--accent);
+  background: var(--bg-active);
+  color: var(--accent);
+}
+
+/* --- Текст --- */
+.spub-textarea {
+  margin-left: 32px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border-1);
+  border-radius: 12px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  color: var(--fg-1);
+  background: var(--bg-2);
+  resize: vertical;
+}
+.spub-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--ark-white);
+}
+
+/* --- Низ --- */
+.spub-error {
+  margin: 16px 28px 0;
+  padding: 10px 14px;
+  background: var(--risk-high-soft);
+  border: 1px solid var(--risk-high);
+  border-radius: 10px;
+  color: var(--risk-high);
+  font-size: var(--fs-13);
+}
+.spub-submit {
+  display: block;
+  width: calc(100% - 56px);
+  margin: 24px 28px 8px;
+  height: 50px;
+  background: var(--accent);
+  color: var(--ark-white);
+  border: none;
+  border-radius: 12px;
+  font-size: var(--fs-16);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.spub-submit:hover:not(:disabled) { background: var(--accent-hover); }
+.spub-submit:disabled { opacity: 0.6; cursor: default; }
+.spub-foot {
+  text-align: center;
+  padding: 8px 0 24px;
+  font-size: var(--fs-12);
+  color: var(--fg-4);
+}
+
+/* --- Спасибо --- */
+.spub-thanks {
+  padding: 56px 32px 64px;
+  text-align: center;
+}
+.spub-thanks-emoji { font-size: 48px; margin-bottom: 12px; }
+.spub-thanks h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: var(--fg-1);
+}
+.spub-thanks p {
+  font-size: var(--fs-14);
+  line-height: 1.55;
+  color: var(--fg-2);
+  margin: 0 auto;
+  max-width: 420px;
+}

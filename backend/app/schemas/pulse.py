@@ -45,11 +45,46 @@ class SurveyOut(ORMBase):
     answered_at: datetime | None = None
     overall_score: float | None = None
     answers: list = []
+    public_token: str | None = None
+    questions: list = []
 
 
 class SurveyCreate(BaseModel):
-    type: str  # weekly|monthly|special|enps
-    template_key: str | None = None
+    # Запуск опроса по выбранному шаблону. Вопросы снапшотятся из шаблона,
+    # генерится публичная ссылка (public_token).
+    template_id: UUID
+
+
+# ===== Публичная (без авторизации) страница опроса =====
+
+class PublicSurveyQuestion(BaseModel):
+    id: str
+    text: str
+    kind: str          # emoji5 | scale5 | yesno | nps11 | text
+    scale: str | None = None
+    optional: bool = False
+
+
+class PublicSurveyOut(BaseModel):
+    company_name: str
+    employee_first_name: str
+    type: str
+    answered: bool
+    questions: list[PublicSurveyQuestion] = []
+
+
+class PublicAnswer(BaseModel):
+    id: str
+    answer: str
+
+
+class PublicSurveySubmit(BaseModel):
+    answers: list[PublicAnswer]
+
+
+class PublicSurveySubmitResult(BaseModel):
+    status: str = "success"
+    overall_score: float | None = None
 
 
 class AlertOut(ORMBase):

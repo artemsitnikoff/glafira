@@ -33,23 +33,30 @@ export function useTogglePlanItem() {
   });
 }
 
+// Запуск опроса по выбранному шаблону. Возвращает опрос с public_token —
+// из него фронт строит публичную ссылку для респондента.
+export type LaunchedSurvey = {
+  id: string;
+  public_token: string | null;
+  type: string;
+  sent_at: string;
+};
+
 export function useRunSurvey() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({
       employeeId,
-      type,
-      templateKey
+      templateId,
     }: {
       employeeId: string;
-      type: string;
-      templateKey?: string
+      templateId: string;
     }) => {
-      const response = await client.post(`/pulse/employees/${employeeId}/surveys`, {
-        type,
-        template_key: templateKey,
-      });
+      const response = await client.post<LaunchedSurvey>(
+        `/pulse/employees/${employeeId}/surveys`,
+        { template_id: templateId }
+      );
       return response.data;
     },
     onSuccess: (_, variables) => {

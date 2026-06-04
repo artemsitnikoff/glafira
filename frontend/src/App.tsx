@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuthStore, selectIsAuthenticated } from '@/store/authStore';
 import { api } from '@/api/client';
@@ -20,6 +20,8 @@ const PulsePage = lazy(() => import('@/pages/pulse/PulsePage').then(m => ({ defa
 const PulseEmployeePage = lazy(() => import('@/pages/pulse/PulseEmployeePage').then(m => ({ default: m.PulseEmployeePage })));
 const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+// Публичная страница опроса — БЕЗ авторизации, вне AppLayout. /pulse/survey/#<token>
+const SurveyPublicPage = lazy(() => import('@/pages/public/SurveyPublicPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
@@ -63,6 +65,15 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Публичный опрос — статический путь, выигрывает у защищённого /pulse/:employeeId */}
+      <Route
+        path="/pulse/survey"
+        element={
+          <Suspense fallback={null}>
+            <SurveyPublicPage />
+          </Suspense>
+        }
+      />
       <Route
         path="/"
         element={

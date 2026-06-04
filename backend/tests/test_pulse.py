@@ -776,3 +776,159 @@ async def test_bulk_run_survey_with_custom_template(
     ).scalar_one()
 
     assert survey.template_key == "custom_onboarding_survey_v2"
+
+# ===== Запуск опроса по шаблону + публичная страница опроса =====
+
+async def _make_employee(db_session: AsyncSession, admin_user, suffix: str = "Pub") -> Employee:
+    candidate = Candidate(
+        company_id=admin_user.company_id,
+        last_name=f"Survey{suffix}",
+        first_name="Тест",
+        source="manual",
+    )
+    db_session.add(candidate)
+    await db_session.flush()
+    employee = Employee(
+        company_id=admin_user.company_id,
+        candidate_id=candidate.id,
+        full_name=f"Survey{suffix} Тест",  # «Фамилия Имя» → имя = «Тест»
+        start_date=date.today() - timedelta(days=8),
+        status="onboarding",
+    )
+    db_session.add(employee)
+    await db_session.flush()
+    return employee
+
+
+async def _make_template(db_session: AsyncSession, admin_user) -> "SurveyTemplate":
+    from app.models import SurveyTemplate
+    tpl = SurveyTemplate(
+        company_id=admin_user.company_id,
+        name="Первая неделя — тест",
+        trigger_day=7,
+        interval_days=None,
+        channels={"telegram": True},
+        questions=[
+            {"id": "q1", "text": "Как самочувствие?", "scale": "😡 😞 😐 🙂 😄", "enabled": True},
+            {"id": "q2", "text": "Понятна ли роль?", "scale": "1 · 2 · 3 · 4 · 5", "enabled": True},
+            {"id": "q3", "text": "Что улучшить?", "scale": "📝 текст", "enabled": True, "optional": True},
+            {"id": "q4", "text": "Отключённый", "scale": "Да / Нет", "enabled": False},
+        ],
+        is_enabled=True,
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    return tpl
+
+
+async def test_launch_survey_snapshots_questions_and_token(
+    async_client: AsyncClient, auth_headers, admin_user, db_session: AsyncSession,
+):
+    employee = await _make_employee(db_session, admin_user, "Launch")
+    tpl = await _make_template(db_session, admin_user)
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/api/v1/pulse/employees/{employee.id}/surveys",
+        headers=auth_headers,
+        json={"template_id": str(tpl.id)},
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["public_token"]
+    assert data["type"] == "weekly"  # trigger_day=7
+    # Отключённый вопрос q4 не попал в снапшот
+    qs = data["questions"]
+    assert [q["id"] for q in qs] == ["q1", "q2", "q3"]
+    assert qs[0]["kind"] == "emoji5"
+    assert qs[1]["kind"] == "scale5"
+    assert qs[2]["kind"] == "text"
+    assert qs[2]["optional"] is True
+
+
+async def test_public_survey_get_and_submit_flow(
+    async_client: AsyncClient, auth_headers, admin_user, db_session: AsyncSession,
+):
+    employee = await _make_employee(db_session, admin_user, "Flow")
+    tpl = await _make_template(db_session, admin_user)
+    await db_session.commit()
+
+    launch = await async_client.post(
+        f"/api/v1/pulse/employees/{employee.id}/surveys",
+        headers=auth_headers,
+        json={"template_id": str(tpl.id)},
+    )
+    token = launch.json()["public_token"]
+
+    # Публичный GET — без авторизации
+    pub = await async_client.get(f"/api/v1/public/surveys/{token}")
+    assert pub.status_code == 200
+    pdata = pub.json()
+    assert pdata["employee_first_name"] == "Тест"
+    assert pdata["answered"] is False
+    assert len(pdata["questions"]) == 3
+
+    # Отправка ответов — без авторизации
+    submit = await async_client.post(
+        f"/api/v1/public/surveys/{token}/answers",
+        json={"answers": [
+            {"id": "q1", "answer": "4"},
+            {"id": "q2", "answer": "5"},
+            {"id": "q3", "answer": "всё ок"},
+        ]},
+    )
+    assert submit.status_code == 200, submit.text
+    # overall_score = (4 + 5) / 2 = 4.5 (только 5-балльные q1/q2)
+    assert float(submit.json()["overall_score"]) == 4.5
+
+    # Опрос помечен отвеченным, ответы сохранены
+    survey = (await db_session.execute(
+        select(PulseSurvey).where(PulseSurvey.public_token == token)
+    )).scalar_one()
+    await db_session.refresh(survey)
+    assert survey.answered_at is not None
+    assert len(survey.answers) == 3
+
+    # Повторная отправка — 409
+    again = await async_client.post(
+        f"/api/v1/public/surveys/{token}/answers",
+        json={"answers": [{"id": "q1", "answer": "1"}, {"id": "q2", "answer": "1"}]},
+    )
+    assert again.status_code == 409
+
+    # Аудит действия респондента — system
+    audit = (await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.entity_id == survey.id,
+            AuditLog.action == "survey_answered",
+        )
+    )).scalar_one()
+    assert audit.actor_type == "system"
+    assert audit.actor_user_id is None
+
+
+async def test_public_survey_required_question_missing(
+    async_client: AsyncClient, auth_headers, admin_user, db_session: AsyncSession,
+):
+    employee = await _make_employee(db_session, admin_user, "Req")
+    tpl = await _make_template(db_session, admin_user)
+    await db_session.commit()
+
+    launch = await async_client.post(
+        f"/api/v1/pulse/employees/{employee.id}/surveys",
+        headers=auth_headers,
+        json={"template_id": str(tpl.id)},
+    )
+    token = launch.json()["public_token"]
+
+    # q2 (обязательный) пропущен → 400
+    resp = await async_client.post(
+        f"/api/v1/public/surveys/{token}/answers",
+        json={"answers": [{"id": "q1", "answer": "3"}]},
+    )
+    assert resp.status_code == 400
+
+
+async def test_public_survey_unknown_token_404(async_client: AsyncClient):
+    resp = await async_client.get("/api/v1/public/surveys/nonexistent-token-xyz")
+    assert resp.status_code == 404

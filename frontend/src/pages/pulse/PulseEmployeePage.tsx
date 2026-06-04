@@ -1,12 +1,14 @@
+import { useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import './Pulse.css';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { usePulseEmployee } from '@/api/hooks/usePulse';
-import { useAddNote, useRunSurvey, useRegenerateAiSummary } from '@/api/mutations/pulse';
+import { useAddNote, useRegenerateAiSummary } from '@/api/mutations/pulse';
 import { OverviewTab } from './components/tabs/OverviewTab';
 import { PlanTab } from './components/tabs/PlanTab';
 import { SurveysTab } from './components/tabs/SurveysTab';
+import { SurveyLaunchModal } from './components/SurveyLaunchModal';
 import { ChatTab } from '@/pages/funnel/candidate-detail/tabs/ChatTab';
 import { AllActionsTab } from '@/pages/funnel/candidate-detail/tabs/AllActionsTab';
 
@@ -54,8 +56,8 @@ export function PulseEmployeePage() {
 
   const { data: employee, isLoading, error } = usePulseEmployee(employeeId);
   const addNoteMutation = useAddNote();
-  const runSurveyMutation = useRunSurvey();
   const regenerateAiSummaryMutation = useRegenerateAiSummary();
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
 
   const setActiveTab = (tabId: string) => {
     if (tabId === 'overview') {
@@ -77,16 +79,6 @@ export function PulseEmployeePage() {
       await addNoteMutation.mutateAsync({ employeeId, text });
     } catch (error) {
       console.error('Failed to add note:', error);
-    }
-  };
-
-  const handleRunSurvey = async (type: string, templateKey?: string) => {
-    if (!employeeId) return;
-
-    try {
-      await runSurveyMutation.mutateAsync({ employeeId, type, templateKey });
-    } catch (error) {
-      console.error('Failed to run survey:', error);
     }
   };
 
@@ -146,7 +138,7 @@ export function PulseEmployeePage() {
       case 'plan':
         return <PlanTab employee={employee} />;
       case 'surveys':
-        return <SurveysTab employee={employee} onRunSurvey={handleRunSurvey} />;
+        return <SurveysTab employee={employee} onLaunch={() => setShowLaunchModal(true)} />;
       case 'chat':
         return employee.candidate_id ? (
           <ChatTab candidateId={employee.candidate_id} />
@@ -231,7 +223,7 @@ export function PulseEmployeePage() {
               <button className="btn btn-primary" onClick={() => setActiveTab('chat')}>
                 <Icon name="message-square" size={14}/> Связаться
               </button>
-              <button className="btn btn-secondary" onClick={() => handleRunSurvey('pulse')}>
+              <button className="btn btn-secondary" onClick={() => setShowLaunchModal(true)}>
                 <Icon name="clipboard" size={14}/> Запустить опрос
               </button>
               <button className="btn btn-ghost" onClick={() => handleAddNote('')}>
@@ -262,6 +254,13 @@ export function PulseEmployeePage() {
           {renderActiveTab()}
         </div>
       </div>
+
+      {showLaunchModal && employeeId && (
+        <SurveyLaunchModal
+          employeeId={employeeId}
+          onClose={() => setShowLaunchModal(false)}
+        />
+      )}
     </div>
   );
 }

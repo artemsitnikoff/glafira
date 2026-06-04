@@ -4,7 +4,7 @@ import type { EmployeeDetail } from '@/api/aliases';
 
 type Props = {
   employee: EmployeeDetail;
-  onRunSurvey: (type: string, templateKey?: string) => void;
+  onLaunch: () => void;
 };
 
 const SURVEY_TYPE_LABELS = {
@@ -14,7 +14,7 @@ const SURVEY_TYPE_LABELS = {
   enps: 'eNPS',
 } as const;
 
-export function SurveysTab({ employee, onRunSurvey }: Props) {
+export function SurveysTab({ employee, onLaunch }: Props) {
   const [expandedSurvey, setExpandedSurvey] = useState<string | null>(null);
 
   const surveys = (employee.surveys || []).sort(
@@ -54,19 +54,32 @@ export function SurveysTab({ employee, onRunSurvey }: Props) {
         flexDirection: 'column',
         gap: 'var(--space-2)'
       }}>
-        {answers.map((answer: any, index: number) => (
-          <div
-            key={index}
-            style={{
-              padding: 'var(--space-3)',
-              backgroundColor: 'var(--bg-3)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '13px'
-            }}
-          >
-            {typeof answer === 'string' ? answer : JSON.stringify(answer)}
-          </div>
-        ))}
+        {answers.map((answer: any, index: number) => {
+          const isObj = answer && typeof answer === 'object';
+          const qText = isObj ? (answer.text || answer.id) : null;
+          const aVal = isObj ? answer.answer : answer;
+          const emoji = isObj && answer.kind === 'emoji5'
+            ? ['😡', '😞', '😐', '🙂', '😄'][Number(aVal) - 1]
+            : null;
+          return (
+            <div
+              key={index}
+              style={{
+                padding: 'var(--space-3)',
+                backgroundColor: 'var(--bg-3)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '13px'
+              }}
+            >
+              {qText && (
+                <div style={{ color: 'var(--fg-2)', marginBottom: 4 }}>{qText}</div>
+              )}
+              <div style={{ color: 'var(--fg-1)', fontWeight: 500 }}>
+                {emoji ? `${emoji} ${aVal}` : (aVal || '—')}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -90,7 +103,7 @@ export function SurveysTab({ employee, onRunSurvey }: Props) {
         </h3>
 
         <button
-          onClick={() => onRunSurvey('weekly')}
+          onClick={onLaunch}
           style={{
             padding: '8px 16px',
             fontSize: '14px',

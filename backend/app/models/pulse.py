@@ -143,6 +143,14 @@ class PulseSurvey(Base, CreatedAtMixin):
     )
     overall_score: Mapped[Optional[float]] = mapped_column(Numeric(3, 1), nullable=True)
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Секретный токен публичной ссылки (в URL-хеше у фронта). По нему публичный
+    # эндпоинт без авторизации находит опрос. UNIQUE, nullable (старые опросы без него).
+    public_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
+    # Снапшот вопросов на момент запуска: [{id, text, kind, optional, scale}].
+    # Публичная страница рендерит именно их; правки шаблона их не меняют.
+    questions: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
 
     # Constraints
     __table_args__ = (

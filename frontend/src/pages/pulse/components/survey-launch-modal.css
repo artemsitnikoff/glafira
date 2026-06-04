@@ -1,0 +1,165 @@
+/* Модалка запуска опроса. Scoped к .slm-*. Токены проекта. */
+
+.slm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 22, 32, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.slm-modal {
+  width: 100%;
+  max-width: 480px;
+  background: var(--ark-white);
+  border: 1px solid var(--border-1);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(15, 22, 32, 0.20);
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.slm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-1);
+}
+.slm-head h3 {
+  margin: 0;
+  font-size: var(--fs-16);
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.slm-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-3);
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 8px;
+}
+.slm-close:hover { background: var(--bg-3); color: var(--fg-1); }
+
+.slm-body { padding: 18px 20px 20px; }
+.slm-hint {
+  margin: 0 0 14px;
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+
+.slm-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--fg-3);
+  font-size: var(--fs-13);
+}
+
+/* Список шаблонов */
+.slm-templates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slm-template {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1.5px solid var(--border-1);
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--fg-1);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.slm-template:hover { border-color: var(--ark-gray-400); }
+.slm-template.active {
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
+.slm-tpl-day {
+  flex: none;
+  min-width: 58px;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+.slm-tpl-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slm-tpl-name { font-size: var(--fs-14); font-weight: 500; }
+.slm-tpl-meta { font-size: var(--fs-12); color: var(--fg-3); }
+.slm-template.active svg { color: var(--accent); }
+
+/* Ссылка */
+.slm-link-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.slm-link {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border-1);
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  color: var(--fg-1);
+  background: var(--bg-2);
+}
+.slm-link:focus { outline: none; border-color: var(--accent); }
+
+.slm-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--risk-high-soft);
+  border: 1px solid var(--risk-high);
+  border-radius: 10px;
+  color: var(--risk-high);
+  font-size: var(--fs-13);
+}
+
+.slm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* Кнопки модалки (самодостаточные, не зависят от .pulse-content .btn) */
+.slm-btn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: var(--fs-14);
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.slm-btn:disabled { opacity: 0.55; cursor: default; }
+.slm-btn-primary {
+  background: var(--accent);
+  color: var(--ark-white);
+}
+.slm-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.slm-btn-ghost {
+  background: transparent;
+  color: var(--fg-2);
+  border-color: var(--border-1);
+}
+.slm-btn-ghost:hover { background: var(--bg-3); }

@@ -13,6 +13,7 @@ from .comments import router as comments_router
 from .glafira import router as glafira_router, candidates_evaluation_router
 from .verifications import router as verifications_router
 from .pulse import router as pulse_router
+from .public_surveys import router as public_surveys_router
 from .home import router as home_router
 from .analytics import router as analytics_router
 from .settings import router as settings_router
@@ -37,6 +38,8 @@ api_router.include_router(glafira_router, prefix="/glafira", tags=["glafira"])
 api_router.include_router(candidates_evaluation_router, tags=["glafira"])
 api_router.include_router(verifications_router, tags=["verifications"])
 api_router.include_router(pulse_router, prefix="/pulse", tags=["pulse"])
+# Публичные опросы — БЕЗ авторизации (доступ по секретному токену). См. public_surveys.py
+api_router.include_router(public_surveys_router, prefix="/public", tags=["public"])
 api_router.include_router(home_router, prefix="/home", tags=["home"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(

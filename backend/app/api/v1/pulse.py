@@ -239,16 +239,20 @@ async def list_employee_surveys(
 
 
 @router.post("/employees/{employee_id}/surveys", response_model=SurveyOut, status_code=201)
-async def submit_employee_survey(
+async def launch_employee_survey(
     employee_id: UUID,
     data: SurveyCreate,
     company_id: UUID = Depends(get_current_company_id),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    """Создать новый опрос для сотрудника"""
-    survey = await surveys_svc.submit_employee_survey(
-        session, employee_id, data, company_id, current_user.id
+    """Запустить опрос для сотрудника по выбранному шаблону.
+
+    Снапшотит вопросы шаблона и генерит публичный токен (ссылку для респондента).
+    Реальной отправки пока нет — HR копирует ссылку из ответа (public_token) вручную.
+    """
+    survey = await surveys_svc.launch_survey(
+        session, employee_id, data.template_id, company_id, current_user.id
     )
     await session.commit()
     return SurveyOut.model_validate(survey)
