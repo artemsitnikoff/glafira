@@ -32,6 +32,11 @@ services:
         condition: service_healthy
     volumes:
       - backend_storage:/app/storage
+      # Общий токен claude (read-only) для интернет-разведки верификации. Монтируем ПАПКУ,
+      # не файл: ArkadyJarvis атомарно подменяет токен через rename — маунт одного файла
+      # застрянет на старом иноде. CLAUDE_TOKEN_DIR в .env (по умолчанию папка ArkadyJarvis).
+      # И задать в .env: CLAUDE_TOKEN_FILE=/app/claude-auth/.claude_token.json
+      - ${CLAUDE_TOKEN_DIR:-/var/www/ArkadyJarvis/data}:/app/claude-auth:ro
     ports:
       - "127.0.0.1:8000:8000"
     # Production: без --reload, 2 worker'а. При мало RAM можно --workers 1.

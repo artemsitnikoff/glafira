@@ -14,7 +14,7 @@ from ...core.errors import ConsentRequiredError, NotFoundError
 from ...models import Candidate, Consent, Verification, Event
 from ...services.audit import audit
 from ...services.dadata import clean_phone, clean_email, clean_name
-from .claude_cli import claude_cli_complete
+from .claude_cli import claude_cli_complete, resolve_claude_token
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ async def _build_osint_blocks(candidate: Candidate) -> list[dict]:
     """
     if not candidate.full_name:
         return _osint_stub_blocks("Недостаточно данных для разведки (нет ФИО)")
-    if not settings.CLAUDE_CODE_OAUTH_TOKEN:
+    if not resolve_claude_token():
         return _osint_stub_blocks("Интернет-разведка не настроена")
 
     # PII-firewall — только неконтактные идентификаторы
