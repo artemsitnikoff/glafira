@@ -6,7 +6,7 @@ vacancy_stages, company_default_stages, funnel_template_stages. На связь 
 порядок и аналитику не влияет.
 
 Revision ID: f3a4b5c6d7e8
-Revises: e2f3a4b5c6d7
+Revises: d5e6f7a8b9c0
 Create Date: 2026-06-04 12:00:00.000000
 
 """
@@ -16,7 +16,9 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'f3a4b5c6d7e8'
-down_revision = 'e2f3a4b5c6d7'
+# Цепляемся от РЕАЛЬНОЙ головы d5e6f7a8b9c0 (ветка hh), а не e2f3a4b5c6d7 — иначе две
+# головы и `alembic upgrade head` падает «Multiple head revisions».
+down_revision = 'd5e6f7a8b9c0'
 branch_labels = None
 depends_on = None
 
