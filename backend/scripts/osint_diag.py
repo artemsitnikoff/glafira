@@ -17,7 +17,7 @@ import time
 
 from app.config import settings
 from app.services.glafira.claude_cli import resolve_claude_token, claude_cli_complete
-from app.services.glafira.verify import _OSINT_SYSTEM_PROMPT
+from app.services.glafira.verify import _OSINT_PROMPT_TMPL
 
 DEFAULT_Q = "ФИО: Линус Торвальдс. Должность: создатель ядра Linux и Git"
 
@@ -43,8 +43,8 @@ async def real_recon(query: str) -> None:
     print("запрос:", query, flush=True)
     s = time.time()
     raw = await claude_cli_complete(
-        prompt=f"Данные кандидата (только публично-неконтактные):\n{query}\n\nВерни ТОЛЬКО JSON.",
-        system=_OSINT_SYSTEM_PROMPT,
+        prompt=_OSINT_PROMPT_TMPL.replace("{query}", query),
+        system=None,  # инструкция в user-промпте (как ArkadyJarvis)
         allowed_tools="WebSearch,WebFetch",
         model=settings.GLAFIRA_OSINT_MODEL or "opus",
         timeout=150,
