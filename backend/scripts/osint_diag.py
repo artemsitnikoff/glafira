@@ -17,7 +17,7 @@ import time
 
 from app.config import settings
 from app.services.glafira.claude_cli import resolve_claude_token, claude_cli_complete
-from app.services.glafira.verify import _OSINT_PROMPT_TMPL
+from app.services.glafira.verify import _OSINT_FIND_PROMPT
 
 DEFAULT_Q = "ФИО: Линус Торвальдс. Должность: создатель ядра Linux и Git"
 
@@ -42,7 +42,7 @@ async def real_recon(query: str, model: str) -> None:
     _hdr(f"ТЕКУЩИЙ прод-промпт (строгий JSON), модель={model}")
     s = time.time()
     raw = await claude_cli_complete(
-        prompt=_OSINT_PROMPT_TMPL.replace("{query}", query),
+        prompt=_OSINT_FIND_PROMPT.replace("{query}", query),
         system=None,
         allowed_tools="WebSearch,WebFetch",
         model=model,
@@ -109,7 +109,7 @@ async def main() -> None:
     _hdr("2) WebSearch sonnet")
     await _timed("web-sonnet", prompt="Найди GitHub Линуса Торвальдса, верни URL.",
                  allowed_tools="WebSearch,WebFetch", model="sonnet", timeout=120)
-    await real_recon(DEFAULT_Q)
+    await narrative_recon(DEFAULT_Q, "sonnet")
     print("\nЗапусти с реальным кандидатом: ... osint_diag.py \"ФИО: ... Город: ... Должность: ...\"", flush=True)
 
 

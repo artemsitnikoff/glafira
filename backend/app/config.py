@@ -31,10 +31,12 @@ class Settings(BaseSettings):
     # общей папки в контейнер настраивается на VPS (см. docker-compose.prod.yml volume).
     CLAUDE_TOKEN_FILE: str = ""
     CLAUDE_CLI_PATH: str = "claude"
-    GLAFIRA_OSINT_MODEL: str = "opus"  # модель CLI (alias 'opus'/'sonnet' или полный id); '' = дефолт CLI
-    # Сек на одну разведку. Разведка идёт В ФОНЕ (fill_candidate_osint), не блокирует
-    # HTTP-запрос → можно держать с запасом (4 платформы + упоминания = 60–90с).
-    GLAFIRA_OSINT_TIMEOUT: int = 120
+    # Модель разведки (шаг «найти»). sonnet — НЕ opus: опус слишком осторожен, отбрасывает
+    # реальные находки (проверено на живом кандидате). alias 'sonnet'/'opus' или полный id.
+    GLAFIRA_OSINT_MODEL: str = "sonnet"
+    # Сек на разведку (шаг «найти»). Идёт В ФОНЕ (fill_candidate_osint), не блокирует HTTP →
+    # держим с запасом (свободная разведка с веб-поиском доходит до ~170с).
+    GLAFIRA_OSINT_TIMEOUT: int = 180
     # Сколько откликов авто-оценивать за один проход cron (раз в 5 мин). Каждая
     # оценка = платный вызов LLM, поэтому потолок расхода регулируется этим числом.
     GLAFIRA_AUTOSCORE_BATCH: int = 10
