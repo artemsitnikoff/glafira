@@ -38,20 +38,43 @@ async def _timed(label: str, **kwargs) -> None:
     print((r or "(None)")[:600], flush=True)
 
 
-async def real_recon(query: str) -> None:
-    _hdr("РЕАЛЬНЫЙ промпт разведки (СЫРОЙ вывод opus)")
-    print("запрос:", query, flush=True)
+async def real_recon(query: str, model: str) -> None:
+    _hdr(f"ТЕКУЩИЙ прод-промпт (строгий JSON), модель={model}")
     s = time.time()
     raw = await claude_cli_complete(
         prompt=_OSINT_PROMPT_TMPL.replace("{query}", query),
-        system=None,  # инструкция в user-промпте (как ArkadyJarvis)
+        system=None,
         allowed_tools="WebSearch,WebFetch",
-        model=settings.GLAFIRA_OSINT_MODEL or "opus",
+        model=model,
         timeout=150,
     )
-    print(f"[real] {time.time() - s:.1f}с, {len(raw or '')} симв", flush=True)
+    print(f"[json-{model}] {time.time() - s:.1f}с, {len(raw or '')} симв", flush=True)
+    print(raw or "(None)", flush=True)
+
+
+# Свободный нарратив как в ArkadyJarvis (stirlitz_person.md): без строгого JSON, агрессивно,
+# с хеджированием — НЕ бинарный «не уверен → выкинул». Тест: находит ли он человека вообще.
+_NARRATIVE_PROMPT = """Ты — AI-разведчик для рекрутера. Тебе дали человека (ФИО + контекст: компания, город, должность, контакты). Найди в ОТКРЫТОМ интернете его публичную профессиональную активность — используй WebSearch и WebFetch, сделай 4–6 РАЗНЫХ запросов (ФИО+компания, ФИО+город, ФИО+должность, по нику, по платформам GitHub / Habr / Stack Overflow / Telegram / vc.ru / ВКонтакте / LinkedIn). Не сдавайся после одного запроса.
+
+Человек:
+{query}
+
+Собери карточку: кто это, профили (со ССЫЛКАМИ), telegram-каналы, доклады/статьи/интервью/упоминания (короткая цитата + ССЫЛКА). Что нашёл с высокой вероятностью того же человека — включай (можно с пометкой «вероятно»). Что не нашёл — прямо пиши «не нашёл». Ссылки обязательны, не выдумывай факты/числа. Ответ — свободным текстом."""
+
+
+async def narrative_recon(query: str, model: str) -> None:
+    _hdr(f"НАРРАТИВ как в ArkadyJarvis (свободный текст), модель={model}")
+    s = time.time()
+    raw = await claude_cli_complete(
+        prompt=_NARRATIVE_PROMPT.replace("{query}", query),
+        system=None,
+        allowed_tools="WebSearch,WebFetch",
+        model=model,
+        timeout=180,
+    )
+    print(f"[narr-{model}] {time.time() - s:.1f}с, {len(raw or '')} симв", flush=True)
     print("---- RAW ----", flush=True)
-    print(raw or "(None — сбой/таймаут, см. логи)", flush=True)
+    print(raw or "(None — сбой/таймаут)", flush=True)
 
 
 async def main() -> None:
@@ -73,8 +96,12 @@ async def main() -> None:
 
     arg_q = " ".join(sys.argv[1:]).strip()
     if arg_q:
-        # Передали кандидата — гоним только реальный промпт на нём
-        await real_recon(arg_q)
+        print("\nЗАПРОС:", arg_q, flush=True)
+        # Сравниваем: строгий JSON (текущий прод) vs свободный нарратив (ArkadyJarvis), opus vs sonnet.
+        await real_recon(arg_q, "opus")
+        await narrative_recon(arg_q, "sonnet")
+        await narrative_recon(arg_q, "opus")
+        print("\nИтог: если НАРРАТИВ нашёл, а JSON пусто → причина в строгом промпте, перевожу на двухшаг.", flush=True)
         return
 
     _hdr("1) БАЗА без веба, sonnet")
