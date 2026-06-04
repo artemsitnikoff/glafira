@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { useVerification } from '@/api/hooks/useVerification';
-import { useRequestConsent, useRunVerification } from '@/api/mutations/candidateDetail';
+import { useRequestConsent, useRunVerification, useConfirmConsentSigned } from '@/api/mutations/candidateDetail';
 import type { ApiError } from '@/api/aliases';
 
 type Props = {
@@ -18,15 +18,22 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
   const { data: verification, isLoading, error, refetch } = useVerification(actualCandidateId);
   const consentMutation = useRequestConsent(actualCandidateId);
   const verifyMutation = useRunVerification(actualCandidateId);
+  const confirmMutation = useConfirmConsentSigned(actualCandidateId);
 
-  // Подписанное согласие: приходит пропом из application/candidate (has_pdn = exists Consent signed).
-  const consentSigned = hasPdn ?? candidate?.has_pdn ?? false;
+  // Подписанное согласие: проп из application/candidate (has_pdn = exists Consent signed),
+  // либо рекрутёр только что подтвердил вручную (confirmMutation).
+  const consentSigned = (hasPdn ?? candidate?.has_pdn ?? false) || confirmMutation.isSuccess;
   const runErrorCode = (verifyMutation.error as unknown as ApiError)?.error?.code;
 
   function handleRequestConsent() {
     consentMutation.mutate({
       channel: 'email',
     });
+  }
+
+  function handleConfirmSigned() {
+    // Рекрутёр под свою ответственность отмечает согласие подписанным → сразу верификация.
+    confirmMutation.mutate();
   }
 
   function handleRunVerification() {
@@ -121,27 +128,42 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
     );
   }
 
-  // Нет подписанного согласия → верификация недоступна (152-ФЗ): запросить ПдН.
+  // Нет подписанного согласия → запросить у кандидата ИЛИ отметить подписанным (ответственность рекрутёра).
   if (!consentSigned) {
     return (
       <div className="verify-locked">
         <div className="verify-locked-ico">
           <Icon name="lock" size={36} />
         </div>
-        <h3>Верификация недоступна</h3>
+        <h3>Требуется согласие на обработку ПдН</h3>
         <p>
-          Кандидат пока не подписал согласие на обработку персональных данных (152-ФЗ).
-          Запросите ПдН — после подписания Глафира проверит кандидата по контактным
-          данным и публичным источникам (вместе с AI-оценкой).
+          Запросите согласие у кандидата — или отметьте, что оно уже получено
+          (например, подписано на бумаге). Согласие подтверждает рекрутёр под свою
+          ответственность; после подтверждения Глафира сразу проверит кандидата.
         </p>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={handleRequestConsent}
-          disabled={consentMutation.isPending}
-        >
-          <Icon name={consentMutation.isPending ? "loader" : "mail"} size={14} />
-          {consentMutation.isSuccess ? 'Запрос отправлен' : 'Запросить ПдН'}
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleRequestConsent}
+            disabled={consentMutation.isPending || confirmMutation.isPending}
+          >
+            <Icon name={consentMutation.isPending ? "loader" : "mail"} size={14} />
+            {consentMutation.isSuccess ? 'Запрос отправлен' : 'Запросить ПдН'}
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleConfirmSigned}
+            disabled={confirmMutation.isPending}
+          >
+            <Icon name={confirmMutation.isPending ? "loader" : "check"} size={14} />
+            {confirmMutation.isPending ? 'Проверяем…' : 'ПдН подписан'}
+          </button>
+        </div>
+        {confirmMutation.isError && (
+          <p className="empty-state__text" style={{ color: 'var(--ark-red-600)', marginTop: 'var(--space-2)' }} role="alert">
+            {(confirmMutation.error as unknown as ApiError)?.error?.message || 'Не удалось подтвердить согласие'}
+          </p>
+        )}
         {consentMutation.isError && (
           <p className="empty-state__text" style={{ color: 'var(--ark-red-600)', marginTop: 'var(--space-2)' }} role="alert">
             {(consentMutation.error as unknown as ApiError)?.error?.message || 'Не удалось отправить запрос'}

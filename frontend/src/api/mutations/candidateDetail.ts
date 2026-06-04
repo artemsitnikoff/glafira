@@ -36,10 +36,37 @@ export function useRequestConsent(candidateId: string) {
 
   return useMutation({
     mutationFn: async (data: ConsentRequest) => {
-      return (await api.post(`/candidates/${candidateId}/consent`, data)).data;
+      return (await api.post(`/candidates/${candidateId}/consent/request`, data)).data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'verification'] });
+    },
+  });
+}
+
+/**
+ * Рекрутёр под свою ответственность отмечает согласие подписанным (бумага и т.п.)
+ * и СРАЗУ запускает верификацию. Если верификация не пройдёт — согласие всё равно
+ * подписано, верификацию можно запустить кнопкой позже.
+ */
+export function useConfirmConsentSigned(candidateId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      await api.post(`/candidates/${candidateId}/consent/confirm-signed`);
+      try {
+        return (await api.post(`/candidates/${candidateId}/verify`)).data;
+      } catch {
+        // Согласие подписано; верификация может не пройти (DaData/AI) — не валим действие.
+        return null;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'verification'] });
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['home', 'events'] });
     },
   });
 }
