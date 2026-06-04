@@ -10,6 +10,14 @@ import { formatSalary } from '@/lib/format';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
 // Единый бейдж скоринга — общий ScoreLabel (светлый пастель, 1:1 эталон) на всех экранах.
 
+// Имя в списке воронки — без отчества (Фамилия Имя), иначе длинные ФИО обрезаются.
+// full_name приходит как «Фамилия Имя [Отчество]» → берём первые два токена.
+// В карточке (CandidateHeader) остаётся полное ФИО.
+function shortName(full: string | null | undefined): string {
+  if (!full) return '';
+  return full.trim().split(/\s+/).slice(0, 2).join(' ');
+}
+
 type Props = {
   vacancyId: string;
   filters: ApplicationFilters;
@@ -291,7 +299,7 @@ const FunnelRow = React.memo(function FunnelRow({
             {candidate.display_number && (
               <span className="prof-num">#{candidate.display_number}</span>
             )}
-            <span>{candidate.full_name}</span>
+            <span>{shortName(candidate.full_name)}</span>
             {candidate.has_pdn && (
               <span className="pdn-badge pdn-sm" title="Согласие на обработку персональных данных подписано">
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
