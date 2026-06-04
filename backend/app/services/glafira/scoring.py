@@ -1,6 +1,7 @@
 """Скоринг кандидатов через Claude API"""
 
 import logging
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import Literal
@@ -17,6 +18,20 @@ from .verify import verify_candidate, fill_candidate_osint
 from ...core.errors import ConsentRequiredError
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError
+
+
+def _strip_html(s: str | None) -> str:
+    """HTML описания вакансии → читаемый текст для промпта скоринга (теги/сущности убираем,
+    списки и переводы строк сохраняем). Обычный текст (без тегов) проходит без изменений."""
+    if not s:
+        return ""
+    text = re.sub(r"<\s*br\s*/?>", "\n", s, flags=re.I)
+    text = re.sub(r"</\s*(p|div|li|ul|ol|h[1-6])\s*>", "\n", text, flags=re.I)
+    text = re.sub(r"<\s*li\s*>", "• ", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = (text.replace("&nbsp;", " ").replace("&amp;", "&")
+                .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"'))
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification
 from ...schemas.glafira import RequirementMatch
 from ...services.audit import audit
@@ -140,7 +155,7 @@ async def score_candidate(
             vacancy_name=vacancy.name,
             vacancy_city=vacancy.city or "не указан",
             vacancy_salary=vacancy_salary,
-            vacancy_description=vacancy.description or "описание отсутствует",
+            vacancy_description=_strip_html(vacancy.description) or "описание отсутствует",
             candidate_name=candidate.full_name,
             candidate_city=candidate.city or "не указан",
             candidate_phone=candidate.phone or "не указан",

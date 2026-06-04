@@ -585,6 +585,92 @@ export default function VacancyFormPage() {
   );
 }
 
+// Пустой HTML (только <br>/пробелы/&nbsp;) считаем за null, чтобы не хранить мусор.
+function normalizeHtml(html: string): string | null {
+  const text = html
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/&nbsp;/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+  return text ? html : null;
+}
+
+// Реальный rich-text редактор (contentEditable + execCommand). Ключ к «применяется к
+// выделенному»: onMouseDown + preventDefault на кнопках — фокус/выделение НЕ уходят из поля.
+function RichTextField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (html: string | null) => void;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Синхронизация из внешнего значения (загрузка данных в edit-режиме) без сброса курсора:
+  // переписываем DOM только когда он реально отличается от value.
+  useEffect(() => {
+    const el = ref.current;
+    if (el && el.innerHTML !== value) {
+      el.innerHTML = value || '';
+    }
+  }, [value]);
+
+  const push = () => {
+    if (ref.current) onChange(normalizeHtml(ref.current.innerHTML));
+  };
+
+  const exec = (e: React.MouseEvent, cmd: string, arg?: string) => {
+    e.preventDefault(); // сохраняем выделение внутри редактора
+    document.execCommand(cmd, false, arg);
+    push();
+  };
+
+  const insertLink = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const url = window.prompt('Ссылка (URL):', 'https://');
+    if (!url) return;
+    if (sel && range) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    document.execCommand('createLink', false, url);
+    push();
+  };
+
+  return (
+    <div className="nv-editor">
+      <div className="nv-toolbar">
+        <button type="button" className="nv-tb-btn" style={{ fontWeight: 700 }} title="Жирный"
+                onMouseDown={e => exec(e, 'bold')}>B</button>
+        <button type="button" className="nv-tb-btn" style={{ fontStyle: 'italic' }} title="Курсив"
+                onMouseDown={e => exec(e, 'italic')}>I</button>
+        <button type="button" className="nv-tb-btn" style={{ textDecoration: 'underline' }} title="Подчёркнутый"
+                onMouseDown={e => exec(e, 'underline')}>U</button>
+        <span className="nv-tb-sep" />
+        <button type="button" className="nv-tb-btn" title="Маркированный список"
+                onMouseDown={e => exec(e, 'insertUnorderedList')}>•</button>
+        <button type="button" className="nv-tb-btn" title="Нумерованный список"
+                onMouseDown={e => exec(e, 'insertOrderedList')}>1.</button>
+        <span className="nv-tb-sep" />
+        <button type="button" className="nv-tb-btn" title="Ссылка"
+                onMouseDown={insertLink}>link</button>
+      </div>
+      <div
+        ref={ref}
+        className="nv-rte"
+        contentEditable
+        suppressContentEditableWarning
+        data-placeholder={placeholder}
+        onInput={push}
+      />
+    </div>
+  );
+}
+
 function DescriptionStep({
   data,
   onChange,
@@ -727,20 +813,11 @@ function DescriptionStep({
 
       <div className="nv-field">
         <label className="nv-label">Требования, обязанности, условия</label>
-        <div className="nv-editor">
-          <div className="nv-toolbar">
-            {['B', 'I', 'U'].map(t => <button key={t} className="nv-tb-btn" style={{ fontWeight: t === 'B' ? 700 : 500, fontStyle: t === 'I' ? 'italic' : 'normal', textDecoration: t === 'U' ? 'underline' : 'none' }}>{t}</button>)}
-            <span className="nv-tb-sep" />
-            <button className="nv-tb-btn">••</button>
-            <button className="nv-tb-btn">•</button>
-            <button className="nv-tb-btn">1.</button>
-            <span className="nv-tb-sep" />
-            <button className="nv-tb-btn">link</button>
-          </div>
-          <textarea className="nv-textarea"
-            placeholder="Требования:&#10;Обязанности:&#10;Условия работы:"
-            value={data.description || ''} onChange={e => onChange({ description: e.target.value || null })} />
-        </div>
+        <RichTextField
+          value={data.description || ''}
+          onChange={html => onChange({ description: html })}
+          placeholder={"Требования:\nОбязанности:\nУсловия работы:"}
+        />
       </div>
 
       <div className="nv-field">
