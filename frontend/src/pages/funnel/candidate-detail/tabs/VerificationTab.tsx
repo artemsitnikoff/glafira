@@ -4,6 +4,35 @@ import { useVerification } from '@/api/hooks/useVerification';
 import { useRequestConsent, useRunVerification, useConfirmConsentSigned } from '@/api/mutations/candidateDetail';
 import type { ApiError } from '@/api/aliases';
 
+// Человекочитаемые подписи полей блоков верификации (ключи из backend verify.py).
+const FIELD_LABELS: Record<string, string> = {
+  phone: 'Телефон', email: 'Email', name: 'ФИО',
+  original: 'Указано', standardized: 'Стандартизовано', provider: 'Оператор',
+  region: 'Регион', valid: 'Валидно', type: 'Тип',
+  surname: 'Фамилия', patronymic: 'Отчество', gender: 'Пол',
+  gender_match: 'Пол совпадает', parsed_correctly: 'Разобрано корректно',
+  summary: 'Вывод', flags: 'Замечания', confidence: 'Уверенность',
+  note: 'Примечание', status: 'Статус',
+};
+// Технические поля, которые не показываем (коды качества DaData и т.п.).
+const HIDDEN_KEYS = new Set(['qc']);
+
+function vfLabel(key: string): string {
+  return FIELD_LABELS[key] || key;
+}
+
+// Привести значение к читаемой строке (булево → Да/Нет, массив → через «; », null → «—»).
+function vfScalar(value: any): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map(v => (v && typeof v === 'object' ? JSON.stringify(v) : String(v))).join('; ')
+      : '—';
+  }
+  return String(value);
+}
+
 type Props = {
   candidateId?: string;
   candidate?: any;
@@ -272,23 +301,43 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
                   {(block.status === 'warn' || block.status === 'risk' || block.status === 'info') && (
                     <span className="vf-dot"/>
                   )}
-                  {block.status === 'clean' && 'Найден'}
+                  {block.status === 'clean' && 'Проверено'}
                   {block.status === 'warn' && 'Внимание'}
                   {block.status === 'risk' && 'Риск'}
-                  {block.status === 'info' && '1 связь'}
+                  {block.status === 'info' && 'Инфо'}
                   {!block.status && 'В разработке'}
                 </span>
               </header>
               <div className="vf-body">
                 {typeof block.data === 'string' ? (
                   <p>{block.data}</p>
-                ) : block.data && typeof block.data === 'object' ? (
-                  Object.entries(block.data).map(([key, value]: [string, any]) => (
-                    <div key={key} className="vf-kv">
-                      <span className="vf-k">{key}</span>
-                      <span className="vf-v">{String(value)}</span>
-                    </div>
-                  ))
+                ) : block.data && typeof block.data === 'object' && Object.keys(block.data).length > 0 ? (
+                  Object.entries(block.data)
+                    .filter(([key]) => !HIDDEN_KEYS.has(key))
+                    .map(([key, value]: [string, any]) => {
+                      // Вложенный объект (напр. phone/email/name) → группа с под-полями.
+                      if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        return (
+                          <div key={key} className="vf-group">
+                            <div className="vf-group-title">{vfLabel(key)}</div>
+                            {Object.entries(value)
+                              .filter(([k]) => !HIDDEN_KEYS.has(k))
+                              .map(([k, v]: [string, any]) => (
+                                <div key={k} className="vf-kv">
+                                  <span className="vf-k">{vfLabel(k)}</span>
+                                  <span className="vf-v">{vfScalar(v)}</span>
+                                </div>
+                              ))}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={key} className="vf-kv">
+                          <span className="vf-k">{vfLabel(key)}</span>
+                          <span className="vf-v">{vfScalar(value)}</span>
+                        </div>
+                      );
+                    })
                 ) : (
                   <p>Нет данных</p>
                 )}

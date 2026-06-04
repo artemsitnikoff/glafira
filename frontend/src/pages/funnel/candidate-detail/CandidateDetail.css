@@ -957,6 +957,29 @@
   color: var(--fg-1);
   font-weight: 500;
   flex: 1;
+  word-break: break-word;
+}
+
+/* Группа вложенных полей блока (напр. Телефон / Email / ФИО в «Контактные данные») */
+.cnd-funnel-wrap .cand-detail .vf-group {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-2);
+}
+
+.cnd-funnel-wrap .cand-detail .vf-group:last-child {
+  border-bottom: none;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-2);
+  margin-bottom: 2px;
+}
+
+.cnd-funnel-wrap .cand-detail .vf-group .vf-kv {
+  padding-left: 12px;
+  border-bottom: none;
 }
 
 .cnd-funnel-wrap .cand-detail .vf-copy {
