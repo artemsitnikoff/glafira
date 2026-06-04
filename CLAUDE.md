@@ -36,6 +36,8 @@
 
 **LLM:** через **OpenRouter** (httpx → `{OPENROUTER_BASE_URL}/chat/completions`, OpenAI-формат), модель `anthropic/claude-sonnet-4-6` (`settings.GLAFIRA_MODEL`). Клиент `backend/app/services/glafira/client.py` (методы `call_json` / `call_text`; пустой `OPENROUTER_API_KEY` → не делает живых вызовов). НЕ прямой Anthropic SDK — именно OpenRouter. (Переменная `ANTHROPIC_API_KEY` в конфиге ещё есть, но путь скоринга идёт через OpenRouter.)
 
+> **ИСКЛЮЧЕНИЕ — интернет-разведка верификации (OSINT)** идёт НЕ через OpenRouter, а через **claude CLI с WebSearch/WebFetch** (subprocess, `services/glafira/claude_cli.py`, по образцу ArkadyJarvis). Образ бека (`backend/Dockerfile`) ставит Node 20 + `@anthropic-ai/claude-code`. Токен — из общего файла `CLAUDE_TOKEN_FILE` (формат `{access_token,…}`, держит свежим ArkadyJarvis; мы только читаем, НЕ рефрешим) или из `CLAUDE_CODE_OAUTH_TOKEN`. Подробно — память `verification-osint-claude-cli`.
+
 **VPS:** домен `glafira.dclouds.ru`, Docker compose (postgres + бек + фронт), HTTPS (certbot), nginx **общий** (на сервере много чужих сервисов — их не трогать). Путь `/var/www/glafira`. **Push в `main` = автодеплой** (см. §6).
 
 **Доступы:** demo-админ создаётся в `app/seed.py`; секреты — в `.env` на VPS (НЕ в git). Конкретные значения в доках НЕ хранить.
@@ -44,14 +46,14 @@
 
 ## 2. АРХИТЕКТУРНЫЕ ИНВАРИАНТЫ (не нарушать)
 
-1. **Верификация без подписанного согласия (ПдН/152-ФЗ) → 403 `CONSENT_REQUIRED`.** Доступ к проверке по госреестрам только после подписи.
+1. **Верификация без подписанного согласия (ПдН/152-ФЗ) → 403 `CONSENT_REQUIRED`.** Доступ к проверке только после подписи. Согласие даёт либо кандидат (online-подписание), либо рекрутёр под свою ответственность кнопкой **«ПдН подписан»** (`POST /consent/confirm-signed`, бумага и т.п.) — обе кнопки в блоке согласия таба Верификация.
 2. **Каждое изменяющее действие → запись в `audit_log`.** Действия AI — с `actor_type='ai'`. (Отдельно: лента «Все действия» на карточке читает таблицу `Event`, не `audit_log` — новый тип события требует расширения CHECK `Event.type` + рендера.)
 3. **Все записи с `company_id`** (мультитенантность).
 4. **Скоринг / AI → строгий JSON.** При сбое парсинга — 502 `GLAFIRA_PARSE_ERROR`, НЕ молчаливый фейк (НЕ хардкод score=50, НЕ поддельная реплика).
 5. **Переход `application → hired` идемпотентно создаёт `Employee` + план адаптации** (передача в раздел Пульс). Инвариант проверяется в seed реальным `move_application`.
 6. **Единый формат ошибок** `{error: {code, message, details}}`. Бизнес-ошибки — через `core/errors.py` (`AppError` + наследники), НЕ сырой `HTTPException`.
 7. **Правило 400 vs 422:** бизнес-ошибки → 400 (`ValidationError`/`ConflictError`=409/`NotFoundError`=404 и т.д.); ошибки валидации формы (Pydantic) → 422.
-8. **Верификация в проде — только `mock`** (`GLAFIRA_VERIFY_MODE=mock`). Режим `real` → 501 `FeatureNotImplementedError` (реальной интеграции с госреестрами нет — НЕ включать до неё, иначе мина 152-ФЗ).
+8. **Верификация — частично РЕАЛЬНАЯ** (с ~2026-06-04, `services/glafira/verify.py`): блоки — **контакты** (телефон/email/ФИО через DaData Clean API — реально), **госреестры** (ФССП/ФНС/банкротство/санкции/алименты — честные заглушки «Не подключено», 152-ФЗ, БЕЗ фейк-вердиктов), **OSINT** («Публичная экспертиза» + «Упоминания» — реальный веб-поиск через claude CLI, идёт В ФОНЕ `fill_candidate_osint` + поллинг на фронте). `is_mock=False`. Реальной интеграции с госреестрами НЕТ — заглушки НЕ включать как вердикты до неё (мина 152-ФЗ). `GLAFIRA_VERIFY_MODE` — legacy (verify_candidate на него не смотрит). В поиск идут ФИО+город+должность+компания+год+email+телефон (по согласию); плашка под блоками описывает это честно — НЕ менять текст плашки, не сверив с тем, что реально шлётся.
 
 ---
 
@@ -73,7 +75,9 @@
 - смена порядка этапов = только `order_index` (история переходов по `stage_key` остаётся, аналитика не ломается);
 - CRUD этапов живой вакансии — гранулярные эндпоинты (`POST/PATCH/DELETE/PUT /vacancies/{id}/stages[...]`), `update_vacancy` этапы НЕ трогает. Каждое действие = свой запрос (массив целиком слать нельзя — rename станет неотличим от delete+add).
 
-**LLM-сервисы:** `services/glafira/` — scoring (скоринг резюме, взвешенная 100-балльная рубрика), screening (диалог-скрининг), resume_parse (парсинг PDF/TXT — DOC/DOCX/RTF НЕ парсятся), verify (mock/real), employee_summary (AI-сводка сотрудника). Все с anti-hallucination guards в промптах и строгим JSON-контрактом. Ретрай-backoff на 403/429/5xx в `client.py`.
+**Описание этапа (`description`, с ~2026-06-04):** свободный текст-инструкция для команды (что делать на этапе, суть тестового, чек-лист). Колонка `description` (Text, nullable) в `vacancy_stages` + `company_default_stages` + `funnel_template_stages` (миграция `f3a4b5c6d7e8`). Редактируется в форме вакансии (FunnelStep, по blur PATCH) и в Настройках → «Воронка по умолчанию». PATCH этапа теперь меняет `label` И/ИЛИ `description` (через `model_fields_set` — label-only PATCH не затирает описание). На `stage_key`/порядок/аналитику не влияет.
+
+**LLM-сервисы:** `services/glafira/` — scoring (скоринг резюме, взвешенная 100-балльная рубрика; в промпт `description` вакансии идёт со снятыми HTML-тегами `_strip_html`), screening (диалог-скрининг), resume_parse (парсинг PDF/TXT — DOC/DOCX/RTF НЕ парсятся), verify (см. инв. §2.8 — контакты DaData + госреестр-заглушки + OSINT через claude CLI, consent-gated, OSINT в фоне), employee_summary (AI-сводка сотрудника). Все с anti-hallucination guards в промптах и строгим JSON-контрактом. Ретрай-backoff на 403/429/5xx в `client.py` (OpenRouter); claude CLI (`claude_cli.py`) — graceful→None при любом сбое.
 
 **Снятые CHECK-констрейнты (миграции):** `check_stage_key` на `vacancy_stages` (`a1b2c3d4e5f7`) и `check_application_stage` на `applications.stage` (`c8d9e0f1a2b3`) сняты — чтобы воронка могла иметь кастомные этапы и кандидаты могли на них перемещаться. Downgrade восстанавливает прежний список.
 
@@ -121,7 +125,11 @@
 
 **Пересобраны и задеплоены:** Главная, Сайдбар (со списком вакансий), Layout, Воронка (каркас + карточка соискателя/7 табов + позиционирование detailMode), Перевести/Отклонить (карточка + bulk), форма создания вакансии (4 шага, кастомные этапы), форма добавления кандидата, редактирование воронки живой вакансии (CRUD этапов с защитой непустого/системного).
 
-**Текущая версия:** `frontend/src/lib/version.ts` (`APP_VERSION`) — сейчас **0.1.48**. Видна в Sidebar под «Глафира». **Bump на каждый значимый деплой.**
+**Конвейер пересборки фронта по эталону — в основном ЗАВЕРШЁН** (последний релиз цикла `0.1.80`). С эры **0.2/0.3** идёт фаза интеграций и фич (hh/Avito/SMTP/Telegram/Bitrix/теги/пользователи/RBAC/Пульс — детали в памяти проекта) + точечные фичи поверх эталона. Правила пересборки выше остаются в силе для любого нового/трогаемого экрана.
+
+**Свежие фичи (0.3.x):** верификация частично реальная (DaData + OSINT claude-cli + «ПдН подписан», см. §2.8); рич-текст редактор описания вакансии (`RichTextField`, contentEditable+execCommand — `description` хранит HTML, в скоринг идёт со снятыми тегами); редактируемое «Описание этапа» воронки.
+
+**Текущая версия:** `frontend/src/lib/version.ts` (`APP_VERSION`) — на 2026-06-04 ~**0.3.32**. Видна в Sidebar под «Глафира». **Bump на каждый значимый деплой.**
 
 ---
 
@@ -137,11 +145,15 @@
 
 **Кто релизит:** Claude ведёт **полный цикл сам** — бампнуть `APP_VERSION` → коммит в `main` (с `Co-Authored-By: Claude`) → `git push`. Не переспрашивать. (Коммитим прямо в `main` — так шёл весь конвейер.)
 
+**⚠️ ВЕРСИЯ — ПЕРВЫМ ТОКЕНОМ ЗАГОЛОВКА КОММИТА, ВСЕГДА.** Формат: **`vX.Y.Z тип(scope): описание`** (напр. `v0.3.31 feat(stages): …`). В action/списках GitHub заголовок обрезается — версия в конце/теле НЕ видна, поэтому строго в начале subject. Пользователь требовал это многократно (см. память `claude-commits-and-bumps-version`). Применять к КАЖДОМУ коммиту, включая бэкенд-only и docs.
+
+**Ручные docker-команды на VPS — ВСЕГДА `-f docker-compose.prod.yml`.** Голый `docker compose up -d` хватает дев-`docker-compose.yml` (другой том postgres `postgres_data` ≠ прод `glafira_pgdata`, открытые порты, авто-seed) — это ломает/подменяет прод. Автодеплой и любые ручные операции — только prod-файл.
+
 **Рантайм-реальность этой среды:** локального бэкенд-окружения НЕТ (нет Docker CLI, нет venv/зависимостей, нет SSH к VPS). Значит:
 - `pytest`/`seed`/`alembic`/`uvicorn` локально НЕ запускаются — писать код+тесты+миграцию, коммитить, пушить; прогон тестов — на VPS (`docker compose -f docker-compose.prod.yml run --rm backend pytest`). «pytest зелёный» НЕ утверждать как факт, если не прогнан.
 - Фронтовый тулинг ЕСТЬ локально: `npx tsc --noEmit` и `npm run build` гонять обязательно перед коммитом.
 
-**Инфра-инварианты VPS (.env НЕ в git):** `DATABASE_URL`, `JWT_SECRET`, `FERNET_KEY`, `OPENROUTER_API_KEY`, `GLAFIRA_MODEL`, `GLAFIRA_VERIFY_MODE=mock`, `CORS_ORIGINS=https://glafira.dclouds.ru`, `SESSION_COOKIE_SECURE=True`. Фронт build-time: `VITE_API_BASE_URL=https://glafira.dclouds.ru/api/v1`.
+**Инфра-инварианты VPS (.env НЕ в git):** `DATABASE_URL`, `JWT_SECRET`, `FERNET_KEY`, `OPENROUTER_API_KEY`, `GLAFIRA_MODEL`, `CORS_ORIGINS=https://glafira.dclouds.ru`, `SESSION_COOKIE_SECURE=True`. Верификация: `DADATA_API_KEY`+`DADATA_SECRET_KEY` (контакты), OSINT — `CLAUDE_TOKEN_DIR` (хост-папка с токен-файлом, монтируется в `/app/claude-auth`) + `CLAUDE_TOKEN_FILE=/app/claude-auth/.claude_token.json` (или `CLAUDE_CODE_OAUTH_TOKEN`), `GLAFIRA_OSINT_MODEL=opus`, `GLAFIRA_OSINT_TIMEOUT=120`. Фронт build-time: `VITE_API_BASE_URL=https://glafira.dclouds.ru/api/v1`.
 - Порты бек/фронт — на `127.0.0.1` (наружу только через общий nginx). БД-контейнер без публикации порта.
 - CORS в `main.py` читает из env (НЕ хардкод localhost).
 - `X-Forwarded-Proto $scheme` в nginx обязателен (Secure-cookie, иначе авторизация слетает).
@@ -186,4 +198,5 @@ npm run types:gen    # регенерация типов из ../contracts/opena
 - Обратная совместимость: seed (базовый + demo) не сломан, существующие данные/воронки целы.
 - При пересборке экрана: функционал из чек-листа жив (проверить руками/диффом, НЕ по отчёту агента); `.submenu-search` не тронут; CSS scoped; сверено с `project/` (включая новые элементы — ближайший идиом, не своё).
 - Bump `APP_VERSION` (`frontend/src/lib/version.ts`).
+- **Заголовок коммита начинается с `vX.Y.Z`** (`vX.Y.Z тип(scope): описание`) — первым токеном, ВСЕГДА.
 - Релиз: коммит в `main` + `git push` (= автодеплой). Затем ручная проверка в браузере на VPS (hard-reload): визуал + функционал.
