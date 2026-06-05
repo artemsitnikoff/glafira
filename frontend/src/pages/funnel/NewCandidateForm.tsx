@@ -1,3 +1,9 @@
+// CSS импортируем В КОМПОНЕНТЕ (а не в страницах-рендерерах), иначе при открытии формы
+// из «Кандидаты» (CandidatesPoolPage, без смены URL) lazy-чанки с этими стилями ещё не
+// загружены → форма «голая». Базовые .nv-* — из VacancyForm.css, .nc-*/.nv-dd — из своего.
+// Порядок: база (VacancyForm) → специфика (NewCandidateForm), чтобы переопределения работали.
+import '@/pages/vacancies/VacancyForm.css';
+import './NewCandidateForm.css';
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useCreateCandidate } from '@/api/mutations/candidates';

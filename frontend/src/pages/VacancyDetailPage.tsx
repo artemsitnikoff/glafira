@@ -12,7 +12,6 @@ import FunnelTable from '@/pages/funnel/FunnelTable';
 import BulkActionBar from '@/pages/funnel/BulkActionBar';
 import FilterDrawer from '@/pages/funnel/FilterDrawer';
 import NewCandidateForm from '@/pages/funnel/NewCandidateForm';
-import '@/pages/funnel/NewCandidateForm.css';
 import DetailHost from '@/pages/funnel/DetailHost';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Icon } from '@/components/ui/Icon';
