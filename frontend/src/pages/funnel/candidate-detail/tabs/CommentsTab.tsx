@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useComments } from '@/api/hooks/useComments';
 import { useAddComment } from '@/api/mutations/candidateDetail';
+import { linkify } from '@/lib/linkify';
 import type { ApiError } from '@/api/aliases';
 
 type Props = {
@@ -62,7 +63,7 @@ export function CommentsTab({ candidateId, candidate }: Props) {
                       <span className="cmt-time">{fmtTime(comment.created_at)}</span>
                     )}
                   </div>
-                  <div className="cmt-text">{comment.body}</div>
+                  <div className="cmt-text">{linkify(comment.body)}</div>
                 </div>
               </div>
             );
