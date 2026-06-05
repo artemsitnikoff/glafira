@@ -8,6 +8,7 @@ export type TurnoverSource = 'none' | 'bitrix24';
 
 export type GlafiraSettings = GlafiraSettingsOut & {
   turnover_source?: TurnoverSource;
+  default_rejection_text?: string | null;
 };
 
 export function useGlafiraSettings() {

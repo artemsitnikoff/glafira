@@ -34,6 +34,29 @@ import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
 
+// Локальные типы для новых полей автоматизации (openapi отстаёт)
+type VacancyFormData = VacancyCreate & {
+  auto_qa: boolean;
+  rejection_text: string | null;
+};
+
+type VacancyCreateExtended = VacancyCreate & {
+  auto_qa: boolean;
+  rejection_text: string | null;
+  stages: StageInput[];
+  reject_reasons: Array<{
+    side: 'candidate' | 'company';
+    label: string;
+    order_index: number;
+    is_system: boolean;
+  }>;
+};
+
+type VacancyUpdateExtended = VacancyUpdate & {
+  auto_qa: boolean;
+  rejection_text: string | null;
+};
+
 // Защищённые (системные) этапы — зеркало с бэкенда
 const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
 
@@ -234,7 +257,7 @@ export default function VacancyFormPage() {
   const reorderStagesMutation = useReorderVacancyStages();
 
   const [activeStep, setActiveStep] = useState('desc');
-  const [formData, setFormData] = useState<VacancyCreate>({
+  const [formData, setFormData] = useState<VacancyFormData>({
     name: '',
     sort_order: 500,
     client_id: null,
@@ -251,12 +274,12 @@ export default function VacancyFormPage() {
     funnel_template: 'default',
     team: [],
     glafira_mode: 'A',
-    // Шаг 4 (автоматизация) — заглушка: off-дефолты, бек их игнорит (поля обязательны по типу)
+    // Шаг 4 (автоматизация) — реальные поля (П.1/П.4 работают, П.2/П.3 disabled)
     auto_move: false,
     auto_move_threshold: 80,
-    auto_qa_from: null,
-    auto_qa_to: null,
+    auto_qa: false,
     auto_reject: false,
+    rejection_text: null,
   });
 
   // Состояние этапов воронки
@@ -287,11 +310,11 @@ export default function VacancyFormPage() {
         funnel_template: 'default',
         team: vacancy.team?.map(u => u.id) || [],
         glafira_mode: (vacancy as any).glafira_mode || 'A',
-        auto_move: false,
-        auto_move_threshold: 80,
-        auto_qa_from: null,
-        auto_qa_to: null,
-        auto_reject: false,
+        auto_move: (vacancy as any).auto_move || false,
+        auto_move_threshold: (vacancy as any).auto_move_threshold || 80,
+        auto_qa: (vacancy as any).auto_qa || false,
+        auto_reject: (vacancy as any).auto_reject || false,
+        rejection_text: (vacancy as any).rejection_text || null,
       });
       setRecruiterScoring((vacancy as { recruiter_scoring_instructions?: string | null }).recruiter_scoring_instructions || '');
     }
@@ -386,10 +409,11 @@ export default function VacancyFormPage() {
     setSubmitError(null);
     try {
       if (editMode && id) {
+        // openapi отстаёт: новые поля auto_qa, rejection_text еще нет в VacancyUpdate
         const updateData = {
           ...formData,
           recruiter_scoring_instructions: recruiterScoring.trim() || null,
-        } as VacancyUpdate;
+        } as VacancyUpdateExtended;
         await updateMutation.mutateAsync({ id, data: updateData });
         navigate(`/vacancies/${id}`);
       } else {
@@ -410,13 +434,13 @@ export default function VacancyFormPage() {
           is_system: r.is_system,
         }));
 
-        // Добавляем stages + reject_reasons в payload с приведением типа (openapi не регенерён)
+        // Добавляем stages + reject_reasons + новые поля автоматизации в payload с приведением типа (openapi не регенерён)
         const payload = {
           ...formData,
           stages: stageInputs,
           reject_reasons: rejectReasonInputs,
           recruiter_scoring_instructions: recruiterScoring.trim() || null,
-        } as VacancyCreate & { stages: StageInput[]; reject_reasons: typeof rejectReasonInputs };
+        } as VacancyCreateExtended;
 
         const result = await createMutation.mutateAsync(payload);
         navigate(`/vacancies/${result.id}`);
@@ -465,7 +489,7 @@ export default function VacancyFormPage() {
     return slug || `stage_${stage.id}`;
   };
 
-  const updateFormData = (updates: Partial<VacancyCreate>) => {
+  const updateFormData = (updates: Partial<VacancyFormData>) => {
     setFormData(prev => ({ ...prev, ...updates }));
   };
 
@@ -552,7 +576,13 @@ export default function VacancyFormPage() {
             />
           )}
           {activeStep === 'automation' && (
-            <AutomationStep editMode={editMode} vacancyId={id} vacancy={vacancy} />
+            <AutomationStep
+              editMode={editMode}
+              vacancyId={id}
+              vacancy={vacancy}
+              formData={formData}
+              onChange={updateFormData}
+            />
           )}
 
           {submitError && (
@@ -1401,34 +1431,28 @@ function TeamStep({
   );
 }
 
-function AutomationStep({ editMode = false, vacancyId, vacancy }: { editMode?: boolean; vacancyId?: string; vacancy?: any }) {
+function AutomationStep({
+  editMode = false,
+  vacancyId,
+  vacancy,
+  formData,
+  onChange
+}: {
+  editMode?: boolean;
+  vacancyId?: string;
+  vacancy?: any;
+  formData: any;
+  onChange: (updates: any) => void;
+}) {
   return (
     <div className="nv-step-body">
       <div className="nv-h1">Автоматизация</div>
       <div className="nv-h2">Глафира будет действовать сама — переводить кандидатов, задавать уточняющие вопросы и закрывать карточки. Включайте по необходимости.</div>
 
-      {/* Плашка "в разработке" */}
-      <div style={{
-        display: 'flex',
-        gap: '12px',
-        alignItems: 'center',
-        padding: '12px 16px',
-        background: 'var(--warning-bg)',
-        border: '1px solid var(--ark-yellow-100)',
-        borderRadius: '8px',
-        color: 'var(--warning-fg)',
-        fontSize: '13px',
-        marginBottom: '16px'
-      }}>
-        <Icon name="sparkle" size={16} />
-        <div>
-          <b>Скоро.</b> Функции автоматизации находятся в разработке. После запуска вы сможете настроить автоперевод кандидатов и уточняющие вопросы.
-        </div>
-      </div>
-
-      <div className="nv-auto-block off">
-        <div className="nv-auto-head">
-          <span className="nv-cb">
+      {/* П.1: Автоперевод по AI-скорингу (РАБОЧИЙ) */}
+      <div className={`nv-auto-block ${formData.auto_move ? 'on' : 'off'}`}>
+        <div className="nv-auto-head" onClick={() => onChange({ auto_move: !formData.auto_move })}>
+          <span className={`nv-cb ${formData.auto_move ? 'on' : ''}`}>
             <Icon name="check" size={12} />
           </span>
           <span className="nv-auto-title">Автоматический перевод по AI-скорингу</span>
@@ -1442,24 +1466,34 @@ function AutomationStep({ editMode = false, vacancyId, vacancy }: { editMode?: b
               <Icon name="chevD" size={12} />
             </div>
             <span>при скоринге AI &gt;</span>
-            <input className="nv-num-input" type="number" min="0" max="100" value={80} disabled />
+            <input
+              className="nv-num-input"
+              type="number"
+              min="0"
+              max="100"
+              value={formData.auto_move_threshold}
+              onChange={(e) => onChange({ auto_move_threshold: parseInt(e.target.value) || 80 })}
+              disabled={!formData.auto_move}
+            />
             <span className="nv-mute">из 100</span>
           </div>
           <div className="nv-auto-hint">
             <Icon name="sparkle" size={12} />
-            Сейчас порог <b>80</b> — это «сильное совпадение». Глафира двигает только уверенных кандидатов.
+            Глафира двигает только уверенных кандидатов.
           </div>
         </div>
       </div>
 
+      {/* П.2: Уточняющие вопросы (DISABLED «скоро») */}
       <div className="nv-auto-block off">
         <div className="nv-auto-head">
-          <span className="nv-cb">
+          <span className="nv-cb disabled" style={{ opacity: 0.5 }}>
             <Icon name="check" size={12} />
           </span>
           <span className="nv-auto-title">Уточняющие вопросы и автоперевод</span>
+          <span className="nv-soon-badge">Скоро</span>
         </div>
-        <div className="nv-auto-body">
+        <div className="nv-auto-body" style={{ opacity: 0.6 }}>
           <div className="nv-auto-inline">
             <span>Если карточка на этапе</span>
             <div className="nv-inline-select">
@@ -1469,14 +1503,6 @@ function AutomationStep({ editMode = false, vacancyId, vacancy }: { editMode?: b
             </div>
             <span>— Глафира задаёт уточняющие вопросы.</span>
           </div>
-          <div className="nv-auto-inline">
-            <span>При получении ответов переводит на этап</span>
-            <div className="nv-inline-select">
-              <span className="nv-stage-dot" style={{ background: 'var(--ark-purple-500)' }} />
-              <span>Отобран</span>
-              <Icon name="chevD" size={12} />
-            </div>
-          </div>
           <div className="nv-auto-hint">
             <Icon name="sparkle" size={12} />
             Полезно, когда в отклике мало данных — например, нет опыта или зарплаты.
@@ -1484,14 +1510,16 @@ function AutomationStep({ editMode = false, vacancyId, vacancy }: { editMode?: b
         </div>
       </div>
 
+      {/* П.3: Автоотказ (DISABLED «скоро») */}
       <div className="nv-auto-block off">
         <div className="nv-auto-head">
-          <span className="nv-cb">
+          <span className="nv-cb disabled" style={{ opacity: 0.5 }}>
             <Icon name="check" size={12} />
           </span>
           <span className="nv-auto-title">Автоматический отказ при неинтересе</span>
+          <span className="nv-soon-badge">Скоро</span>
         </div>
-        <div className="nv-auto-body">
+        <div className="nv-auto-body" style={{ opacity: 0.6 }}>
           <div className="nv-auto-text">
             Если LLM по диалогу понимает, что вакансия кандидату <b>не интересна</b> или он <b>принял другой оффер</b>, Глафира сама переведёт его в «Отказ» с соответствующей причиной.
           </div>
@@ -1500,6 +1528,23 @@ function AutomationStep({ editMode = false, vacancyId, vacancy }: { editMode?: b
             <span className="nv-reason-pill"><span className="nv-rp-dot grey" />Принял оффер</span>
           </div>
         </div>
+      </div>
+
+      {/* П.4: Текст отказа для вакансии (РАБОЧИЙ) */}
+      <div className="nv-rejection-text-block" style={{ marginTop: '24px' }}>
+        <div className="nv-h3" style={{ marginBottom: '8px' }}>Текст отказа для этой вакансии</div>
+        <textarea
+          className="nv-textarea"
+          placeholder="Если пусто — берётся текст по умолчанию из Настроек"
+          value={formData.rejection_text || ''}
+          onChange={(e) => onChange({ rejection_text: e.target.value || null })}
+          rows={4}
+          style={{
+            width: '100%',
+            resize: 'vertical',
+            minHeight: '80px'
+          }}
+        />
       </div>
 
       <HhPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
