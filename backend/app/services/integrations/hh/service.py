@@ -158,8 +158,18 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
     # Генерируем уникальный state
     state = secrets.token_urlsafe(32)
 
+    # Чистим истёкшие OAuth-state этой компании (иначе брошенные «Подключить»
+    # без callback копятся в hh_oauth_states навсегда)
+    now_dt = datetime.now(timezone.utc)
+    await session.execute(
+        delete(HhOauthState).where(
+            HhOauthState.company_id == company_id,
+            HhOauthState.expires_at < now_dt,
+        )
+    )
+
     # Создаем запись state (expires через 10 минут)
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    expires_at = now_dt + timedelta(minutes=10)
 
     oauth_state = HhOauthState(
         state=state,
@@ -975,7 +985,10 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
                                 vstat["updated"] += 1
                             else:
                                 stats["skipped"] += 1
-                        except Exception:
+                        except Exception as imp_err:
+                            # Реальный сбой импорта отклика — логируем, чтобы отличать от
+                            # штатного пропуска (иначе ночной cron мог тихо ничего не импортить)
+                            logger.warning("[hh] сбой импорта отклика nid=%s: %s", nid, imp_err)
                             stats["skipped"] += 1
                     if page >= (data.get("pages", 1) or 1) - 1:
                         break
