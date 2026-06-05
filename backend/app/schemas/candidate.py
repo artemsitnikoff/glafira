@@ -5,6 +5,13 @@ from typing import Literal
 
 from .base import ORMBase
 
+# Допустимые значения source — синхронизированы с CHECK-констрейнтом модели
+# (app/models/candidate.py). Невалидное значение → 422 от Pydantic, НЕ 500 IntegrityError.
+CandidateSource = Literal[
+    "hh", "avito", "superjob", "telegram", "referral",
+    "direct", "agency", "import", "manual", "other",
+]
+
 
 class TagOut(ORMBase):
     id: UUID
@@ -134,7 +141,7 @@ class CandidateCreate(BaseModel):
     last_name: str
     first_name: str
     middle_name: str | None = None
-    source: str
+    source: CandidateSource
     phone: str | None = None
     email: str | None = None
     gender: str | None = None
@@ -160,7 +167,7 @@ class CandidateUpdate(BaseModel):
     region: str | None = None
     salary_expectation: int | None = None
     currency: str | None = None
-    source: str | None = None
+    source: CandidateSource | None = None
     last_position: str | None = None
     last_company: str | None = None
     last_period: str | None = None

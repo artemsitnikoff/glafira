@@ -637,6 +637,7 @@ async def update_candidate(
         "email": candidate.email,
         "city": candidate.city,
         "source": candidate.source,
+        "messengers": candidate.messengers,
     }
 
     # Update fields
@@ -697,6 +698,7 @@ async def update_candidate(
             "email": candidate.email,
             "city": candidate.city,
             "source": candidate.source,
+            "messengers": candidate.messengers,
         },
         actor_user_id=actor_user_id,
         company_id=company_id,

@@ -364,6 +364,23 @@ class TestCandidateAccess:
         response = await async_client.post("/api/v1/candidates", json=candidate_data, headers=headers)
         assert response.status_code == 403
 
+    async def test_manager_cannot_update_candidates(
+        self,
+        async_client: AsyncClient,
+        manager_user: User,
+        test_candidate_with_application,
+    ):
+        """Manager cannot edit candidate data — даже того, к кому имеет доступ (GET 200)."""
+        candidate, application = test_candidate_with_application
+        headers = await get_auth_headers(async_client, manager_user)
+
+        response = await async_client.patch(
+            f"/api/v1/candidates/{candidate.id}",
+            json={"city": "Тула"},
+            headers=headers,
+        )
+        assert response.status_code == 403
+
     async def test_manager_cannot_add_tags_to_candidates(
         self,
         async_client: AsyncClient,

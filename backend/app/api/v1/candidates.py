@@ -115,6 +115,10 @@ async def update_candidate_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Менеджеры не редактируют данные кандидата (как и не создают — см. POST выше)
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут редактировать кандидатов")
+
     result = await update_candidate(session, candidate_id, data, company_id, user.id)
     await session.commit()
     return result
@@ -127,6 +131,10 @@ async def delete_candidate_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Менеджеры не удаляют кандидатов
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут удалять кандидатов")
+
     await delete_candidate(session, candidate_id, company_id, user.id)
     await session.commit()
 

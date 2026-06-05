@@ -6,6 +6,7 @@ import { useMoveApplication, useRejectApplication, useRestoreApplication } from 
 import { useRequestConsent } from '@/api/mutations/candidateDetail';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
+import { useAuthStore } from '@/store/authStore';
 
 type Props = {
   application?: ApplicationRow;
@@ -27,6 +28,8 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const navigate = useNavigate();
   const { id: routeVacancyId } = useParams();
   const vacancyId = vacancyIdProp || routeVacancyId;
+  // Менеджеры не редактируют кандидатов (бэк PATCH вернёт 403) — не показываем карандаш
+  const canEdit = useAuthStore((s) => s.user?.role) !== 'manager';
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
 
@@ -222,7 +225,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
       )}
 
       {/* Редактировать кандидата (карандаш) — открывает форму правки (как создание) */}
-      {candidate && onEdit && (
+      {candidate && onEdit && canEdit && (
         <button
           className="btn btn-secondary btn-sm"
           onClick={onEdit}

@@ -2,9 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import type { components } from '@/api/types';
 
-type CandidateUpdate = Partial<{
-  preferred_channel: string;
-}>;
+// Полный набор редактируемых полей (форма правки шлёт ФИО/контакты/город/ЗП/источник/…).
+// source/messengers ещё нет в сгенерённом CandidateUpdate (openapi отстаёт) — добавляем локально.
+type CandidateUpdate = Partial<components['schemas']['CandidateUpdate']> & {
+  source?: string | null;
+  messengers?: { type: string; url: string }[];
+};
 type MessageCreate = {
   body: string;
   sender_type: string;

@@ -33,6 +33,8 @@ type Props = {
   onSaved?: () => void;
 };
 
+// Значения синхронизированы с CHECK-констрейнтом source на беке (вкл. import/manual —
+// иначе при правке импортированного/ручного кандидата дропдаун показывал бы пусто).
 const SOURCES = [
   { id: 'hh', name: 'HeadHunter' },
   { id: 'avito', name: 'Avito Работа' },
@@ -41,6 +43,8 @@ const SOURCES = [
   { id: 'referral', name: 'Реферальная программа' },
   { id: 'direct', name: 'Прямой контакт' },
   { id: 'agency', name: 'Кадровое агентство' },
+  { id: 'manual', name: 'Ручное добавление' },
+  { id: 'import', name: 'Импорт' },
   { id: 'other', name: 'Другое' },
 ];
 
@@ -269,7 +273,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
             ? { messengers: formData.social_url.trim() ? [{ type: formData.social_type, url: formData.social_url.trim() }] : [] }
             : {}),
         };
-        await updateMutation.mutateAsync(updatePayload as any);
+        await updateMutation.mutateAsync(updatePayload);
         // Освежаем карточку, воронку, пул и Главную (имя/город/ЗП могли измениться)
         queryClient.invalidateQueries({ queryKey: ['candidates'] });
         queryClient.invalidateQueries({ queryKey: ['vacancies'] });
@@ -301,7 +305,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
       };
 
       // Create candidate
-      const newCandidate = await createMutation.mutateAsync(payload as any);
+      const newCandidate = await createMutation.mutateAsync(payload);
 
       // Upload resume if file selected. Авто-разбор резюме на бэке работает только для PDF —
       // только тогда профиль (опыт/навыки/«Обо мне») реально заполняется.
@@ -593,8 +597,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
               </div>
             </div>
 
-            {/* Salary / Add type */}
-            <div className="nv-grid-2">
+            {/* Salary / Add type. В правке add_type скрыт — убираем grid, чтобы ЗП не была узкой */}
+            <div className={isEdit ? '' : 'nv-grid-2'}>
               <div className="nv-field">
                 <label className="nv-label">Ожидаемая ЗП</label>
                 <div className="nc-salary">
