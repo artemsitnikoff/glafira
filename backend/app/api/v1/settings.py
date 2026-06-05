@@ -48,7 +48,6 @@ from ...services.settings import (
     tags as tags_svc,
 )
 from ...services import candidate as candidate_service
-from ...core.errors import FeatureNotImplementedError
 
 router = APIRouter()
 
@@ -84,15 +83,24 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    """Смена пароля ВРЕМЕННО ОТКЛЮЧЕНА (501).
+    """Сменить свой пароль.
 
-    Реальной формы смены пароля в UI нет (раздел — заглушка). Живой эндпоинт + autofill
-    менеджера паролей в УСТАРЕВШЕМ кэш-бандле (где форма была активна, коммит 050cd77,
-    до f3a15b2) молча перезаписывал пароль админа на автозаполненное значение → повторные
-    лок-ауты (root-cause, подтверждён audit_log: серии action=change_password парами).
-    Сервис profile.change_password оставлен — включить, когда будет НАСТОЯЩАЯ форма
-    (отдельная страница, autocomplete=new-password, без авто-сабмита на «Сохранить профиль»)."""
-    raise FeatureNotImplementedError(details={"reason": "Смена пароля временно недоступна"})
+    История: раньше эндпоинт был отключён (501) — старая форма авто-сабмитила пароль
+    вместе с «Сохранить профиль», и autofill менеджера паролей молча перезаписывал пароль
+    админа → лок-ауты (см. audit_log, серии change_password парами). Теперь форма ОТДЕЛЬНАЯ
+    (модалка, autocomplete=new-password, явный сабмит, НЕ привязана к «Сохранить профиль»),
+    поэтому эндпоинт включён. Неверный текущий пароль → 400 (НЕ 401: иначе фронтовый
+    axios-интерсептор уйдёт в refresh/logout)."""
+    await profile.change_password(
+        session,
+        current_user,
+        current_password=data.current_password,
+        new_password=data.new_password,
+        new_password_confirm=data.new_password_confirm,
+        company_id=company_id,
+    )
+    await session.commit()
+    return MessageResult(message="Пароль изменён")
 
 
 # Glafira Settings endpoints

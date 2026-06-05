@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from uuid import UUID
 
 from ...models import User
-from ...core.errors import NotFoundError, ValidationError
+from ...core.errors import NotFoundError, ValidationError, ConflictError
 from ...core.security import get_password_hash, verify_password
 from ...services.audit import audit
 
@@ -33,9 +33,20 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
         "avatar_url": user.avatar_url,
     }
 
+    # Email — проверка глобальной уникальности (constraint global), исключая себя.
+    # Без неё смена на занятый email падала бы IntegrityError → 500.
+    if data.email is not None and data.email != user.email:
+        existing = (await session.execute(
+            select(User).where(User.email == data.email, User.id != user.id)
+        )).scalar_one_or_none()
+        if existing is not None:
+            raise ConflictError("Пользователь с таким email уже существует")
+
     # Update fields
     if data.full_name is not None:
-        user.full_name = data.full_name
+        if not data.full_name.strip():
+            raise ValidationError("ФИО не может быть пустым")
+        user.full_name = data.full_name.strip()
     if data.email is not None:
         user.email = data.email
     if data.phone is not None:

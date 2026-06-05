@@ -140,13 +140,35 @@ async def test_integration_config_encrypted_in_db_not_plaintext(async_client: As
     assert hh["config"]["api_key"].startswith("••••"), f"Expected masked value to start with ••••, got {hh['config']['api_key']}"
 
 
-async def test_password_change_disabled_returns_501(async_client: AsyncClient, auth_headers: dict):
-    """POST /profile/password отключён (feature deferred, см. settings.py) → 501.
-    Root-cause лок-аутов: устаревший кэш-бандл с живой формой + autofill молча менял пароль."""
+async def test_password_change_wrong_current_returns_400(async_client: AsyncClient, auth_headers: dict):
+    """Неверный текущий пароль → 400 (НЕ 401: иначе фронтовый axios-интерсептор уйдёт в logout)."""
     r = await async_client.post("/api/v1/settings/profile/password", headers=auth_headers,
         json={"current_password": "wrong", "new_password": "NewPass123!", "new_password_confirm": "NewPass123!"})
-    assert r.status_code == 501
-    assert r.json()["error"]["code"] == "FEATURE_NOT_IMPLEMENTED"
+    assert r.status_code == 400, r.text
+
+
+async def test_password_change_mismatch_confirm_returns_400(async_client: AsyncClient, auth_headers: dict):
+    """new_password != confirm → 400."""
+    r = await async_client.post("/api/v1/settings/profile/password", headers=auth_headers,
+        json={"current_password": "Glafira2026!", "new_password": "NewPass123!", "new_password_confirm": "Other123!"})
+    assert r.status_code == 400, r.text
+
+
+async def test_password_change_success_then_login(async_client: AsyncClient, auth_headers: dict, admin_user: User):
+    """Успешная смена пароля: 200, и новый пароль работает на входе, старый — нет."""
+    r = await async_client.post("/api/v1/settings/profile/password", headers=auth_headers,
+        json={"current_password": "Glafira2026!", "new_password": "BrandNew2027!", "new_password_confirm": "BrandNew2027!"})
+    assert r.status_code == 200, r.text
+
+    # Старый пароль больше не подходит
+    old = await async_client.post("/api/v1/auth/login",
+        json={"email": admin_user.email, "password": "Glafira2026!"})
+    assert old.status_code == 401
+
+    # Новый — подходит
+    new = await async_client.post("/api/v1/auth/login",
+        json={"email": admin_user.email, "password": "BrandNew2027!"})
+    assert new.status_code == 200, new.text
 
 
 async def test_email_template_crud_roundtrip(async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession):
@@ -190,6 +212,24 @@ async def test_profile_patch_updates_exact_fields(async_client: AsyncClient, aut
     assert admin_user.full_name == "Updated Name"
     assert admin_user.phone == "+7-999-123-4567"
     assert admin_user.email == original_email
+
+
+async def test_profile_patch_email_conflict_returns_409(
+    async_client: AsyncClient, auth_headers: dict, admin_user: User, regular_user: User
+):
+    """Смена email на уже занятый (другим пользователем) → 409, без 500."""
+    r = await async_client.patch("/api/v1/settings/profile", headers=auth_headers,
+        json={"email": regular_user.email})
+    assert r.status_code == 409, r.text
+
+
+async def test_profile_patch_blank_full_name_returns_400(
+    async_client: AsyncClient, auth_headers: dict
+):
+    """Пустое ФИО → 400 (не затираем имя пустой строкой)."""
+    r = await async_client.patch("/api/v1/settings/profile", headers=auth_headers,
+        json={"full_name": "   "})
+    assert r.status_code == 400, r.text
 
 
 async def test_delete_email_template_success(async_client: AsyncClient, auth_headers: dict):
