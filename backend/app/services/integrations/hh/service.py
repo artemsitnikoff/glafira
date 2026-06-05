@@ -341,6 +341,12 @@ async def get_valid_access_token(session: AsyncSession, company_id: UUID) -> str
     if not integration:
         raise NotFoundError("Интеграция hh.ru не найдена")
 
+    # Конфиг (client_id/secret) сохранён, но OAuth не пройден (или после disconnect) →
+    # access_token/expires_at = None. Без этого guard `expires_at - timedelta` даёт
+    # TypeError → необработанный 500. Отдаём чистую бизнес-ошибку (инв.6).
+    if not integration.access_token or not integration.expires_at:
+        raise ValidationError("hh.ru не подключён: пройдите OAuth-авторизацию")
+
     # Проверяем срок действия токена (с запасом 5 минут)
     now = datetime.now(timezone.utc)
     expires_soon = integration.expires_at - timedelta(minutes=5)

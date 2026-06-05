@@ -412,10 +412,12 @@ async def verify_candidate(
     actor_user_id: UUID | None
 ) -> Verification:
     """Verify candidate data with real DaData + AI analysis + honest government stubs"""
-    # CRITICAL: Check for signed consent first
+    # CRITICAL: Check for signed consent first. Фильтр company_id — defense-in-depth
+    # (инв.3): consent-гейт 152-ФЗ не должен зависеть от порядка последующих проверок.
     consent_result = await session.execute(
         select(Consent).where(
             Consent.candidate_id == candidate_id,
+            Consent.company_id == company_id,
             Consent.status == 'signed'
         ).limit(1)
     )

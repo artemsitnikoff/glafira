@@ -524,3 +524,34 @@ async def test_assign_resolves_stage_to_funnel_when_added_absent(
     )
     assert len(apps.json()) == 1
     assert apps.json()[0]["stage"] == "response"  # зарезолвлен, не 'added'
+
+
+async def test_assign_resolves_to_custom_first_stage_no_500(
+    async_client: AsyncClient, auth_headers: dict, admin_user, test_candidate, db_session: AsyncSession,
+):
+    """Назначение, когда первый непустой этап воронки — КАСТОМНЫЙ (не в STAGES):
+    цвет резолвится с fallback, без KeyError→500 (регрессия v0.4.1)."""
+    from app.models import Vacancy, Client, VacancyStage
+
+    client = Client(company_id=admin_user.company_id, name="Клиент Кастом")
+    db_session.add(client)
+    await db_session.flush()
+    vac = Vacancy(company_id=admin_user.company_id, client_id=client.id, name="Кастом-вакансия", status="active")
+    db_session.add(vac)
+    await db_session.flush()
+    # Первый непустой этап — КАСТОМНЫЙ 'phone_screen' (нет в core STAGES)
+    for i, key in enumerate(["phone_screen", "interview", "hired", "rejected"]):
+        db_session.add(VacancyStage(
+            company_id=admin_user.company_id, vacancy_id=vac.id,
+            stage_key=key, label=key, order_index=i,
+        ))
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/api/v1/candidates/{test_candidate.id}/applications",
+        headers=auth_headers,
+        json={"vacancy_id": str(vac.id), "stage": "added"},
+    )
+    assert resp.status_code == 201, resp.text  # НЕ 500
+    assert resp.json()["stage"] == "phone_screen"
+    assert resp.json()["stage_color"]  # есть цвет (fallback), не упало

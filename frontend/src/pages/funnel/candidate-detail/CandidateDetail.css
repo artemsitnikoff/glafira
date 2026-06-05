@@ -1808,6 +1808,9 @@
 .cnd-funnel-wrap .cand-detail .job-desc-p {
   margin: 0 0 8px;
   line-height: 1.5;
+  /* hh отдаёт описание опыта одиночными \n (построчно) — без pre-line они схлопывались
+     в «стену текста». pre-line сохраняет переносы; абзацы (\n\n) уже разбиты на <p>. */
+  white-space: pre-line;
 }
 
 .cnd-funnel-wrap .cand-detail .job-desc-p:last-child {

@@ -39,7 +39,9 @@ async def poll_chat_messages(session, company_id, chat_id, candidate_id, applica
     try:
         # Получить все сообщения чата
         messages_data = await hh_client.get_chat_messages(access_token, chat_id, limit=50, order="prev")
-        messages = messages_data.get("messages", [])
+        # hh Chats API отдаёт сообщения под "items" (см. docstring клиента); раньше читали
+        # только "messages" → входящие молча не импортировались. Читаем оба ключа на устойчивость.
+        messages = messages_data.get("items") or messages_data.get("messages") or []
 
         for msg in messages:
             # Определить тип сообщения и автора

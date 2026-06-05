@@ -33,11 +33,13 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
         "avatar_url": user.avatar_url,
     }
 
-    # Email — проверка глобальной уникальности (constraint global), исключая себя.
-    # Без неё смена на занятый email падала бы IntegrityError → 500.
-    if data.email is not None and data.email != user.email:
+    # Email — нормализуем (trim+lower), иначе User@x.com и user@x.com — почти-дубли,
+    # а вход по email регистрозависимо путается. Проверка глобальной уникальности (исключая
+    # себя) — без неё смена на занятый email падала бы IntegrityError → 500.
+    new_email = data.email.strip().lower() if data.email is not None else None
+    if new_email is not None and new_email != user.email:
         existing = (await session.execute(
-            select(User).where(User.email == data.email, User.id != user.id)
+            select(User).where(User.email == new_email, User.id != user.id)
         )).scalar_one_or_none()
         if existing is not None:
             raise ConflictError("Пользователь с таким email уже существует")
@@ -47,8 +49,8 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
         if not data.full_name.strip():
             raise ValidationError("ФИО не может быть пустым")
         user.full_name = data.full_name.strip()
-    if data.email is not None:
-        user.email = data.email
+    if new_email is not None:
+        user.email = new_email
     if data.phone is not None:
         user.phone = data.phone
     if data.position is not None:

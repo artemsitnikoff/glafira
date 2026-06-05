@@ -322,8 +322,10 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
           <Icon name="shield" size={14} />
         </span>
         <span>
-          Проверка выполнена <b>{new Date(verification.created_at).toLocaleDateString('ru-RU')} · 16:42</b>
-          · по согласию №<b className="t-mono">PD-{verification.consent_number || verification.id?.slice(-8) || '000001'}/26</b>
+          Проверка выполнена <b>{new Date(verification.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</b>
+          {verification.consent_number && (
+            <> · по согласию №<b className="t-mono">{verification.consent_number}</b></>
+          )}
         </span>
         <span style={{flex:1}}/>
         <button

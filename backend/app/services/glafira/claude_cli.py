@@ -92,10 +92,19 @@ async def claude_cli_complete(
     if system:
         args.extend(["--append-system-prompt", system])
 
-    # env с токеном; CLAUDECODE убираем, чтобы CLI не считал себя вложенным
+    # env с токеном; CLAUDECODE убираем, чтобы CLI не считал себя вложенным.
+    # Least-privilege: НЕ отдаём секреты приложения дочернему процессу (claude — доверенный
+    # бинарь, но это лишняя поверхность при отладочном дампе env / компрометации пакета).
+    # Чистим явные секреты по имени; PATH/HOME/локаль и пр. оставляем — нужны CLI.
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
-    env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    for _k in list(env):
+        _ku = _k.upper()
+        if ("SECRET" in _ku or "PASSWORD" in _ku or _ku.endswith("_KEY")
+                or _ku.endswith("_TOKEN") or _ku.endswith("_HASH")
+                or _ku in ("DATABASE_URL", "FERNET_KEY", "JWT_SECRET")):
+            env.pop(_k, None)
+    env["CLAUDE_CODE_OAUTH_TOKEN"] = token  # ставим ПОСЛЕ чистки
 
     logger.info("[claude_cli] запуск разведки (model=%s, timeout=%ss)", chosen_model or "default", timeout)
 

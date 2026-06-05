@@ -998,7 +998,9 @@ async def assign_candidate_to_vacancy(
         currency=candidate.currency,
         city=candidate.city,
         stage=stage,
-        stage_color=STAGES[stage].color,
+        # Этап может быть КАСТОМНЫМ (резолв выше берёт первый этап воронки) — голый
+        # STAGES[stage] упал бы KeyError→500. Безопасный резолв как в строке 786.
+        stage_color=_STAGE_COLORS.get(stage, "#9AA3AE"),
         selected_at=application.selected_at
     )
 
