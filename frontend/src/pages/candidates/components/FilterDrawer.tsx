@@ -187,6 +187,7 @@ export function FilterDrawer({ onClose }: FilterDrawerProps) {
     { id: 'hh', label: 'hh.ru' },
     { id: 'avito', label: 'Авито' },
     { id: 'superjob', label: 'SuperJob' },
+    { id: 'linkedin', label: 'LinkedIn' },
     { id: 'telegram', label: 'Глафира · Telegram' },
     { id: 'referral', label: 'Реферал' },
     { id: 'direct', label: 'Прямое обращение' },

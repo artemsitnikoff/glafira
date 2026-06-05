@@ -373,3 +373,28 @@ async def test_update_candidate_messengers_omitted_preserved(
     )
     assert r2.status_code == 200
     assert r2.json()["messengers"] == []
+
+
+async def test_update_candidate_source_linkedin(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session: AsyncSession
+):
+    """source='linkedin' принимается (Literal + CHECK после миграции e1f2a3b4c5d6)."""
+    r = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={"source": "linkedin"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] == "linkedin"
+
+
+async def test_update_candidate_invalid_source_422(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session: AsyncSession
+):
+    """Невалидный source → 422 от Pydantic (Literal), не 500."""
+    r = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={"source": "facebook"},
+    )
+    assert r.status_code == 422, r.text

@@ -45,6 +45,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
       'hh': 'Отклик с HeadHunter',
       'telegram': 'Отклик из Telegram',
       'avito': 'Отклик с Авито',
+      'linkedin': 'Отклик из LinkedIn',
       'pool': 'Из пула'
     };
 

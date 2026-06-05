@@ -39,6 +39,7 @@ const SOURCES = [
   { id: 'hh', name: 'HeadHunter' },
   { id: 'avito', name: 'Avito Работа' },
   { id: 'superjob', name: 'SuperJob' },
+  { id: 'linkedin', name: 'LinkedIn' },
   { id: 'telegram', name: 'Telegram-канал' },
   { id: 'referral', name: 'Реферальная программа' },
   { id: 'direct', name: 'Прямой контакт' },

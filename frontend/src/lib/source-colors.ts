@@ -6,6 +6,8 @@ export interface SourceConfig {
 export const SOURCE_CONFIG: Record<string, SourceConfig> = {
   hh: { label: 'hh.ru', color: 'var(--src-hh)' },
   avito: { label: 'Авито Работа', color: 'var(--src-avito)' },
+  superjob: { label: 'SuperJob', color: 'var(--ark-yellow-600)' },
+  linkedin: { label: 'LinkedIn', color: 'var(--ark-blue-700)' },
   telegram: { label: 'Telegram-бот Глафиры', color: 'var(--src-tg)' },
   referral: { label: 'Рефералы', color: 'var(--stage-added)' },
   direct: { label: 'Прямые отклики', color: 'var(--stage-recruiter)' },
