@@ -236,7 +236,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
 
   const vacancies = vacanciesData?.items || [];
   const targetVacancy = vacancies.find(v => v.id === formData.target_vacancy);
-  const targetName = targetVacancy?.name || '—';
+  // Без выбранной вакансии кандидат уходит «в базу» (привязать можно позже из карточки пула)
+  const targetName = formData.target_vacancy ? (targetVacancy?.name || '—') : 'в базу (без вакансии)';
 
   const isValid = formData.last_name.trim() && formData.first_name.trim() && formData.source;
 
@@ -302,7 +303,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         salary_expectation: formData.salary_expectation ? parseInt(formData.salary_expectation) : null,
         currency: formData.currency,
         add_type: formData.add_type,
-        vacancy_id: formData.target_vacancy,
+        // Пусто → null (НЕ '': '' не пройдёт UUID-валидацию → 422). Кандидат уйдёт «в базу».
+        vacancy_id: formData.target_vacancy || null,
         comment: formData.comment.trim() || null,
         source_url: formData.source_url.trim() || null,
         messengers: formData.social_url.trim()
@@ -337,7 +339,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
       // Авто-оценка Глафиры — fire-and-forget, ТОЛЬКО если резюме реально распарсилось (PDF
       // загружен успешно). Иначе оценка посчиталась бы по пустому профилю и закэшировалась:
       // повторная /glafira/score дедупит, и переоценить после добавления резюме уже нельзя.
-      if (newCandidate.id && resumeParsed) {
+      // Авто-оценка возможна только если кандидат привязан к вакансии (оценка идёт против неё)
+      if (newCandidate.id && resumeParsed && formData.target_vacancy) {
         try {
           evaluateMutation.mutate(
             { candidate_id: newCandidate.id, vacancy_id: formData.target_vacancy },
@@ -458,17 +461,24 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
             </div>
             )}
 
-            {/* Vacancy selection — только при создании (правка не меняет привязку к воронке) */}
+            {/* Vacancy selection — только при создании (правка не меняет привязку к воронке).
+                Вакансия НЕОБЯЗАТЕЛЬНА: можно добавить кандидата «в базу» и привязать позже. */}
             {!isEdit && (
             <div className="nv-field">
               <label className="nv-label">
-                Добавить в вакансию <span className="nv-req">*</span>
+                Добавить в вакансию
+                <span className="nv-mute" style={{ fontWeight: 400, marginLeft: 6 }}>
+                  · необязательно — можно оставить в базе
+                </span>
               </label>
               <NCDropdown
                 id="vac"
                 value={formData.target_vacancy}
                 onChange={v => updateFormData({ target_vacancy: v })}
-                options={vacancies.map(v => ({ id: v.id, name: v.name }))}
+                options={[
+                  { id: '', name: '— Без привязки (в базу) —' },
+                  ...vacancies.map(v => ({ id: v.id, name: v.name })),
+                ]}
                 openId={openDD}
                 setOpenId={setOpenDD}
               />

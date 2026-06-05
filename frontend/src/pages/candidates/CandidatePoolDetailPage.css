@@ -396,6 +396,35 @@
   font-size: 12px;
 }
 
+.btn-success {
+  background: var(--ark-green-500);
+  color: #fff;
+}
+.btn-success:hover {
+  background: var(--ark-green-600);
+}
+
+/* Ряд действий карточки кандидата в пуле (Перевести на вакансию / Комментарий / ПдН) */
+.cfp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  flex-wrap: wrap;
+}
+.cfp-pdn-confirmed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--risk-low-soft);
+  color: var(--risk-low);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .cfp-mini-empty {
   padding: 18px;
   background: var(--bg-panel-2);

@@ -439,3 +439,52 @@ async def test_candidate_source_url_create_update_get(
     )
     assert cleared.status_code == 200
     assert cleared.json()["source_url"] is None
+
+
+# ===== Кандидат без привязки к вакансии + назначение позже (фикс логики) =====
+
+async def test_create_candidate_without_vacancy_then_assign(
+    async_client: AsyncClient, auth_headers: dict, admin_user, db_session: AsyncSession,
+):
+    """Кандидат создаётся БЕЗ вакансии (в базу), затем привязывается через assign."""
+    from app.models import Vacancy, Client
+
+    # Создаём кандидата без vacancy_id → должен попасть «в базу», без application
+    created = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={"last_name": "Базовый", "first_name": "Кандидат", "source": "manual"},
+    )
+    assert created.status_code == 201, created.text
+    cid = created.json()["id"]
+
+    apps = await async_client.get(f"/api/v1/candidates/{cid}/applications", headers=auth_headers)
+    assert apps.status_code == 200
+    assert apps.json() == []  # ни одной вакансии
+
+    # Готовим вакансию для назначения
+    client = Client(company_id=admin_user.company_id, name="Клиент Назн")
+    db_session.add(client)
+    await db_session.flush()
+    vac = Vacancy(company_id=admin_user.company_id, client_id=client.id, name="Назн-вакансия", status="active")
+    db_session.add(vac)
+    await db_session.commit()
+
+    # Назначаем кандидата на вакансию (этап added)
+    assigned = await async_client.post(
+        f"/api/v1/candidates/{cid}/applications",
+        headers=auth_headers,
+        json={"vacancy_id": str(vac.id), "stage": "added"},
+    )
+    assert assigned.status_code == 201, assigned.text
+
+    apps2 = await async_client.get(f"/api/v1/candidates/{cid}/applications", headers=auth_headers)
+    assert len(apps2.json()) == 1
+
+    # Повторное назначение на ту же вакансию → 409
+    again = await async_client.post(
+        f"/api/v1/candidates/{cid}/applications",
+        headers=auth_headers,
+        json={"vacancy_id": str(vac.id), "stage": "added"},
+    )
+    assert again.status_code == 409

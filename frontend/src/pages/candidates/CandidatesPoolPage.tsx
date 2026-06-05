@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useCandidates } from '../../api/hooks/useCandidates'
-import { useVacancies } from '../../api/hooks/useVacancies'
 import { FilterDrawer } from './components/FilterDrawer'
 import { Icon } from '../../components/ui/Icon'
 import { Avatar } from '../../components/ui/Avatar'
@@ -471,36 +470,12 @@ interface CandidateFormWrapperProps {
 }
 
 function CandidateFormWrapper({ onClose }: CandidateFormWrapperProps) {
-  const { data: vacanciesData } = useVacancies({ status: 'active' })
-
-  // Use first available vacancy as default or empty string if none
-  const defaultVacancyId = vacanciesData?.items?.[0]?.id || ''
-
-  // If no vacancies loaded yet, show loading
-  if (!vacanciesData) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
-        Загрузка вакансий...
-      </div>
-    )
-  }
-
-  // If no active vacancies, show message
-  if (!vacanciesData.items?.length) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
-        <h3>Нет активных вакансий</h3>
-        <p>Создайте вакансию, чтобы добавлять кандидатов</p>
-        <button className="btn btn-secondary" onClick={onClose}>
-          Назад
-        </button>
-      </div>
-    )
-  }
-
+  // Из пула добавляем БЕЗ предвыбранной вакансии — кандидат уходит «в базу», привязать можно
+  // позже из карточки («Перевести на вакансию»). Вакансию можно выбрать в форме при желании.
+  // Форма сама грузит список вакансий для дропдауна; спец-блока «нет вакансий» больше нет.
   return (
     <NewCandidateForm
-      vacancyId={defaultVacancyId}
+      vacancyId=""
       onClose={onClose}
     />
   )

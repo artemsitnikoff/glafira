@@ -18,12 +18,15 @@ import { ResumeTab } from '../funnel/candidate-detail/tabs/ResumeTab'
 import { ChatTab } from '../funnel/candidate-detail/tabs/ChatTab'
 import { DocumentsTab } from '../funnel/candidate-detail/tabs/DocumentsTab'
 import { EvaluationTab } from '../funnel/candidate-detail/tabs/EvaluationTab'
+import { CommentsTab } from '../funnel/candidate-detail/tabs/CommentsTab'
+import { useRequestConsent } from '@/api/mutations/candidateDetail'
 
 const TABS = [
   { key: 'resume', label: 'Резюме' },
   { key: 'evaluation', label: 'Оценка AI' },
   { key: 'chat', label: 'Чат' },
-  { key: 'documents', label: 'Документы' }
+  { key: 'documents', label: 'Документы' },
+  { key: 'comments', label: 'Комментарии' }
 ] as const
 
 type TabKey = typeof TABS[number]['key']
@@ -47,6 +50,8 @@ export function CandidatePoolDetailPage() {
     data: applications,
     isLoading: applicationsLoading
   } = useCandidateApplications(candidateId!)
+
+  const consentMutation = useRequestConsent(candidateId || '')
 
   const handleBackToPool = () => {
     // К СПИСКУ кандидатов (не navigate(-1) — иначе ходит по истории смены табов),
@@ -109,6 +114,8 @@ export function CandidatePoolDetailPage() {
         return <DocumentsTab {...commonProps} />
       case 'evaluation':
         return <EvaluationTab {...commonProps} />
+      case 'comments':
+        return <CommentsTab {...commonProps} />
       default:
         return <ResumeTab {...commonProps} onOpenAI={() => handleTabChange('evaluation')} />
     }
@@ -291,6 +298,39 @@ export function CandidatePoolDetailPage() {
         )}
       </div>
 
+      {/* Действия карточки (как в эталоне, без «Отклонить» — он не имеет смысла без вакансии) */}
+      <div className="cfp-actions">
+        <button
+          className="btn btn-success btn-sm"
+          onClick={() => setShowAssignModal(true)}
+        >
+          <Icon name="briefcase" size={14} /> Перевести на вакансию
+        </button>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => handleTabChange('comments')}
+        >
+          <Icon name="message-square" size={14} /> Комментарий
+        </button>
+        {candidate.has_pdn ? (
+          <span className="cfp-pdn-confirmed" title="Согласие на обработку ПдН получено">
+            ПдН
+            <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+              <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        ) : (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => consentMutation.mutate({ channel: 'email' })}
+            disabled={consentMutation.isPending}
+            title="Запросить согласие на обработку персональных данных"
+          >
+            <Icon name="shield" size={14} /> ПдН
+          </button>
+        )}
+      </div>
+
       {/* Табы */}
       <div className="cfp-tabs">
         {TABS.map((tab) => (
@@ -313,24 +353,11 @@ export function CandidatePoolDetailPage() {
         </div>
       </div>
 
-      {/* Assign Modal */}
+      {/* Перевод/назначение на вакансию (поиск + список) */}
       {showAssignModal && (
         <AssignToVacancyModal
-          candidate={{
-            id: candidate.id,
-            display_number: candidate.display_number,
-            full_name: candidate.full_name,
-            age: candidate.age,
-            last_position: candidate.last_position,
-            last_company: candidate.last_company,
-            last_period: candidate.last_period,
-            ai_score: candidate.ai_score,
-            avatar_url: null,
-            is_duplicate: candidate.is_duplicate,
-            has_pdn: candidate.has_pdn,
-            last_vacancy: null,
-            other_vacancies_count: 0
-          }}
+          candidateId={candidate.id}
+          candidateName={candidate.full_name}
           isOpen={showAssignModal}
           onClose={() => setShowAssignModal(false)}
         />
