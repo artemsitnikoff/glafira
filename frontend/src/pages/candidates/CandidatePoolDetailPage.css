@@ -369,7 +369,9 @@
   color: var(--accent);
 }
 
-.btn {
+/* .btn-* СКОУПЛЕНЫ под .cfp-page — иначе глобально текли на другие экраны (находка ревью).
+   Кнопки внутри карточки (.cand-detail) стилизуются своими .cnd-funnel-wrap .cand-detail .btn. */
+.cfp-page .btn {
   border: 0;
   border-radius: var(--radius-md);
   padding: 8px 16px;
@@ -382,47 +384,18 @@
   gap: 6px;
 }
 
-.btn-secondary {
+.cfp-page .btn-secondary {
   background: var(--bg-3);
   color: var(--fg-1);
 }
 
-.btn-secondary:hover {
+.cfp-page .btn-secondary:hover {
   background: var(--bg-3-hover);
 }
 
-.btn-sm {
+.cfp-page .btn-sm {
   padding: 4px 12px;
   font-size: 12px;
-}
-
-.btn-success {
-  background: var(--ark-green-500);
-  color: #fff;
-}
-.btn-success:hover {
-  background: var(--ark-green-600);
-}
-
-/* Ряд действий карточки кандидата в пуле (Перевести на вакансию / Комментарий / ПдН) */
-.cfp-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 16px 0 0;
-  flex-wrap: wrap;
-}
-.cfp-pdn-confirmed {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  background: var(--risk-low-soft);
-  color: var(--risk-low);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .cfp-mini-empty {

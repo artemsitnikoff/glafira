@@ -488,3 +488,39 @@ async def test_create_candidate_without_vacancy_then_assign(
         json={"vacancy_id": str(vac.id), "stage": "added"},
     )
     assert again.status_code == 409
+
+
+async def test_assign_resolves_stage_to_funnel_when_added_absent(
+    async_client: AsyncClient, auth_headers: dict, admin_user, test_candidate, db_session: AsyncSession,
+):
+    """Назначение на вакансию без этапа 'added' (массовая воронка) → этап резолвится
+    в первый непустой этап воронки, а не падает/не создаёт «призрачный» этап."""
+    from app.models import Vacancy, Client, VacancyStage
+
+    client = Client(company_id=admin_user.company_id, name="Клиент Масс")
+    db_session.add(client)
+    await db_session.flush()
+    vac = Vacancy(company_id=admin_user.company_id, client_id=client.id, name="Масс-вакансия", status="active")
+    db_session.add(vac)
+    await db_session.flush()
+    # Воронка БЕЗ 'added' (как шаблон «массовый»)
+    for i, key in enumerate(["response", "selected", "interview", "hired", "rejected"]):
+        db_session.add(VacancyStage(
+            company_id=admin_user.company_id, vacancy_id=vac.id,
+            stage_key=key, label=key, order_index=i,
+        ))
+    await db_session.commit()
+
+    # Просим 'added' — его в воронке нет → должен резолвиться в 'response' (первый непустой)
+    resp = await async_client.post(
+        f"/api/v1/candidates/{test_candidate.id}/applications",
+        headers=auth_headers,
+        json={"vacancy_id": str(vac.id), "stage": "added"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    apps = await async_client.get(
+        f"/api/v1/candidates/{test_candidate.id}/applications", headers=auth_headers
+    )
+    assert len(apps.json()) == 1
+    assert apps.json()[0]["stage"] == "response"  # зарезолвлен, не 'added'

@@ -3,30 +3,32 @@ import './CandidatePoolDetailPage.css'
 import '../funnel/candidate-detail/CandidateDetail.css'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCandidate, useCandidateApplications } from '../../api/hooks/useCandidates'
+import { useRequestConsent } from '@/api/mutations/candidateDetail'
 import { AssignToVacancyModal } from './components/AssignToVacancyModal'
-import { messengerChannel } from '@/lib/messengers'
-import { formatSalary as fmtSalary } from '@/lib/format'
 import { Icon } from '@/components/ui/Icon'
-import { Avatar } from '@/components/ui/Avatar'
 import { ScoreLabel } from '@/components/ui/ScoreLabel'
 import { StageChip } from '@/components/ui/StageChip'
-import { CandidateTagPicker } from '@/components/CandidateTagPicker'
-import { MessIconRound } from '@/components/ui/MessIconRound'
 
-// Import existing tabs with fromPool prop support
+// Карточка кандидата в пуле = ТА ЖЕ карточка, что в воронке (эталон: «точь-в-точь как в
+// вакансиях»). Переиспользуем шапку (CandidateHeader / cd-header), 7 табов (cc-tabs) и
+// тулбар — всё внутри .cnd-funnel-wrap .cand-detail. Сверху — «История участия в вакансиях».
+import { CandidateHeader } from '../funnel/candidate-detail/CandidateHeader'
 import { ResumeTab } from '../funnel/candidate-detail/tabs/ResumeTab'
+import { EvaluationTab } from '../funnel/candidate-detail/tabs/EvaluationTab'
+import { VerificationTab } from '../funnel/candidate-detail/tabs/VerificationTab'
 import { ChatTab } from '../funnel/candidate-detail/tabs/ChatTab'
 import { DocumentsTab } from '../funnel/candidate-detail/tabs/DocumentsTab'
-import { EvaluationTab } from '../funnel/candidate-detail/tabs/EvaluationTab'
 import { CommentsTab } from '../funnel/candidate-detail/tabs/CommentsTab'
-import { useRequestConsent } from '@/api/mutations/candidateDetail'
+import { AllActionsTab } from '../funnel/candidate-detail/tabs/AllActionsTab'
 
 const TABS = [
   { key: 'resume', label: 'Резюме' },
   { key: 'evaluation', label: 'Оценка AI' },
+  { key: 'verification', label: 'Верификация' },
   { key: 'chat', label: 'Чат' },
-  { key: 'documents', label: 'Документы' },
-  { key: 'comments', label: 'Комментарии' }
+  { key: 'docs', label: 'Документы' },
+  { key: 'comments', label: 'Комментарии' },
+  { key: 'actions', label: 'Все действия' }
 ] as const
 
 type TabKey = typeof TABS[number]['key']
@@ -71,51 +73,27 @@ export function CandidatePoolDetailPage() {
     setSearchParams(newParams, { replace: true })
   }
 
-  const formatContactInfo = () => {
-    if (!candidate) return ''
-
-    // Эталон: «возраст · стаж на последнем месте · последнее место» (без должности).
-    // last_tenure/last_company приходят с бэка (вычислены из самой свежей записи опыта).
-    const tenure = (candidate as any).last_tenure as string | null | undefined
-    const parts = []
-    if (candidate.age) parts.push(`${candidate.age} лет`)
-    if (tenure) parts.push(tenure)
-    if (candidate.last_company) parts.push(candidate.last_company)
-
-    return parts.join(' · ')
-  }
-
-  const handleScoreBadgeClick = () => {
-    handleTabChange('evaluation')
-  }
-
-  const formatSalary = () =>
-    candidate?.salary_expectation
-      ? fmtSalary(candidate.salary_expectation, candidate.currency)
-      : null
-
   const fmtDate = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 
   const renderTabContent = () => {
     if (!candidate) return null
-
-    const commonProps = {
-      candidate,
-      fromPool: true
-    }
-
+    const commonProps = { candidate, fromPool: true }
     switch (activeTab) {
       case 'resume':
         return <ResumeTab {...commonProps} onOpenAI={() => handleTabChange('evaluation')} />
-      case 'chat':
-        return <ChatTab {...commonProps} />
-      case 'documents':
-        return <DocumentsTab {...commonProps} />
       case 'evaluation':
         return <EvaluationTab {...commonProps} />
+      case 'verification':
+        return <VerificationTab candidateId={candidate.id} hasPdn={candidate.has_pdn ?? false} />
+      case 'chat':
+        return <ChatTab {...commonProps} />
+      case 'docs':
+        return <DocumentsTab {...commonProps} />
       case 'comments':
         return <CommentsTab {...commonProps} />
+      case 'actions':
+        return <AllActionsTab candidateId={candidate.id} />
       default:
         return <ResumeTab {...commonProps} onOpenAI={() => handleTabChange('evaluation')} />
     }
@@ -152,89 +130,7 @@ export function CandidatePoolDetailPage() {
         </button>
       </div>
 
-      {/* Шапка кандидата */}
-      <div className="cfp-header">
-        <div className="cfp-h-top">
-          <div className="cfp-h-id">
-            <Avatar name={candidate.full_name} size="md" src={null} />
-            <div className="cfp-name-wrap">
-              <div className="cfp-name-row">
-                <h1 className="cfp-name">{candidate.full_name}</h1>
-                {candidate.display_number && (
-                  <span className="cfp-num">№{candidate.display_number}</span>
-                )}
-                {candidate.is_duplicate && (
-                  <span className="cfp-dup">Дубль</span>
-                )}
-              </div>
-              {formatContactInfo() && (
-                <div className="cfp-meta-line">{formatContactInfo()}</div>
-              )}
-            </div>
-          </div>
-          <div
-            onClick={handleScoreBadgeClick}
-            style={{ cursor: 'pointer' }}
-            title="Перейти к оценке AI"
-          >
-            <ScoreLabel value={candidate.ai_score ?? null} size="xl" />
-          </div>
-        </div>
-
-        {/* Контакты */}
-        <div className="cfp-contact-row">
-          {candidate.phone && (
-            <div className="cfp-contact-item">
-              <span className="cfp-contact-k">Телефон:</span>
-              <a href={`tel:${candidate.phone}`} className="cfp-phone">
-                {candidate.phone}
-              </a>
-              {candidate.messengers && candidate.messengers.length > 0 && (
-                <div className="cfp-mess-row">
-                  {candidate.messengers.map((m: any, i: number) => {
-                    const ch = messengerChannel(m);
-                    return (
-                      <MessIconRound
-                        key={`${ch}-${i}`}
-                        channel={ch}
-                        size="sm"
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-          {candidate.email && (
-            <div className="cfp-contact-item">
-              <span className="cfp-contact-k">E-mail:</span>
-              <a href={`mailto:${candidate.email}`} className="cfp-email">
-                {candidate.email}
-              </a>
-            </div>
-          )}
-          {candidate.city && (
-            <div className="cfp-contact-item">
-              <span className="cfp-contact-k">Город:</span>
-              <span>{candidate.city}</span>
-            </div>
-          )}
-          {formatSalary() && (
-            <div className="cfp-contact-item">
-              <span className="cfp-contact-k">Ожидания:</span>
-              <span>{formatSalary()}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Теги */}
-        <div className="cfp-tags-row">
-          <span className="cfp-tags-k">Теги:</span>
-          <CandidateTagPicker candidateId={candidate.id} assigned={candidate.tags ?? []} />
-        </div>
-      </div>
-
-      {/* История участия в вакансиях */}
+      {/* История участия в вакансиях (как в эталоне — над карточкой) */}
       <div className="cfp-history">
         <div className="cfp-section-head">
           <h2 className="cfp-section-title">История участия в вакансиях</h2>
@@ -298,57 +194,61 @@ export function CandidatePoolDetailPage() {
         )}
       </div>
 
-      {/* Действия карточки (как в эталоне, без «Отклонить» — он не имеет смысла без вакансии) */}
-      <div className="cfp-actions">
-        <button
-          className="btn btn-success btn-sm"
-          onClick={() => setShowAssignModal(true)}
-        >
-          <Icon name="briefcase" size={14} /> Перевести на вакансию
-        </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={() => handleTabChange('comments')}
-        >
-          <Icon name="message-square" size={14} /> Комментарий
-        </button>
-        {candidate.has_pdn ? (
-          <span className="cfp-pdn-confirmed" title="Согласие на обработку ПдН получено">
-            ПдН
-            <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-              <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-        ) : (
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => consentMutation.mutate({ channel: 'email' })}
-            disabled={consentMutation.isPending}
-            title="Запросить согласие на обработку персональных данных"
-          >
-            <Icon name="shield" size={14} /> ПдН
-          </button>
-        )}
-      </div>
-
-      {/* Табы */}
-      <div className="cfp-tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            className={`cfp-tab ${activeTab === tab.key ? 'active' : ''}`}
-            onClick={() => handleTabChange(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Контент табов с proper scoping для CandidateDetail CSS */}
-      <div className="cfp-tab-content">
+      {/* Карточка соискателя — точь-в-точь как в воронке (cd-toolbar + cd-header + cc-tabs) */}
+      <div className="cfp-detail-host">
         <div className="cnd-funnel-wrap">
           <div className="cand-detail">
-            {renderTabContent()}
+            {/* Тулбар: Перевести на вакансию / Комментарий / ПдН (без «Отклонить» — без вакансии не имеет смысла) */}
+            <div className="cd-toolbar">
+              <button className="btn btn-success btn-sm" onClick={() => setShowAssignModal(true)}>
+                <Icon name="briefcase" size={14} /> Перевести на вакансию
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={() => handleTabChange('comments')}>
+                <Icon name="message-square" size={14} /> Комментарий
+              </button>
+              {candidate.has_pdn ? (
+                <span className="cd-pdn-confirmed" title="Согласие на обработку ПдН получено">
+                  ПдН
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              ) : (
+                <button
+                  className="btn btn-secondary btn-sm cd-pdn-btn"
+                  onClick={() => consentMutation.mutate({ channel: 'email' })}
+                  disabled={consentMutation.isPending}
+                  title="Запросить согласие на обработку персональных данных"
+                >
+                  <Icon name="shield" size={14} /> ПдН
+                </button>
+              )}
+              <div style={{ flex: 1 }} />
+              <button className="icon-btn" onClick={handleBackToPool} title="Закрыть">
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            {/* Шапка кандидата — общая с воронкой (cd-header). application=null: в пуле нет
+                одной «контекстной» заявки, источник/город берутся из самого кандидата. */}
+            <CandidateHeader candidateId={candidate.id} application={null} />
+
+            {/* Табы */}
+            <div className="cc-tabs">
+              {TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  className={`cc-tab ${activeTab === tab.key ? 'active' : ''}`}
+                  onClick={() => handleTabChange(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="cc-content">
+              {renderTabContent()}
+            </div>
           </div>
         </div>
       </div>

@@ -903,18 +903,24 @@ async def assign_candidate_to_vacancy(
     if not vacancy:
         raise NotFoundError("Вакансия")
 
-    # Check if stage is valid (either system stage or custom stage for this vacancy)
-    if stage not in STAGES:
-        # Check if it's a custom stage for this vacancy
-        custom_stage_result = await session.execute(
-            select(VacancyStage).where(
-                VacancyStage.vacancy_id == vacancy_id,
-                VacancyStage.stage_key == stage
-            )
-        )
-        custom_stage = custom_stage_result.scalar_one_or_none()
-        if not custom_stage:
-            raise ValidationError(f"Неверная стадия: {stage}")
+    # Резолвим целевой этап в РЕАЛЬНЫЙ этап воронки ИМЕННО ЭТОЙ вакансии. Если запрошенного
+    # этапа в её воронке нет (напр. 'added' отсутствует в шаблоне «массовый») — берём первый
+    # непустой этап по порядку, чтобы кандидат не попал в «призрачный» этап вне доски.
+    vac_stages = (await session.execute(
+        select(VacancyStage)
+        .where(VacancyStage.vacancy_id == vacancy_id)
+        .order_by(VacancyStage.order_index)
+    )).scalars().all()
+    if vac_stages:
+        valid_keys = {vs.stage_key for vs in vac_stages}
+        if stage not in valid_keys:
+            non_terminal = [vs for vs in vac_stages if vs.stage_key not in ("hired", "rejected")]
+            if not non_terminal:
+                raise ValidationError("В воронке вакансии нет доступных этапов для назначения")
+            stage = non_terminal[0].stage_key
+    elif stage not in STAGES:
+        # У вакансии нет кастомных этапов в БД — принимаем только системный этап
+        raise ValidationError(f"Неверная стадия: {stage}")
 
     # Check if application already exists
     existing_result = await session.execute(
