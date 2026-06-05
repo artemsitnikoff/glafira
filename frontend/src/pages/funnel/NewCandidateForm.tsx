@@ -7,7 +7,7 @@ import './NewCandidateForm.css';
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useCreateCandidate } from '@/api/mutations/candidates';
-import { useEvaluate } from '@/api/mutations/candidateDetail';
+import { useEvaluate, useUpdateCandidate } from '@/api/mutations/candidateDetail';
 import { useVacancies } from '@/api/hooks/useVacancies';
 import { api } from '@/api/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,10 +18,19 @@ import type { ApiError } from '@/api/aliases';
 type CandidateCreateLocal = components['schemas']['CandidateCreate'] & {
   messengers?: { type: string; url: string }[];
 };
+// CandidateUpdate в types.ts отстаёт (нет source/messengers) — локальное расширение + cast.
+type CandidateUpdateLocal = components['schemas']['CandidateUpdate'] & {
+  source?: string | null;
+  messengers?: { type: string; url: string }[];
+};
+type CandidateDetailT = components['schemas']['CandidateDetail'];
 
 type Props = {
-  vacancyId: string;
+  // Создание: vacancyId — целевая вакансия. Правка: передаётся candidate (vacancyId не нужен).
+  vacancyId?: string;
+  candidate?: CandidateDetailT;
   onClose: () => void;
+  onSaved?: () => void;
 };
 
 const SOURCES = [
@@ -146,8 +155,33 @@ function parseDate(dateStr: string): string | null {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
 
-export default function NewCandidateForm({ vacancyId, onClose }: Props) {
+// ISO YYYY-MM-DD → ДД.ММ.ГГГГ для предзаполнения поля в режиме правки.
+function isoToDisplayDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  const [, y, mo, d] = m;
+  return `${d}.${mo}.${y}`;
+}
+
+// Первый мессенджер в объектной форме {type,url}. Форма поддерживает одну соц-сеть;
+// старые строковые мессенджеры (["telegram"]) без url замапить нельзя — пропускаем.
+function firstSocial(messengers: (Record<string, unknown> | string)[] | undefined): { type: string; url: string } {
+  const known = new Set(SOCIAL_TYPES.map(s => s.id));
+  for (const m of messengers || []) {
+    if (m && typeof m === 'object') {
+      const type = String((m as any).type || '');
+      const url = String((m as any).url || '');
+      if (known.has(type) && url) return { type, url };
+    }
+  }
+  return { type: 'tg', url: '' };
+}
+
+export default function NewCandidateForm({ vacancyId, candidate, onClose, onSaved }: Props) {
+  const isEdit = !!candidate;
   const createMutation = useCreateCandidate(vacancyId);
+  const updateMutation = useUpdateCandidate(candidate?.id || '');
   const { data: vacanciesData } = useVacancies({ status: 'active' });
   const evaluateMutation = useEvaluate();
   const queryClient = useQueryClient();
@@ -157,22 +191,28 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Соц-сеть на момент открытия правки — чтобы НЕ затирать messengers (в т.ч. несколько),
+  // если пользователь поле не трогал.
+  const initialSocial = isEdit ? firstSocial(candidate!.messengers as any) : { type: 'tg', url: '' };
+
   const [formData, setFormData] = useState({
-    last_name: '',
-    first_name: '',
-    middle_name: '',
-    phone: '',
-    email: '',
-    gender: 'unset' as 'female' | 'male' | 'unset',
-    birth_date: '',
-    city: '',
-    salary_expectation: '',
-    currency: 'RUB',
-    source: '',
+    last_name: candidate?.last_name ?? '',
+    first_name: candidate?.first_name ?? '',
+    middle_name: candidate?.middle_name ?? '',
+    phone: candidate?.phone ?? '',
+    email: candidate?.email ?? '',
+    gender: (candidate?.gender === 'male' || candidate?.gender === 'female'
+      ? candidate.gender
+      : 'unset') as 'female' | 'male' | 'unset',
+    birth_date: isoToDisplayDate(candidate?.birth_date),
+    city: candidate?.city ?? '',
+    salary_expectation: candidate?.salary_expectation != null ? String(candidate.salary_expectation) : '',
+    currency: candidate?.currency ?? 'RUB',
+    source: candidate?.source ?? '',
     add_type: 'manual',
-    social_type: 'tg',
-    social_url: '',
-    target_vacancy: vacancyId,
+    social_type: initialSocial.type,
+    social_url: initialSocial.url,
+    target_vacancy: vacancyId ?? '',
     comment: '',
   });
 
@@ -206,6 +246,39 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
     setErrors({});
 
     try {
+      // ===== Режим правки: PATCH /candidates/{id}, без вакансии/типа/резюме =====
+      if (isEdit && candidate) {
+        const socialChanged =
+          formData.social_type !== initialSocial.type ||
+          formData.social_url.trim() !== initialSocial.url;
+        const updatePayload: CandidateUpdateLocal = {
+          last_name: formData.last_name.trim(),
+          first_name: formData.first_name.trim(),
+          middle_name: formData.middle_name.trim() || null,
+          source: formData.source,
+          phone: formData.phone.trim() || null,
+          email: formData.email.trim() || null,
+          gender: formData.gender === 'unset' ? null : formData.gender,
+          birth_date: parseDate(formData.birth_date),
+          city: formData.city.trim() || null,
+          salary_expectation: formData.salary_expectation ? parseInt(formData.salary_expectation) : null,
+          currency: formData.currency,
+          // messengers шлём ТОЛЬКО если поле меняли — иначе не трогаем (сохраняем как есть,
+          // в т.ч. несколько/легаси). Изменили → заменяем (или [] при очистке).
+          ...(socialChanged
+            ? { messengers: formData.social_url.trim() ? [{ type: formData.social_type, url: formData.social_url.trim() }] : [] }
+            : {}),
+        };
+        await updateMutation.mutateAsync(updatePayload as any);
+        // Освежаем карточку, воронку, пул и Главную (имя/город/ЗП могли измениться)
+        queryClient.invalidateQueries({ queryKey: ['candidates'] });
+        queryClient.invalidateQueries({ queryKey: ['vacancies'] });
+        queryClient.invalidateQueries({ queryKey: ['home'] });
+        onSaved?.();
+        onClose();
+        return;
+      }
+
       // Prepare payload
       const payload: CandidateCreateLocal = {
         last_name: formData.last_name.trim(),
@@ -289,7 +362,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
         });
         setErrors(fieldErrors);
       } else {
-        setErrors({ general: e.error?.message || 'Произошла ошибка при создании кандидата' });
+        setErrors({ general: e.error?.message || (isEdit ? 'Произошла ошибка при сохранении кандидата' : 'Произошла ошибка при создании кандидата') });
       }
     } finally {
       setIsSubmitting(false);
@@ -304,7 +377,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
             <Icon name="chevL" size={14} /> Назад
           </span>
           <span className="nv-crumb-sep">/</span>
-          <span className="nv-crumb-cur">Добавить кандидата</span>
+          <span className="nv-crumb-cur">{isEdit ? 'Редактировать кандидата' : 'Добавить кандидата'}</span>
         </div>
         <div className="nv-top-actions">
           <button className="btn btn-ghost btn-sm" onClick={onClose}>
@@ -316,9 +389,11 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
       <div className="nv-grid">
         <div className="nv-card nv-card-full">
           <div className="nv-step-body">
-            <div className="nv-h1">Новый кандидат</div>
+            <div className="nv-h1">{isEdit ? 'Редактировать кандидата' : 'Новый кандидат'}</div>
             <div className="nv-h2">
-              Заполните основное и приложите резюме. Глафира распарсит документ и подтянет недостающие поля автоматически.
+              {isEdit
+                ? 'Измените данные кандидата и сохраните. Резюме и документы — во вкладке «Документы» карточки.'
+                : 'Заполните основное и приложите резюме. Глафира распарсит документ и подтянет недостающие поля автоматически.'}
             </div>
 
             {/* Error banner */}
@@ -328,7 +403,8 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
               </div>
             )}
 
-            {/* Header: avatar + resume drop zone + Excel import */}
+            {/* Header: avatar + resume drop zone + Excel import — только при создании */}
+            {!isEdit && (
             <div className="nc-head">
               <div className="nc-avatar">
                 <Icon name="users" size={26} />
@@ -370,8 +446,10 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
                 </span>
               </div>
             </div>
+            )}
 
-            {/* Vacancy selection */}
+            {/* Vacancy selection — только при создании (правка не меняет привязку к воронке) */}
+            {!isEdit && (
             <div className="nv-field">
               <label className="nv-label">
                 Добавить в вакансию <span className="nv-req">*</span>
@@ -385,6 +463,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
                 setOpenId={setOpenDD}
               />
             </div>
+            )}
 
             {/* Source */}
             <div className="nv-field">
@@ -536,6 +615,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
                   />
                 </div>
               </div>
+              {!isEdit && (
               <div className="nv-field">
                 <label className="nv-label">Тип добавления</label>
                 <NCDropdown
@@ -547,6 +627,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
                   setOpenId={setOpenDD}
                 />
               </div>
+              )}
             </div>
 
             {/* Social networks */}
@@ -570,7 +651,8 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
               </div>
             </div>
 
-            {/* Comment */}
+            {/* Comment — только при создании (правка комментарии не трогает) */}
+            {!isEdit && (
             <div className="nv-field">
               <label className="nv-label">Комментарий</label>
               <textarea
@@ -581,6 +663,7 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
                 onChange={e => updateFormData({ comment: e.target.value })}
               />
             </div>
+            )}
           </div>
 
           <div className="nv-card-foot">
@@ -588,15 +671,19 @@ export default function NewCandidateForm({ vacancyId, onClose }: Props) {
               <Icon name="chevL" size={13} /> Отмена
             </button>
             <div className="nv-foot-progress">
-              Кандидат → <b>{targetName}</b>
+              {isEdit
+                ? <>Изменения кандидата</>
+                : <>Кандидат → <b>{targetName}</b></>}
             </div>
             <button
               className={`btn btn-primary btn-sm ${!isValid || isSubmitting ? 'is-disabled' : ''}`}
               disabled={!isValid || isSubmitting}
               onClick={handleSubmit}
             >
-              <Icon name="plus" size={14} />
-              {isSubmitting ? ' Добавление...' : ' Добавить кандидата'}
+              <Icon name={isEdit ? 'check' : 'plus'} size={14} />
+              {isEdit
+                ? (isSubmitting ? ' Сохранение...' : ' Сохранить')
+                : (isSubmitting ? ' Добавление...' : ' Добавить кандидата')}
             </button>
           </div>
         </div>

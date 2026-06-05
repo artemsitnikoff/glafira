@@ -321,3 +321,55 @@ class TestCandidates:
 
         # Check that empty comment is not stored and default add_type is not stored
         assert candidate["extra"] == {}
+
+# ===== Редактирование кандидата из карточки: source + messengers =====
+
+async def test_update_candidate_source_and_messengers(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session: AsyncSession
+):
+    """PATCH /candidates/{id} обновляет source и messengers (новые поля для формы правки)."""
+    r = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "source": "hh",
+            "city": "Казань",
+            "messengers": [{"type": "tg", "url": "https://t.me/foo"}],
+        },
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["source"] == "hh"
+    assert data["city"] == "Казань"
+    assert data["messengers"] == [{"type": "tg", "url": "https://t.me/foo"}]
+
+
+async def test_update_candidate_messengers_omitted_preserved(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session: AsyncSession
+):
+    """messengers НЕ передан → существующие сохраняются (None = не трогать)."""
+    # Сначала проставим мессенджер
+    await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={"messengers": [{"type": "wa", "url": "https://wa.me/79990001122"}]},
+    )
+    # Патч без messengers — не должен их затереть
+    r = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={"phone": "+7 999 000 11 22"},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["phone"] == "+7 999 000 11 22"
+    assert data["messengers"] == [{"type": "wa", "url": "https://wa.me/79990001122"}]
+
+    # Пустой список — очистка
+    r2 = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={"messengers": []},
+    )
+    assert r2.status_code == 200
+    assert r2.json()["messengers"] == []

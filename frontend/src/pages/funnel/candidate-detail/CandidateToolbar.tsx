@@ -13,6 +13,7 @@ type Props = {
   fromPool?: boolean;
   onClose: () => void;
   onTabChange?: (tab: string) => void;
+  onEdit?: () => void;
   vacancyId?: string;
 };
 
@@ -22,7 +23,7 @@ type RejectReason = {
   label: string;
 };
 
-export function CandidateToolbar({ application, candidate, fromPool, onClose, onTabChange, vacancyId: vacancyIdProp }: Props) {
+export function CandidateToolbar({ application, candidate, fromPool, onClose, onTabChange, onEdit, vacancyId: vacancyIdProp }: Props) {
   const navigate = useNavigate();
   const { id: routeVacancyId } = useParams();
   const vacancyId = vacancyIdProp || routeVacancyId;
@@ -218,6 +219,18 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
             <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
+      )}
+
+      {/* Редактировать кандидата (карандаш) — открывает форму правки (как создание) */}
+      {candidate && onEdit && (
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={onEdit}
+          title="Редактировать кандидата"
+        >
+          <Icon name="edit" size={14} />
+          Изменить
+        </button>
       )}
 
       <div style={{ flex: 1 }} />

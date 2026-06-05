@@ -160,12 +160,16 @@ class CandidateUpdate(BaseModel):
     region: str | None = None
     salary_expectation: int | None = None
     currency: str | None = None
+    source: str | None = None
     last_position: str | None = None
     last_company: str | None = None
     last_period: str | None = None
     preferred_channel: str | None = None
     resume_text: str | None = None
     resume_summary: str | None = None
+    # Редактирование мессенджеров из карточки. None — не трогать (сохраняет существующие,
+    # в т.ч. несколько); [] — очистить; [{type,url}] — заменить.
+    messengers: list[MessengerEntry] | None = None
 
 
 class AddTagRequest(BaseModel):

@@ -13,6 +13,7 @@ import { ChatTab } from './tabs/ChatTab';
 import { DocumentsTab } from './tabs/DocumentsTab';
 import { CommentsTab } from './tabs/CommentsTab';
 import { AllActionsTab } from './tabs/AllActionsTab';
+import NewCandidateForm from '@/pages/funnel/NewCandidateForm';
 import './CandidateDetail.css';
 
 type ApplicationRow = components['schemas']['ApplicationRow'];
@@ -37,6 +38,7 @@ const TABS = [
 export function CandidateDetail({ application, onClose, isResolving, vacancyId }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
 
   const activeTab = searchParams.get('tab') || 'resume';
 
@@ -60,17 +62,21 @@ export function CandidateDetail({ application, onClose, isResolving, vacancyId }
     }
   }, [application?.candidate_id]);
 
-  // Handle Esc key
+  // Handle Esc key. Если открыта форма правки — Esc закрывает ЕЁ (не всю карточку).
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        onClose();
+        if (editing) {
+          setEditing(false);
+        } else {
+          onClose();
+        }
       }
     }
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, editing]);
 
   // Show "not found" if we have finished loading but no application found
   if (!isResolving && !application) {
@@ -103,8 +109,19 @@ export function CandidateDetail({ application, onClose, isResolving, vacancyId }
         candidate={candidateDetailQuery.data || undefined}
         onClose={onClose}
         onTabChange={setActiveTab}
+        onEdit={() => setEditing(true)}
         vacancyId={vacancyId}
       />
+
+      {/* Полноэкранная форма правки кандидата (та же, что создание, в режиме edit) */}
+      {editing && candidateDetailQuery.data && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'var(--bg-app)' }}>
+          <NewCandidateForm
+            candidate={candidateDetailQuery.data}
+            onClose={() => setEditing(false)}
+          />
+        </div>
+      )}
 
       <CandidateHeader
         candidateId={candidateId}

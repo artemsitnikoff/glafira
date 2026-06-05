@@ -635,7 +635,8 @@ async def update_candidate(
     before = {
         "phone": candidate.phone,
         "email": candidate.email,
-        "city": candidate.city
+        "city": candidate.city,
+        "source": candidate.source,
     }
 
     # Update fields
@@ -661,6 +662,12 @@ async def update_candidate(
         candidate.salary_expectation = candidate_data.salary_expectation
     if candidate_data.currency is not None:
         candidate.currency = candidate_data.currency
+    if candidate_data.source is not None:
+        candidate.source = candidate_data.source
+    if candidate_data.messengers is not None:
+        # None — не трогаем (сохраняем существующие); [] — очистить; список — заменить.
+        # Формат как в create_candidate: [{type, url}].
+        candidate.messengers = [m.model_dump() for m in candidate_data.messengers]
     if candidate_data.last_position is not None:
         candidate.last_position = candidate_data.last_position
     if candidate_data.last_company is not None:
@@ -688,7 +695,8 @@ async def update_candidate(
         after={
             "phone": candidate.phone,
             "email": candidate.email,
-            "city": candidate.city
+            "city": candidate.city,
+            "source": candidate.source,
         },
         actor_user_id=actor_user_id,
         company_id=company_id,
