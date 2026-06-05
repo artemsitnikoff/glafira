@@ -14,14 +14,16 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { components } from '@/api/types';
 import type { ApiError } from '@/api/aliases';
 
-// Local type to include messengers field not yet in generated types
+// Local type to include fields not yet in generated types (openapi отстаёт)
 type CandidateCreateLocal = components['schemas']['CandidateCreate'] & {
   messengers?: { type: string; url: string }[];
+  source_url?: string | null;
 };
-// CandidateUpdate в types.ts отстаёт (нет source/messengers) — локальное расширение + cast.
+// CandidateUpdate в types.ts отстаёт (нет source/messengers/source_url) — локальное расширение.
 type CandidateUpdateLocal = components['schemas']['CandidateUpdate'] & {
   source?: string | null;
   messengers?: { type: string; url: string }[];
+  source_url?: string | null;
 };
 type CandidateDetailT = components['schemas']['CandidateDetail'];
 
@@ -214,6 +216,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
     salary_expectation: candidate?.salary_expectation != null ? String(candidate.salary_expectation) : '',
     currency: candidate?.currency ?? 'RUB',
     source: candidate?.source ?? '',
+    source_url: (candidate as { source_url?: string | null } | undefined)?.source_url ?? '',
     add_type: 'manual',
     social_type: initialSocial.type,
     social_url: initialSocial.url,
@@ -268,6 +271,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           city: formData.city.trim() || null,
           salary_expectation: formData.salary_expectation ? parseInt(formData.salary_expectation) : null,
           currency: formData.currency,
+          source_url: formData.source_url.trim() || null,
           // messengers шлём ТОЛЬКО если поле меняли — иначе не трогаем (сохраняем как есть,
           // в т.ч. несколько/легаси). Изменили → заменяем (или [] при очистке).
           ...(socialChanged
@@ -300,6 +304,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         add_type: formData.add_type,
         vacancy_id: formData.target_vacancy,
         comment: formData.comment.trim() || null,
+        source_url: formData.source_url.trim() || null,
         messengers: formData.social_url.trim()
           ? [{ type: formData.social_type, url: formData.social_url.trim() }]
           : undefined,
@@ -488,6 +493,24 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                 setOpenId={setOpenDD}
               />
               {errors.source && <div className="field-error">{errors.source}</div>}
+            </div>
+
+            {/* Ссылка на резюме/профиль у источника (страница резюме на hh.ru и т.п.).
+                Для кандидатов с hh заполняется автоматически при импорте. */}
+            <div className="nv-field">
+              <label className="nv-label">
+                Ссылка на резюме
+                <span className="nv-mute" style={{ fontWeight: 400, marginLeft: 6 }}>
+                  · профиль/резюме на hh.ru и т.п.
+                </span>
+              </label>
+              <input
+                className="nv-input"
+                type="url"
+                placeholder="https://hh.ru/resume/…"
+                value={formData.source_url}
+                onChange={e => updateFormData({ source_url: e.target.value })}
+              />
             </div>
 
             {/* Full name */}

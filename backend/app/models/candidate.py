@@ -57,6 +57,9 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     is_anonymized: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     external_source: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # Ссылка на резюме/профиль кандидата у источника (страница резюме на hh.ru и т.п.).
+    # Заполняется вручную в форме ИЛИ автоматически при импорте с hh (alternate_url).
+    source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     # Constraints

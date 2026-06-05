@@ -398,3 +398,44 @@ async def test_update_candidate_invalid_source_422(
         json={"source": "facebook"},
     )
     assert r.status_code == 422, r.text
+
+
+async def test_candidate_source_url_create_update_get(
+    async_client: AsyncClient, auth_headers: dict, admin_user, db_session: AsyncSession,
+):
+    """source_url: сохраняется при создании, отдаётся в GET, правится через PATCH."""
+    # Create с ссылкой на резюме
+    created = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={
+            "last_name": "Ссылкин", "first_name": "Тест", "source": "hh",
+            "source_url": "https://hh.ru/resume/abc123",
+        },
+    )
+    assert created.status_code == 201, created.text
+    cid = created.json()["id"]
+    assert created.json()["source_url"] == "https://hh.ru/resume/abc123"
+
+    # GET отдаёт source_url
+    got = await async_client.get(f"/api/v1/candidates/{cid}", headers=auth_headers)
+    assert got.status_code == 200
+    assert got.json()["source_url"] == "https://hh.ru/resume/abc123"
+
+    # PATCH меняет ссылку
+    patched = await async_client.patch(
+        f"/api/v1/candidates/{cid}",
+        headers=auth_headers,
+        json={"source_url": "https://hh.ru/resume/xyz789"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["source_url"] == "https://hh.ru/resume/xyz789"
+
+    # Пустая строка → очистка (NULL)
+    cleared = await async_client.patch(
+        f"/api/v1/candidates/{cid}",
+        headers=auth_headers,
+        json={"source_url": ""},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["source_url"] is None

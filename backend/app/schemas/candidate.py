@@ -101,6 +101,7 @@ class CandidateDetail(ORMBase):
     last_tenure: str | None = None        # стаж на последнем месте, напр. «2 года 3 мес»
     total_experience: str | None = None   # общий стаж по резюме (сумма), напр. «6 лет 7 мес»
     source: str
+    source_url: str | None = None
     preferred_channel: str = "telegram"
     resume_text: str | None = None
     resume_summary: str | None = None
@@ -153,6 +154,7 @@ class CandidateCreate(BaseModel):
     vacancy_id: UUID | None = None
     comment: str | None = None
     messengers: list[MessengerEntry] | None = None
+    source_url: str | None = None
 
 
 class CandidateUpdate(BaseModel):
@@ -168,6 +170,7 @@ class CandidateUpdate(BaseModel):
     salary_expectation: int | None = None
     currency: str | None = None
     source: CandidateSource | None = None
+    source_url: str | None = None
     last_position: str | None = None
     last_company: str | None = None
     last_period: str | None = None

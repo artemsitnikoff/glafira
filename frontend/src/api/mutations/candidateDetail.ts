@@ -7,6 +7,7 @@ import type { components } from '@/api/types';
 type CandidateUpdate = Partial<components['schemas']['CandidateUpdate']> & {
   source?: string | null;
   messengers?: { type: string; url: string }[];
+  source_url?: string | null;
 };
 type MessageCreate = {
   body: string;

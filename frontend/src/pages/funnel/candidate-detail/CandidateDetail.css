@@ -329,6 +329,20 @@
   margin-left: auto;
 }
 
+/* Ссылка на резюме у источника (hh.ru и т.п.) — акцентный голубой эталона */
+.cnd-funnel-wrap .cand-detail .cd-resume-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.cnd-funnel-wrap .cand-detail .cd-resume-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 .cnd-funnel-wrap .cand-detail .mess-icons-row {
   display: inline-flex;
   gap: 6px;

@@ -141,6 +141,20 @@ export function CandidateHeader({ candidateId, application }: Props) {
             <span className="cb-label">E-mail:</span>
             <span>{candidate.email || 'Не указан'}</span>
           </div>
+          {(candidate as { source_url?: string | null }).source_url && (
+            <div className="cb-row">
+              <span className="cb-label">Резюме:</span>
+              <a
+                className="cd-resume-link"
+                href={(candidate as { source_url?: string | null }).source_url!}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {candidate.source === 'hh' ? 'Открыть на hh.ru' : 'Открыть оригинал'}
+                <Icon name="open" size={12} />
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -573,6 +573,7 @@ async def create_candidate(
         salary_expectation=candidate_data.salary_expectation,
         currency=candidate_data.currency,
         messengers=messengers_data,
+        source_url=(candidate_data.source_url or None),
         extra=extra
     )
 
@@ -637,6 +638,7 @@ async def update_candidate(
         "email": candidate.email,
         "city": candidate.city,
         "source": candidate.source,
+        "source_url": candidate.source_url,
         "messengers": candidate.messengers,
     }
 
@@ -665,6 +667,9 @@ async def update_candidate(
         candidate.currency = candidate_data.currency
     if candidate_data.source is not None:
         candidate.source = candidate_data.source
+    if candidate_data.source_url is not None:
+        # Пустая строка → очистка (NULL), иначе сохраняем ссылку
+        candidate.source_url = candidate_data.source_url.strip() or None
     if candidate_data.messengers is not None:
         # None — не трогаем (сохраняем существующие); [] — очистить; список — заменить.
         # Формат как в create_candidate: [{type, url}].
@@ -698,6 +703,7 @@ async def update_candidate(
             "email": candidate.email,
             "city": candidate.city,
             "source": candidate.source,
+            "source_url": candidate.source_url,
             "messengers": candidate.messengers,
         },
         actor_user_id=actor_user_id,

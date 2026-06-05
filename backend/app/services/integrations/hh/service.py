@@ -709,6 +709,11 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         rt_parts.append(str(resume.get("skills")))
     resume_text = "\n\n".join(rt_parts) or None
     resume_id = (str(resume.get("id"))[:120] if resume.get("id") else None)
+    # Публичная ссылка на резюме на hh.ru (для перехода рекрутёром). alternate_url —
+    # каноничная веб-страница резюме; fallback — собрать из id.
+    resume_alt_url = resume.get("alternate_url") or (
+        f"https://hh.ru/resume/{resume.get('id')}" if resume.get("id") else None
+    )
 
     state_id = (item.get("state") or {}).get("id") or "response"
     # Любая коллекция discard_* (by_employer/by_applicant/no_interaction/
@@ -765,6 +770,9 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     candidate.external_source = "hh"
     if resume_id:
         candidate.external_id = resume_id
+    # Ссылка на резюме hh.ru — заполняем при импорте (не затираем пустым)
+    if resume_alt_url:
+        candidate.source_url = resume_alt_url[:500]
     await session.flush()
 
     # Опыт/навыки/образование: при обновлении заменяем старые (от прежнего импорта)
