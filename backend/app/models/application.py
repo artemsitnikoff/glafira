@@ -49,6 +49,10 @@ class Application(Base, TimestampMixin, CompanyMixin):
     hh_chat_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_discard_synced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
+    # Automation tracking fields
+    auto_qa_asked_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    auto_reject_suggested_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
     # Constraints
     __table_args__ = (
         CheckConstraint(

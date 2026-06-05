@@ -50,6 +50,7 @@ class GlafiraSettingsOut(ORMBase):
     stop_words: dict
     default_mode: str
     turnover_source: str
+    default_rejection_text: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -71,6 +72,7 @@ class GlafiraSettingsUpdate(BaseModel):
     stop_words: Optional[dict] = None
     default_mode: Optional[str] = None
     turnover_source: Optional[str] = None
+    default_rejection_text: Optional[str] = None
 
 
 # Reject Reasons schemas

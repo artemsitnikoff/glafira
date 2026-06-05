@@ -60,6 +60,13 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     external_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     hh_vacancy_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
 
+    # Automation fields
+    auto_move: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    auto_move_threshold: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("80"))
+    auto_qa: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    auto_reject: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Constraints
     __table_args__ = (
         CheckConstraint(

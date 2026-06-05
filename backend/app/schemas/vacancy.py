@@ -86,6 +86,13 @@ class VacancyDetail(ORMBase):
     closed_at: date | None = None
     created_at: datetime
 
+    # Automation fields
+    auto_move: bool
+    auto_move_threshold: int
+    auto_qa: bool
+    auto_reject: bool
+    rejection_text: str | None = None
+
     @field_validator('team', mode='before')
     @classmethod
     def validate_team(cls, v):
@@ -120,10 +127,10 @@ class VacancyCreate(BaseModel):
     glafira_mode: str = "A"
     team: list[UUID] = []
     auto_move: bool = False
-    auto_move_threshold: int | None = None
-    auto_qa_from: str | None = None
-    auto_qa_to: str | None = None
+    auto_move_threshold: int = Field(default=80, ge=0, le=100)
+    auto_qa: bool = False
     auto_reject: bool = False
+    rejection_text: str | None = None
     stages: list[StageInput] | None = None
     reject_reasons: list[RejectReasonInput] | None = None
 
@@ -154,10 +161,10 @@ class VacancyUpdate(BaseModel):
     glafira_mode: str | None = None
     team: list[UUID] | None = None
     auto_move: bool | None = None
-    auto_move_threshold: int | None = None
-    auto_qa_from: str | None = None
-    auto_qa_to: str | None = None
+    auto_move_threshold: int | None = Field(default=None, ge=0, le=100)
+    auto_qa: bool | None = None
     auto_reject: bool | None = None
+    rejection_text: str | None = None
 
 
 class VacancyArchive(BaseModel):

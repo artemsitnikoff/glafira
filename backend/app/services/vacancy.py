@@ -307,6 +307,11 @@ async def create_vacancy(
         recruiter_scoring_instructions=vacancy_data.recruiter_scoring_instructions,
         funnel_template=vacancy_data.funnel_template,
         glafira_mode=vacancy_data.glafira_mode,
+        auto_move=vacancy_data.auto_move,
+        auto_move_threshold=vacancy_data.auto_move_threshold,
+        auto_qa=vacancy_data.auto_qa,
+        auto_reject=vacancy_data.auto_reject,
+        rejection_text=vacancy_data.rejection_text,
     )
 
     session.add(vacancy)
@@ -476,6 +481,16 @@ async def update_vacancy(
         vacancy.recruiter_scoring_instructions = vacancy_data.recruiter_scoring_instructions
     if vacancy_data.glafira_mode is not None:
         vacancy.glafira_mode = vacancy_data.glafira_mode
+    if vacancy_data.auto_move is not None:
+        vacancy.auto_move = vacancy_data.auto_move
+    if vacancy_data.auto_move_threshold is not None:
+        vacancy.auto_move_threshold = vacancy_data.auto_move_threshold
+    if vacancy_data.auto_qa is not None:
+        vacancy.auto_qa = vacancy_data.auto_qa
+    if vacancy_data.auto_reject is not None:
+        vacancy.auto_reject = vacancy_data.auto_reject
+    if vacancy_data.rejection_text is not None:
+        vacancy.rejection_text = vacancy_data.rejection_text
 
     # client_id: обновляем явно, если поле РЕАЛЬНО прислано (model_fields_set) —
     # это позволяет и сменить заказчика, и сбросить его в None. Раньше client_id

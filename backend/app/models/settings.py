@@ -114,6 +114,8 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
     default_mode: Mapped[str] = mapped_column(String(1), nullable=False, server_default=text("'A'"))
     # Источник данных о текучке: 'none' (не подключён) | 'bitrix24' (импорт сотрудников из Б24).
     turnover_source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'none'"))
+    # Текст отказа по умолчанию для компании
+    default_rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Constraints
     __table_args__ = (

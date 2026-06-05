@@ -12,6 +12,7 @@ from ....models import (
     HhIntegration, HhOauthState, Vacancy, Application, Candidate,
     CandidateExperience, CandidateSkill, CandidateEducation, Message,
 )
+from ....models.settings import GlafiraSettings
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....services.chat_log import log_chat
@@ -1000,13 +1001,47 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     return stats
 
 
-# Константа вежливого текста отказа
+# Константа вежливого текста отказа (fallback)
 POLITE_REJECTION_TEXT = (
     "Здравствуйте! Благодарим за интерес к нашей вакансии и время, уделённое отклику. "
     "К сожалению, по итогам рассмотрения мы приняли решение не продолжать общение по этой позиции. "
     "Это не оценка вас как специалиста — на данном этапе мы остановились на другой кандидатуре. "
     "Желаем успехов в поиске работы и будем рады видеть ваш отклик на наши будущие вакансии!"
 )
+
+
+async def resolve_rejection_text(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> str:
+    """
+    Возвращает настраиваемый текст отказа с приоритетом:
+    1. vacancy.rejection_text (непустой)
+    2. glafira_settings.default_rejection_text (непустой)
+    3. встроенный POLITE_REJECTION_TEXT (fallback)
+    """
+    # Получаем текст из вакансии
+    vacancy_result = await session.execute(
+        select(Vacancy.rejection_text).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id
+        )
+    )
+    vacancy_rejection_text = vacancy_result.scalar_one_or_none()
+
+    if vacancy_rejection_text and vacancy_rejection_text.strip():
+        return vacancy_rejection_text.strip()
+
+    # Получаем текст из настроек компании
+    settings_result = await session.execute(
+        select(GlafiraSettings.default_rejection_text).where(
+            GlafiraSettings.company_id == company_id
+        )
+    )
+    default_rejection_text = settings_result.scalar_one_or_none()
+
+    if default_rejection_text and default_rejection_text.strip():
+        return default_rejection_text.strip()
+
+    # Fallback на встроенный текст
+    return POLITE_REJECTION_TEXT
 
 
 async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit: int = 20) -> dict:
@@ -1121,10 +1156,13 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
             message_sent = False
             if chat_id:
                 try:
+                    # Получаем настраиваемый текст отказа
+                    rejection_text = await resolve_rejection_text(session, company_id, app.vacancy_id)
+
                     msg_response = await hh_client.send_chat_message(
                         access_token,
                         chat_id,
-                        POLITE_REJECTION_TEXT
+                        rejection_text
                     )
 
                     # Сохраняем исходящее сообщение
@@ -1136,7 +1174,7 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                         direction="out",
                         sender_type="ai",
                         sender_user_id=None,
-                        body=POLITE_REJECTION_TEXT,
+                        body=rejection_text,
                         sent_at=datetime.now(timezone.utc),
                         created_at=datetime.now(timezone.utc),
                         external_id=str(msg_response.get("id", ""))

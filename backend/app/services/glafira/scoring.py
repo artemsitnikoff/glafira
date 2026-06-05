@@ -34,7 +34,9 @@ def _strip_html(s: str | None) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification
 from ...schemas.glafira import RequirementMatch
+from ...schemas.application import MoveRequest
 from ...services.audit import audit
+from ...services.application import move_application  # П.1 авто-перевод (цикла нет: application не тянет scoring)
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +310,56 @@ Email: {candidate.email or "не указан"}
         f"оценка {response_data['score']} ({response_data['verdict']})"
     )
 
+    # П.1 - АВТОПЕРЕВОД ПО СКОРИНГУ
+    if application is not None and vacancy is not None:
+        await _maybe_auto_advance_by_score(
+            session, application, vacancy, response_data['score'], company_id
+        )
+
     return evaluation
+
+
+async def _maybe_auto_advance_by_score(
+    session: AsyncSession,
+    application: Application,
+    vacancy: Vacancy,
+    score: int,
+    company_id: UUID,
+) -> None:
+    """
+    Автоперевод кандидата по скорингу согласно инвариантам фичи:
+    - glafira_mode: 'A'=Полуавтомат, 'B'=Автомат, 'C'=Под контролем.
+    - Автоматика действует в 'A' и 'B'. В 'C' — НИКАКИХ авто-действий.
+    - Условия: application.stage == 'response' И vacancy.auto_move И score >= vacancy.auto_move_threshold
+    - Действие: move_application(to_stage='selected', actor_type='ai')
+    """
+    try:
+        # Условия для автоперевода
+        if (application.stage == 'response' and
+            vacancy.auto_move and
+            vacancy.glafira_mode in ('A', 'B') and
+            score >= vacancy.auto_move_threshold):
+
+            await move_application(
+                session=session,
+                application_id=application.id,
+                move_data=MoveRequest(to_stage='selected'),
+                company_id=company_id,
+                actor_user_id=None,
+                actor_type='ai'
+            )
+
+            logger.info(
+                f"Автоперевод: кандидат {application.candidate_id} на вакансии {application.vacancy_id} "
+                f"переведён с 'response' на 'selected' (score={score} >= threshold={vacancy.auto_move_threshold})"
+            )
+
+    except Exception as e:
+        # Любая ошибка move — logger.warning, НЕ ронять скоринг
+        logger.warning(
+            f"Ошибка автоперевода кандидата {application.candidate_id} на вакансии {application.vacancy_id}: {e}",
+            exc_info=True
+        )
 
 
 async def score_pending_applications(

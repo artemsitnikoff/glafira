@@ -261,6 +261,7 @@ async def _write_move_event(
     from_stage: str,
     to_stage: str,
     actor_user_id: UUID,
+    actor_type: str = "human",
     company_id: UUID,
     reason: str | None = None,
 ) -> None:
@@ -277,7 +278,7 @@ async def _write_move_event(
         Event(
             company_id=company_id,
             type="move",
-            actor_type="human",
+            actor_type=actor_type,
             actor_user_id=actor_user_id,
             text=text,
             candidate_id=application.candidate_id,
@@ -292,6 +293,7 @@ async def move_application(
     move_data: MoveRequest,
     company_id: UUID,
     actor_user_id: UUID,
+    actor_type: str = "human",
 ) -> Application:
     application = await get_application(session, application_id, company_id)
 
@@ -325,7 +327,7 @@ async def move_application(
             application_id=application.id,
             from_stage=from_stage,
             to_stage=to_stage,
-            actor_type="human",
+            actor_type=actor_type,
             actor_user_id=actor_user_id,
             created_at=now,
         )
@@ -337,6 +339,7 @@ async def move_application(
         from_stage=from_stage,
         to_stage=to_stage,
         actor_user_id=actor_user_id,
+        actor_type=actor_type,
         company_id=company_id,
     )
 
@@ -357,6 +360,7 @@ async def move_application(
         before={"stage": from_stage},
         after={"stage": to_stage},
         actor_user_id=actor_user_id,
+        actor_type=actor_type,
         company_id=company_id,
     )
 
@@ -401,6 +405,7 @@ async def reject_application(
         from_stage=from_stage,
         to_stage="rejected",
         actor_user_id=actor_user_id,
+        actor_type="human",
         company_id=company_id,
         reason=reject_data.reason,
     )
@@ -473,6 +478,7 @@ async def restore_application(
         from_stage="rejected",
         to_stage=restore_to_stage,
         actor_user_id=actor_user_id,
+        actor_type="human",
         company_id=company_id,
     )
 

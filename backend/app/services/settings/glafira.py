@@ -60,6 +60,7 @@ async def update_glafira_settings(
         "stop_words": settings_obj.stop_words,
         "default_mode": settings_obj.default_mode,
         "turnover_source": settings_obj.turnover_source,
+        "default_rejection_text": settings_obj.default_rejection_text,
     }
 
     # Update fields
@@ -81,6 +82,8 @@ async def update_glafira_settings(
         settings_obj.default_mode = data.default_mode
     if data.turnover_source is not None:
         settings_obj.turnover_source = data.turnover_source
+    if data.default_rejection_text is not None:
+        settings_obj.default_rejection_text = data.default_rejection_text
 
     await session.flush()
     await session.refresh(settings_obj)
@@ -96,6 +99,7 @@ async def update_glafira_settings(
         "stop_words": settings_obj.stop_words,
         "default_mode": settings_obj.default_mode,
         "turnover_source": settings_obj.turnover_source,
+        "default_rejection_text": settings_obj.default_rejection_text,
     }
 
     await audit(
