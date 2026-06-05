@@ -215,7 +215,12 @@ async def bulk_run_survey(
             SurveyTemplate.company_id == company_id,
         )
     )).scalar_one_or_none()
+    # Шаблон найден, но все вопросы отключены → пустой снапшот. Не создаём «пустые»
+    # опросы (как и launch_survey). Если шаблон НЕ найден (legacy: template_key —
+    # произвольная строка) — снапшот пустой осознанно, старое поведение сохраняем.
     snapshot = _snapshot_questions(template) if template else []
+    if template is not None and not snapshot:
+        raise ValidationError("В шаблоне нет включённых вопросов")
     survey_type = _type_from_trigger_day(template.trigger_day) if template else "weekly"
 
     send_at = data.send_at or datetime.now(timezone.utc)

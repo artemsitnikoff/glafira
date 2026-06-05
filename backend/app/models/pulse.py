@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import String, Integer, ForeignKey, CheckConstraint, UniqueConstraint, Date, TIMESTAMP, Boolean, Numeric, text, Text
@@ -141,8 +142,12 @@ class PulseSurvey(Base, CreatedAtMixin):
     answered_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
-    overall_score: Mapped[Optional[float]] = mapped_column(Numeric(3, 1), nullable=True)
-    answers: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Numeric(3,1) в SQLAlchemy/PG возвращает Decimal — аннотация Decimal, не float
+    # (сериализация делает float() явно). См. _compute_overall_score.
+    overall_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 1), nullable=True)
+    # Список ответов: [{id, text, scale, kind, answer}] (см. submit_public_survey).
+    # SurveyOut.answers тоже list — держим один формат (seed_demo тоже пишет list).
+    answers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Секретный токен публичной ссылки (в URL-хеше у фронта). По нему публичный
     # эндпоинт без авторизации находит опрос. UNIQUE, nullable (старые опросы без него).
     public_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)

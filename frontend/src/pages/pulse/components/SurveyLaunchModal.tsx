@@ -34,6 +34,7 @@ export function SurveyLaunchModal({ employeeId, onClose }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const enabled: Template[] = ((templates as Template[]) || []).filter((t) => t.is_enabled);
@@ -55,12 +56,29 @@ export function SurveyLaunchModal({ employeeId, onClose }: Props) {
 
   const handleCopy = async () => {
     if (!link) return;
+    setCopyFailed(false);
+    // navigator.clipboard доступен только в secure-контексте (https/localhost).
+    // На http/старых браузерах — fallback на execCommand; если и он не вышел — честно
+    // подсказываем скопировать вручную из поля.
     try {
-      await navigator.clipboard.writeText(link);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = link;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (!ok) throw new Error('execCommand failed');
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+      setCopyFailed(true);
     }
   };
 
@@ -86,6 +104,11 @@ export function SurveyLaunchModal({ employeeId, onClose }: Props) {
                 {copied ? 'Скопировано' : 'Копировать'}
               </button>
             </div>
+            {copyFailed && (
+              <div className="slm-hint" style={{ color: 'var(--risk-high)', marginTop: 6 }}>
+                Не удалось скопировать автоматически — выделите ссылку в поле и скопируйте вручную.
+              </div>
+            )}
             <div className="slm-actions">
               <button className="slm-btn slm-btn-ghost" onClick={onClose}>Готово</button>
             </div>

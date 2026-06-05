@@ -138,6 +138,7 @@ export default function SurveyPublicPage() {
                 type="button"
                 className={`spub-pill ${val === String(n) ? 'active' : ''}`}
                 onClick={() => setAnswer(q.id, String(n))}
+                aria-label={`Оценка ${n} из 5`}
               >
                 {n}
               </button>
@@ -153,6 +154,7 @@ export default function SurveyPublicPage() {
                 type="button"
                 className={`spub-pill ${val === String(n) ? 'active' : ''}`}
                 onClick={() => setAnswer(q.id, String(n))}
+                aria-label={`Оценка ${n} из 10`}
               >
                 {n}
               </button>
@@ -171,6 +173,7 @@ export default function SurveyPublicPage() {
                 type="button"
                 className={`spub-yn ${val === o.v ? 'active' : ''}`}
                 onClick={() => setAnswer(q.id, o.v)}
+                aria-label={o.label}
               >
                 {o.label}
               </button>
@@ -205,7 +208,7 @@ export default function SurveyPublicPage() {
             <h2>Спасибо за ответы!</h2>
             <p>
               Ваше мнение помогает нам сделать работу{survey?.company_name ? ` в «${survey.company_name}»` : ''} лучше.
-              Ответы анонимны для коллег и видны только HR.
+              Ответы видны только HR и руководству компании — не вашим коллегам.
             </p>
           </div>
         ) : survey ? (
@@ -218,8 +221,8 @@ export default function SurveyPublicPage() {
                   : 'Как у вас дела?'}
               </h1>
               <p className="spub-sub">
-                Короткий опрос об адаптации. Это займёт пару минут — отвечайте честно,
-                ответы видит только HR.
+                Короткий опрос об адаптации. Это займёт пару минут — отвечайте честно.
+                Ответы видят только HR и руководство компании, не ваши коллеги.
               </p>
             </div>
 

@@ -932,3 +932,31 @@ async def test_public_survey_required_question_missing(
 async def test_public_survey_unknown_token_404(async_client: AsyncClient):
     resp = await async_client.get("/api/v1/public/surveys/nonexistent-token-xyz")
     assert resp.status_code == 404
+
+
+async def test_bulk_run_survey_all_disabled_template_returns_400(
+    async_client: AsyncClient, auth_headers, admin_user, db_session: AsyncSession,
+):
+    """Bulk по реальному шаблону, где все вопросы отключены → 400 (как launch_survey)."""
+    from app.models import SurveyTemplate
+    employee = await _make_employee(db_session, admin_user, "BulkDisabled")
+    tpl = SurveyTemplate(
+        company_id=admin_user.company_id,
+        name="Только отключённые",
+        trigger_day=7,
+        interval_days=None,
+        channels={"telegram": True},
+        questions=[
+            {"id": "q1", "text": "x", "scale": "Да / Нет", "enabled": False},
+        ],
+        is_enabled=True,
+    )
+    db_session.add(tpl)
+    await db_session.commit()
+
+    r = await async_client.post(
+        "/api/v1/pulse/employees/bulk/run-survey",
+        headers=auth_headers,
+        json={"employee_ids": [str(employee.id)], "template_key": "Только отключённые"},
+    )
+    assert r.status_code == 400, r.text

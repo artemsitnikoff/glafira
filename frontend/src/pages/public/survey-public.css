@@ -51,7 +51,7 @@
   margin-bottom: 10px;
 }
 .spub-title {
-  font-size: 24px;
+  font-size: var(--fs-24);
   font-weight: 700;
   line-height: 1.25;
   margin: 0 0 10px;
@@ -113,7 +113,7 @@
 }
 .spub-emoji {
   flex: 1;
-  font-size: 26px;
+  font-size: var(--fs-24);
   line-height: 1;
   padding: 10px 0;
   background: var(--bg-2);
@@ -246,7 +246,7 @@
 }
 .spub-thanks-emoji { font-size: 48px; margin-bottom: 12px; }
 .spub-thanks h2 {
-  font-size: 22px;
+  font-size: var(--fs-20);
   font-weight: 700;
   margin: 0 0 10px;
   color: var(--fg-1);

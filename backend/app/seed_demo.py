@@ -881,12 +881,12 @@ async def seed_surveys(session: AsyncSession):
         sent_at=survey1_sent,
         answered_at=survey1_answered,
         overall_score=Decimal("4.2"),
-        answers={
-            "items": [
-                {"id": "q1", "type": "scale_5", "text": "Довольны ли процессом адаптации?", "answer": "4"},
-                {"id": "q2", "type": "scale_5", "text": "Как оцениваете поддержку коллег?", "answer": "4"}
-            ]
-        }
+        # answers — СПИСОК (как пишет submit_public_survey и ожидает SurveyOut.answers: list).
+        # Dict ломал бы GET сотрудника (Pydantic v2: dict в list-поле → ValidationError).
+        answers=[
+            {"id": "q1", "kind": "scale5", "text": "Довольны ли процессом адаптации?", "answer": "4"},
+            {"id": "q2", "kind": "scale5", "text": "Как оцениваете поддержку коллег?", "answer": "4"},
+        ]
     )
     session.add(survey1)
 
@@ -901,12 +901,10 @@ async def seed_surveys(session: AsyncSession):
         sent_at=survey2_sent,
         answered_at=survey2_answered,
         overall_score=Decimal("4.5"),
-        answers={
-            "items": [
-                {"id": "q1", "type": "scale_5", "text": "Довольны ли процессом адаптации?", "answer": "5"},
-                {"id": "q2", "type": "scale_5", "text": "Как оцениваете поддержку коллег?", "answer": "4"}
-            ]
-        }
+        answers=[
+            {"id": "q1", "kind": "scale5", "text": "Довольны ли процессом адаптации?", "answer": "5"},
+            {"id": "q2", "kind": "scale5", "text": "Как оцениваете поддержку коллег?", "answer": "4"},
+        ]
     )
     session.add(survey2)
 
