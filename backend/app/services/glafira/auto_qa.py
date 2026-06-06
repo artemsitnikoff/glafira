@@ -24,9 +24,10 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Application, Vacancy, Candidate, AiEvaluation, Message
-from ...schemas.application import MoveRequest
+from ...schemas.application import MoveRequest, RejectRequest
 from ...services.audit import audit
-from ...services.application import move_application
+from ...services.application import move_application, reject_application
+from ...services.settings.reject_reasons import list_reject_reasons
 from ...services.integrations.hh import client as hh_client
 from ...services.integrations.hh.service import get_valid_access_token
 from .client import call_json
@@ -41,6 +42,20 @@ _ANALYZE_SYSTEM = (
     "ответах, явной незаинтересованности или отказе — proceed=false (оставить рекрутёру). "
     "Отвечай СТРОГО валидным JSON без текста вокруг: {\"proceed\": true|false, \"reason\": \"кратко почему\"}."
 )
+
+# П.3 — анализ незаинтересованности. Высокий порог уверенности: ложный автоотказ = отшили
+# хорошего кандидата (необратимо). При сомнении — НЕ отказываем.
+_REJECT_SYSTEM = (
+    "Ты анализируешь переписку рекрутёра/Глафиры с кандидатом по вакансии. Определи, ПОТЕРЯЛ ли "
+    "кандидат интерес: явно отказался, принял другой оффер, передумал, сообщил что не ищет работу "
+    "или не рассматривает эту позицию. Тебе дан список доступных причин отказа со стороны кандидата. "
+    "Верни СТРОГО валидный JSON без текста вокруг: {\"disinterested\": true|false, \"confidence\": число 0..1, "
+    "\"reason\": \"точная строка из списка причин ИЛИ пустая строка\", \"quote\": \"фраза кандидата, "
+    "показывающая незаинтересованность\"}. disinterested=true ТОЛЬКО при ЯВНЫХ, недвусмысленных признаках; "
+    "при нейтральном/деловом диалоге, обсуждении деталей, молчании или любых сомнениях — false и низкий confidence. "
+    "reason выбирай ТОЛЬКО из предложенного списка (точную строку); если ни одна не подходит — пустая строка."
+)
+_REJECT_CONFIDENCE_THRESHOLD = 0.85
 
 
 def _first_name(full_name: str | None) -> str:
@@ -203,4 +218,92 @@ async def analyze_and_advance(session: AsyncSession, application: Application, c
     )
     await session.commit()
     logger.info("[auto_qa] кандидат переведён Отклик→Отобран app=%s: %s", application.id, reason)
+    return True
+
+
+async def analyze_and_reject(session: AsyncSession, application: Application, company_id: UUID) -> bool:
+    """П.3 — автоотказ при незаинтересованности. Вызывать при НОВОМ входящем сообщении.
+
+    ⚠️ КРИТИЧНО (ложный отказ необратим — отшили хорошего кандидата + письмо):
+    - Режим B (Автомат): при ЯВНОЙ незаинтересованности и высокой уверенности LLM → отказ
+      (actor_type='ai', причина из справочника вакансии, решение LLM с цитатой в audit).
+      Дальше существующий sync шлёт вежливый текст отказа в hh (П.4).
+    - Режим A (Полуавтомат): НЕ отказываем — ставим флаг auto_reject_suggested_at + аудит-подсказку
+      рекрутёру («Глафира предполагает незаинтересованность»).
+    - Режим C: ничего.
+    Возвращает True, если что-то сделал (отказал или подсказал) — чтобы П.2 не пытался двигать.
+    """
+    if application.stage in ("rejected", "hired"):
+        return False
+    vacancy = await session.get(Vacancy, application.vacancy_id)
+    if not vacancy or not vacancy.auto_reject or vacancy.glafira_mode not in ("A", "B"):
+        return False
+
+    msgs = (await session.execute(
+        select(Message)
+        .where(Message.application_id == application.id)
+        .order_by(Message.created_at)
+    )).scalars().all()
+    if not any(m.direction == "in" for m in msgs):
+        return False
+
+    dialog = "\n".join(
+        f"{'Глафира/рекрутёр' if m.direction == 'out' else 'Кандидат'}: {m.body}" for m in msgs
+    )
+    reasons = await list_reject_reasons(session, company_id, side="candidate", vacancy_id=application.vacancy_id)
+    reason_labels = [r.label for r in reasons]
+    reasons_text = "; ".join(reason_labels) if reason_labels else "(список не настроен)"
+    user_prompt = f"Доступные причины отказа (от кандидата): {reasons_text}\n\nПереписка:\n{dialog}"
+
+    try:
+        result = await call_json(system=_REJECT_SYSTEM, user=user_prompt, max_tokens=512)
+        disinterested = bool(result.get("disinterested"))
+        confidence = float(result.get("confidence") or 0)
+        reason = str(result.get("reason") or "").strip()[:120]
+        quote = str(result.get("quote") or "").strip()[:300]
+    except Exception as e:
+        logger.warning("[auto_reject] анализ не удался app=%s: %s", application.id, e)
+        return False
+
+    # Предохранитель уверенности: при сомнении НЕ отказываем (оставляем рекрутёру)
+    if not disinterested or confidence < _REJECT_CONFIDENCE_THRESHOLD:
+        return False
+
+    # Причина — ТОЛЬКО из справочника; если LLM не выбрал валидную → дефолт
+    if reason not in reason_labels:
+        reason = reason_labels[0] if reason_labels else "Кандидат не заинтересован в вакансии"
+
+    now = datetime.now(timezone.utc)
+    if vacancy.glafira_mode == "B":
+        # ПОЛНЫЙ автоотказ (только режим Автомат)
+        try:
+            await reject_application(
+                session, application.id, RejectRequest(reason=reason, side="candidate"),
+                company_id, actor_user_id=None, actor_type="ai",
+            )
+        except Exception as e:
+            logger.warning("[auto_reject] отказ не удался app=%s: %s", application.id, e)
+            return False
+        await audit(
+            session, action="auto_reject", entity_type="application", entity_id=application.id,
+            after={"candidate_id": str(application.candidate_id), "vacancy_id": str(application.vacancy_id),
+                   "reason": reason, "confidence": confidence, "quote": quote},
+            actor_user_id=None, actor_type="ai", company_id=company_id,
+        )
+        await session.commit()
+        logger.info("[auto_reject] кандидат отклонён app=%s conf=%.2f причина=%s цитата=«%s»",
+                    application.id, confidence, reason, quote)
+        return True
+
+    # Режим A — только подсказка рекрутёру, НЕ двигаем
+    application.auto_reject_suggested_at = now
+    await audit(
+        session, action="auto_reject_suggested", entity_type="application", entity_id=application.id,
+        after={"candidate_id": str(application.candidate_id), "vacancy_id": str(application.vacancy_id),
+               "reason": reason, "confidence": confidence, "quote": quote},
+        actor_user_id=None, actor_type="ai", company_id=company_id,
+    )
+    await session.commit()
+    logger.info("[auto_reject] подсказка незаинтересованности (режим A, не двигаем) app=%s: %s",
+                application.id, reason)
     return True

@@ -1508,22 +1508,25 @@ function AutomationStep({
         </div>
       </div>
 
-      {/* П.3: Автоотказ (DISABLED «скоро») */}
-      <div className="nv-auto-block off">
-        <div className="nv-auto-head">
-          <span className="nv-cb disabled" style={{ opacity: 0.5 }}>
+      {/* П.3: Автоотказ при неинтересе (РАБОЧЕЕ; полный отказ только в режиме «Автомат») */}
+      <div className={`nv-auto-block ${formData.auto_reject ? 'on' : 'off'}`}>
+        <div className="nv-auto-head" onClick={() => onChange({ auto_reject: !formData.auto_reject })}>
+          <span className={`nv-cb ${formData.auto_reject ? 'on' : ''}`}>
             <Icon name="check" size={12} />
           </span>
           <span className="nv-auto-title">Автоматический отказ при неинтересе</span>
-          <span className="nv-soon-badge">Скоро</span>
         </div>
-        <div className="nv-auto-body" style={{ opacity: 0.6 }}>
+        <div className="nv-auto-body">
           <div className="nv-auto-text">
-            Если LLM по диалогу понимает, что вакансия кандидату <b>не интересна</b> или он <b>принял другой оффер</b>, Глафира сама переведёт его в «Отказ» с соответствующей причиной.
+            Если Глафира по диалогу понимает, что вакансия кандидату <b>не интересна</b> или он <b>принял другой оффер</b>, она переведёт его в «Отказ» с причиной из справочника и отправит текст отказа.
           </div>
           <div className="nv-reasons-row">
             <span className="nv-reason-pill"><span className="nv-rp-dot grey" />Не интересно</span>
             <span className="nv-reason-pill"><span className="nv-rp-dot grey" />Принял оффер</span>
+          </div>
+          <div className="nv-auto-hint">
+            <Icon name="sparkle" size={12} />
+            Отказ необратим, поэтому срабатывает только при явной незаинтересованности и высокой уверенности. Полный автоотказ — лишь в режиме «Автомат»; в «Полуавтомате» Глафира только помечает карточку подсказкой рекрутёру. В режиме «Под контролем» не работает.
           </div>
         </div>
       </div>

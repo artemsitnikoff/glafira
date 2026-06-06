@@ -373,7 +373,8 @@ async def reject_application(
     application_id: UUID,
     reject_data: RejectRequest,
     company_id: UUID,
-    actor_user_id: UUID,
+    actor_user_id: UUID | None,
+    actor_type: str = "human",
 ) -> Application:
     application = await get_application(session, application_id, company_id)
 
@@ -392,7 +393,7 @@ async def reject_application(
             application_id=application.id,
             from_stage=from_stage,
             to_stage="rejected",
-            actor_type="human",
+            actor_type=actor_type,
             actor_user_id=actor_user_id,
             reason=reject_data.reason,
             created_at=now,
@@ -405,7 +406,7 @@ async def reject_application(
         from_stage=from_stage,
         to_stage="rejected",
         actor_user_id=actor_user_id,
-        actor_type="human",
+        actor_type=actor_type,
         company_id=company_id,
         reason=reject_data.reason,
     )
@@ -422,6 +423,7 @@ async def reject_application(
             "reject_side": reject_data.side,
         },
         actor_user_id=actor_user_id,
+        actor_type=actor_type,
         company_id=company_id,
     )
 

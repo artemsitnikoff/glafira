@@ -364,3 +364,172 @@ async def test_auto_qa_analyze_mode_c_no_move(db_session: AsyncSession, admin_us
 
     await db_session.refresh(app)
     assert app.stage == "response"
+
+
+# ===== П.3 — автоотказ при незаинтересованности =====
+
+from app.models import RejectReason
+from app.services.glafira.auto_qa import analyze_and_reject
+
+
+async def _make_reject_reason(db, company_id, vacancy_id, label, side="candidate", order_index=0):
+    rr = RejectReason(
+        company_id=company_id, vacancy_id=vacancy_id, side=side,
+        label=label, order_index=order_index, is_active=True, is_system=False,
+    )
+    db.add(rr)
+    await db.flush()
+    return rr
+
+
+async def test_auto_reject_mode_b_rejects(db_session: AsyncSession, admin_user, test_candidate):
+    """Режим B (Автомат), auto_reject=True, ответ есть, LLM disinterested=true conf=0.9 →
+    заявка 'rejected' (side='candidate'), StageHistory actor_type='ai', причина из справочника."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="B")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _make_reject_reason(db_session, cid, vac.id, "Принял другой оффер")
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "Спасибо, уже принял другой оффер")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"disinterested": True, "confidence": 0.9,
+                           "reason": "Принял другой оффер", "quote": "уже принял другой оффер"}
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is True
+
+    await db_session.refresh(app)
+    assert app.stage == "rejected"
+    assert app.reject_side == "candidate"
+    assert app.reject_reason == "Принял другой оффер"
+    hist = (await db_session.execute(
+        select(StageHistory).where(StageHistory.application_id == app.id, StageHistory.to_stage == "rejected")
+    )).scalar_one_or_none()
+    assert hist is not None and hist.actor_type == "ai" and hist.actor_user_id is None
+
+
+async def test_auto_reject_mode_a_suggests_not_moves(db_session: AsyncSession, admin_user, test_candidate):
+    """Режим A (Полуавтомат) — НЕ отказываем, только подсказка (auto_reject_suggested_at), stage остаётся."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="A")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _make_reject_reason(db_session, cid, vac.id, "Не интересна вакансия")
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "Передумал, не интересно")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"disinterested": True, "confidence": 0.95,
+                           "reason": "Не интересна вакансия", "quote": "не интересно"}
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is True
+
+    await db_session.refresh(app)
+    assert app.stage == "response"  # НЕ двигаем в режиме A
+    assert app.auto_reject_suggested_at is not None
+
+
+async def test_auto_reject_mode_c_nothing(db_session: AsyncSession, admin_user, test_candidate):
+    """Режим C — ничего, LLM даже не дёргаем."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="C")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "не интересно")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is False
+        assert cj.await_count == 0
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+
+
+async def test_auto_reject_disabled_nothing(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_reject=False — ничего, LLM не дёргаем."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=False, glafira_mode="B")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "не интересно")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is False
+        assert cj.await_count == 0
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+
+
+async def test_auto_reject_low_confidence_nothing(db_session: AsyncSession, admin_user, test_candidate):
+    """Низкая уверенность (<0.85) — НЕ отказываем (предохранитель), stage остаётся."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="B")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _make_reject_reason(db_session, cid, vac.id, "Не интересна вакансия")
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "хм, надо подумать")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"disinterested": True, "confidence": 0.6,
+                           "reason": "Не интересна вакансия", "quote": "надо подумать"}
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is False
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+    assert app.auto_reject_suggested_at is None
+
+
+async def test_auto_reject_not_disinterested_nothing(db_session: AsyncSession, admin_user, test_candidate):
+    """LLM disinterested=false — ничего (деловой диалог)."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="B")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "Да, интересно, когда собеседование?")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"disinterested": False, "confidence": 0.9, "reason": "", "quote": ""}
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is False
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+
+
+async def test_auto_reject_no_incoming_nothing(db_session: AsyncSession, admin_user, test_candidate):
+    """Нет входящего ответа кандидата — анализ не запускается."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="B")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is False
+        assert cj.await_count == 0
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+
+
+async def test_auto_reject_invalid_reason_falls_back(db_session: AsyncSession, admin_user, test_candidate):
+    """LLM вернул причину не из справочника → берём первую из справочника (не сырой текст LLM)."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject=True, glafira_mode="B")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    await _make_reject_reason(db_session, cid, vac.id, "Принял другой оффер", order_index=0)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "уже не ищу работу")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"disinterested": True, "confidence": 0.92,
+                           "reason": "Выдуманная причина", "quote": "не ищу работу"}
+        acted = await analyze_and_reject(db_session, app, cid)
+        assert acted is True
+
+    await db_session.refresh(app)
+    assert app.stage == "rejected"
+    assert app.reject_reason == "Принял другой оффер"  # фолбэк на справочник
