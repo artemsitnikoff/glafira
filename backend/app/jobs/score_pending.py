@@ -18,8 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from ..config import settings
-from ..models import Application
+from ..models import Application, Vacancy
 from ..services.glafira.scoring import score_pending_applications
+from ..services.glafira.auto_qa import ask_auto_qa_questions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -69,6 +70,32 @@ async def main():
             f"Оценка завершена: {total['companies']} компаний, "
             f"оценено {total['scored']}, сбоев {total['failed']}"
         )
+
+        # П.2 — задать уточняющие вопросы (отдельный проход: не зависит от наличия
+        # неоценённых; берём компании, где есть подходящие auto_qa-кандидаты на «Отклике»).
+        qa_company_ids = (await session.execute(
+            select(Application.company_id)
+            .join(Vacancy, Application.vacancy_id == Vacancy.id)
+            .where(
+                Application.stage == "response",
+                Application.auto_qa_asked_at.is_(None),
+                Application.hh_negotiation_id.isnot(None),
+                Vacancy.auto_qa.is_(True),
+                Vacancy.glafira_mode.in_(("A", "B")),
+                Vacancy.deleted_at.is_(None),
+            )
+            .distinct()
+        )).scalars().all()
+        qa_total = {"asked": 0}
+        for company_id in qa_company_ids:
+            try:
+                qa_stats = await ask_auto_qa_questions(session, company_id)
+                qa_total["asked"] += qa_stats.get("asked", 0)
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка auto_qa (вопросы) компании {company_id}: {e}")
+        if qa_total["asked"]:
+            logger.info(f"Auto-QA: задано вопросов {qa_total['asked']}")
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")

@@ -23,6 +23,7 @@ from ..models import HhIntegration, Application, Message
 from ..services.chat_log import log_chat
 from ..services.integrations.hh import client as hh_client
 from ..services.integrations.hh.service import get_valid_access_token
+from ..services.glafira.auto_qa import analyze_and_advance  # П.2: анализ ответа → автоперевод
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -142,6 +143,18 @@ async def poll_company_messages(session, company_id):
                 )
                 stats["imported"] += imported
                 stats["chats"] += 1
+
+                # П.2: пришло НОВОЕ входящее → коммитим его и пробуем анализ ответов
+                # (event-driven, не на каждом проходе по старым диалогам). Best-effort:
+                # analyze не роняет процесс и сам коммитит свой перевод.
+                if imported > 0:
+                    await session.commit()
+                    try:
+                        app = await session.get(Application, application_id)
+                        if app is not None:
+                            await analyze_and_advance(session, app, company_id)
+                    except Exception as e:
+                        logger.warning(f"[auto_qa] анализ чата {chat_id} не удался: {e}")
             except Exception as e:
                 logger.error(f"Ошибка обработки чата {chat_id}: {e}")
                 continue

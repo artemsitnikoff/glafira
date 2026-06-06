@@ -195,3 +195,172 @@ async def test_vacancy_automation_fields_persist_create_update(db_session: Async
     assert fresh.auto_move_threshold == 90
     assert fresh.auto_qa is True  # не передавали — не изменилось
     assert fresh.rejection_text == "Новый"
+
+
+# ===== П.2 — уточняющие вопросы (ask) + автоперевод на ответах (analyze) =====
+
+from app.models import AiEvaluation, Message
+from app.services.glafira.auto_qa import ask_auto_qa_questions, analyze_and_advance
+
+
+async def _make_eval(db, company_id, candidate_id, application_id, questions):
+    ev = AiEvaluation(
+        company_id=company_id, candidate_id=candidate_id, application_id=application_id,
+        score=60, verdict="partial", summary="тест", questions=questions,
+        model="test", created_at=datetime.now(timezone.utc),
+    )
+    db.add(ev)
+    await db.flush()
+    return ev
+
+
+async def _add_in_message(db, company_id, candidate_id, application_id, body):
+    now = datetime.now(timezone.utc)
+    db.add(Message(
+        company_id=company_id, candidate_id=candidate_id, application_id=application_id,
+        channel="hh", direction="in", sender_type="candidate", sender_user_id=None,
+        body=body, sent_at=now, created_at=now,
+    ))
+    await db.flush()
+
+
+async def test_auto_qa_asks_once_via_hh(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_qa=True, mode A, заявка 'response' с hh + вопросы из оценки → задаёт ОДИН раз в hh."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="A")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.hh_negotiation_id = "neg1"
+    app.hh_chat_id = "chat1"
+    await _make_eval(db_session, cid, test_candidate.id, app.id, ["Какой ваш опыт?", "Готовы к удалёнке?"])
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.get_valid_access_token", new_callable=AsyncMock) as tok, \
+         patch("app.services.glafira.auto_qa.hh_client.send_chat_message", new_callable=AsyncMock) as send:
+        tok.return_value = "token"
+        send.return_value = {"id": "m1"}
+        await ask_auto_qa_questions(db_session, cid)
+        await db_session.refresh(app)
+        assert app.auto_qa_asked_at is not None
+        assert send.await_count == 1  # отправлено один раз
+
+        # Исходящее AI-сообщение записано
+        out = (await db_session.execute(
+            select(Message).where(Message.application_id == app.id, Message.direction == "out")
+        )).scalar_one_or_none()
+        assert out is not None and out.sender_type == "ai"
+
+        # Повторный проход — уже задано, не дёргаем кандидата снова
+        await ask_auto_qa_questions(db_session, cid)
+        assert send.await_count == 1
+
+
+async def test_auto_qa_mode_c_not_asked(db_session: AsyncSession, admin_user, test_candidate):
+    """Режим C — вопросы не задаются."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="C")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.hh_negotiation_id = "neg1"
+    app.hh_chat_id = "chat1"
+    await _make_eval(db_session, cid, test_candidate.id, app.id, ["Q?"])
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.get_valid_access_token", new_callable=AsyncMock) as tok, \
+         patch("app.services.glafira.auto_qa.hh_client.send_chat_message", new_callable=AsyncMock) as send:
+        tok.return_value = "token"
+        await ask_auto_qa_questions(db_session, cid)
+        await db_session.refresh(app)
+        assert app.auto_qa_asked_at is None
+        assert send.await_count == 0
+
+
+async def test_auto_qa_no_questions_skipped(db_session: AsyncSession, admin_user, test_candidate):
+    """Нет оценки/вопросов → не задаём (не шлём пустое), asked_at остаётся None."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="A")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.hh_negotiation_id = "neg1"
+    app.hh_chat_id = "chat1"
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.get_valid_access_token", new_callable=AsyncMock) as tok, \
+         patch("app.services.glafira.auto_qa.hh_client.send_chat_message", new_callable=AsyncMock) as send:
+        tok.return_value = "token"
+        await ask_auto_qa_questions(db_session, cid)
+        await db_session.refresh(app)
+        assert app.auto_qa_asked_at is None
+        assert send.await_count == 0
+
+
+async def test_auto_qa_analyze_proceeds_moves_to_selected(db_session: AsyncSession, admin_user, test_candidate):
+    """Ответ есть, LLM proceed=true → перевод Отклик→Отобран (actor_type='ai')."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="A")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.auto_qa_asked_at = datetime.now(timezone.utc)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "Опыт 5 лет, к удалёнке готов")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"proceed": True, "reason": "содержательные ответы"}
+        moved = await analyze_and_advance(db_session, app, cid)
+        assert moved is True
+
+    await db_session.refresh(app)
+    assert app.stage == "selected"
+    hist = (await db_session.execute(
+        select(StageHistory).where(StageHistory.application_id == app.id, StageHistory.to_stage == "selected")
+    )).scalar_one_or_none()
+    assert hist is not None and hist.actor_type == "ai"
+
+
+async def test_auto_qa_analyze_declines_no_move(db_session: AsyncSession, admin_user, test_candidate):
+    """LLM proceed=false → НЕ двигаем (оставляем рекрутёру)."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="A")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.auto_qa_asked_at = datetime.now(timezone.utc)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "не знаю")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        cj.return_value = {"proceed": False, "reason": "уклончиво"}
+        moved = await analyze_and_advance(db_session, app, cid)
+        assert moved is False
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+
+
+async def test_auto_qa_analyze_no_incoming_no_move(db_session: AsyncSession, admin_user, test_candidate):
+    """Кандидат не ответил → анализ не запускается, не двигаем."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="A")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.auto_qa_asked_at = datetime.now(timezone.utc)
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        moved = await analyze_and_advance(db_session, app, cid)
+        assert moved is False
+        assert cj.await_count == 0  # LLM не дёргали
+
+    await db_session.refresh(app)
+    assert app.stage == "response"
+
+
+async def test_auto_qa_analyze_mode_c_no_move(db_session: AsyncSession, admin_user, test_candidate):
+    """Режим C → анализ/перевод не выполняется даже при ответе."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_qa=True, auto_move=False, glafira_mode="C")
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.auto_qa_asked_at = datetime.now(timezone.utc)
+    await _add_in_message(db_session, cid, test_candidate.id, app.id, "ответ")
+    await db_session.flush()
+
+    with patch("app.services.glafira.auto_qa.call_json", new_callable=AsyncMock) as cj:
+        moved = await analyze_and_advance(db_session, app, cid)
+        assert moved is False
+        assert cj.await_count == 0
+
+    await db_session.refresh(app)
+    assert app.stage == "response"

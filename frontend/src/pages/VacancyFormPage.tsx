@@ -1484,28 +1484,26 @@ function AutomationStep({
         </div>
       </div>
 
-      {/* П.2: Уточняющие вопросы (DISABLED «скоро») */}
-      <div className="nv-auto-block off">
-        <div className="nv-auto-head">
-          <span className="nv-cb disabled" style={{ opacity: 0.5 }}>
+      {/* П.2: Уточняющие вопросы + автоперевод (РАБОЧЕЕ; только hh-кандидаты) */}
+      <div className={`nv-auto-block ${formData.auto_qa ? 'on' : 'off'}`}>
+        <div className="nv-auto-head" onClick={() => onChange({ auto_qa: !formData.auto_qa })}>
+          <span className={`nv-cb ${formData.auto_qa ? 'on' : ''}`}>
             <Icon name="check" size={12} />
           </span>
           <span className="nv-auto-title">Уточняющие вопросы и автоперевод</span>
-          <span className="nv-soon-badge">Скоро</span>
         </div>
-        <div className="nv-auto-body" style={{ opacity: 0.6 }}>
+        <div className="nv-auto-body">
           <div className="nv-auto-inline">
             <span>Если карточка на этапе</span>
             <div className="nv-inline-select">
               <span className="nv-stage-dot" style={{ background: 'var(--ark-blue-500)' }} />
               <span>Отклик</span>
-              <Icon name="chevD" size={12} />
             </div>
-            <span>— Глафира задаёт уточняющие вопросы.</span>
+            <span>— Глафира задаёт кандидату уточняющие вопросы и переводит в «Отобран» по ответам.</span>
           </div>
           <div className="nv-auto-hint">
             <Icon name="sparkle" size={12} />
-            Полезно, когда в отклике мало данных — например, нет опыта или зарплаты.
+            Только для откликов с hh.ru (через переписку). Вопросы задаются один раз. В режиме «Под контролем» не работает.
           </div>
         </div>
       </div>
