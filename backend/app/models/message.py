@@ -21,7 +21,8 @@ class Message(Base, CreatedAtMixin, CompanyMixin):
         UUID(as_uuid=True),
         ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
-        server_default=text("'00000000-0000-0000-0000-000000000001'")
+        server_default=text("'00000000-0000-0000-0000-000000000001'"),
+        index=True
     )
     candidate_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -31,7 +32,8 @@ class Message(Base, CreatedAtMixin, CompanyMixin):
     application_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("applications.id", ondelete="CASCADE"),
-        nullable=True
+        nullable=True,
+        index=True
     )
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
     direction: Mapped[str] = mapped_column(String(10), nullable=False)
