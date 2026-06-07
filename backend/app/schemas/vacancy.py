@@ -91,6 +91,7 @@ class VacancyDetail(ORMBase):
     auto_move_threshold: int
     auto_qa: bool
     auto_reject: bool
+    auto_reject_message: bool
     rejection_text: str | None = None
 
     @field_validator('team', mode='before')
@@ -130,6 +131,7 @@ class VacancyCreate(BaseModel):
     auto_move_threshold: int = Field(default=80, ge=0, le=100)
     auto_qa: bool = False
     auto_reject: bool = False
+    auto_reject_message: bool = False
     rejection_text: str | None = None
     stages: list[StageInput] | None = None
     reject_reasons: list[RejectReasonInput] | None = None
@@ -164,6 +166,7 @@ class VacancyUpdate(BaseModel):
     auto_move_threshold: int | None = Field(default=None, ge=0, le=100)
     auto_qa: bool | None = None
     auto_reject: bool | None = None
+    auto_reject_message: bool | None = None
     rejection_text: str | None = None
 
 

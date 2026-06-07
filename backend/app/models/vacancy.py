@@ -65,6 +65,9 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     auto_move_threshold: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("80"))
     auto_qa: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     auto_reject: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Слать ли кандидату вежливое сообщение при переводе в отказ (поднимает «вежливость» на hh).
+    # Гейтит отправку в sync_company_rejections; discard на hh идёт независимо от флага.
+    auto_reject_message: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Constraints

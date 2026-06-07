@@ -30,6 +30,7 @@ import type { components } from '@/api/types';
 import type { ApiError } from '@/api/aliases';
 import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
 import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api/mutations/hhIntegration';
+import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
@@ -37,11 +38,13 @@ type VacancyUpdate = components['schemas']['VacancyUpdate'];
 // Локальные типы для новых полей автоматизации (openapi отстаёт)
 type VacancyFormData = VacancyCreate & {
   auto_qa: boolean;
+  auto_reject_message: boolean;
   rejection_text: string | null;
 };
 
 type VacancyCreateExtended = VacancyCreate & {
   auto_qa: boolean;
+  auto_reject_message: boolean;
   rejection_text: string | null;
   stages: StageInput[];
   reject_reasons: Array<{
@@ -54,11 +57,21 @@ type VacancyCreateExtended = VacancyCreate & {
 
 type VacancyUpdateExtended = VacancyUpdate & {
   auto_qa: boolean;
+  auto_reject_message: boolean;
   rejection_text: string | null;
 };
 
 // Защищённые (системные) этапы — зеркало с бэкенда
 const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
+
+// Встроенный вежливый текст отказа — зеркало backend POLITE_REJECTION_TEXT
+// (app/services/integrations/hh/service.py). Используется как префилл текстареа,
+// когда у компании не задан свой текст по умолчанию.
+const POLITE_REJECTION_FALLBACK =
+  'Здравствуйте! Благодарим за интерес к нашей вакансии и время, уделённое отклику. ' +
+  'К сожалению, по итогам рассмотрения мы приняли решение не продолжать общение по этой позиции. ' +
+  'Это не оценка вас как специалиста — на данном этапе мы остановились на другой кандидатуре. ' +
+  'Желаем успехов в поиске работы и будем рады видеть ваш отклик на наши будущие вакансии!';
 
 // Типы этапов
 const FUNNEL_STAGE_TYPES = {
@@ -274,11 +287,12 @@ export default function VacancyFormPage() {
     funnel_template: 'default',
     team: [],
     glafira_mode: 'A',
-    // Шаг 4 (автоматизация) — реальные поля (П.1/П.4 работают, П.2/П.3 disabled)
+    // Шаг 4 (автоматизация) — реальные поля (П.1/П.2/П.3/П.4 рабочие, дефолт OFF, opt-in)
     auto_move: false,
     auto_move_threshold: 80,
     auto_qa: false,
     auto_reject: false,
+    auto_reject_message: false,
     rejection_text: null,
   });
 
@@ -314,6 +328,7 @@ export default function VacancyFormPage() {
         auto_move_threshold: (vacancy as any).auto_move_threshold || 80,
         auto_qa: (vacancy as any).auto_qa || false,
         auto_reject: (vacancy as any).auto_reject || false,
+        auto_reject_message: (vacancy as any).auto_reject_message || false,
         rejection_text: (vacancy as any).rejection_text || null,
       });
       setRecruiterScoring((vacancy as { recruiter_scoring_instructions?: string | null }).recruiter_scoring_instructions || '');
@@ -1444,6 +1459,12 @@ function AutomationStep({
   formData: any;
   onChange: (updates: any) => void;
 }) {
+  // Текст по умолчанию для префилла текстареа отказа: текст компании из Настроек,
+  // иначе встроенный вежливый текст (зеркало backend).
+  const { data: glafiraSettings } = useGlafiraSettings();
+  const defaultRejectionText =
+    (glafiraSettings?.default_rejection_text?.trim() || '') || POLITE_REJECTION_FALLBACK;
+
   return (
     <div className="nv-step-body">
       <div className="nv-h1">Автоматизация</div>
@@ -1531,21 +1552,33 @@ function AutomationStep({
         </div>
       </div>
 
-      {/* П.4: Текст отказа для вакансии (РАБОЧИЙ) */}
-      <div className="nv-rejection-text-block" style={{ marginTop: '24px' }}>
-        <div className="nv-h3" style={{ marginBottom: '8px' }}>Текст отказа для этой вакансии</div>
-        <textarea
-          className="nv-textarea"
-          placeholder="Если пусто — берётся текст по умолчанию из Настроек"
-          value={formData.rejection_text || ''}
-          onChange={(e) => onChange({ rejection_text: e.target.value || null })}
-          rows={4}
-          style={{
-            width: '100%',
-            resize: 'vertical',
-            minHeight: '80px'
-          }}
-        />
+      {/* П.4: Авто-сообщение при отказе + текст отказа для вакансии (РАБОЧИЙ) */}
+      <div className={`nv-auto-block ${formData.auto_reject_message ? 'on' : 'off'}`}>
+        <div className="nv-auto-head" onClick={() => onChange({ auto_reject_message: !formData.auto_reject_message })}>
+          <span className={`nv-cb ${formData.auto_reject_message ? 'on' : ''}`}>
+            <Icon name="check" size={12} />
+          </span>
+          <span className="nv-auto-title">Автоматически писать кандидату при переводе в отказ</span>
+        </div>
+        <div className="nv-auto-body">
+          <div className="nv-auto-hint">
+            <Icon name="sparkle" size={12} />
+            Вежливое сообщение при отказе поднимает рейтинг «вежливости» компании на hh.ru. Отправляется только для откликов с hh.ru; сам отказ на hh идёт в любом случае.
+          </div>
+          <textarea
+            className="nv-textarea"
+            placeholder="Текст сообщения кандидату при отказе"
+            value={formData.rejection_text ?? (formData.auto_reject_message ? defaultRejectionText : '')}
+            onChange={(e) => onChange({ rejection_text: e.target.value || null })}
+            disabled={!formData.auto_reject_message}
+            rows={4}
+            style={{
+              width: '100%',
+              resize: 'vertical',
+              minHeight: '80px'
+            }}
+          />
+        </div>
       </div>
 
       <HhPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />

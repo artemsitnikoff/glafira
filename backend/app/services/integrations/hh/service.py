@@ -1152,9 +1152,17 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
             await session.flush()
 
             # 3. Отправляем вежливое сообщение (best-effort) — только тем, кого
-            #    реально отклонили сейчас.
+            #    реально отклонили сейчас И только если на вакансии включён
+            #    авто-текст отказа (флаг auto_reject_message; «вежливость» на hh).
+            #    Сам discard на hh идёт независимо от флага.
             message_sent = False
-            if chat_id:
+            auto_reject_message = (await session.execute(
+                select(Vacancy.auto_reject_message).where(
+                    Vacancy.id == app.vacancy_id,
+                    Vacancy.company_id == company_id,
+                )
+            )).scalar_one_or_none()
+            if chat_id and auto_reject_message:
                 try:
                     # Получаем настраиваемый текст отказа
                     rejection_text = await resolve_rejection_text(session, company_id, app.vacancy_id)

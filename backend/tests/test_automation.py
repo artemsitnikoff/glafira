@@ -533,3 +533,66 @@ async def test_auto_reject_invalid_reason_falls_back(db_session: AsyncSession, a
     await db_session.refresh(app)
     assert app.stage == "rejected"
     assert app.reject_reason == "Принял другой оффер"  # фолбэк на справочник
+
+
+# ===== П.4-чекбокс — авто-сообщение при отказе (gate auto_reject_message) =====
+
+from app.services.integrations.hh.service import sync_company_rejections
+
+
+async def _make_rejected_hh_app(db, company_id, candidate_id, vacancy_id):
+    app = await _make_application(db, company_id, candidate_id, vacancy_id, stage="rejected")
+    app.hh_negotiation_id = "neg-rej-1"
+    app.hh_chat_id = "chat-rej-1"
+    app.reject_reason = "Не подходит опыт"
+    app.reject_side = "company"
+    await db.flush()
+    return app
+
+
+async def test_reject_message_gate_on_sends(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_reject_message=True → discard + вежливое сообщение РЕАЛЬНО отправляется в hh, Message сохранён."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject_message=True)
+    app = await _make_rejected_hh_app(db_session, cid, test_candidate.id, vac.id)
+
+    with patch("app.services.integrations.hh.service.get_valid_access_token", new_callable=AsyncMock) as tok, \
+         patch("app.services.integrations.hh.service.hh_client.discard_negotiation", new_callable=AsyncMock) as disc, \
+         patch("app.services.integrations.hh.service.hh_client.send_chat_message", new_callable=AsyncMock) as send:
+        tok.return_value = "token"
+        disc.return_value = True
+        send.return_value = {"id": "m1"}
+        stats = await sync_company_rejections(db_session, cid, limit=10)
+        assert stats["discarded"] == 1
+        send.assert_called_once()  # сообщение отправлено
+
+    await db_session.refresh(app)
+    assert app.hh_discard_synced_at is not None
+    msg = (await db_session.execute(
+        select(Message).where(Message.application_id == app.id, Message.direction == "out", Message.channel == "hh")
+    )).scalar_one_or_none()
+    assert msg is not None and msg.sender_type == "ai"
+
+
+async def test_reject_message_gate_off_no_send(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_reject_message=False → discard на hh ВСЁ РАВНО идёт, но сообщение НЕ шлём и Message не создаём."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(db_session, cid, auto_reject_message=False)
+    app = await _make_rejected_hh_app(db_session, cid, test_candidate.id, vac.id)
+
+    with patch("app.services.integrations.hh.service.get_valid_access_token", new_callable=AsyncMock) as tok, \
+         patch("app.services.integrations.hh.service.hh_client.discard_negotiation", new_callable=AsyncMock) as disc, \
+         patch("app.services.integrations.hh.service.hh_client.send_chat_message", new_callable=AsyncMock) as send:
+        tok.return_value = "token"
+        disc.return_value = True
+        send.return_value = {"id": "m1"}
+        stats = await sync_company_rejections(db_session, cid, limit=10)
+        assert stats["discarded"] == 1   # discard прошёл независимо от флага
+        send.assert_not_called()         # но письмо НЕ отправлено
+
+    await db_session.refresh(app)
+    assert app.hh_discard_synced_at is not None
+    msg = (await db_session.execute(
+        select(Message).where(Message.application_id == app.id, Message.direction == "out", Message.channel == "hh")
+    )).scalar_one_or_none()
+    assert msg is None  # сообщение не создано
