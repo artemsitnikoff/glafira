@@ -35,6 +35,7 @@ export function Sidebar() {
     if (path.startsWith('/home') || path === '/') return 'home';
     if (path.startsWith('/vacancies')) return 'vacancies';
     if (path.startsWith('/candidates')) return 'candidates';
+    if (path.startsWith('/smart')) return 'smart';
     if (path.startsWith('/analytics')) return 'analytics';
     if (path.startsWith('/pulse')) return 'pulse';
     if (path.startsWith('/settings')) return 'settings';
@@ -63,6 +64,7 @@ export function Sidebar() {
       { id: 'home', label: 'Главная', icon: 'home' as IconName },
       { id: 'vacancies', label: 'Вакансии', icon: 'briefcase' as IconName, expandable: 'vacancies' },
       { id: 'candidates', label: 'Кандидаты', icon: 'users' as IconName },
+      { id: 'smart', label: 'Умный подбор', icon: 'sparkles' as IconName, beta: true },
       { id: 'analytics', label: 'Аналитика', icon: 'chart' as IconName, expandable: 'analytics' },
       { id: 'pulse', label: 'Пульс-Онбординг', icon: 'heart' as IconName, pip: alertsCount },
       { id: 'settings', label: 'Настройки', icon: 'settings' as IconName },
@@ -187,7 +189,10 @@ export function Sidebar() {
                 }}
               >
                 <Icon name={n.icon} size={18} className="nav-row-icon" />
-                <span className="nav-row-label">{n.label}</span>
+                <span className="nav-row-label">
+                  {n.label}
+                  {(n as any).beta && <span className="nav-beta">beta</span>}
+                </span>
                 {n.pip && n.pip > 0 ? <span className="nav-row-pip">{n.pip}</span> : null}
                 {n.expandable && (
                   <span className={`nav-chev ${isExpanded ? 'open' : ''}`}>

@@ -16,6 +16,7 @@ const VacancyFormPage = lazy(() => import('@/pages/VacancyFormPage'));
 const VacancyDetailPage = lazy(() => import('@/pages/VacancyDetailPage'));
 const CandidatesPoolPage = lazy(() => import('@/pages/candidates/CandidatesPoolPage').then(m => ({ default: m.CandidatesPoolPage })));
 const CandidatePoolDetailPage = lazy(() => import('@/pages/candidates/CandidatePoolDetailPage').then(m => ({ default: m.CandidatePoolDetailPage })));
+const SmartSearchPage = lazy(() => import('@/pages/smart/SmartSearchPage'));
 const PulsePage = lazy(() => import('@/pages/pulse/PulsePage').then(m => ({ default: m.PulsePage })));
 const PulseEmployeePage = lazy(() => import('@/pages/pulse/PulseEmployeePage').then(m => ({ default: m.PulseEmployeePage })));
 const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
@@ -110,6 +111,14 @@ export default function App() {
           element={
             <RoleGuard roles={['admin', 'recruiter']}>
               <CandidatePoolDetailPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="smart"
+          element={
+            <RoleGuard roles={['admin', 'recruiter']}>
+              <SmartSearchPage />
             </RoleGuard>
           }
         />

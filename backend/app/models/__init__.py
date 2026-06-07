@@ -32,6 +32,7 @@ from .settings import (
     FunnelTemplateStage,
 )
 from .hh_integration import HhIntegration, HhOauthState
+from .smart_search import SmartSearchRun
 
 __all__ = [
     "Base",
@@ -71,4 +72,5 @@ __all__ = [
     "CompanyDefaultStage",
     "HhIntegration",
     "HhOauthState",
+    "SmartSearchRun",
 ]

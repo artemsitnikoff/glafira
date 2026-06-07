@@ -510,6 +510,151 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
         raise ValidationError(f"hh.ru ошибка отказа отклика (HTTP {response.status_code}): {body}")
 
 
+async def search_resumes(access_token: str, params: dict) -> dict:
+    """
+    Поиск резюме в базе hh.ru
+
+    Args:
+        access_token: access token
+        params: параметры поиска (text, area, professional_role, experience, salary, etc.)
+
+    Returns:
+        dict: ответ hh.ru с полями found и items
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/resumes",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru /resumes")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка поиска резюме hh.ru: {e}")
+
+
+async def get_resume_by_id(access_token: str, resume_id: str) -> dict:
+    """
+    Получает резюме по ID (ПЛАТНО - тратит квоту просмотров)
+
+    Args:
+        access_token: access token
+        resume_id: ID резюме на hh.ru
+
+    Returns:
+        dict: полное резюме
+
+    Raises:
+        ValidationError: при ошибке API или превышении квоты (429)
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/resumes/{resume_id}",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+
+            if response.status_code == 429:
+                raise ValidationError("Превышена квота просмотров резюме hh.ru")
+
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru GET /resumes/{id}")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения резюме hh.ru: {e}")
+
+
+async def invite_to_vacancy(access_token: str, resume_id: str, vacancy_id: str, message: str | None = None) -> dict:
+    """
+    Приглашает кандидата на вакансию
+
+    Args:
+        access_token: access token
+        resume_id: ID резюме на hh.ru
+        vacancy_id: ID вакансии на hh.ru
+        message: сообщение приглашения (опционально)
+
+    Returns:
+        dict: ответ hh.ru с созданным приглашением (извлекаем negotiation_id)
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    data = {
+        "resume_id": resume_id,
+        "vacancy_id": vacancy_id
+    }
+    if message:
+        data["message"] = message
+
+    async with _get_client() as client:
+        try:
+            response = await client.post(
+                f"{settings.HH_API_BASE}/negotiations/phone_interview",
+                headers={"Authorization": f"Bearer {access_token}"},
+                data=data
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru POST /negotiations/phone_interview")
+
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка приглашения кандидата hh.ru: {e}")
+
+
+async def get_payable_api_actions(access_token: str, employer_id: str) -> dict:
+    """
+    Получает остаток платных API-действий работодателя
+
+    Args:
+        access_token: access token
+        employer_id: ID работодателя на hh.ru
+
+    Returns:
+        dict: ответ hh.ru с остатками квот
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/employers/{employer_id}/services/payable_api_actions/active",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Может вернуть как dict, так и list
+            return result
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения квот hh.ru: {e}")
+
+
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
     """
     Строит URL для авторизации через hh.ru

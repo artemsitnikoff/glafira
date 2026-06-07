@@ -143,6 +143,24 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-wide .nav-beta {
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ark-violet-100);
+  color: var(--ark-violet-500);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex: none;
 }
 
 .sidebar-wide .nav-row-pip {

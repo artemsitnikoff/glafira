@@ -53,6 +53,8 @@ import {
   Link,
   Pencil,
   Copy,
+  MapPin,
+  Heart,
 } from 'lucide-react';
 
 const iconMap = {
@@ -61,6 +63,7 @@ const iconMap = {
   users: Users,
   activity: Activity,
   'bar-chart': BarChart3,
+  chart: BarChart3,
   settings: Settings,
   search: Search,
   plus: Plus,
@@ -85,7 +88,9 @@ const iconMap = {
   'arrow-right': ArrowRight,
   open: ExternalLink,
   funnel: Funnel,
-  sparkle: Sparkles,
+  sparkles: Sparkles,
+  sparkle: Sparkles, // alias для совместимости
+  pin: MapPin,
   more: MoreHorizontal,
   pause: Pause,
   'cal-clock': Calendar,
@@ -115,13 +120,12 @@ const iconMap = {
   'chevron-up-down': ChevronsUpDown,
   spinner: Loader2,
   // Для совместимости с prototype
-  chart: BarChart3,
   chevD: ChevronDown,
   chevR: ChevronRight,
   chevL: ChevronLeft,
   arrowRight: ArrowRight,
   calClock: Calendar,
-  heart: Activity, // Пульс-Онбординг → Activity (Pulse icon)
+  heart: Heart, // Пульс-Онбординг → Heart icon
 } as const;
 
 export type IconName = keyof typeof iconMap;

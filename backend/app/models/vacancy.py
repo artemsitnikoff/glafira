@@ -99,6 +99,7 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     team: Mapped[list["VacancyTeam"]] = relationship("VacancyTeam", back_populates="vacancy")
     stages: Mapped[list["VacancyStage"]] = relationship("VacancyStage", back_populates="vacancy")
     applications: Mapped[list["Application"]] = relationship("Application", back_populates="vacancy")
+    smart_search_runs: Mapped[list["SmartSearchRun"]] = relationship("SmartSearchRun", back_populates="vacancy")
 
 
 class VacancyTeam(Base, TimestampMixin, CompanyMixin):

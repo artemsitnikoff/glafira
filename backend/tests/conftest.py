@@ -12,7 +12,7 @@ from app.config import settings
 from app.core.security import get_password_hash
 from app.database import get_db
 from app.main import app
-from app.models import Base, Company, User, Candidate, Consent
+from app.models import Base, Company, User, Candidate, Consent, Vacancy
 from datetime import datetime, timezone
 
 TEST_DATABASE_URL = "postgresql+asyncpg://glafira:glafira@localhost:5432/glafira_test"
@@ -73,6 +73,29 @@ async def admin_user(db_session: AsyncSession) -> User:
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+
+@pytest_asyncio.fixture
+async def test_company(db_session: AsyncSession, admin_user: User) -> Company:
+    """Компания тест-окружения (создаётся фикстурой admin_user)."""
+    return await db_session.get(Company, admin_user.company_id)
+
+
+@pytest_asyncio.fixture
+async def test_vacancy(db_session: AsyncSession, admin_user: User) -> Vacancy:
+    """Одна активная вакансия компании (без hh_vacancy_id — для тестов Умного подбора)."""
+    vacancy = Vacancy(
+        company_id=admin_user.company_id,
+        name="Python-разработчик",
+        city="Москва",
+        salary_from=150000,
+        salary_to=250000,
+        status="active",
+    )
+    db_session.add(vacancy)
+    await db_session.commit()
+    await db_session.refresh(vacancy)
+    return vacancy
 
 
 @pytest_asyncio.fixture
