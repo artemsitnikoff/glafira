@@ -16,7 +16,8 @@ import {
 import './smart-search.css';
 
 // Форматирование чисел с разделителями
-function ssFmt(n: number) {
+function ssFmt(n: number | null | undefined) {
+  if (n === null || n === undefined) return '—';
   return n.toLocaleString('ru-RU').replace(/ /g, ' ');
 }
 
@@ -40,10 +41,10 @@ export default function SmartSearchPage() {
 
   // Состояние компонента
   const [phase, setPhase] = useState<Phase>('build');
-  const [vacId, setVacId] = useState<number | null>(null);
+  const [vacId, setVacId] = useState<string | null>(null);
   const [maxStep, setMaxStep] = useState(1);
   const [selOpen, setSelOpen] = useState(false);
-  const [runId, setRunId] = useState<number | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
 
   // Step 2 — фильтры
   const [skills, setSkills] = useState<string[]>([]);
@@ -95,7 +96,7 @@ export default function SmartSearchPage() {
     setThreshold(75);
   };
 
-  const selectVacancy = (id: number) => {
+  const selectVacancy = (id: string) => {
     const v = vacancies.find(x => x.id === id);
     if (!v) return;
 
@@ -104,11 +105,11 @@ export default function SmartSearchPage() {
 
     // авто-предложение фильтров из вакансии
     setSkills([...v.skills]);
-    setRole(v.professional_role);
-    setExp(v.experience);
-    setArea(v.area);
-    setSalFrom(v.salary_from);
-    setSalTo(v.salary_to);
+    setRole(v.professional_role ?? '');
+    setExp(v.experience ?? '');
+    setArea(v.area ?? '');
+    setSalFrom(v.salary_from ?? 0);
+    setSalTo(v.salary_to ?? 0);
 
     // объём: берём первых N из найденного
     const proposeScan = Math.min(400, Math.max(100, Math.round((v.found || 300) * 0.6 / 50) * 50));

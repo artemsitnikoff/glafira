@@ -8,21 +8,21 @@ export interface SmartAccessResponse {
 }
 
 export interface SmartVacancy {
-  id: number;
+  id: string;
   title: string;
-  city: string;
-  area: string;
-  professional_role: string;
-  experience: string;
-  salary_from: number;
-  salary_to: number;
+  city: string | null;
+  area: string | null;
+  professional_role: string | null;
+  experience: string | null;
+  salary_from: number | null;
+  salary_to: number | null;
   skills: string[];
   found: number | null;
   hh_published: boolean;
 }
 
 export interface SmartSearchRequest {
-  vacancy_id: number;
+  vacancy_id: string;
   area?: string;
   professional_role?: string;
   experience?: string;
@@ -36,11 +36,11 @@ export interface SmartSearchRequest {
 }
 
 export interface SmartSearchResponse {
-  run_id: number;
+  run_id: string;
 }
 
 export interface SmartRun {
-  id: number;
+  id: string;
   status: 'running' | 'done' | 'error';
   stage: 'search' | 'eval' | 'invite' | 'done';
   found: number;
@@ -52,7 +52,7 @@ export interface SmartRun {
 }
 
 export interface SmartCandidate {
-  candidate_id: number;
+  candidate_id: string;
   name: string;
   age: number;
   experience_years: number;
@@ -63,8 +63,8 @@ export interface SmartCandidate {
 }
 
 export interface SmartHistoryItem {
-  id: number;
-  vacancy_id: number;
+  id: string;
+  vacancy_id: string;
   vacancy_title: string;
   created_at: string;
   found: number;
@@ -101,7 +101,7 @@ export function useStartSmartSearch() {
   });
 }
 
-export function useSmartRun(runId: number | null, enabled: boolean = true) {
+export function useSmartRun(runId: string | null, enabled: boolean = true) {
   return useQuery({
     queryKey: ['smart', 'runs', runId],
     queryFn: async (): Promise<SmartRun> => {
