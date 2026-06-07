@@ -42,7 +42,11 @@ async def test_check_access_with_hh_integration(
     # Мокаем успешные вызовы
     mock_token.return_value = "test_token"
     mock_get_me.return_value = {"employer": {"id": "123456"}}
-    mock_quota.return_value = {"views": 100, "contacts": 50}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
 
     has_access, reason = await check_access(db_session, test_company.id)
 
@@ -109,7 +113,11 @@ async def test_quota_check_insufficient_views(
     mock_get_me.return_value = {"employer": {"id": "123456"}}
 
     # Мокаем недостаточную квоту
-    mock_quota.return_value = {"views": 10, "contacts": 50}  # Меньше чем scan_n=50
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 10}}  # Меньше чем scan_n=50
+        ]
+    }
 
     request = SmartSearchRequest(
         vacancy_id=test_vacancy.id,
@@ -151,8 +159,8 @@ async def test_quota_undefined_fail_closed(
     mock_token.return_value = "test_token"
     mock_get_me.return_value = {"employer": {"id": "123456"}}
 
-    # Мокаем квоту в неожиданном формате (остатки не парсятся)
-    mock_quota.return_value = {"unexpected_format": "data"}
+    # Мокаем квоту в неожиданном формате (нет услуг)
+    mock_quota.return_value = {"items": []}
 
     request = SmartSearchRequest(
         vacancy_id=test_vacancy.id,
@@ -161,13 +169,12 @@ async def test_quota_undefined_fail_closed(
         threshold=70
     )
 
-    # Должен выбросить ValidationError с деньги-безопасностью
+    # Должен выбросить ValidationError об отсутствии API-услуги
     with pytest.raises(Exception) as exc_info:
         await start_search(db_session, test_company.id, admin_user.id, request)
 
-    error_msg = str(exc_info.value).lower()
-    assert "не удалось определить остаток квоты" in error_msg
-    assert "деньги-безопасность" in error_msg
+    error_msg = str(exc_info.value)
+    assert "нет активной api-услуги hh" in error_msg.lower()
 
 
 @pytest.mark.asyncio
@@ -195,7 +202,11 @@ async def test_vacancy_without_hh_id_fail_closed(
     mock_get_me.return_value = {"employer": {"id": "123456"}}
 
     # Мокаем нормальную квоту (но она даже не должна проверяться)
-    mock_quota.return_value = {"views": 100, "contacts": 50}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
 
     request = SmartSearchRequest(
         vacancy_id=test_vacancy.id,
@@ -243,7 +254,11 @@ async def test_successful_search_start(
     mock_access.return_value = (True, None)
     mock_token.return_value = "test_token"
     mock_get_me.return_value = {"employer": {"id": "123456"}}
-    mock_quota.return_value = {"views": 100, "contacts": 50}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
 
     # Мокаем создание задачи
     mock_task = AsyncMock()
@@ -474,6 +489,152 @@ async def test_candidate_creation_from_resume(db_session, test_company):
     assert candidate.last_position == "Python Developer"
     assert "Python Developer" in candidate.resume_text
     assert "Python, Django, PostgreSQL" in candidate.resume_text
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+@patch('app.services.smart_search.asyncio.create_task')
+async def test_quota_api_unlimited_passes(
+    mock_create_task,
+    mock_quota,
+    mock_get_me,
+    mock_token,
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест безлимитной услуги API_UNLIMITED: проходит любой scan_n"""
+    # Устанавливаем hh_vacancy_id для прохождения проверки
+    test_vacancy.hh_vacancy_id = "12345"
+    db_session.add(test_vacancy)
+    await db_session.commit()
+
+    # Мокаем доступ
+    mock_access.return_value = (True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+
+    # Мокаем безлимитную услугу
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_UNLIMITED"}, "balance": None}
+        ]
+    }
+
+    # Мокаем создание задачи
+    mock_task = AsyncMock()
+    mock_create_task.return_value = mock_task
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=1000,  # Большое число — при unlimited должно пройти
+        invite_m=100,
+        threshold=70
+    )
+
+    # Должно пройти успешно
+    run_id = await start_search(db_session, test_company.id, admin_user.id, request)
+    assert run_id is not None
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+@patch('app.services.smart_search.asyncio.create_task')
+async def test_quota_api_limited_sufficient(
+    mock_create_task,
+    mock_quota,
+    mock_get_me,
+    mock_token,
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест лимитной услуги с достаточным остатком"""
+    # Устанавливаем hh_vacancy_id для прохождения проверки
+    test_vacancy.hh_vacancy_id = "12345"
+    db_session.add(test_vacancy)
+    await db_session.commit()
+
+    # Мокаем доступ
+    mock_access.return_value = (True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+
+    # Мокаем лимитную услугу с достаточным остатком
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
+
+    # Мокаем создание задачи
+    mock_task = AsyncMock()
+    mock_create_task.return_value = mock_task
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=50,   # Меньше остатка
+        invite_m=30, # Меньше остатка
+        threshold=70
+    )
+
+    # Должно пройти успешно
+    run_id = await start_search(db_session, test_company.id, admin_user.id, request)
+    assert run_id is not None
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+async def test_quota_fail_closed_on_exception(
+    mock_quota,
+    mock_get_me,
+    mock_token,
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест fail-closed при исключении проверки квоты"""
+    # Устанавливаем hh_vacancy_id для прохождения проверки
+    test_vacancy.hh_vacancy_id = "12345"
+    db_session.add(test_vacancy)
+    await db_session.commit()
+
+    # Мокаем доступ
+    mock_access.return_value = (True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+
+    # Мокаем исключение при получении квоты
+    mock_quota.side_effect = Exception("API timeout")
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=20,
+        invite_m=5,
+        threshold=70
+    )
+
+    # Должен выбросить ValidationError
+    with pytest.raises(Exception) as exc_info:
+        await start_search(db_session, test_company.id, admin_user.id, request)
+
+    error_msg = str(exc_info.value).lower()
+    assert "не удалось проверить квоту hh" in error_msg
 
 
 def test_no_real_hh_calls_in_tests():

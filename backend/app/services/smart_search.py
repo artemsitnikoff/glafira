@@ -30,6 +30,42 @@ logger = logging.getLogger(__name__)
 _active_tasks = {}
 
 
+def _parse_api_quota(quota_data) -> tuple[bool, int, bool]:
+    """Парсит ответ get_payable_api_actions по реальной схеме OpenAPI.
+
+    Args:
+        quota_data: сырой ответ {items:[...]} или legacy формат
+
+    Returns:
+        (unlimited, limited_remaining, has_service):
+            unlimited: есть API_UNLIMITED (balance=null)
+            limited_remaining: остаток запросов по API_LIMITED (если есть)
+            has_service: есть хотя бы одна API-услуга
+    """
+    items = quota_data.get("items", []) if isinstance(quota_data, dict) else (quota_data or [])
+    unlimited = False
+    limited_remaining = 0
+    has_service = False
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        service_type = item.get("service_type") or {}
+        service_id = service_type.get("id") or ""
+
+        if service_id == "API_UNLIMITED":
+            unlimited = True
+            has_service = True
+        elif service_id == "API_LIMITED":
+            has_service = True
+            balance = item.get("balance") or {}
+            actual = balance.get("actual") or 0
+            limited_remaining += int(actual)
+
+    return unlimited, limited_remaining, has_service
+
+
 async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, Optional[str]]:
     """
     Проверяет доступ к умному подбору
@@ -51,8 +87,12 @@ async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, O
         # Проверяем наличие платных услуг
         try:
             quota_data = await hh_client.get_payable_api_actions(access_token, str(employer_id))
-            # Считаем что доступ есть если удалось получить информацию о квотах
-            # Детальная проверка будет в момент запуска поиска
+            unlimited, limited_remaining, has_service = _parse_api_quota(quota_data)
+            has_access = unlimited or has_service
+
+            if not has_access:
+                return False, "Нет доступа к базе резюме hh"
+
             return True, None
         except Exception as e:
             logger.warning(f"Не удалось проверить квоты hh.ru: {e}")
@@ -82,8 +122,11 @@ async def get_smart_vacancies(session: AsyncSession, company_id: UUID) -> list[S
     smart_vacancies = []
     for vacancy in vacancies:
         # Маппинг полей вакансии на фильтры hh.ru
-        # Города в hh.ru имеют числовые ID, но пока используем название
-        area = vacancy.city  # В реальности нужно маппить на area_id hh.ru
+        # Города в hh.ru имеют числовые ID, но пока безопасно не передаем
+        # область если значение не числовое (реальный маппинг город→area_id отложен)
+        area = None
+        if vacancy.city and str(vacancy.city).strip().isdigit():
+            area = vacancy.city  # Только если похоже на числовой area_id
 
         # Извлекаем навыки из описания (простая эвристика)
         skills = []
@@ -162,36 +205,27 @@ async def start_search(
 
         quota_data = await hh_client.get_payable_api_actions(access_token, employer_id)
 
-        # Парсим остатки квот (формат может отличаться)
-        remaining_views = None
-        remaining_contacts = None
+        # ДИАГНОСТИКА: логируем сырой ответ для первого реального запуска
+        logger.info("[smart] payable_api_actions raw=%s", quota_data)
 
-        # FAIL-CLOSED: если не удается определить квоты, не запускаем
+        # FAIL-CLOSED: если не удается получить данные квот, не запускаем
         if not quota_data:
             raise ValidationError("Не удалось определить остаток квоты hh — поиск не запущен (деньги-безопасность)")
 
-        # Простая эвристика парсинга квот (может потребовать корректировки)
-        if isinstance(quota_data, list):
-            for item in quota_data:
-                if isinstance(item, dict):
-                    if "resume" in str(item.get("name", "")).lower():
-                        remaining_views = item.get("count", 0)
-                    elif "contact" in str(item.get("name", "")).lower():
-                        remaining_contacts = item.get("count", 0)
-        elif isinstance(quota_data, dict):
-            remaining_views = quota_data.get("resume_views", quota_data.get("views", 0))
-            remaining_contacts = quota_data.get("contacts", quota_data.get("contact_views", 0))
+        # Парсим квоты по реальной схеме OpenAPI
+        unlimited, limited_remaining, has_service = _parse_api_quota(quota_data)
 
-        # FAIL-CLOSED: если остатки не определены после парсинга - не запускаем
-        if remaining_views is None or remaining_contacts is None:
-            raise ValidationError("Не удалось определить остаток квоты hh — поиск не запущен (деньги-безопасность)")
+        # Проверяем наличие услуги
+        if not unlimited and not has_service:
+            raise ValidationError("Нет активной API-услуги hh (нужен доступ к базе резюме / пакет запросов API)")
 
-        # Проверяем достаточность квот
-        if remaining_views < request.scan_n:
-            raise ValidationError(f"Недостаточно квоты просмотров резюме: осталось {remaining_views}, требуется {request.scan_n}")
+        # Если не безлимитный - проверяем достаточность квот
+        if not unlimited:
+            if limited_remaining < request.scan_n:
+                raise ValidationError(f"Недостаточно квоты API hh: осталось {limited_remaining}, требуется {request.scan_n}")
 
-        if remaining_contacts < request.invite_m:
-            raise ValidationError(f"Недостаточно квоты контактов: осталось {remaining_contacts}, требуется {request.invite_m}")
+            if limited_remaining < request.invite_m:
+                raise ValidationError(f"Недостаточно квоты API hh: осталось {limited_remaining}, требуется {request.invite_m} (консервативно: приглашения тоже тратят запросы)")
 
     except ValidationError:
         raise
@@ -258,7 +292,11 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             # Добавляем фильтры из параметров
             params = run.params
             if params.get("area"):
-                search_params["area"] = params["area"]
+                # Безопасно: area только если значение похоже на числовой area_id
+                area_value = params["area"]
+                if str(area_value).strip().isdigit():
+                    search_params["area"] = area_value
+                # Иначе НЕ передаём area (ищем без региона, не падаем)
             if params.get("professional_role"):
                 search_params["professional_role"] = params["professional_role"]
             if params.get("experience"):
