@@ -437,6 +437,22 @@
 }
 .ss-page .ss-thr-explain .ss-te-ic { flex: none; margin-top: 1px; color: var(--fg-3); }
 
+/* ---------- Button overrides (эталон app.css скоупленный под .ss-page) ---------- */
+.ss-page .btn {
+  height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid transparent;
+  font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.ss-page .btn-primary { background: var(--accent); color: #fff; }
+.ss-page .btn-primary:hover { background: var(--accent-hover); }
+.ss-page .btn-secondary { background: #fff; color: var(--fg-1); border-color: var(--border-1); }
+.ss-page .btn-secondary:hover { background: var(--bg-3-hover); }
+.ss-page .btn-ghost { background: transparent; color: var(--fg-2); }
+.ss-page .btn-ghost:hover { background: var(--bg-3-hover); color: var(--fg-1); }
+.ss-page .btn-sm { height: 26px; padding: 0 10px; font-size: 12px; }
+.ss-page .btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(42,138,240,.18); }
+
 /* ---------- Далее button ---------- */
 .ss-page .ssm-step-actions { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
