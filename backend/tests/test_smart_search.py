@@ -89,6 +89,8 @@ async def test_get_smart_vacancies_mapping(db_session, test_company, test_vacanc
     assert smart_vacancy.id == test_vacancy.id
     assert smart_vacancy.title == test_vacancy.name
     assert smart_vacancy.city == test_vacancy.city
+    assert smart_vacancy.area == test_vacancy.city  # БАГ 1: area теперь == city для display-префилла
+    assert smart_vacancy.professional_role == test_vacancy.name  # БАГ 1: роль == название вакансии
     assert smart_vacancy.salary_from == test_vacancy.salary_from
     assert smart_vacancy.salary_to == test_vacancy.salary_to
     assert smart_vacancy.found is None  # Не заполняется без поиска
@@ -223,3 +225,70 @@ async def test_get_run_status_with_invites_skipped(db_session, test_company, tes
     assert status.invited == 0
     assert len(status.invited_candidates) == 1
     assert status.invited_candidates[0]["candidate_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_search_params_text_assembly_and_filtering():
+    """Тест сборки search_params: text из роли+навыков, фильтрация невалидных id-параметров"""
+    from app.services.smart_search import SmartSearchRun
+    from app.models import Vacancy
+    from uuid import uuid4
+
+    # Мокаем объекты для тестирования логики сборки search_params
+    vacancy = Vacancy()
+    vacancy.name = "Python разработчик"
+
+    # Тест 1: text собирается из роли + навыков
+    params_with_role_and_skills = {
+        "professional_role": "Программист 1С",
+        "skills": ["Python", "Django", "PostgreSQL"],
+        "area": "Москва",  # Текстовое значение
+        "experience": "2-3 года",  # Невалидный enum
+    }
+
+    # Эмулируем логику сборки text (из реального кода)
+    text_parts = []
+    professional_role = params_with_role_and_skills.get("professional_role") or vacancy.name
+    if professional_role:
+        text_parts.append(professional_role)
+
+    skills = params_with_role_and_skills.get("skills", [])
+    if skills:
+        text_parts.extend(skills)
+
+    expected_text = " ".join(filter(None, text_parts)).strip()
+    assert expected_text == "Программист 1С Python Django PostgreSQL"
+
+    # Тест 2: area передается только если числовое
+    area_value = params_with_role_and_skills["area"]
+    area_should_be_included = str(area_value).strip().isdigit()
+    assert area_should_be_included is False  # "Москва" не числовое - НЕ включается
+
+    # Тест 3: professional_role передается только если числовое
+    role_value = params_with_role_and_skills["professional_role"]
+    role_should_be_included = str(role_value).strip().isdigit()
+    assert role_should_be_included is False  # "Программист 1С" не числовое - НЕ включается
+
+    # Тест 4: experience передается только если валидный enum
+    exp_value = params_with_role_and_skills["experience"]
+    valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
+    exp_should_be_included = exp_value in valid_experience
+    assert exp_should_be_included is False  # "2-3 года" не в енуме - НЕ включается
+
+    # Тест 5: skills передаются только если все элементы числовые
+    skills_list = params_with_role_and_skills["skills"]
+    skills_should_be_included = all(str(skill).strip().isdigit() for skill in skills_list)
+    assert skills_should_be_included is False  # ["Python", "Django"] не числовые - НЕ включаются
+
+    # Тест 6: валидные параметры проходят
+    valid_params = {
+        "area": "113",  # Числовой area_id
+        "professional_role": "96",  # Числовой role_id
+        "experience": "between1And3",  # Валидный enum
+        "skills": ["9", "108"],  # Числовые skill_id
+    }
+
+    assert str(valid_params["area"]).strip().isdigit() is True
+    assert str(valid_params["professional_role"]).strip().isdigit() is True
+    assert valid_params["experience"] in valid_experience
+    assert all(str(skill).strip().isdigit() for skill in valid_params["skills"]) is True

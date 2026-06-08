@@ -127,11 +127,8 @@ async def get_smart_vacancies(session: AsyncSession, company_id: UUID) -> list[S
     smart_vacancies = []
     for vacancy in vacancies:
         # Маппинг полей вакансии на фильтры hh.ru
-        # Города в hh.ru имеют числовые ID, но пока безопасно не передаем
-        # область если значение не числовое (реальный маппинг город→area_id отложен)
-        area = None
-        if vacancy.city and str(vacancy.city).strip().isdigit():
-            area = vacancy.city  # Только если похоже на числовой area_id
+        # area - для display-префилла показываем город как есть (человекочитаемо)
+        area = vacancy.city
 
         # Извлекаем навыки из описания (простая эвристика)
         skills = []
@@ -159,7 +156,7 @@ async def get_smart_vacancies(session: AsyncSession, company_id: UUID) -> list[S
             title=vacancy.name,
             city=vacancy.city,
             area=area,
-            professional_role=None,  # Требует отдельного маппинга на справочник hh.ru
+            professional_role=vacancy.name,  # Должность как роль (пользователь отредактирует)
             experience=experience,
             salary_from=vacancy.salary_from,
             salary_to=vacancy.salary_to,
@@ -265,32 +262,66 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             vacancy = await session.get(Vacancy, run.vacancy_id)
 
             # ЭТАП 1: Поиск резюме
+            params = run.params
+
+            # Собираем text из роли + навыков (осмысленный поиск)
+            text_parts = []
+            professional_role = params.get("professional_role") or vacancy.name
+            if professional_role:
+                text_parts.append(professional_role)
+
+            skills = params.get("skills", [])
+            if skills:
+                text_parts.extend(skills)
+
+            search_text = " ".join(filter(None, text_parts)).strip()
+
             search_params = {
-                "text": f"{vacancy.name}",
+                "text": search_text or vacancy.name,  # Fallback на название вакансии
                 "per_page": 50,
                 "page": 0
             }
 
-            # Добавляем фильтры из параметров
-            params = run.params
+            # Добавляем структурные фильтры ТОЛЬКО при валидных значениях
             if params.get("area"):
-                # Безопасно: area только если значение похоже на числовой area_id
+                # area: только если числовое (id региона из справочника hh)
                 area_value = params["area"]
                 if str(area_value).strip().isdigit():
                     search_params["area"] = area_value
-                # Иначе НЕ передаём area (ищем без региона, не падаем)
+                # Иначе НЕ передаём area - значение уже в text, не ломает запрос
+
             if params.get("professional_role"):
-                search_params["professional_role"] = params["professional_role"]
+                # professional_role: только если числовое (id роли из справочника hh)
+                role_value = params["professional_role"]
+                if str(role_value).strip().isdigit():
+                    search_params["professional_role"] = role_value
+                # Иначе НЕ передаём - роль уже в text
+
             if params.get("experience"):
-                search_params["experience"] = params["experience"]
-            if params.get("skills"):
-                search_params["skill"] = params["skills"]
+                # experience: только если валидный enum hh
+                exp_value = params["experience"]
+                valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
+                if exp_value in valid_experience:
+                    search_params["experience"] = exp_value
+                # Иначе НЕ передаём - опыт может быть в text
+
+            if params.get("skills") and isinstance(params["skills"], list):
+                # skill: только если все элементы - числовые id навыков
+                skills_list = params["skills"]
+                if all(str(skill).strip().isdigit() for skill in skills_list):
+                    search_params["skill"] = skills_list
+                # Иначе НЕ передаём - навыки уже в text
+
+            # Зарплатные фильтры - всегда валидны
             if params.get("salary_from"):
                 search_params["salary_from"] = params["salary_from"]
             if params.get("salary_to"):
                 search_params["salary_to"] = params["salary_to"]
             if params.get("include_no_salary"):
                 search_params["only_with_salary"] = "false"
+
+            # Диагностика: логируем итоговый запрос
+            logger.info("[smart] search_params=%s", search_params)
 
             search_result = await hh_client.search_resumes(access_token, search_params)
             found_count = search_result.get("found", 0)
