@@ -44,6 +44,18 @@ STUCK_RECONCILE_SECONDS = 270
 FINALIZING_RECONCILE_SECONDS = 20
 
 
+def _utc_naive_now() -> datetime:
+    """Текущий UTC БЕЗ tzinfo.
+
+    Колонка smart_search_runs.finished_at — TIMESTAMP WITHOUT TIME ZONE (как created_at/
+    updated_at). asyncpg НЕ принимает tz-aware datetime для такой колонки и падает с
+    DataError («can't subtract offset-naive and offset-aware datetimes»). Из-за этого
+    КАЖДАЯ финализация (которая пишет finished_at) молча падала, а прогон навсегда оставался
+    в running. Пишем наивный UTC — консистентно с остальными временными колонками.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
     """Вычисляет таймаут поиска на основе параметров"""
     from ..database import AsyncSessionLocal
@@ -89,7 +101,7 @@ async def sweep_orphaned_runs(max_age_minutes: int = 60):
                     status="error",
                     error="Прервано (зависание/перезапуск)",
                     note="Поиск был прерван из-за зависания или перезапуска сервера",
-                    finished_at=datetime.now(timezone.utc)
+                    finished_at=_utc_naive_now()
                 )
                 .returning(SmartSearchRun.id)
             )
@@ -588,7 +600,7 @@ async def _finalize_run(run_id: UUID, status: str, stage: str = None, error: str
                 run.error = error[:500]
             if note:
                 run.note = note
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = _utc_naive_now()
 
             # Применяем дополнительные поля
             for key, value in extra_fields.items():
@@ -1281,12 +1293,15 @@ async def _reconcile_stuck_run(session: AsyncSession, run: SmartSearchRun) -> Sm
     else:
         note = f"Оценка завершена. Прошли порог: {passed}. Выберите кандидатов для приглашения."
 
+    run_pk = run.id  # захватываем PK ДО commit: при сбое flush атрибуты истекают,
+                     # и обращение к run.id в except спровоцировало бы lazy-load на
+                     # откатанной транзакции → PendingRollbackError → 500.
     run.status = "done"
     run.stage = "done"
     run.passed_threshold = passed
     run.invites_skipped = True
     run.invited = run.invited or 0
-    run.finished_at = datetime.now(timezone.utc)
+    run.finished_at = _utc_naive_now()
     run.note = note
     current_log = run.log if isinstance(run.log, list) else []
     run.log = current_log + [
@@ -1296,15 +1311,15 @@ async def _reconcile_stuck_run(session: AsyncSession, run: SmartSearchRun) -> Sm
     try:
         await session.commit()
     except Exception as e:
-        logger.error(f"Не удалось авто-финализировать зависший run {run.id}: {e}", exc_info=True)
         await session.rollback()
-        # Возвращаем чистое состояние из БД (rollback мог истечь атрибуты)
+        logger.error(f"Не удалось авто-финализировать зависший run {run_pk}: {e}")
+        # Возвращаем чистое состояние из БД (rollback истёк атрибуты объекта)
         result = await session.execute(
-            select(SmartSearchRun).where(SmartSearchRun.id == run.id)
+            select(SmartSearchRun).where(SmartSearchRun.id == run_pk)
         )
         run = result.scalar_one_or_none() or run
     else:
-        logger.warning(f"Run {run.id} авто-финализирован при чтении (фон не завершил): passed={passed}")
+        logger.warning(f"Run {run_pk} авто-финализирован при чтении (фон не завершил): passed={passed}")
     return run
 
 
