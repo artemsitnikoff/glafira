@@ -9,6 +9,7 @@ import {
   useStartSmartSearch,
   useSmartRun,
   useSmartHistory,
+  useDeriveVacancyFilters,
   type SmartVacancy,
   type SmartCandidate,
   type SmartSearchRequest,
@@ -38,6 +39,7 @@ export default function SmartSearchPage() {
   const { data: vacancies = [] } = useSmartVacancies();
   const { data: history = [] } = useSmartHistory();
   const startSearch = useStartSmartSearch();
+  const deriveFilters = useDeriveVacancyFilters();
 
   // Состояние компонента
   const [phase, setPhase] = useState<Phase>('build');
@@ -103,11 +105,7 @@ export default function SmartSearchPage() {
     setVacId(id);
     setSelOpen(false);
 
-    // авто-предложение фильтров из вакансии
-    setSkills([...v.skills]);
-    setRole(v.professional_role ?? '');
-    setExp(v.experience ?? '');
-    setArea(v.area ?? '');
+    // Сначала заполним превью данные (город/зарплата/found остаются из вакансии)
     setSalFrom(v.salary_from ?? 0);
     setSalTo(v.salary_to ?? 0);
 
@@ -116,7 +114,25 @@ export default function SmartSearchPage() {
     setScanN(proposeScan);
     setInviteM(20);
 
+    // Раскрываем шаги сразу (не блокируем переход)
     setMaxStep(Math.max(maxStep, 2));
+
+    // AI-подбор фильтров area/professional_role/experience/skills
+    deriveFilters.mutate(id, {
+      onSuccess: (filters) => {
+        setArea(filters.area);
+        setRole(filters.professional_role);
+        setExp(filters.experience);
+        setSkills(filters.skills);
+      },
+      onError: () => {
+        // При ошибке оставляем поля пустыми — пользователь дозаполнит
+        setArea('');
+        setRole('');
+        setExp('');
+        setSkills([]);
+      }
+    });
   };
 
   const handleStartSearch = async () => {
@@ -153,6 +169,9 @@ export default function SmartSearchPage() {
 
   const stepState = (n: number) => maxStep > n ? 'is-done' : (maxStep === n ? 'is-current' : '');
   const canLaunch = maxStep >= 5 && vac;
+  // Приглашения возможны только при платном доступе И опубликованной на hh вакансии;
+  // иначе — превью-режим (поиск + AI-оценка без приглашений). Запуск доступен всегда.
+  const willInvite = !!(accessData?.has_paid_access && vac?.hh_published);
 
   // Нет доступа к hh.ru
   if (!accessData?.has_access) {
@@ -271,21 +290,39 @@ export default function SmartSearchPage() {
                 <span className="ssm-step-title">Фильтры поиска</span>
               </div>
               <div className="ss-glafira-note">
-                <span className="em">💃</span> Глафира предложила фильтры из вакансии — можно скорректировать
+                <span className="em">💃</span>
+                {deriveFilters.isPending
+                  ? 'Глафира подбирает фильтры из вакансии…'
+                  : 'Глафира предложила фильтры из вакансии — можно скорректировать'}
               </div>
 
               <div className="ss-field-row" style={{ marginBottom: 14 }}>
                 <div className="ss-field">
                   <div className="ss-field-label">Область / профобласть</div>
-                  <input className="ss-input" value={area} onChange={e => setArea(e.target.value)} />
+                  <input
+                    className="ss-input"
+                    value={area}
+                    onChange={e => setArea(e.target.value)}
+                    placeholder={deriveFilters.isPending ? 'Глафира подбирает…' : ''}
+                  />
                 </div>
                 <div className="ss-field">
                   <div className="ss-field-label">Проф-роль</div>
-                  <input className="ss-input" value={role} onChange={e => setRole(e.target.value)} />
+                  <input
+                    className="ss-input"
+                    value={role}
+                    onChange={e => setRole(e.target.value)}
+                    placeholder={deriveFilters.isPending ? 'Глафира подбирает…' : ''}
+                  />
                 </div>
                 <div className="ss-field" style={{ maxWidth: 160 }}>
                   <div className="ss-field-label">Опыт</div>
-                  <input className="ss-input" value={exp} onChange={e => setExp(e.target.value)} />
+                  <input
+                    className="ss-input"
+                    value={exp}
+                    onChange={e => setExp(e.target.value)}
+                    placeholder={deriveFilters.isPending ? 'Глафира подбирает…' : ''}
+                  />
                 </div>
               </div>
 
@@ -514,16 +551,24 @@ export default function SmartSearchPage() {
 
           <div className="ss-sum-sentence">
             Найдём <b>~{ssFmt(vac!.found || 0)}</b> резюме по фильтрам → оценим первые <span className="hl">{ssFmt(scanN)}</span> AI-матчингом
-            → пригласим <span className="hl-g">топ-{inviteM}</span> с баллом <span className="hl-g">≥ {threshold}</span>.
-            Приглашённые появятся в воронке вакансии.
+            {willInvite ? (
+              <> → пригласим <span className="hl-g">топ-{inviteM}</span> с баллом <span className="hl-g">≥ {threshold}</span>. Приглашённые появятся в воронке вакансии.</>
+            ) : (
+              <> → покажем <span className="hl-g">превью лучших</span> с баллом <span className="hl-g">≥ {threshold}</span>.</>
+            )}
           </div>
 
-          {accessData.has_access && !accessData.has_paid_access && (
+          {!willInvite && (
             <div className="info-banner small" style={{ margin: '12px 0 0' }}>
               <Icon name="alert-triangle" size={14} />
               <div>
-                Без платного доступа к базе резюме hh приглашения не отправляются — Глафира выполнит поиск
-                и AI-оценку (превью лучших кандидатов). Чтобы приглашать — подключите доступ в Настройках.
+                {!accessData?.has_paid_access
+                  ? 'Без платного доступа к базе резюме hh приглашения не отправляются.'
+                  : 'Вакансия не опубликована на hh — приглашать некуда.'}
+                {' '}Глафира выполнит поиск и AI-оценку (превью лучших кандидатов).{' '}
+                {!accessData?.has_paid_access
+                  ? 'Чтобы приглашать — подключите доступ в Настройках.'
+                  : 'Опубликуйте вакансию на hh, чтобы приглашать.'}
               </div>
             </div>
           )}
@@ -532,9 +577,9 @@ export default function SmartSearchPage() {
             <button
               className="ss-btn-launch"
               onClick={handleStartSearch}
-              disabled={!vac?.hh_published || startSearch.isPending}
+              disabled={startSearch.isPending}
             >
-              <span className="em">💃</span> {accessData.has_paid_access ? 'Запустить поиск' : 'Найти и оценить'}
+              <span className="em">💃</span> {willInvite ? 'Запустить поиск' : 'Найти и оценить'}
             </button>
             <div className="ss-launch-est">
               Примерно <span className="t-mono">~{Math.max(2, Math.round(scanN / 60))} мин</span> ·

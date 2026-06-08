@@ -12,7 +12,8 @@ from app.services.smart_search import (
     check_access,
     get_smart_vacancies,
     start_search,
-    get_run_status
+    get_run_status,
+    derive_vacancy_filters
 )
 from app.schemas.smart import SmartSearchRequest
 from app.models import SmartSearchRun, Candidate, Application
@@ -89,8 +90,8 @@ async def test_get_smart_vacancies_mapping(db_session, test_company, test_vacanc
     assert smart_vacancy.id == test_vacancy.id
     assert smart_vacancy.title == test_vacancy.name
     assert smart_vacancy.city == test_vacancy.city
-    assert smart_vacancy.area == test_vacancy.city  # БАГ 1: area теперь == city для display-префилла
-    assert smart_vacancy.professional_role == test_vacancy.name  # БАГ 1: роль == название вакансии
+    assert smart_vacancy.area is None  # AI заполнит при выборе вакансии
+    assert smart_vacancy.professional_role is None  # AI заполнит при выборе вакансии
     assert smart_vacancy.salary_from == test_vacancy.salary_from
     assert smart_vacancy.salary_to == test_vacancy.salary_to
     assert smart_vacancy.found is None  # Не заполняется без поиска
@@ -292,3 +293,69 @@ async def test_search_params_text_assembly_and_filtering():
     assert str(valid_params["professional_role"]).strip().isdigit() is True
     assert valid_params["experience"] in valid_experience
     assert all(str(skill).strip().isdigit() for skill in valid_params["skills"]) is True
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.call_json')
+async def test_derive_vacancy_filters_success(
+    mock_call_json,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест успешного извлечения AI-фильтров из вакансии"""
+    # Мокаем ответ LLM
+    mock_call_json.return_value = {
+        "area": "Информационные технологии",
+        "professional_role": "Программист, разработчик",
+        "experience": "3–6 лет",
+        "skills": ["Python", "Django", "PostgreSQL", "Git"]
+    }
+
+    filters = await derive_vacancy_filters(db_session, test_company.id, test_vacancy.id)
+
+    assert filters["area"] == "Информационные технологии"
+    assert filters["professional_role"] == "Программист, разработчик"
+    assert filters["experience"] == "3–6 лет"
+    assert filters["skills"] == ["Python", "Django", "PostgreSQL", "Git"]
+
+    # Проверяем что LLM был вызван с правильными данными
+    mock_call_json.assert_called_once()
+    call_args = mock_call_json.call_args
+    assert "Название: " + test_vacancy.name in call_args[1]["user"]
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.call_json')
+async def test_derive_vacancy_filters_graceful_fallback(
+    mock_call_json,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест graceful fallback при ошибке LLM - не возвращает 502"""
+    # Мокаем ошибку LLM
+    from app.core.errors import GlafiraParseError
+    mock_call_json.side_effect = GlafiraParseError(details={"reason": "Network error"})
+
+    filters = await derive_vacancy_filters(db_session, test_company.id, test_vacancy.id)
+
+    # Должен вернуть fallback, а не бросить исключение
+    assert filters["area"] == ""
+    assert filters["professional_role"] == test_vacancy.name
+    assert filters["experience"] == ""
+    assert filters["skills"] == []
+
+
+@pytest.mark.asyncio
+async def test_derive_vacancy_filters_vacancy_not_found(
+    db_session,
+    test_company
+):
+    """Тест что функция бросает NotFoundError для несуществующей вакансии"""
+    from app.core.errors import NotFoundError
+
+    nonexistent_vacancy_id = uuid4()
+
+    with pytest.raises(NotFoundError):
+        await derive_vacancy_filters(db_session, test_company.id, nonexistent_vacancy_id)

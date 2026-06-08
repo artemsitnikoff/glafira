@@ -84,3 +84,11 @@ class SmartRunHistoryItem(BaseModel):
     found: int
     evaluated: int
     invited: int
+
+
+class SmartVacancyFilters(BaseModel):
+    """AI-фильтры для умного подбора по вакансии"""
+    area: str
+    professional_role: str
+    experience: str
+    skills: list[str]

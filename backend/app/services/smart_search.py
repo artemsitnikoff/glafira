@@ -20,7 +20,8 @@ from ..schemas.smart import (
 from ..core.errors import ValidationError, NotFoundError
 from ..services.integrations.hh import service as hh_service
 from ..services.integrations.hh import client as hh_client
-from ..services.glafira.scoring import score_resume_dict
+from ..services.glafira.scoring import score_resume_dict, _strip_html
+from ..services.glafira.client import call_json
 from ..core.errors import GlafiraParseError
 from ..services.audit import audit
 
@@ -126,10 +127,6 @@ async def get_smart_vacancies(session: AsyncSession, company_id: UUID) -> list[S
 
     smart_vacancies = []
     for vacancy in vacancies:
-        # Маппинг полей вакансии на фильтры hh.ru
-        # area - для display-префилла показываем город как есть (человекочитаемо)
-        area = vacancy.city
-
         # Извлекаем навыки из описания (простая эвристика)
         skills = []
         if vacancy.description:
@@ -155,8 +152,8 @@ async def get_smart_vacancies(session: AsyncSession, company_id: UUID) -> list[S
             id=vacancy.id,
             title=vacancy.name,
             city=vacancy.city,
-            area=area,
-            professional_role=vacancy.name,  # Должность как роль (пользователь отредактирует)
+            area=None,  # Заполнит AI-эндпоинт при выборе вакансии
+            professional_role=None,  # Заполнит AI-эндпоинт при выборе вакансии
             experience=experience,
             salary_from=vacancy.salary_from,
             salary_to=vacancy.salary_to,
@@ -711,3 +708,103 @@ async def get_run_history(session: AsyncSession, company_id: UUID, limit: int = 
         .limit(limit)
     )
     return result.unique().scalars().all()
+
+
+async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> dict:
+    """
+    Извлекает AI-фильтры для умного подбора из вакансии
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        vacancy_id: ID вакансии
+
+    Returns:
+        dict: {area: str, professional_role: str, experience: str, skills: list[str]}
+
+    Raises:
+        NotFoundError: Если вакансия не найдена или не принадлежит компании
+    """
+    # Загрузить вакансию (company-scoped, не удалённую)
+    result = await session.execute(
+        select(Vacancy).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id,
+            Vacancy.deleted_at.is_(None)
+        )
+    )
+    vacancy = result.scalar_one_or_none()
+    if not vacancy:
+        raise NotFoundError("Вакансия")
+
+    try:
+        # Подготовка данных для промпта
+        vacancy_description = _strip_html(vacancy.description) if vacancy.description else ""
+        recruiter_instructions = vacancy.recruiter_scoring_instructions or ""
+
+        # Формирование промпта
+        system_prompt = """Ты - эксперт по рекрутингу. Проанализируй вакансию и определи оптимальные параметры для поиска резюме на hh.ru.
+
+Верни JSON с полями:
+- area: ОДНА проф-область в формулировке hh.ru (например: "Информационные технологии", "Продажи", "Транспорт, логистика")
+- professional_role: ОДНА проф-роль в формулировке hh.ru (например: "Программист, разработчик", "Тестировщик", "Менеджер по продажам")
+- experience: уровень опыта, одно из: "Без опыта", "1–3 года", "3–6 лет", "более 6 лет"
+- skills: 5-8 ключевых навыков в виде строк
+
+ВАЖНО:
+- Выводи ТОЛЬКО из текста вакансии, НЕ выдумывай
+- Если область неочевидна - выбирай самую общую разумную
+- НЕ выдумывай навыки, которых нет в описании/требованиях
+- Бери навыки именно из требований и описания вакансии"""
+
+        user_prompt = f"""ВАКАНСИЯ:
+Название: {vacancy.name}
+Описание: {vacancy_description or "описание отсутствует"}
+
+Дополнительные инструкции рекрутёра: {recruiter_instructions or "отсутствуют"}
+
+Определи оптимальные фильтры для поиска резюме на hh.ru."""
+
+        # Вызов LLM
+        response_data = await call_json(
+            system=system_prompt,
+            user=user_prompt,
+            max_tokens=2000
+        )
+
+        # Валидация ответа
+        if not isinstance(response_data, dict):
+            raise GlafiraParseError(details={"reason": "Response is not a dict", "got": type(response_data)})
+
+        required_fields = ['area', 'professional_role', 'experience', 'skills']
+        for field in required_fields:
+            if field not in response_data:
+                raise GlafiraParseError(details={"reason": f"Missing field: {field}", "got": list(response_data.keys())})
+
+        # Проверка типов
+        if not isinstance(response_data['area'], str):
+            raise GlafiraParseError(details={"reason": "area must be string", "got": type(response_data['area'])})
+        if not isinstance(response_data['professional_role'], str):
+            raise GlafiraParseError(details={"reason": "professional_role must be string", "got": type(response_data['professional_role'])})
+        if not isinstance(response_data['experience'], str):
+            raise GlafiraParseError(details={"reason": "experience must be string", "got": type(response_data['experience'])})
+        if not isinstance(response_data['skills'], list) or len(response_data['skills']) > 8:
+            raise GlafiraParseError(details={"reason": "skills must be list with ≤8 items", "got": type(response_data['skills'])})
+
+        return {
+            "area": response_data["area"],
+            "professional_role": response_data["professional_role"],
+            "experience": response_data["experience"],
+            "skills": response_data["skills"]
+        }
+
+    except (GlafiraParseError, Exception) as e:
+        # Graceful fallback при ошибке LLM - форма не должна ломаться
+        logger.warning(f"AI-извлечение фильтров вакансии {vacancy_id} не удалось: {e}")
+
+        return {
+            "area": "",
+            "professional_role": vacancy.name,
+            "experience": "",
+            "skills": []
+        }

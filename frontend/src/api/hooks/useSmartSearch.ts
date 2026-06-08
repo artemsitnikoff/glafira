@@ -74,6 +74,13 @@ export interface SmartHistoryItem {
   invited: number;
 }
 
+export interface SmartVacancyFilters {
+  area: string;
+  professional_role: string;
+  experience: string;
+  skills: string[];
+}
+
 export function useSmartAccess() {
   return useQuery({
     queryKey: ['smart', 'access'],
@@ -124,6 +131,15 @@ export function useSmartHistory() {
     queryFn: async (): Promise<SmartHistoryItem[]> => {
       const response = await api.get('/smart/runs');
       return response.data as SmartHistoryItem[];
+    },
+  });
+}
+
+export function useDeriveVacancyFilters() {
+  return useMutation<SmartVacancyFilters, Error, string>({
+    mutationFn: async (vacancyId): Promise<SmartVacancyFilters> => {
+      const response = await api.get(`/smart/vacancy-filters/${vacancyId}`);
+      return response.data as SmartVacancyFilters;
     },
   });
 }

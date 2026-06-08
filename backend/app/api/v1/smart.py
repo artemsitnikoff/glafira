@@ -14,14 +14,16 @@ from ...schemas.smart import (
     SmartSearchResponse,
     SmartRunStatus,
     SmartRunHistoryItem,
-    InvitedCandidate
+    InvitedCandidate,
+    SmartVacancyFilters
 )
 from ...services.smart_search import (
     check_access,
     get_smart_vacancies,
     start_search,
     get_run_status,
-    get_run_history
+    get_run_history,
+    derive_vacancy_filters
 )
 from ...core.errors import NotFoundError
 
@@ -118,3 +120,15 @@ async def get_smart_runs_history(
         ))
 
     return history
+
+
+@router.get("/vacancy-filters/{vacancy_id}", response_model=SmartVacancyFilters)
+async def get_vacancy_filters(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить AI-фильтры для умного подбора по вакансии"""
+    filters = await derive_vacancy_filters(session, company_id, vacancy_id)
+    return SmartVacancyFilters(**filters)
