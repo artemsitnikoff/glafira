@@ -655,46 +655,51 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     await session.commit()
                     continue
 
-            # Обновляем passed_threshold
-            run.passed_threshold = len([
+            # Вычисляем passed_threshold в памяти
+            passed_threshold = len([
                 c for c in evaluated_candidates
                 if c["candidate_data"]["ai_score"] >= threshold
             ])
 
-            log_and_append_to_run(run, run_id, f"Оценка завершена: {run.evaluated} резюме, {run.passed_threshold} прошли порог {threshold}")
-            await session.commit()
+            # Финализируем на СВЕЖЕЙ сессии с таймаутом
+            async def _finalize_fresh():
+                async with AsyncSessionLocal() as fs:
+                    r = await fs.get(SmartSearchRun, run_id)
+                    if not r:
+                        return
+                    r.passed_threshold = passed_threshold
+                    r.stage = "done"
+                    r.status = "done"
+                    r.invites_skipped = True
+                    r.invited = 0
+                    r.finished_at = datetime.now(timezone.utc)
+                    if (r.evaluated or 0) == 0:
+                        r.note = "Не удалось оценить ни одного резюме"
+                    elif passed_threshold == 0:
+                        r.note = f"Оценено {r.evaluated} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
+                    else:
+                        r.note = f"Оценка завершена. Прошли порог: {passed_threshold}. Выберите кандидатов для приглашения."
+                    cur = r.log if isinstance(r.log, list) else []
+                    r.log = cur + ["Оценка завершена, готово к выбору приглашений"]
+                    await fs.commit()
 
-            # Финализируем поиск
-            run.stage = "done"
-            run.status = "done"
-            run.invites_skipped = True  # Авто-приглашений нет
-            run.invited = 0
-            run.finished_at = datetime.now(timezone.utc)
-
-            # Формируем честную итоговую заметку
-            if run.evaluated == 0:
-                run.note = "Не удалось оценить ни одного резюме"
-            elif run.passed_threshold == 0:
-                run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
-            else:
-                run.note = f"Оценка завершена. Прошли порог: {run.passed_threshold}. Выберите кандидатов для приглашения."
-
-            log_and_append_to_run(run, run_id, "Оценка завершена, готово к выбору приглашений")
-            await session.commit()
+            log_smart_search(run_id, f"Оценка завершена: прошли порог {passed_threshold} — финализация (свежая сессия)")
+            await asyncio.wait_for(_finalize_fresh(), timeout=30)
+            return
 
         except Exception as e:
             logger.error(f"Ошибка в фоновой задаче поиска {run_id}: {e}")
             try:
-                # Безопасно получаем run для записи ошибки
-                run = await session.get(SmartSearchRun, run_id)
-                if run:
-                    run.status = "error"
-                    run.error = str(e)[:500]
-                    run.note = f"Ошибка выполнения: {str(e)[:200]}"
-                    log_and_append_to_run(run, run_id, f"Ошибка: {str(e)[:100]}")
-                    await session.commit()
-            except Exception as commit_e:
-                logger.error(f"Ошибка записи статуса ошибки для {run_id}: {commit_e}")
+                async with AsyncSessionLocal() as efs:
+                    r = await efs.get(SmartSearchRun, run_id)
+                    if r and r.status == "running":
+                        r.status = "error"
+                        r.error = str(e)[:500]
+                        r.note = f"Ошибка выполнения: {str(e)[:200]}"
+                        r.finished_at = datetime.now(timezone.utc)
+                        await efs.commit()
+            except Exception as ce:
+                logger.error(f"Не удалось записать статус ошибки для {run_id}: {ce}")
 
 
 def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:

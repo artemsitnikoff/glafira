@@ -1354,3 +1354,141 @@ async def test_run_search_inner_no_auto_invites():
     # Проверяем что есть новая логика финализации
     assert "Оценка завершена, готово к выбору приглашений" in source
     assert "invites_skipped = True" in source
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.glafira.scoring.score_resume_dict')
+async def test_run_search_inner_fresh_session_finalization(
+    mock_score,
+    mock_get_resume,
+    mock_search,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что после успешной оценки run финализируется status='done', stage='done' на свежей сессии"""
+
+    # Подготовка моков
+    mock_token.return_value = "test_token"
+    mock_search.return_value = {
+        "found": 2,
+        "items": [{"id": "resume_1"}, {"id": "resume_2"}]
+    }
+
+    mock_get_resume.side_effect = [
+        {
+            "id": "resume_1",
+            "first_name": "Иван",
+            "last_name": "Тестов",
+            "title": "Python Developer",
+            "area": {"name": "Москва"},
+            "experience": [{"company": "IT Corp"}]
+        },
+        {
+            "id": "resume_2",
+            "first_name": "Анна",
+            "last_name": "Смирнова",
+            "title": "JS Developer",
+            "area": {"name": "СПб"},
+            "experience": [{"company": "Web Studio"}]
+        }
+    ]
+
+    mock_score.side_effect = [
+        {
+            "score": 85,
+            "verdict": "good",
+            "summary": "Отличный кандидат",
+            "strengths": ["Python"],
+            "risks": [],
+            "requirements_match": [],
+            "forecast": "Подходит"
+        },
+        {
+            "score": 60,
+            "verdict": "average",
+            "summary": "Средний кандидат",
+            "strengths": ["JS"],
+            "risks": ["мало опыта"],
+            "requirements_match": [],
+            "forecast": "Сомнительно"
+        }
+    ]
+
+    # Создаем поисковый run
+    from app.models import SmartSearchRun
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={
+            "scan_n": 2,
+            "threshold": 70,
+            "area": "Москва"
+        }
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    # Запускаем внутреннюю логику поиска
+    from app.services.smart_search import _run_search_inner
+    await _run_search_inner(run.id, test_company.id, admin_user.id)
+
+    # Проверяем финализацию через свежую сессию
+    await db_session.refresh(run)
+
+    assert run.status == "done"
+    assert run.stage == "done"
+    assert run.passed_threshold == 1  # Только resume_1 прошёл порог 70
+    assert run.note == "Оценка завершена. Прошли порог: 1. Выберите кандидатов для приглашения."
+    assert run.invites_skipped is True
+    assert run.invited == 0
+    assert run.finished_at is not None
+    assert "Оценка завершена, готово к выбору приглашений" in str(run.log)
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+async def test_run_search_inner_error_handler_fresh_session(
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что обработчик ошибок записывает статус error через свежую сессию"""
+
+    # Мок, который вызовет исключение после получения токена
+    mock_token.side_effect = Exception("Network error")
+
+    # Создаем поисковый run
+    from app.models import SmartSearchRun
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"scan_n": 10}
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    # Запускаем внутреннюю логику поиска - должна упасть с ошибкой
+    from app.services.smart_search import _run_search_inner
+    await _run_search_inner(run.id, test_company.id, admin_user.id)
+
+    # Проверяем что ошибка записана через свежую сессию
+    await db_session.refresh(run)
+
+    assert run.status == "error"
+    assert run.error == "Network error"
+    assert run.note == "Ошибка выполнения: Network error"
+    assert run.finished_at is not None
