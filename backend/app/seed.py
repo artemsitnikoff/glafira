@@ -7,6 +7,7 @@ from sqlalchemy.future import select
 
 from app.config import settings
 from app.core.security import get_password_hash
+from app.core.stages import STAGES
 from app.database import AsyncSessionLocal
 from app.models import Company, GlafiraSettings, RejectReason, User, CompanyDefaultStage, FunnelTemplate, FunnelTemplateStage, SurveyTemplate
 from app.services.settings.survey_templates import DEFAULT_SURVEY_TEMPLATES
@@ -77,8 +78,8 @@ async def seed_admin_user(session: AsyncSession) -> None:
     logger.info("Created admin user: %s", ADMIN_EMAIL)
 
 
-async def seed_reject_reasons(session: AsyncSession) -> None:
-    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+async def seed_reject_reasons(session: AsyncSession, company_id: uuid.UUID | None = None) -> None:
+    company_id = company_id or uuid.UUID(settings.DEFAULT_COMPANY_ID)
 
     for side, labels in (("company", REJECT_REASONS_COMPANY), ("candidate", REJECT_REASONS_CANDIDATE)):
         for idx, label in enumerate(labels, start=1):
@@ -110,8 +111,8 @@ async def seed_reject_reasons(session: AsyncSession) -> None:
     logger.info("Reject reasons ensured (%d company / %d candidate)", len(REJECT_REASONS_COMPANY), len(REJECT_REASONS_CANDIDATE))
 
 
-async def seed_glafira_settings(session: AsyncSession) -> None:
-    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+async def seed_glafira_settings(session: AsyncSession, company_id: uuid.UUID | None = None) -> None:
+    company_id = company_id or uuid.UUID(settings.DEFAULT_COMPANY_ID)
     existing = (
         await session.execute(select(GlafiraSettings).where(GlafiraSettings.company_id == company_id))
     ).scalar_one_or_none()
@@ -136,11 +137,9 @@ async def seed_glafira_settings(session: AsyncSession) -> None:
     logger.info("Created default Glafira settings")
 
 
-async def seed_company_default_stages(session: AsyncSession) -> None:
+async def seed_company_default_stages(session: AsyncSession, company_id: uuid.UUID | None = None) -> None:
     """Create default stages for company from core/stages.py STAGES"""
-    from app.core.stages import STAGES
-
-    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+    company_id = company_id or uuid.UUID(settings.DEFAULT_COMPANY_ID)
 
     # Check if any stages exist
     existing = (
@@ -197,9 +196,9 @@ FUNNEL_TEMPLATE_SEEDS = [
 ]
 
 
-async def seed_funnel_templates(session: AsyncSession) -> None:
+async def seed_funnel_templates(session: AsyncSession, company_id: uuid.UUID | None = None) -> None:
     """Доп. шаблоны воронок (Массовый/Технический/Продажи). Идемпотентно (по наличию)."""
-    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+    company_id = company_id or uuid.UUID(settings.DEFAULT_COMPANY_ID)
     existing = (
         await session.execute(
             select(FunnelTemplate).where(FunnelTemplate.company_id == company_id).limit(1)
@@ -230,9 +229,9 @@ async def seed_funnel_templates(session: AsyncSession) -> None:
 SURVEY_TEMPLATE_SEEDS = DEFAULT_SURVEY_TEMPLATES
 
 
-async def seed_survey_templates(session: AsyncSession) -> None:
+async def seed_survey_templates(session: AsyncSession, company_id: uuid.UUID | None = None) -> None:
     """Дефолтные шаблоны пульс-опросов адаптации (день 7/30/90). Идемпотентно (по наличию)."""
-    company_id = uuid.UUID(settings.DEFAULT_COMPANY_ID)
+    company_id = company_id or uuid.UUID(settings.DEFAULT_COMPANY_ID)
     existing = (
         await session.execute(
             select(SurveyTemplate).where(SurveyTemplate.company_id == company_id).limit(1)
