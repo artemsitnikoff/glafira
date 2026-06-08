@@ -79,7 +79,7 @@ export function Sidebar() {
       { id: 'candidates', label: 'Кандидаты', icon: 'users' as IconName },
       { id: 'smart', label: 'Умный подбор', icon: 'sparkles' as IconName, beta: true },
       { id: 'analytics', label: 'Аналитика', icon: 'chart' as IconName, expandable: 'analytics' },
-      { id: 'pulse', label: 'Пульс-Онбординг', icon: 'heart' as IconName, pip: alertsCount },
+      { id: 'pulse', label: 'Пульс-Онбординг', icon: 'heart' as IconName, beta: true, pip: alertsCount },
       { id: 'settings', label: 'Настройки', icon: 'settings' as IconName },
     ];
 
