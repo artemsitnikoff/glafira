@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="styles/pulse.css"/>
 <link rel="stylesheet" href="styles/new-vacancy.css"/>
 <link rel="stylesheet" href="styles/new-candidate.css"/>
+<link rel="stylesheet" href="styles/smart-search.css"/>
 </head>
 <body>
 <template id="__bundler_thumbnail">
@@ -31,6 +32,7 @@
 <script type="text/babel" src="components/Vacancies.jsx"></script>
 <script type="text/babel" src="components/Candidates.jsx"></script>
 <script type="text/babel" src="components/CandidatesPool.jsx"></script>
+<script type="text/babel" src="components/SmartSearch.jsx"></script>
 <script type="text/babel" src="components/AnalyticsCharts.jsx"></script>
 <script type="text/babel" src="components/AnalyticsReports.jsx"></script>
 <script type="text/babel" src="components/Analytics.jsx"></script>
@@ -51,7 +53,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "showSources": true,
   "defaultSelected": "vacancy",
   "compactSidebar": true,
-  "hasBitrix": true
+  "hasBitrix": true,
+  "smartHhAccess": true,
+  "smartView": "auto"
 }/*EDITMODE-END*/;
 
 function App() {
@@ -92,7 +96,7 @@ function App() {
   }, [active]); // eslint-disable-line
 
   const navTitle = {
-    home: 'Главная', vacancies: 'Вакансии', candidates: 'Кандидаты',
+    home: 'Главная', vacancies: 'Вакансии', candidates: 'Кандидаты', smart: 'Умный подбор',
     analytics: 'Аналитика', pulse: 'Пульс-Онбординг', settings: 'Настройки',
   }[active];
 
@@ -208,6 +212,15 @@ function App() {
     } else {
       content = <CandidatesPool onOpen={setPoolCandidateId} onAddCandidate={() => { setCreatingCandidate(true); setActive('vacancies'); setVacanciesOpen(true); }}/>;
     }
+  } else if (active === 'smart') {
+    content = (
+      <SmartSearch
+        hasHhAccess={tweaks.smartHhAccess !== false}
+        presetView={tweaks.smartView || 'auto'}
+        onGoSettings={() => { setActive('settings'); setSettingsSection('integrations'); }}
+        onGoFunnel={() => { setActive('vacancies'); setVacanciesOpen(true); setVacancyId('fe'); setArchiveActive(false); }}
+      />
+    );
   } else if (active === 'settings') {
     content = (
       <Settings
@@ -318,6 +331,7 @@ function App() {
           active === 'vacancies' ? 'Vacancies / Empty' :
           (active === 'candidates' && poolCandidateId) ? 'Candidates / Full Page' :
           active === 'candidates' ? 'Candidates / Pool list' :
+          active === 'smart' ? 'Smart Search' :
           active === 'analytics' ? `Analytics / ${analyticsReportId}` :
           active === 'pulse' ? (pulseEmpId ? `Pulse / Employee` : `Pulse / ${pulseTab}`) :
           active === 'settings' ? `Settings / ${settingsSection}` : active
@@ -360,6 +374,21 @@ function App() {
               { value: 'turnover',   label: 'Текучка после найма' },
               { value: 'recruiters', label: 'Рекрутеры' },
             ]}/>
+        </TweakSection>
+        <TweakSection title="Раздел «Умный подбор»">
+          <TweakToggle label="Платный доступ к базе hh.ru подключён"
+            value={tweaks.smartHhAccess !== false} onChange={v => { setTweak('smartHhAccess', v); setActive('smart'); }}/>
+          <TweakSelect label="Показать состояние"
+            value={tweaks.smartView || 'auto'}
+            onChange={v => { setTweak('smartView', v); setActive('smart'); }}
+            options={[
+              { value: 'auto',        label: '— живой конструктор —' },
+              { value: 'initial',     label: 'Начальное (до выбора)' },
+              { value: 'constructor', label: 'Все шаги раскрыты' },
+              { value: 'running',     label: 'Поиск идёт' },
+              { value: 'done',        label: 'Результат' },
+            ]}/>
+          <TweakButton label="Открыть Умный подбор" onClick={() => { setActive('smart'); }}/>
         </TweakSection>
         <TweakSection title="Раздел «Настройки»">
           <TweakSelect label="Открыть подраздел"

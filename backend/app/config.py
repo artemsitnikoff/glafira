@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     SCORING_LOG_PATH: str = "/app/storage/scoring.log"
     # Текстовый журнал чатов (исходящие по всем каналам + входящие hh). Тот же том.
     CHAT_LOG_PATH: str = "/app/storage/chat.log"
+    # Текстовый журнал умного подбора (полный лог каждого прогона). Тот же том.
+    SMART_SEARCH_LOG_PATH: str = "/app/storage/smart_search.log"
 
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"

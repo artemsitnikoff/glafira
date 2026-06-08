@@ -5,6 +5,7 @@ function Sidebar({ active, onNavigate, vacanciesOpen, onToggleVacancies, vacancy
     { id: 'home',     label: 'Главная',   icon: 'home' },
     { id: 'vacancies',label: 'Вакансии',  icon: 'briefcase', expandable: 'vacancies' },
     { id: 'candidates',label:'Кандидаты', icon: 'users' },
+    { id: 'smart',    label: 'Умный подбор', icon: 'sparkle' },
     { id: 'analytics',label: 'Аналитика', icon: 'chart',     expandable: 'analytics' },
     { id: 'pulse',    label: 'Пульс-Онбординг', icon: 'heart', pip: 2 },
     { id: 'settings', label: 'Настройки', icon: 'settings' },

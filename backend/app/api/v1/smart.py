@@ -84,6 +84,11 @@ async def get_smart_run_status(
     for candidate_data in run.invited_candidates or []:
         invited_candidates.append(InvitedCandidate(**candidate_data))
 
+    # Преобразуем scored_candidates в список объектов
+    scored_candidates = []
+    for candidate_data in getattr(run, 'scored_candidates', []) or []:
+        scored_candidates.append(InvitedCandidate(**candidate_data))
+
     return SmartRunStatus(
         id=run.id,
         status=run.status,
@@ -94,7 +99,11 @@ async def get_smart_run_status(
         invited=run.invited,
         error=run.error,
         invites_skipped=getattr(run, 'invites_skipped', False),
-        invited_candidates=invited_candidates
+        invited_candidates=invited_candidates,
+        scored_candidates=scored_candidates,
+        passed_threshold=getattr(run, 'passed_threshold', 0),
+        note=getattr(run, 'note', None),
+        log=getattr(run, 'log', [])
     )
 
 

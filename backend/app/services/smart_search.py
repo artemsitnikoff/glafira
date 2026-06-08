@@ -24,8 +24,45 @@ from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
 from ..core.errors import GlafiraParseError
 from ..services.audit import audit
+from .smart_search_log import log_smart_search, log_and_append_to_run
 
 logger = logging.getLogger(__name__)
+
+# Константы
+FREE_SCAN_LIMIT = 50
+MAX_PAGES_LIMIT = 20  # Защитный потолок страниц
+
+
+async def sweep_orphaned_runs():
+    """Очистка осиротевших поисков при старте сервера"""
+    from ..database import AsyncSessionLocal
+    from sqlalchemy import update
+
+    try:
+        async with AsyncSessionLocal() as session:
+            # Помечаем все running поиски как прерванные
+            result = await session.execute(
+                update(SmartSearchRun)
+                .where(SmartSearchRun.status == "running")
+                .values(
+                    status="error",
+                    error="Прервано (перезапуск сервера)",
+                    note="Поиск был прерван перезапуском сервера"
+                )
+                .returning(SmartSearchRun.id)
+            )
+
+            orphaned_ids = result.scalars().all()
+            if orphaned_ids:
+                await session.commit()
+                logger.info(f"Очищено {len(orphaned_ids)} осиротевших поисков: {[str(id)[:6] for id in orphaned_ids]}")
+            else:
+                logger.info("Осиротевших поисков не найдено")
+
+    except Exception as e:
+        # Не падаем при ошибках sweep - старт сервера должен продолжиться
+        logger.warning(f"Ошибка очистки осиротевших поисков: {e}")
+        pass
 
 # Глобальное хранилище для активных задач (предотвращает GC)
 _active_tasks = {}
@@ -174,6 +211,13 @@ async def start_search(
 ) -> UUID:
     """Запускает умный поиск"""
 
+    # Проверяем подтверждение расхода для больших объёмов
+    if request.scan_n > FREE_SCAN_LIMIT and not request.confirm_cost:
+        raise ValidationError(
+            f"Планируется просмотр {request.scan_n} резюме (свыше {FREE_SCAN_LIMIT} бесплатных). "
+            f"Это потратит платные запросы к hh.ru. Подтвердите расход установкой confirm_cost=true."
+        )
+
     # Проверяем доступ
     has_access, has_paid_access, reason = await check_access(session, company_id)
     if not has_access:
@@ -254,11 +298,21 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             if not run:
                 return
 
+            # Инициализируем новые поля если они пустые
+            if not hasattr(run, 'log') or run.log is None:
+                run.log = []
+            if not hasattr(run, 'scored_candidates') or run.scored_candidates is None:
+                run.scored_candidates = []
+
+            log_and_append_to_run(run, run_id, f"Запуск умного подбора для вакансии {run.vacancy_id}")
+
             # Получаем токен и вакансию
             access_token = await hh_service.get_valid_access_token(session, company_id)
             vacancy = await session.get(Vacancy, run.vacancy_id)
 
-            # ЭТАП 1: Поиск резюме
+            log_and_append_to_run(run, run_id, f"Вакансия: {vacancy.name}")
+
+            # ЭТАП 1: Поиск резюме с пагинацией
             params = run.params
 
             # Собираем text из роли + навыков (осмысленный поиск)
@@ -273,10 +327,9 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
 
             search_text = " ".join(filter(None, text_parts)).strip()
 
-            search_params = {
+            base_search_params = {
                 "text": search_text or vacancy.name,  # Fallback на название вакансии
-                "per_page": 50,
-                "page": 0
+                "per_page": 50
             }
 
             # Добавляем структурные фильтры ТОЛЬКО при валидных значениях
@@ -284,14 +337,14 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                 # area: только если числовое (id региона из справочника hh)
                 area_value = params["area"]
                 if str(area_value).strip().isdigit():
-                    search_params["area"] = area_value
+                    base_search_params["area"] = area_value
                 # Иначе НЕ передаём area - значение уже в text, не ломает запрос
 
             if params.get("professional_role"):
                 # professional_role: только если числовое (id роли из справочника hh)
                 role_value = params["professional_role"]
                 if str(role_value).strip().isdigit():
-                    search_params["professional_role"] = role_value
+                    base_search_params["professional_role"] = role_value
                 # Иначе НЕ передаём - роль уже в text
 
             if params.get("experience"):
@@ -299,71 +352,139 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                 exp_value = params["experience"]
                 valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
                 if exp_value in valid_experience:
-                    search_params["experience"] = exp_value
+                    base_search_params["experience"] = exp_value
                 # Иначе НЕ передаём - опыт может быть в text
 
             if params.get("skills") and isinstance(params["skills"], list):
                 # skill: только если все элементы - числовые id навыков
                 skills_list = params["skills"]
                 if all(str(skill).strip().isdigit() for skill in skills_list):
-                    search_params["skill"] = skills_list
+                    base_search_params["skill"] = skills_list
                 # Иначе НЕ передаём - навыки уже в text
 
             # Зарплатные фильтры - всегда валидны
             if params.get("salary_from"):
-                search_params["salary_from"] = params["salary_from"]
+                base_search_params["salary_from"] = params["salary_from"]
             if params.get("salary_to"):
-                search_params["salary_to"] = params["salary_to"]
+                base_search_params["salary_to"] = params["salary_to"]
             if params.get("include_no_salary"):
-                search_params["only_with_salary"] = "false"
+                base_search_params["only_with_salary"] = "false"
 
             # Диагностика: логируем итоговый запрос
-            logger.info("[smart] search_params=%s", search_params)
+            logger.info("[smart] search_params=%s", base_search_params)
+            log_and_append_to_run(run, run_id, f"Параметры поиска: {base_search_params}")
 
-            search_result = await hh_client.search_resumes(access_token, search_params)
-            found_count = search_result.get("found", 0)
-            resume_items = search_result.get("items", [])
+            # Пагинация: собираем резюме по страницам
+            accumulated_items = []
+            found_count = 0
+            scan_n = params.get("scan_n", 50)
+
+            for page in range(MAX_PAGES_LIMIT):
+                search_params = base_search_params.copy()
+                search_params["page"] = page
+
+                search_result = await hh_client.search_resumes(access_token, search_params)
+                page_found = search_result.get("found", 0)
+                page_items = search_result.get("items", [])
+
+                # Берём found из первой страницы
+                if page == 0:
+                    found_count = page_found
+
+                log_and_append_to_run(run, run_id, f"Страница {page + 1}/{MAX_PAGES_LIMIT}: {len(page_items)} резюме, всего найдено: {found_count}")
+
+                if not page_items:
+                    log_and_append_to_run(run, run_id, f"Страница {page + 1} пустая, завершаем поиск")
+                    break
+
+                accumulated_items.extend(page_items)
+
+                # Проверяем лимиты
+                if len(accumulated_items) >= scan_n:
+                    log_and_append_to_run(run, run_id, f"Набрали достаточно резюме: {len(accumulated_items)} >= {scan_n}")
+                    break
+
+                # Проверяем что не превысили общий найденный count
+                if len(accumulated_items) >= found_count:
+                    log_and_append_to_run(run, run_id, f"Собрали все доступные резюме: {len(accumulated_items)} из {found_count}")
+                    break
+
+            resume_items = accumulated_items
 
             # Обновляем счетчик найденных
             run.found = found_count
             run.stage = "eval"
             await session.commit()
 
+            log_and_append_to_run(run, run_id, f"Всего найдено: {found_count}, собрано: {len(resume_items)}")
+
             # ЭТАП 2: Оценка резюме
             scan_n = min(params.get("scan_n", 50), len(resume_items))
+            threshold = params.get("threshold", 70)
             evaluated_candidates = []
+
+            log_and_append_to_run(run, run_id, f"Начинаем оценку {scan_n} резюме с порогом {threshold}")
+            await session.commit()
 
             for i, resume_item in enumerate(resume_items[:scan_n]):
                 try:
                     resume_id = resume_item.get("id")
                     if not resume_id:
                         run.scanned = i + 1
+                        log_and_append_to_run(run, run_id, f"Резюме {i + 1}/{scan_n}: нет ID, пропускаем")
                         await session.commit()
                         continue
 
                     # Получаем полное резюме (ПЛАТНО)
                     full_resume = await hh_client.get_resume_by_id(access_token, str(resume_id))
 
+                    # Извлекаем имя для логирования
+                    first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
+                    last_name = (full_resume.get("last_name") or "").strip() or ""
+                    name = f"{first_name} {last_name}".strip()
+
                     try:
                         # Оцениваем резюме БЕЗ персиста
                         score_result = await score_resume_dict(full_resume, vacancy, company_id)
+                        score = score_result["score"]
+                        verdict = score_result["verdict"]
+                        passed = score >= threshold
 
                         evaluated_candidates.append({
                             "resume_id": resume_id,
                             "candidate_data": {
                                 "resume": full_resume,
-                                "ai_score": score_result["score"],
-                                "verdict": score_result["verdict"],
+                                "ai_score": score,
+                                "verdict": verdict,
                                 "summary": score_result["summary"]
                             },
                             "full_resume": full_resume
                         })
 
+                        # Добавляем в scored_candidates для отчётности
+                        scored_candidate = {
+                            "candidate_id": None,  # Ещё не создан
+                            "name": name,
+                            "age": _calculate_age_from_resume(full_resume),
+                            "experience_years": _extract_experience_years(full_resume),
+                            "last_company": (full_resume.get("experience", [{}])[0].get("company") if full_resume.get("experience") else None),
+                            "city": (full_resume.get("area") or {}).get("name"),
+                            "score": score,
+                            "verdict": verdict,
+                            "passed": passed
+                        }
+
+                        run.scored_candidates = run.scored_candidates.copy()  # Новый список для SQLAlchemy
+                        run.scored_candidates.append(scored_candidate)
                         run.evaluated = len(evaluated_candidates)
+
+                        status = "✓ прошёл" if passed else "✗ не прошёл"
+                        log_and_append_to_run(run, run_id, f"Резюме {resume_id} • {name} • score {score} ({verdict}) • {status}")
 
                     except GlafiraParseError as e:
                         # При сбое парсинга JSON одного резюме - логируем и пропускаем
                         logger.warning(f"Ошибка парсинга AI-оценки резюме {resume_id}: {e}")
+                        log_and_append_to_run(run, run_id, f"Резюме {resume_id} • {name} • ошибка оценки AI: {str(e)[:100]}")
 
                     # Обновляем прогресс
                     run.scanned = i + 1
@@ -371,6 +492,7 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
 
                 except Exception as e:
                     logger.warning(f"Ошибка при обработке резюме {resume_id}: {e}")
+                    log_and_append_to_run(run, run_id, f"Резюме {resume_id or i+1} • ошибка загрузки: {str(e)[:100]}")
                     run.scanned = i + 1
                     await session.commit()
                     continue
@@ -380,7 +502,6 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             await session.commit()
 
             # Сортируем по баллу и отбираем лучших
-            threshold = params.get("threshold", 70)
             invite_m = params.get("invite_m", 10)
 
             good_candidates = [
@@ -389,22 +510,40 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             ]
             good_candidates.sort(key=lambda x: x["candidate_data"]["ai_score"], reverse=True)
 
+            # Обновляем passed_threshold
+            run.passed_threshold = len(good_candidates)
+
+            log_and_append_to_run(run, run_id, f"Оценка завершена: {run.evaluated} резюме, {run.passed_threshold} прошли порог {threshold}")
+            await session.commit()
+
             invited_candidates = []
             has_paid_access = params.get("has_paid_access", False)
             can_invite = has_paid_access and vacancy.hh_vacancy_id
 
+            if len(good_candidates) == 0:
+                log_and_append_to_run(run, run_id, f"Никто не прошёл порог {threshold} баллов")
+            else:
+                log_and_append_to_run(run, run_id, f"Топ кандидатов: {min(invite_m, len(good_candidates))} из {len(good_candidates)} прошедших порог")
+
             if can_invite:
                 # Режим с приглашениями - создаём кандидатов и заявки в воронку
-                for candidate_data in good_candidates[:invite_m]:
+                log_and_append_to_run(run, run_id, "Режим приглашений: создаём кандидатов в воронку")
+
+                for i, candidate_data in enumerate(good_candidates[:invite_m]):
                     try:
                         resume_id = candidate_data["resume_id"]
                         ai_data = candidate_data["candidate_data"]
                         full_resume = candidate_data["full_resume"]
 
+                        # Извлекаем имя для логирования
+                        first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
+                        last_name = (full_resume.get("last_name") or "").strip() or ""
+                        name = f"{first_name} {last_name}".strip()
+
                         # Проверяем дедубликацию
                         existing = await _find_existing_candidate(session, resume_id, full_resume, company_id)
                         if existing:
-                            logger.info(f"Кандидат {resume_id} уже существует, пропускаем приглашение")
+                            log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} уже в базе, пропускаем")
                             continue
 
                         # Отправляем приглашение через hh.ru (используем реальный hh_vacancy_id)
@@ -460,16 +599,22 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                             verdict=ai_data["verdict"]
                         ))
 
+                        # Инкрементально обновляем счётчик приглашений
+                        run.invited = len(invited_candidates)
+
+                        log_and_append_to_run(run, run_id, f"Приглашён {i+1}: {name} • score {ai_data['ai_score']} • добавлен в воронку")
                         await session.commit()
 
                     except Exception as e:
                         logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
+                        log_and_append_to_run(run, run_id, f"Ошибка приглашения {i+1}: {str(e)[:100]}")
                         continue
 
                 run.invites_skipped = False
             else:
                 # Режим превью - НЕ создаём кандидатов, только показываем топовых
                 logger.info(f"Умный поиск {run_id}: режим превью (платный доступ={has_paid_access}, hh_vacancy_id={'есть' if vacancy.hh_vacancy_id else 'НЕТ'})")
+                log_and_append_to_run(run, run_id, f"Режим превью: показываем топ без добавления в воронку (платный доступ={has_paid_access}, hh_vacancy_id={'есть' if vacancy.hh_vacancy_id else 'НЕТ'})")
 
                 for candidate_data in good_candidates[:invite_m]:
                     resume_id = candidate_data["resume_id"]
@@ -498,18 +643,41 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             # Финализируем поиск
             run.stage = "done"
             run.status = "done"
-            run.invited = len(invited_candidates) if can_invite else 0  # invited = реальные приглашения
+
+            # Устанавливаем итоговые значения
+            if not can_invite:
+                run.invited = 0  # В превью режиме реальных приглашений нет
+            # В режиме can_invite значение run.invited уже обновляется инкрементально
+
             run.invited_candidates = [c.dict() for c in invited_candidates]
             run.finished_at = datetime.now(timezone.utc)
+
+            # Формируем честную итоговую заметку
+            if run.evaluated == 0:
+                run.note = "Не удалось оценить ни одного резюме"
+            elif run.passed_threshold == 0:
+                run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} баллов — снизьте порог или расширьте фильтры"
+            elif can_invite:
+                run.note = f"Приглашено {run.invited} из {run.passed_threshold} прошедших порог {threshold} (оценено {run.evaluated} резюме)"
+            else:
+                run.note = f"Превью: {min(invite_m, run.passed_threshold)} лучших из {run.passed_threshold} прошедших порог {threshold} (оценено {run.evaluated} резюме)"
+
+            log_and_append_to_run(run, run_id, f"Поиск завершён: {run.note}")
             await session.commit()
 
         except Exception as e:
             logger.error(f"Ошибка в фоновой задаче поиска {run_id}: {e}")
-            run = await session.get(SmartSearchRun, run_id)
-            if run:
-                run.status = "error"
-                run.error = str(e)[:500]
-                await session.commit()
+            try:
+                # Безопасно получаем run для записи ошибки
+                run = await session.get(SmartSearchRun, run_id)
+                if run:
+                    run.status = "error"
+                    run.error = str(e)[:500]
+                    run.note = f"Ошибка выполнения: {str(e)[:200]}"
+                    log_and_append_to_run(run, run_id, f"Ошибка: {str(e)[:100]}")
+                    await session.commit()
+            except Exception as commit_e:
+                logger.error(f"Ошибка записи статуса ошибки для {run_id}: {commit_e}")
 
 
 def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:

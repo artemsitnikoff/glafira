@@ -42,6 +42,7 @@ class SmartSearchRequest(BaseModel):
     scan_n: int = Field(ge=1, le=400)  # количество резюме для сканирования
     invite_m: int = Field(ge=1, le=100)  # количество лучших для приглашения
     threshold: int = Field(ge=0, le=100)  # минимальный балл для приглашения
+    confirm_cost: bool = False  # подтверждение расхода для scan_n > 50
 
 
 class SmartSearchResponse(BaseModel):
@@ -59,6 +60,7 @@ class InvitedCandidate(BaseModel):
     city: Optional[str] = None
     score: int
     verdict: str
+    passed: Optional[bool] = None  # для переиспользования в scored_candidates
 
 
 class SmartRunStatus(BaseModel):
@@ -73,6 +75,10 @@ class SmartRunStatus(BaseModel):
     error: Optional[str] = None
     invites_skipped: bool = False
     invited_candidates: list[InvitedCandidate] = Field(default_factory=list)
+    scored_candidates: list[InvitedCandidate] = Field(default_factory=list)
+    passed_threshold: int = 0
+    note: Optional[str] = None
+    log: list[str] = Field(default_factory=list)
 
 
 class SmartRunHistoryItem(BaseModel):

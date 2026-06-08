@@ -13,10 +13,12 @@ from app.services.smart_search import (
     get_smart_vacancies,
     start_search,
     get_run_status,
-    derive_vacancy_filters
+    derive_vacancy_filters,
+    FREE_SCAN_LIMIT
 )
 from app.schemas.smart import SmartSearchRequest
 from app.models import SmartSearchRun, Candidate, Application
+from app.core.errors import ValidationError
 
 
 @pytest.mark.asyncio
@@ -359,3 +361,192 @@ async def test_derive_vacancy_filters_vacancy_not_found(
 
     with pytest.raises(NotFoundError):
         await derive_vacancy_filters(db_session, test_company.id, nonexistent_vacancy_id)
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+async def test_confirm_cost_gate_blocks_large_scan_without_confirm(
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что гейт confirm_cost блокирует scan_n > 50 без подтверждения"""
+    mock_access.return_value = (True, True, None)
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=100,  # Больше FREE_SCAN_LIMIT (50)
+        invite_m=10,
+        threshold=70,
+        confirm_cost=False  # БЕЗ подтверждения
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        await start_search(db_session, test_company.id, admin_user.id, request)
+
+    error_msg = str(exc_info.value)
+    assert "100" in error_msg
+    assert str(FREE_SCAN_LIMIT) in error_msg
+    assert "confirm_cost=true" in error_msg
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+async def test_confirm_cost_gate_allows_large_scan_with_confirm(
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что гейт confirm_cost пропускает scan_n > 50 с подтверждением"""
+    mock_access.return_value = (True, True, None)
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=100,  # Больше FREE_SCAN_LIMIT (50)
+        invite_m=10,
+        threshold=70,
+        confirm_cost=True  # С подтверждением
+    )
+
+    # НЕ должен бросить исключение
+    run_id = await start_search(db_session, test_company.id, admin_user.id, request)
+    assert run_id is not None
+
+    run = await db_session.get(SmartSearchRun, run_id)
+    assert run.params["scan_n"] == 100
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+async def test_confirm_cost_gate_allows_small_scan_without_confirm(
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что гейт confirm_cost пропускает scan_n <= 50 без подтверждения"""
+    mock_access.return_value = (True, True, None)
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=30,  # Меньше FREE_SCAN_LIMIT (50)
+        invite_m=10,
+        threshold=70,
+        confirm_cost=False  # БЕЗ подтверждения - должно быть ок
+    )
+
+    # НЕ должен бросить исключение
+    run_id = await start_search(db_session, test_company.id, admin_user.id, request)
+    assert run_id is not None
+
+
+@pytest.mark.asyncio
+async def test_new_fields_in_run_model(db_session, test_company, test_vacancy):
+    """Тест что новые поля модели SmartSearchRun корректно создаются с дефолтами"""
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"scan_n": 50}
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    # Проверяем новые поля с дефолтными значениями
+    assert hasattr(run, 'scored_candidates')
+    assert hasattr(run, 'passed_threshold')
+    assert hasattr(run, 'note')
+    assert hasattr(run, 'log')
+
+    assert run.scored_candidates == []
+    assert run.passed_threshold == 0
+    assert run.note is None
+    assert run.log == []
+
+
+# Тест пагинации на моках - проверяем логику сборки страниц
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_client.search_resumes')
+async def test_pagination_logic_collects_multiple_pages(mock_search_resumes):
+    """Тест логики пагинации - сбор нескольких страниц до достижения scan_n"""
+    from app.services.smart_search import MAX_PAGES_LIMIT
+
+    # Мокаем ответы для 3 страниц
+    mock_search_resumes.side_effect = [
+        {"found": 150, "items": [{"id": f"resume_{i}"} for i in range(50)]},  # page 0
+        {"found": 150, "items": [{"id": f"resume_{i}"} for i in range(50, 100)]},  # page 1
+        {"found": 150, "items": [{"id": f"resume_{i}"} for i in range(100, 120)]},  # page 2 (частично)
+    ]
+
+    # Эмулируем логику пагинации из реального кода
+    accumulated_items = []
+    found_count = 0
+    scan_n = 120  # Хотим собрать 120 резюме
+    base_search_params = {"text": "Python", "per_page": 50}
+
+    for page in range(MAX_PAGES_LIMIT):
+        search_params = base_search_params.copy()
+        search_params["page"] = page
+
+        search_result = await mock_search_resumes("test_token", search_params)
+        page_found = search_result.get("found", 0)
+        page_items = search_result.get("items", [])
+
+        # Берём found из первой страницы
+        if page == 0:
+            found_count = page_found
+
+        if not page_items:
+            break
+
+        accumulated_items.extend(page_items)
+
+        # Проверяем лимиты
+        if len(accumulated_items) >= scan_n:
+            break
+
+        if len(accumulated_items) >= found_count:
+            break
+
+    # Проверяем результат
+    assert found_count == 150
+    assert len(accumulated_items) == 120  # Собрали ровно scan_n
+    assert mock_search_resumes.call_count == 3  # Вызвали 3 страницы
+
+    # Проверяем что параметры страниц передавались корректно
+    calls = mock_search_resumes.call_args_list
+    assert calls[0][1]["page"] == 0
+    assert calls[1][1]["page"] == 1
+    assert calls[2][1]["page"] == 2
+
+
+@pytest.mark.asyncio
+async def test_scored_candidates_structure():
+    """Тест структуры данных scored_candidates"""
+    # Проверяем что структура scored_candidate соответствует InvitedCandidate + passed
+    scored_candidate = {
+        "candidate_id": None,
+        "name": "Иван Тестов",
+        "age": 30,
+        "experience_years": 5,
+        "last_company": "ООО Тест",
+        "city": "Москва",
+        "score": 85,
+        "verdict": "Подходит",
+        "passed": True  # Новое поле
+    }
+
+    from app.schemas.smart import InvitedCandidate
+
+    # Должен корректно создаваться InvitedCandidate из этих данных
+    candidate = InvitedCandidate(**scored_candidate)
+    assert candidate.name == "Иван Тестов"
+    assert candidate.passed == True
+    assert candidate.score == 85

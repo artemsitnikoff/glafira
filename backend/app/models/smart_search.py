@@ -75,6 +75,24 @@ class SmartSearchRun(Base, TimestampMixin, CompanyMixin):
         server_default=text("false")
     )
 
+    # Новые поля для улучшенной отчётности
+    scored_candidates: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb")
+    )
+    passed_threshold: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0")
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    log: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb")
+    )
+
     # Relationships
     vacancy: Mapped["Vacancy"] = relationship("Vacancy", back_populates="smart_search_runs")
     company: Mapped["Company"] = relationship("Company")

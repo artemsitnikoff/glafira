@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError, HTTPException
@@ -6,8 +7,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .api.v1.router import api_router
 from .config import settings
 from .core.errors import AppError, app_error_handler, validation_error_handler, http_exception_handler, generic_exception_handler
+from .services.smart_search import sweep_orphaned_runs
 
-app = FastAPI(title="Глафира Рекрутёр ATS", version="1.0.0", redirect_slashes=False)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await sweep_orphaned_runs()
+    yield
+    # Shutdown - можно добавить cleanup если понадобится
+
+
+app = FastAPI(title="Глафира Рекрутёр ATS", version="1.0.0", redirect_slashes=False, lifespan=lifespan)
 
 # CORS для фронтенда (origins из env CORS_ORIGINS, comma-separated)
 app.add_middleware(
