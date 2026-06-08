@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUiStore } from '@/store/uiStore';
 import { useAuthStore } from '@/store/authStore';
+import { api } from '@/api/client';
 import { useMe } from '@/api/hooks/useMe';
 import { useSidebar } from '@/api/hooks/useSidebar';
 import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
@@ -28,6 +29,18 @@ export function Sidebar() {
   const { count: alertsCount } = usePulseAlertsCount();
   const ui = useUiStore();
   const user = useAuthStore((s) => s.user);
+  const clearAuth = useAuthStore((s) => s.logout);
+
+  const handleLogout = async () => {
+    // Гасим refresh-cookie на сервере; даже если запрос упал — разлогиниваем локально.
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // игнорируем — локальный logout всё равно выполняем
+    }
+    clearAuth();
+    navigate('/login');
+  };
 
   // Определяем активный раздел по location.pathname
   const getActiveSection = () => {
@@ -218,6 +231,9 @@ export function Sidebar() {
             <button className="icon-btn" aria-label="Уведомления">
               <Icon name="bell" size={16} />
               {alertsCount > 0 && <span className="pip" />}
+            </button>
+            <button className="icon-btn" aria-label="Выйти" title="Выйти" onClick={handleLogout}>
+              <Icon name="log-out" size={16} />
             </button>
           </>
         )}
