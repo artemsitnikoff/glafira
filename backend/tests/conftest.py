@@ -26,7 +26,10 @@ if _env_test_url:
     TEST_DATABASE_URL = _env_test_url
 else:
     _base_url = make_url(settings.DATABASE_URL)
-    TEST_DATABASE_URL = str(_base_url.set(database=(_base_url.database or "glafira") + "_test"))
+    _test_url = _base_url.set(database=(_base_url.database or "glafira") + "_test")
+    # render_as_string(hide_password=False): str(URL) маскирует пароль как '***' →
+    # иначе asyncpg получит '***' и упадёт InvalidPasswordError.
+    TEST_DATABASE_URL = _test_url.render_as_string(hide_password=False)
 
 
 @pytest_asyncio.fixture(scope="session")
