@@ -16,6 +16,7 @@ from app.services.smart_search import (
     derive_vacancy_filters,
     preview_found_count,
     build_search_params,
+    suggest_areas,
     FREE_SCAN_LIMIT
 )
 from app.schemas.smart import SmartSearchRequest, SmartCountRequest
@@ -667,3 +668,106 @@ async def test_build_search_params_creates_expected_dict():
     # Проверяем что page/per_page НЕ включены (их добавляет вызывающий)
     assert "page" not in result
     assert "per_page" not in result
+
+
+@pytest.mark.asyncio
+async def test_build_search_params_with_area_id_and_period():
+    """Тест что build_search_params корректно обрабатывает area_id и period"""
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Python Developer"
+
+    # Тест с валидным area_id (числовое значение)
+    params_valid_area = {
+        "area_id": "1",  # Числовое значение - включается как area
+        "period": 7,     # Валидное значение - включается
+    }
+
+    result = build_search_params(params_valid_area, vacancy)
+    assert result["area"] == "1"
+    assert result["period"] == 7
+
+    # Тест с невалидным area_id (нечисловое значение)
+    params_invalid_area = {
+        "area_id": "Москва",  # Нечисловое значение - НЕ включается
+        "period": None,       # None - НЕ включается
+    }
+
+    result = build_search_params(params_invalid_area, vacancy)
+    assert "area" not in result
+    assert "period" not in result
+
+    # Тест с невалидным period (отрицательное число)
+    params_invalid_period = {
+        "area_id": "113",
+        "period": -5,  # Отрицательное - НЕ включается
+    }
+
+    result = build_search_params(params_invalid_period, vacancy)
+    assert result["area"] == "113"
+    assert "period" not in result
+
+    # Тест с period = 0 (не включается)
+    params_zero_period = {
+        "period": 0,  # Ноль - НЕ включается
+    }
+
+    result = build_search_params(params_zero_period, vacancy)
+    assert "period" not in result
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.suggest_areas')
+async def test_suggest_areas_success(
+    mock_suggest_areas,
+    mock_token,
+    db_session,
+    test_company
+):
+    """Тест успешного получения подсказок областей"""
+    mock_token.return_value = "test_token"
+    mock_suggest_areas.return_value = [
+        {"id": "1", "text": "Москва"},
+        {"id": "2", "text": "Санкт-Петербург"}
+    ]
+
+    result = await suggest_areas(db_session, test_company.id, "Мос")
+
+    assert len(result) == 2
+    assert result[0]["id"] == "1"
+    assert result[0]["text"] == "Москва"
+    assert result[1]["id"] == "2"
+    assert result[1]["text"] == "Санкт-Петербург"
+
+    mock_suggest_areas.assert_called_once_with("test_token", "Мос")
+
+
+@pytest.mark.asyncio
+async def test_suggest_areas_short_text(db_session, test_company):
+    """Тест что suggest_areas возвращает пустой список для короткого текста"""
+    result = await suggest_areas(db_session, test_company.id, "М")  # Меньше 2 символов
+    assert result == []
+
+    result = await suggest_areas(db_session, test_company.id, "")  # Пустая строка
+    assert result == []
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.suggest_areas')
+async def test_suggest_areas_hh_error_graceful(
+    mock_suggest_areas,
+    mock_token,
+    db_session,
+    test_company
+):
+    """Тест graceful поведения suggest_areas при ошибке hh"""
+    mock_token.return_value = "test_token"
+    mock_suggest_areas.side_effect = Exception("API error")
+
+    result = await suggest_areas(db_session, test_company.id, "Москва")
+
+    # Должен вернуть пустой список, а не выбросить исключение
+    assert result == []

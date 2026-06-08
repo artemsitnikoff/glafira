@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
+import { api } from '@/api/client';
 import {
   useSmartAccess,
   useSmartVacancies,
@@ -11,10 +12,12 @@ import {
   useSmartHistory,
   useDeriveVacancyFilters,
   useSmartCount,
+  useSmartAreaSuggest,
   type SmartVacancy,
   type SmartCandidate,
   type SmartSearchRequest,
   type SmartCountRequest,
+  type SmartAreaSuggestItem,
 } from '@/api/hooks/useSmartSearch';
 import './smart-search.css';
 
@@ -57,6 +60,9 @@ export default function SmartSearchPage() {
   const [role, setRole] = useState('');
   const [exp, setExp] = useState('');
   const [area, setArea] = useState('');
+  const [areaId, setAreaId] = useState<string | null>(null);
+  const [areaLabel, setAreaLabel] = useState('');
+  const [period, setPeriod] = useState<number | undefined>(undefined);
 
   // Step 3 — зарплата
   const [salFrom, setSalFrom] = useState(0);
@@ -101,6 +107,8 @@ export default function SmartSearchPage() {
         salary_from: salFrom > 0 ? salFrom : undefined,
         salary_to: salTo > 0 ? salTo : undefined,
         include_no_salary: inclNoSalary,
+        area_id: areaId ?? undefined,
+        period,
       };
 
       countMut.mutate(request, {
@@ -112,7 +120,7 @@ export default function SmartSearchPage() {
     // countMut НЕ в deps: объект мутации меняет ссылку каждый рендер → был бы
     // бесконечный цикл вызовов. countMut.mutate стабилен, поэтому безопасно.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vac?.id, area, role, exp, skills, salFrom, salTo, inclNoSalary]);
+  }, [vac?.id, area, role, exp, skills, salFrom, salTo, inclNoSalary, areaId, period]);
 
   const resetAll = () => {
     setPhase('build');
@@ -125,6 +133,9 @@ export default function SmartSearchPage() {
     setRole('');
     setExp('');
     setArea('');
+    setAreaId(null);
+    setAreaLabel('');
+    setPeriod(undefined);
     setSalFrom(0);
     setSalTo(0);
     setInclNoSalary(true);
@@ -153,6 +164,22 @@ export default function SmartSearchPage() {
 
     // Раскрываем шаги сразу (не блокируем переход)
     setMaxStep(Math.max(maxStep, 2));
+
+    // Best-effort префилл из города вакансии
+    if (v.city) {
+      api.get('/smart/area-suggest', { params: { text: v.city } })
+        .then(response => {
+          const areas = response.data as SmartAreaSuggestItem[];
+          if (areas.length > 0) {
+            const topArea = areas[0];
+            setAreaId(topArea.id);
+            setAreaLabel(topArea.text);
+          }
+        })
+        .catch(() => {
+          // Graceful - при ошибке оставляем пустым
+        });
+    }
 
     // AI-подбор фильтров area/professional_role/experience/skills
     deriveFilters.mutate(id, {
@@ -194,6 +221,8 @@ export default function SmartSearchPage() {
       invite_m: inviteM,
       threshold,
       confirm_cost: confirmCost,
+      area_id: areaId ?? undefined,
+      period,
     };
 
     try {
@@ -369,6 +398,25 @@ export default function SmartSearchPage() {
                     placeholder={deriveFilters.isPending ? 'Глафира подбирает…' : ''}
                   />
                 </div>
+              </div>
+
+              <div className="ss-field-row" style={{ marginBottom: 14 }}>
+                <SmartAreaSelector
+                  areaId={areaId}
+                  areaLabel={areaLabel}
+                  onSelect={(id, label) => {
+                    setAreaId(id);
+                    setAreaLabel(label);
+                  }}
+                  onClear={() => {
+                    setAreaId(null);
+                    setAreaLabel('');
+                  }}
+                />
+                <SmartPeriodSelector
+                  period={period}
+                  onChange={setPeriod}
+                />
               </div>
 
               <div className="ss-filter-group">
@@ -1025,6 +1073,141 @@ function SSNoAccess({ onGoSettings }: { onGoSettings: () => void }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Компонент автокомплита для выбора города/региона
+function SmartAreaSelector({
+  areaId,
+  areaLabel,
+  onSelect,
+  onClear,
+}: {
+  areaId: string | null;
+  areaLabel: string;
+  onSelect: (id: string, label: string) => void;
+  onClear: () => void;
+}) {
+  const [inputValue, setInputValue] = useState('');
+  const [debouncedValue, setDebouncedValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Debounce для запросов
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(inputValue);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [inputValue]);
+
+  const { data: suggestions = [] } = useSmartAreaSuggest(debouncedValue);
+
+  const displayValue = areaId ? areaLabel : inputValue;
+
+  const handleSelect = (item: SmartAreaSuggestItem) => {
+    onSelect(item.id, item.text);
+    setInputValue('');
+    setIsOpen(false);
+  };
+
+  const handleClear = () => {
+    onClear();
+    setInputValue('');
+    setIsOpen(false);
+  };
+
+  const handleAllRussia = () => {
+    onSelect('113', 'Вся Россия');
+    setInputValue('');
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="ss-field" style={{ position: 'relative' }}>
+      <div className="ss-field-label">Город / регион</div>
+      <div className="ss-area-input-wrap">
+        <input
+          className="ss-input"
+          value={displayValue}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            setIsOpen(true);
+            if (!e.target.value && areaId) {
+              onClear();
+            }
+          }}
+          onFocus={() => {
+            if (!areaId) setIsOpen(true);
+          }}
+          placeholder="Начните печатать город..."
+        />
+        {areaId && (
+          <button className="ss-area-clear" onClick={handleClear} type="button">
+            <Icon name="x" size={14} />
+          </button>
+        )}
+      </div>
+
+      {isOpen && !areaId && (
+        <div className="ss-area-dropdown">
+          <div className="ss-area-option" onClick={handleAllRussia}>
+            <Icon name="pin" size={16} className="ss-area-icon" />
+            <span>Вся Россия</span>
+          </div>
+          {suggestions.map((item) => (
+            <div
+              key={item.id}
+              className="ss-area-option"
+              onClick={() => handleSelect(item)}
+            >
+              <Icon name="pin" size={16} className="ss-area-icon" />
+              <span>{item.text}</span>
+            </div>
+          ))}
+          {inputValue.trim().length >= 2 && suggestions.length === 0 && (
+            <div className="ss-area-empty">Ничего не найдено</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Компонент селектора свежести резюме
+function SmartPeriodSelector({
+  period,
+  onChange,
+}: {
+  period: number | undefined;
+  onChange: (period: number | undefined) => void;
+}) {
+  const options = [
+    { value: undefined, label: 'За всё время' },
+    { value: 1, label: 'За сутки' },
+    { value: 3, label: 'За 3 дня' },
+    { value: 7, label: 'За неделю' },
+    { value: 30, label: 'За месяц' },
+    { value: 365, label: 'За год' },
+  ];
+
+  return (
+    <div className="ss-field" style={{ maxWidth: 180 }}>
+      <div className="ss-field-label">Свежесть резюме</div>
+      <select
+        className="ss-input ss-period-select"
+        value={period ?? ''}
+        onChange={(e) => {
+          const val = e.target.value;
+          onChange(val === '' ? undefined : Number(val));
+        }}
+      >
+        {options.map((opt) => (
+          <option key={opt.value ?? 'all'} value={opt.value ?? ''}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

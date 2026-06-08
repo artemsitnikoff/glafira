@@ -17,7 +17,8 @@ from ...schemas.smart import (
     InvitedCandidate,
     SmartVacancyFilters,
     SmartCountRequest,
-    SmartCountResponse
+    SmartCountResponse,
+    SmartAreaSuggestItem
 )
 from ...services.smart_search import (
     check_access,
@@ -26,7 +27,8 @@ from ...services.smart_search import (
     get_run_status,
     get_run_history,
     derive_vacancy_filters,
-    preview_found_count
+    preview_found_count,
+    suggest_areas
 )
 from ...core.errors import NotFoundError
 
@@ -156,3 +158,16 @@ async def smart_preview_count(
     """Получить предварительное количество резюме по фильтрам"""
     found = await preview_found_count(session, company_id, request)
     return SmartCountResponse(found=found)
+
+
+@router.get("/area-suggest", response_model=list[SmartAreaSuggestItem])
+async def smart_area_suggest(
+    text: str = "",
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить подсказки регионов/городов из справочника hh.ru"""
+    items = await suggest_areas(session, company_id, text)
+    return [SmartAreaSuggestItem(id=str(i.get("id")), text=str(i.get("text", "")))
+            for i in items if i.get("id")]

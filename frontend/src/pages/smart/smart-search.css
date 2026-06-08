@@ -286,6 +286,51 @@
 }
 .ss-page .ss-input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(42,138,240,.18); }
 
+/* ---------- Area selector (autocomplete) ---------- */
+.ss-page .ss-area-input-wrap {
+  position: relative;
+}
+.ss-page .ss-area-clear {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--ark-gray-200); border: 0; color: var(--fg-2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: 0.7;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.ss-page .ss-area-clear:hover { opacity: 1; background: var(--ark-gray-300); }
+.ss-page .ss-area-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: var(--z-dropdown);
+  background: var(--bg-elevated); border: 1px solid var(--border-1); border-radius: 8px;
+  box-shadow: var(--shadow-lg); max-height: 240px; overflow-y: auto;
+  animation: ssReveal 160ms var(--ease-out);
+}
+.ss-page .ss-area-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; cursor: pointer;
+  font-size: 13px; color: var(--fg-1);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.ss-page .ss-area-option:hover { background: var(--bg-3-hover); }
+.ss-page .ss-area-option:first-child { border-radius: 7px 7px 0 0; }
+.ss-page .ss-area-option:last-child { border-radius: 0 0 7px 7px; }
+.ss-page .ss-area-option:first-child:last-child { border-radius: 7px; }
+.ss-page .ss-area-icon { color: var(--fg-3); flex: none; }
+.ss-page .ss-area-empty {
+  padding: 12px; text-align: center;
+  font-size: 12px; color: var(--fg-3);
+}
+
+/* ---------- Period selector ---------- */
+.ss-page .ss-period-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236B7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  padding-right: 32px;
+}
+
 /* ---------- Step 3: salary ---------- */
 .ss-page .ss-salary-fields {
   display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;

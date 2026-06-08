@@ -270,6 +270,8 @@ async def start_search(
             "invite_m": request.invite_m,
             "threshold": request.threshold,
             "has_paid_access": has_paid_access,
+            "area_id": request.area_id,
+            "period": request.period,
         }
     )
     session.add(search_run)
@@ -316,12 +318,11 @@ def build_search_params(params: dict, vacancy) -> dict:
     }
 
     # Добавляем структурные фильтры ТОЛЬКО при валидных значениях
-    if params.get("area"):
-        # area: только если числовое (id региона из справочника hh)
-        area_value = params["area"]
-        if str(area_value).strip().isdigit():
-            base_search_params["area"] = area_value
-        # Иначе НЕ передаём area - значение уже в text, не ломает запрос
+    if params.get("area_id"):
+        # area: берём из area_id (ID региона из справочника hh)
+        area_id = params["area_id"]
+        if str(area_id).strip().isdigit():
+            base_search_params["area"] = area_id
 
     if params.get("professional_role"):
         # professional_role: только если числовое (id роли из справочника hh)
@@ -352,6 +353,11 @@ def build_search_params(params: dict, vacancy) -> dict:
         base_search_params["salary_to"] = params["salary_to"]
     if params.get("include_no_salary"):
         base_search_params["only_with_salary"] = "false"
+
+    # Фильтр свежести резюме
+    period = params.get("period")
+    if period is not None and isinstance(period, int) and period > 0:
+        base_search_params["period"] = period
 
     return base_search_params
 
@@ -933,6 +939,8 @@ async def preview_found_count(session: AsyncSession, company_id: UUID, request: 
             "salary_from": request.salary_from,
             "salary_to": request.salary_to,
             "include_no_salary": request.include_no_salary,
+            "area_id": request.area_id,
+            "period": request.period,
         }
 
         # Используем общую функцию построения search_params
@@ -1062,3 +1070,34 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
             "experience": "",
             "skills": []
         }
+
+
+async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
+    """
+    Получает подсказки регионов/городов из справочника hh.ru
+
+    Args:
+        session: сессия БД
+        company_id: ID компании
+        text: текст для поиска
+
+    Returns:
+        list[dict]: список подсказок с полями id и text
+
+    Note:
+        При любой ошибке возвращает пустой список - подсказки не должны ронять форму
+    """
+    if len(text.strip()) < 2:
+        return []
+
+    try:
+        # Получаем токен hh
+        access_token = await hh_service.get_valid_access_token(session, company_id)
+
+        # Вызываем hh API
+        return await hh_client.suggest_areas(access_token, text)
+
+    except Exception as e:
+        # При ЛЮБОЙ ошибке возвращаем пустой список (подсказки не должны ронять форму)
+        logger.warning(f"Ошибка получения подсказок регионов hh: {e}")
+        return []

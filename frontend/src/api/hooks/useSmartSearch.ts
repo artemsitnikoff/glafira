@@ -35,6 +35,8 @@ export interface SmartSearchRequest {
   invite_m: number; // 1..100
   threshold: number; // 0..100
   confirm_cost?: boolean;
+  area_id?: string;
+  period?: number;
 }
 
 export interface SmartSearchResponse {
@@ -85,6 +87,11 @@ export interface SmartVacancyFilters {
   professional_role: string;
   experience: string;
   skills: string[];
+}
+
+export interface SmartAreaSuggestItem {
+  id: string;
+  text: string;
 }
 
 export function useSmartAccess() {
@@ -159,6 +166,8 @@ export interface SmartCountRequest {
   salary_from?: number;
   salary_to?: number;
   include_no_salary: boolean;
+  area_id?: string;
+  period?: number;
 }
 
 export interface SmartCountResponse {
@@ -171,5 +180,16 @@ export function useSmartCount() {
       const response = await api.post('/smart/preview-count', request);
       return response.data as SmartCountResponse;
     },
+  });
+}
+
+export function useSmartAreaSuggest(text: string) {
+  return useQuery({
+    queryKey: ['smart', 'area-suggest', text],
+    queryFn: async (): Promise<SmartAreaSuggestItem[]> => {
+      const response = await api.get('/smart/area-suggest', { params: { text } });
+      return response.data as SmartAreaSuggestItem[];
+    },
+    enabled: text.trim().length >= 2,
   });
 }

@@ -43,6 +43,8 @@ class SmartSearchRequest(BaseModel):
     invite_m: int = Field(ge=1, le=100)  # количество лучших для приглашения
     threshold: int = Field(ge=0, le=100)  # минимальный балл для приглашения
     confirm_cost: bool = False  # подтверждение расхода для scan_n > 50
+    area_id: Optional[str] = None  # ID региона из справочника hh
+    period: Optional[int] = None  # дни свежести резюме (1/3/7/30/365)
 
 
 class SmartSearchResponse(BaseModel):
@@ -110,6 +112,14 @@ class SmartCountRequest(BaseModel):
     salary_from: Optional[int] = None
     salary_to: Optional[int] = None
     include_no_salary: bool = True
+    area_id: Optional[str] = None  # ID региона из справочника hh
+    period: Optional[int] = None  # дни свежести резюме (1/3/7/30/365)
+
+
+class SmartAreaSuggestItem(BaseModel):
+    """Элемент подсказок регионов"""
+    id: str
+    text: str
 
 
 class SmartCountResponse(BaseModel):

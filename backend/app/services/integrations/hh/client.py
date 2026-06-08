@@ -655,6 +655,40 @@ async def get_payable_api_actions(access_token: str, employer_id: str) -> dict:
             raise ValidationError(f"Ошибка получения квот hh.ru: {e}")
 
 
+async def suggest_areas(access_token: str, text: str) -> list[dict]:
+    """
+    Получает подсказки регионов/городов из справочника hh.ru
+
+    Args:
+        access_token: access token
+        text: текст для поиска
+
+    Returns:
+        list[dict]: список областей/регионов с полями id и text
+
+    Raises:
+        ValidationError: при ошибке API
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/suggests/areas",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={"text": text}
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru /suggests/areas")
+
+            return result.get("items", [])
+
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения подсказок регионов hh.ru: {e}")
+
+
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
     """
     Строит URL для авторизации через hh.ru
