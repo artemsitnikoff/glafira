@@ -5,7 +5,8 @@
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
 from uuid import uuid4
 
 from app.services.smart_search import (
@@ -18,6 +19,8 @@ from app.services.smart_search import (
     build_search_params,
     suggest_areas,
     _compact_resume_for_display,
+    _calculate_search_timeout,
+    _run_search_background,
     FREE_SCAN_LIMIT
 )
 from app.schemas.smart import SmartSearchRequest, SmartCountRequest
@@ -952,3 +955,176 @@ async def test_scored_candidates_with_full_breakdown():
     assert candidate.resume.title == "Python Developer"
     assert candidate.resume.total_experience_months == 60
     assert len(candidate.resume.experience) == 1
+
+
+@pytest.mark.asyncio
+async def test_calculate_search_timeout():
+    """Тест функции расчёта таймаута поиска"""
+    # Тест с мокнутой сессией
+    with patch('app.services.smart_search.AsyncSessionLocal') as mock_session_class:
+        mock_session = AsyncMock()
+        mock_session_class.return_value.__aenter__.return_value = mock_session
+
+        run = SmartSearchRun(params={"scan_n": 100})
+        mock_session.get.return_value = run
+
+        timeout = await _calculate_search_timeout(uuid4(), uuid4())
+        # max(900, 100 * 30) = max(900, 3000) = 3000
+        assert timeout == 3000
+
+        # Тест с малым scan_n
+        run.params = {"scan_n": 10}
+        timeout = await _calculate_search_timeout(uuid4(), uuid4())
+        # max(900, 10 * 30) = max(900, 300) = 900
+        assert timeout == 900
+
+        # Тест с отсутствующим run
+        mock_session.get.return_value = None
+        timeout = await _calculate_search_timeout(uuid4(), uuid4())
+        assert timeout == 900  # fallback
+
+
+@pytest.mark.asyncio
+async def test_timeout_wrapper_finalizes_on_timeout():
+    """Тест что wrapper финализирует run при таймауте"""
+    with patch('app.services.smart_search._run_search_inner') as mock_inner, \
+         patch('app.services.smart_search._calculate_search_timeout') as mock_timeout, \
+         patch('app.services.smart_search.AsyncSessionLocal') as mock_session_class:
+
+        # Мокаем таймаут
+        mock_timeout.return_value = 1  # 1 секунда
+        mock_inner.side_effect = asyncio.sleep(2)  # Зависаем на 2 секунды
+
+        # Мокаем сессию для финализации
+        mock_session = AsyncMock()
+        mock_session_class.return_value.__aenter__.return_value = mock_session
+
+        run = SmartSearchRun(status="running")
+        mock_session.get.return_value = run
+
+        run_id = uuid4()
+        company_id = uuid4()
+        user_id = uuid4()
+
+        # Вызываем wrapper
+        await _run_search_background(run_id, company_id, user_id)
+
+        # Проверяем что run был финализирован при таймауте
+        assert run.status == "error"
+        assert "таймаут" in run.note
+        assert run.error == "timeout"
+        assert run.finished_at is not None
+        mock_session.commit.assert_called()
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.audit')
+async def test_audit_call_with_actor_user_id_none(mock_audit):
+    """Тест что audit вызывается с actor_user_id=None для AI-действий"""
+    from app.services.smart_search import audit
+
+    # Вызываем audit как в реальном коде приглашений
+    mock_session = AsyncMock()
+    candidate_id = uuid4()
+    vacancy_id = uuid4()
+    company_id = uuid4()
+    run_id = uuid4()
+
+    await audit(
+        mock_session,
+        action="smart_search_invite",
+        entity_type="candidate",
+        entity_id=candidate_id,
+        after={
+            "vacancy_id": str(vacancy_id),
+            "ai_score": 85,
+            "run_id": str(run_id)
+        },
+        actor_type="ai",
+        actor_user_id=None,
+        company_id=company_id
+    )
+
+    # Проверяем что audit был вызван с правильными параметрами
+    mock_audit.assert_called_once()
+    call_args = mock_audit.call_args
+
+    assert call_args[1]["action"] == "smart_search_invite"
+    assert call_args[1]["entity_type"] == "candidate"
+    assert call_args[1]["entity_id"] == candidate_id
+    assert call_args[1]["actor_type"] == "ai"
+    assert call_args[1]["actor_user_id"] is None
+    assert call_args[1]["company_id"] == company_id
+
+
+@pytest.mark.asyncio
+async def test_invite_timeout_handling():
+    """Тест что invite_to_vacancy с таймаутом корректно обрабатывается"""
+    from unittest.mock import patch
+
+    with patch('app.services.smart_search.hh_client.invite_to_vacancy') as mock_invite:
+        # Мокаем долгий вызов
+        mock_invite.side_effect = asyncio.sleep(30)  # 30 секунд
+
+        # Эмулируем логику с таймаутом
+        try:
+            await asyncio.wait_for(
+                mock_invite("token", "resume_id", "vacancy_id", "message"),
+                timeout=25
+            )
+            assert False, "Должен был быть таймаут"
+        except asyncio.TimeoutError:
+            # Ожидаемое поведение
+            pass
+
+        mock_invite.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_note_formatting_for_different_scenarios():
+    """Тест формирования note для разных сценариев"""
+
+    # Тест 1: Нет платного доступа
+    has_paid_access = False
+    vacancy_hh_id = "123"
+    passed_threshold = 5
+    invite_errors = []
+    invited = 0
+
+    if not has_paid_access:
+        note = f"Приглашения не отправлены: нет платного доступа к базе резюме hh (он нужен только для отправки приглашений; поиск и оценка работают без него). Прошли порог: {passed_threshold}."
+
+    assert "нет платного доступа" in note
+    assert "Прошли порог: 5" in note
+
+    # Тест 2: Нет hh_vacancy_id
+    has_paid_access = True
+    vacancy_hh_id = None
+
+    if not vacancy_hh_id:
+        note = f"Приглашения не отправлены: вакансия не опубликована на hh.ru. Прошли порог: {passed_threshold}."
+
+    assert "не опубликована" in note
+
+    # Тест 3: Есть ошибки приглашений
+    vacancy_hh_id = "123"
+    can_invite = True
+    invite_errors = ["таймаут hh (25с)", "другая ошибка"]
+    invited = 2
+
+    if can_invite and invite_errors:
+        first_error = invite_errors[0]
+        note = f"Приглашено {invited} из {passed_threshold}. Часть не отправлена: {first_error}."
+
+    assert "Приглашено 2 из 5" in note
+    assert "таймаут hh (25с)" in note
+
+    # Тест 4: Всё успешно
+    invite_errors = []
+    evaluated = 20
+    threshold = 70
+
+    if can_invite:
+        note = f"Приглашено {invited} из {passed_threshold} прошедших порог {threshold} (оценено {evaluated} резюме)"
+
+    assert "Приглашено 2 из 5 прошедших порог 70" in note

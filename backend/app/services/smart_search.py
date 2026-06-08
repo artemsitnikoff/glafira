@@ -33,6 +33,23 @@ FREE_SCAN_LIMIT = 50
 MAX_PAGES_LIMIT = 20  # Защитный потолок страниц
 
 
+async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
+    """Вычисляет таймаут поиска на основе параметров"""
+    from ..database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as session:
+            run = await session.get(SmartSearchRun, run_id)
+            if run and run.params:
+                scan_n = run.params.get("scan_n", 50)
+                # Щедрый таймаут: базовые 900с + по 30с на каждое резюме (этап оценки долгий)
+                return max(900, scan_n * 30)
+    except Exception:
+        pass
+
+    return 900  # Fallback 15 минут
+
+
 async def sweep_orphaned_runs():
     """Очистка осиротевших поисков при старте сервера"""
     from ..database import AsyncSessionLocal
@@ -454,6 +471,24 @@ def build_search_params(params: dict, vacancy) -> dict:
 
 async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
     """Фоновая задача выполнения поиска"""
+    try:
+        timeout_s = await _calculate_search_timeout(run_id, company_id)
+        await asyncio.wait_for(_run_search_inner(run_id, company_id, user_id), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        # Финализируем СВЕЖЕЙ сессией (старая могла зависнуть)
+        from ..database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            run = await session.get(SmartSearchRun, run_id)
+            if run and run.status == "running":
+                run.status = "error"
+                run.note = "Поиск прерван по таймауту (hh не ответил вовремя). Попробуйте ещё раз."
+                run.error = "timeout"
+                run.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+
+
+async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
+    """Внутренняя логика выполнения поиска"""
     from ..database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as session:
@@ -639,6 +674,7 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             invited_candidates = []
             has_paid_access = params.get("has_paid_access", False)
             can_invite = has_paid_access and vacancy.hh_vacancy_id
+            invite_errors = []  # Собираем ошибки приглашений
 
             if len(good_candidates) == 0:
                 log_and_append_to_run(run, run_id, f"Никто не прошёл порог {threshold} баллов")
@@ -666,13 +702,31 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                             log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} уже в базе, пропускаем")
                             continue
 
-                        # Отправляем приглашение через hh.ru (используем реальный hh_vacancy_id)
-                        invitation = await hh_client.invite_to_vacancy(
-                            access_token,
-                            str(resume_id),
-                            vacancy.hh_vacancy_id,
-                            message="Приглашение от Глафира Рекрутёр"
-                        )
+                        # Диагностика: логируем перед блокирующим вызовом
+                        log_and_append_to_run(run, run_id, f"Отправляю приглашение {i+1}: {name} (resume {resume_id}) → вакансия hh {vacancy.hh_vacancy_id}")
+                        await session.commit()
+
+                        # Отправляем приглашение через hh.ru с таймаутом
+                        try:
+                            invitation = await asyncio.wait_for(
+                                hh_client.invite_to_vacancy(
+                                    access_token,
+                                    str(resume_id),
+                                    vacancy.hh_vacancy_id,
+                                    message="Приглашение от Глафира Рекрутёр"
+                                ),
+                                timeout=25
+                            )
+                        except asyncio.TimeoutError:
+                            error_msg = "таймаут hh (25с)"
+                            invite_errors.append(error_msg)
+                            log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} {error_msg} — пропускаем")
+                            continue
+                        except Exception as e:
+                            error_msg = str(e)[:100]
+                            invite_errors.append(error_msg)
+                            log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} ошибка hh — {error_msg}")
+                            continue
 
                         # Создаем кандидата и заявку
                         candidate = _create_candidate_from_resume(full_resume, company_id)
@@ -704,6 +758,7 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                                 "run_id": str(run_id)
                             },
                             actor_type="ai",
+                            actor_user_id=None,
                             company_id=company_id
                         )
 
@@ -726,8 +781,10 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                         await session.commit()
 
                     except Exception as e:
+                        error_msg = str(e)[:100]
+                        invite_errors.append(error_msg)
                         logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
-                        log_and_append_to_run(run, run_id, f"Ошибка приглашения {i+1}: {str(e)[:100]}")
+                        log_and_append_to_run(run, run_id, f"Ошибка приглашения {i+1}: {error_msg}")
                         continue
 
                 run.invites_skipped = False
@@ -777,6 +834,13 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                 run.note = "Не удалось оценить ни одного резюме"
             elif run.passed_threshold == 0:
                 run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} баллов — снизьте порог или расширьте фильтры"
+            elif not has_paid_access:
+                run.note = f"Приглашения не отправлены: нет платного доступа к базе резюме hh (он нужен только для отправки приглашений; поиск и оценка работают без него). Прошли порог: {run.passed_threshold}."
+            elif not vacancy.hh_vacancy_id:
+                run.note = f"Приглашения не отправлены: вакансия не опубликована на hh.ru. Прошли порог: {run.passed_threshold}."
+            elif can_invite and invite_errors:
+                first_error = invite_errors[0] if invite_errors else "неизвестная ошибка"
+                run.note = f"Приглашено {run.invited} из {run.passed_threshold}. Часть не отправлена: {first_error}."
             elif can_invite:
                 run.note = f"Приглашено {run.invited} из {run.passed_threshold} прошедших порог {threshold} (оценено {run.evaluated} резюме)"
             else:
