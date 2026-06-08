@@ -34,6 +34,7 @@ export interface SmartSearchRequest {
   scan_n: number; // 1..400
   invite_m: number; // 1..100
   threshold: number; // 0..100
+  confirm_cost?: boolean;
 }
 
 export interface SmartSearchResponse {
@@ -51,6 +52,10 @@ export interface SmartRun {
   error: string | null;
   invites_skipped: boolean;
   invited_candidates: SmartCandidate[];
+  scored_candidates: SmartCandidate[];
+  passed_threshold: number;
+  note: string | null;
+  log: string[];
 }
 
 export interface SmartCandidate {
@@ -62,6 +67,7 @@ export interface SmartCandidate {
   city: string;
   score: number;
   verdict: string;
+  passed?: boolean;
 }
 
 export interface SmartHistoryItem {

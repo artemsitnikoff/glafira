@@ -47,6 +47,7 @@ export default function SmartSearchPage() {
   const [maxStep, setMaxStep] = useState(1);
   const [selOpen, setSelOpen] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [showCostConfirm, setShowCostConfirm] = useState(false);
 
   // Step 2 — фильтры
   const [skills, setSkills] = useState<string[]>([]);
@@ -86,6 +87,7 @@ export default function SmartSearchPage() {
     setMaxStep(1);
     setSelOpen(false);
     setRunId(null);
+    setShowCostConfirm(false);
     setSkills([]);
     setRole('');
     setExp('');
@@ -135,8 +137,14 @@ export default function SmartSearchPage() {
     });
   };
 
-  const handleStartSearch = async () => {
+  const handleStartSearch = async (confirmCost = false) => {
     if (!vac) return;
+
+    // Если scan_n > 50 и не подтверждён расход - показать баннер подтверждения
+    if (scanN > 50 && !confirmCost && !showCostConfirm) {
+      setShowCostConfirm(true);
+      return;
+    }
 
     const request: SmartSearchRequest = {
       vacancy_id: vac.id,
@@ -150,12 +158,14 @@ export default function SmartSearchPage() {
       scan_n: scanN,
       invite_m: inviteM,
       threshold,
+      confirm_cost: confirmCost,
     };
 
     try {
       const response = await startSearch.mutateAsync(request);
       setRunId(response.run_id);
       setPhase('running');
+      setShowCostConfirm(false);
     } catch {
       // Ошибка сервера (квота/вакансия не на hh) отображается через startSearch.error в UI
     }
@@ -573,13 +583,22 @@ export default function SmartSearchPage() {
             </div>
           )}
 
+          {showCostConfirm && (
+            <div className="info-banner" style={{ marginBottom: '16px' }}>
+              <Icon name="alert-triangle" size={14} />
+              <div>
+                ⚠ Будет просмотрено до <strong>{ssFmt(scanN)}</strong> резюме — это платные просмотры базы hh. Продолжить?
+              </div>
+            </div>
+          )}
+
           <div className="ss-launch-row">
             <button
               className="ss-btn-launch"
-              onClick={handleStartSearch}
+              onClick={() => showCostConfirm ? handleStartSearch(true) : handleStartSearch()}
               disabled={startSearch.isPending}
             >
-              <span className="em">💃</span> {willInvite ? 'Запустить поиск' : 'Найти и оценить'}
+              <span className="em">💃</span> {showCostConfirm ? 'Подтвердить и запустить' : (willInvite ? 'Запустить поиск' : 'Найти и оценить')}
             </button>
             <div className="ss-launch-est">
               Примерно <span className="t-mono">~{Math.max(2, Math.round(scanN / 60))} мин</span> ·
@@ -687,6 +706,78 @@ function SSRunning({ runData, vac }: { runData: any; vac: SmartVacancy | null })
           </div>
         ))}
       </div>
+
+      {/* Живые баллы во время оценки */}
+      {runData.scored_candidates && runData.scored_candidates.length > 0 && (
+        <div style={{ marginTop: '24px' }}>
+          <div className="ss-invited-card">
+            <div className="ss-invited-head">
+              <span className="title">Оценённые кандидаты</span>
+              <span className="count">{runData.scored_candidates.length}</span>
+              <div style={{ flex: 1 }} />
+              <span className="live-dot">оценка в реальном времени</span>
+            </div>
+            {runData.scored_candidates.map((c: any, index: number) => (
+              <div key={c.candidate_id || index} className="ss-inv-row" style={{
+                opacity: c.passed === false ? 0.6 : 1
+              }}>
+                <Avatar name={c.name} size="sm" />
+                <div className="ss-inv-main">
+                  <div className="ss-inv-name">{c.name}</div>
+                  <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+                </div>
+                <ScoreLabel value={c.score} size="md" />
+                <span className="ss-inv-sent" style={{
+                  background: c.passed === false ? 'var(--ark-gray-200)' : 'var(--ark-green-100)',
+                  color: c.passed === false ? 'var(--fg-3)' : 'var(--ark-green-600)'
+                }}>
+                  <Icon name={c.passed === false ? 'x' : 'check'} size={12} />
+                  {c.passed === false ? 'не прошёл' : 'прошёл порог'}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{
+            marginTop: '12px',
+            fontSize: '13px',
+            color: 'var(--fg-2)',
+            textAlign: 'center'
+          }}>
+            Оценено {runData.evaluated} из {runData.scanned} · Прошли порог: <strong>{runData.passed_threshold}</strong>
+          </div>
+        </div>
+      )}
+
+      {/* Журнал в процессе выполнения */}
+      {runData.log && runData.log.length > 0 && (
+        <details style={{ marginTop: '24px' }}>
+          <summary style={{
+            cursor: 'pointer',
+            fontSize: '13px',
+            fontWeight: '600',
+            color: 'var(--fg-2)',
+            marginBottom: '8px'
+          }}>
+            Журнал поиска
+          </summary>
+          <div style={{
+            background: 'var(--bg-panel-2)',
+            border: '1px solid var(--border-1)',
+            borderRadius: '8px',
+            padding: '12px',
+            fontSize: '11px',
+            fontFamily: 'var(--font-mono)',
+            lineHeight: '1.4',
+            color: 'var(--fg-2)',
+            maxHeight: '200px',
+            overflowY: 'auto'
+          }}>
+            {runData.log.map((line: string, i: number) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -702,6 +793,7 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings }: 
   if (!runData) return null;
 
   const isPreview = runData.invites_skipped === true;
+  const noOnePassed = runData.passed_threshold === 0;
 
   return (
     <div>
@@ -715,6 +807,13 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings }: 
         </div>
       </div>
 
+      {/* Честная итоговая заметка */}
+      {runData.note && (
+        <div className={`ss-sum-sentence ${noOnePassed ? 'info-banner muted' : ''}`} style={{ marginBottom: '18px' }}>
+          {runData.note}
+        </div>
+      )}
+
       <div className="ss-result-stats">
         <div className="ss-rstat found">
           <div className="num">{ssFmt(runData.found)}</div>
@@ -725,33 +824,70 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings }: 
           <div className="lbl">Оценено <b>AI-матчингом</b></div>
         </div>
         <div className="ss-rstat invite">
-          <div className="num">{isPreview ? ssFmt(runData.invited_candidates?.length || 0) : ssFmt(runData.invited)}</div>
+          <div className="num">{isPreview ? ssFmt(runData.passed_threshold || 0) : ssFmt(runData.invited)}</div>
           <div className="lbl">{isPreview ? 'Прошли порог' : `Приглашено <b>с баллом ≥ ${threshold}</b>`}</div>
         </div>
       </div>
 
-      {runData.invited_candidates && runData.invited_candidates.length > 0 && (
+      {/* Показывать кандидатов даже если никто не прошёл порог */}
+      {((runData.invited_candidates && runData.invited_candidates.length > 0) || (noOnePassed && runData.scored_candidates && runData.scored_candidates.length > 0)) && (
         <div className="ss-invited-card">
           <div className="ss-invited-head">
-            <span className="title">{isPreview ? 'Лучшие кандидаты' : 'Приглашённые кандидаты'}</span>
-            <span className="count">{runData.invited_candidates.length}</span>
+            <span className="title">{noOnePassed ? 'Все оценённые кандидаты' : (isPreview ? 'Лучшие кандидаты' : 'Приглашённые кандидаты')}</span>
+            <span className="count">{noOnePassed ? runData.scored_candidates.length : runData.invited_candidates.length}</span>
             <div style={{ flex: 1 }} />
-            <span className="live-dot">{isPreview ? 'оценены AI' : 'приглашения отправлены'}</span>
+            <span className="live-dot">{noOnePassed ? 'порог не пройден' : (isPreview ? 'оценены AI' : 'приглашения отправлены')}</span>
           </div>
-          {runData.invited_candidates.map((c: SmartCandidate, index: number) => (
-            <div key={c.candidate_id || index} className="ss-inv-row">
+          {(noOnePassed ? runData.scored_candidates : runData.invited_candidates).map((c: SmartCandidate, index: number) => (
+            <div key={c.candidate_id || index} className="ss-inv-row" style={{
+              opacity: (noOnePassed && c.passed === false) ? 0.6 : 1
+            }}>
               <Avatar name={c.name} size="sm" />
               <div className="ss-inv-main">
                 <div className="ss-inv-name">{c.name}</div>
                 <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
               </div>
               <ScoreLabel value={c.score} size="md" />
-              <span className="ss-inv-sent">
-                <Icon name="check" size={12} /> {isPreview ? 'оценён' : 'приглашён'}
+              <span className="ss-inv-sent" style={{
+                background: (noOnePassed && c.passed === false) ? 'var(--ark-gray-200)' : (isPreview ? 'var(--ark-blue-100)' : 'var(--ark-green-100)'),
+                color: (noOnePassed && c.passed === false) ? 'var(--fg-3)' : (isPreview ? 'var(--accent)' : 'var(--ark-green-600)')
+              }}>
+                <Icon name="check" size={12} /> {noOnePassed ? `${c.score} баллов` : (isPreview ? 'оценён' : 'приглашён')}
               </span>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Журнал поиска */}
+      {runData.log && runData.log.length > 0 && (
+        <details style={{ marginTop: '18px', marginBottom: '18px' }}>
+          <summary style={{
+            cursor: 'pointer',
+            fontSize: '13px',
+            fontWeight: '600',
+            color: 'var(--fg-2)',
+            marginBottom: '8px'
+          }}>
+            Журнал поиска
+          </summary>
+          <div style={{
+            background: 'var(--bg-panel-2)',
+            border: '1px solid var(--border-1)',
+            borderRadius: '8px',
+            padding: '12px',
+            fontSize: '11px',
+            fontFamily: 'var(--font-mono)',
+            lineHeight: '1.4',
+            color: 'var(--fg-2)',
+            maxHeight: '200px',
+            overflowY: 'auto'
+          }}>
+            {runData.log.map((line: string, i: number) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        </details>
       )}
 
       <div className="ss-result-actions">
