@@ -22,6 +22,27 @@ interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
 }
 
+// Дедупликация refresh: при «буре» одновременных 401 (поллинг smart + параллельные
+// запросы страницы) делаем ОДИН /auth/refresh, все ждут его. Иначе N конкурентных
+// refresh → гонка и ложный logout, если хоть один из них транзиентно упадёт.
+let refreshPromise: Promise<string> | null = null;
+
+function runRefresh(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = api
+      .post('/auth/refresh')
+      .then((res) => {
+        const token = (res.data as { access_token: string }).access_token;
+        useAuthStore.getState().setToken(token);
+        return token;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -31,9 +52,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && original && !original._retry && !isRefreshCall) {
       original._retry = true;
       try {
-        const refresh = await api.post('/auth/refresh');
-        const newToken = (refresh.data as { access_token: string }).access_token;
-        useAuthStore.getState().setToken(newToken);
+        const newToken = await runRefresh();
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       } catch (refreshError) {
