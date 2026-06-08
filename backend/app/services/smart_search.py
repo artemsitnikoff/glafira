@@ -655,49 +655,63 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     await session.commit()
                     continue
 
-            # Вычисляем passed_threshold в памяти
+            # passed_threshold в памяти
             passed_threshold = len([
                 c for c in evaluated_candidates
                 if c["candidate_data"]["ai_score"] >= threshold
             ])
 
-            # Финализируем на СВЕЖЕЙ сессии с таймаутом
-            async def _finalize_fresh():
-                async with AsyncSessionLocal() as fs:
-                    r = await fs.get(SmartSearchRun, run_id)
-                    if not r:
-                        return
-                    r.passed_threshold = passed_threshold
-                    r.stage = "done"
-                    r.status = "done"
-                    r.invites_skipped = True
-                    r.invited = 0
-                    r.finished_at = datetime.now(timezone.utc)
-                    if (r.evaluated or 0) == 0:
-                        r.note = "Не удалось оценить ни одного резюме"
-                    elif passed_threshold == 0:
-                        r.note = f"Оценено {r.evaluated} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
-                    else:
-                        r.note = f"Оценка завершена. Прошли порог: {passed_threshold}. Выберите кандидатов для приглашения."
-                    cur = r.log if isinstance(r.log, list) else []
-                    r.log = cur + ["Оценка завершена, готово к выбору приглашений"]
-                    await fs.commit()
+            # Финализация на ТОЙ ЖЕ eval-сессии: её per-iteration commit'ы только что
+            # отработали N раз. СВЕЖАЯ сессия здесь зависала на commit (пул соединений
+            # занят поллингом /runs/{id}) — поэтому пишем финал старой сессией, fresh — fallback.
+            run.passed_threshold = passed_threshold
+            run.stage = "done"
+            run.status = "done"
+            run.invites_skipped = True
+            run.invited = 0
+            run.finished_at = datetime.now(timezone.utc)
+            if (run.evaluated or 0) == 0:
+                run.note = "Не удалось оценить ни одного резюме"
+            elif passed_threshold == 0:
+                run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
+            else:
+                run.note = f"Оценка завершена. Прошли порог: {passed_threshold}. Выберите кандидатов для приглашения."
+            log_and_append_to_run(run, run_id, "Оценка завершена, готово к выбору приглашений")
 
-            log_smart_search(run_id, f"Оценка завершена: прошли порог {passed_threshold} — финализация (свежая сессия)")
-            await asyncio.wait_for(_finalize_fresh(), timeout=30)
+            try:
+                await asyncio.wait_for(session.commit(), timeout=30)
+            except Exception as fin_e:
+                logger.warning(f"Финал старой сессией не удался для {run_id}: {fin_e}; пробую свежую")
+                try:
+                    async def _finalize_fresh():
+                        async with AsyncSessionLocal() as fs:
+                            r = await fs.get(SmartSearchRun, run_id)
+                            if r and r.status == "running":
+                                r.passed_threshold = passed_threshold
+                                r.stage = "done"
+                                r.status = "done"
+                                r.invites_skipped = True
+                                r.invited = 0
+                                r.finished_at = datetime.now(timezone.utc)
+                                r.note = run.note
+                                cur = r.log if isinstance(r.log, list) else []
+                                r.log = cur + ["Финализация (свежая сессия)"]
+                                await fs.commit()
+                    await asyncio.wait_for(_finalize_fresh(), timeout=30)
+                except Exception as ff_e:
+                    logger.error(f"Финал свежей сессией тоже не удался для {run_id}: {ff_e}")
             return
 
         except Exception as e:
             logger.error(f"Ошибка в фоновой задаче поиска {run_id}: {e}")
             try:
-                async with AsyncSessionLocal() as efs:
-                    r = await efs.get(SmartSearchRun, run_id)
-                    if r and r.status == "running":
-                        r.status = "error"
-                        r.error = str(e)[:500]
-                        r.note = f"Ошибка выполнения: {str(e)[:200]}"
-                        r.finished_at = datetime.now(timezone.utc)
-                        await efs.commit()
+                run2 = await session.get(SmartSearchRun, run_id)
+                if run2 and run2.status == "running":
+                    run2.status = "error"
+                    run2.error = str(e)[:500]
+                    run2.note = f"Ошибка выполнения: {str(e)[:200]}"
+                    run2.finished_at = datetime.now(timezone.utc)
+                    await session.commit()
             except Exception as ce:
                 logger.error(f"Не удалось записать статус ошибки для {run_id}: {ce}")
 
