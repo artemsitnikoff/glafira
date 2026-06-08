@@ -68,3 +68,7 @@ backend/storage/
 Solution architect (1).doc
 *.doc
 *.pdf
+
+# Выгрузки/экспорты с ПДН — НИКОГДА не коммитить
+*.xlsx
+applicants_export_*
