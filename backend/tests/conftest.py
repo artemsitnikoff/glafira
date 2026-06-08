@@ -1,10 +1,12 @@
 import asyncio
+import os
 import uuid
 from typing import AsyncGenerator
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -15,7 +17,16 @@ from app.main import app
 from app.models import Base, Company, User, Candidate, Consent, Vacancy
 from datetime import datetime, timezone
 
-TEST_DATABASE_URL = "postgresql+asyncpg://glafira:glafira@localhost:5432/glafira_test"
+# Тестовая БД — ОТДЕЛЬНАЯ от прод (conftest делает drop_all/create_all!).
+# Приоритет: env TEST_DATABASE_URL → деривация из реального DATABASE_URL (хост `db`,
+# прод-креды) с заменой имени БД на «<prod>_test». Хардкод localhost больше не нужен —
+# из-за него тесты не шли в контейнере (Postgres там на хосте `db`, не на localhost).
+_env_test_url = os.getenv("TEST_DATABASE_URL")
+if _env_test_url:
+    TEST_DATABASE_URL = _env_test_url
+else:
+    _base_url = make_url(settings.DATABASE_URL)
+    TEST_DATABASE_URL = str(_base_url.set(database=(_base_url.database or "glafira") + "_test"))
 
 
 @pytest_asyncio.fixture(scope="session")
