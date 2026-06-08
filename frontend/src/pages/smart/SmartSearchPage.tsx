@@ -559,7 +559,7 @@ export default function SmartSearchPage() {
           </div>
 
           {!willInvite && (
-            <div className="info-banner small" style={{ margin: '12px 0 0' }}>
+            <div className="info-banner small" style={{ margin: '12px 0 20px' }}>
               <Icon name="alert-triangle" size={14} />
               <div>
                 {!accessData?.has_paid_access
