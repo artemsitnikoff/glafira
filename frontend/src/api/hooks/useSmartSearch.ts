@@ -149,3 +149,27 @@ export function useDeriveVacancyFilters() {
     },
   });
 }
+
+export interface SmartCountRequest {
+  vacancy_id: string;
+  area?: string;
+  professional_role?: string;
+  experience?: string;
+  skills: string[];
+  salary_from?: number;
+  salary_to?: number;
+  include_no_salary: boolean;
+}
+
+export interface SmartCountResponse {
+  found: number | null;
+}
+
+export function useSmartCount() {
+  return useMutation<SmartCountResponse, Error, SmartCountRequest>({
+    mutationFn: async (request): Promise<SmartCountResponse> => {
+      const response = await api.post('/smart/preview-count', request);
+      return response.data as SmartCountResponse;
+    },
+  });
+}

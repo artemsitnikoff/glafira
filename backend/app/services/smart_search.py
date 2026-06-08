@@ -15,7 +15,7 @@ from ..models import (
     SmartSearchRun, Vacancy, Candidate, Application, AuditLog, Company
 )
 from ..schemas.smart import (
-    SmartSearchRequest, SmartVacancyItem, InvitedCandidate
+    SmartSearchRequest, SmartVacancyItem, InvitedCandidate, SmartCountRequest
 )
 from ..core.errors import ValidationError, NotFoundError
 from ..services.integrations.hh import service as hh_service
@@ -288,6 +288,74 @@ async def start_search(
     return search_run.id
 
 
+def build_search_params(params: dict, vacancy) -> dict:
+    """
+    Строит параметры поиска резюме на hh.ru из фильтров умного подбора
+
+    Args:
+        params: словарь параметров поиска от клиента
+        vacancy: объект вакансии
+
+    Returns:
+        dict: параметры для hh API БЕЗ page/per_page (их добавляет вызывающий)
+    """
+    # Собираем text из роли + навыков (осмысленный поиск)
+    text_parts = []
+    professional_role = params.get("professional_role") or vacancy.name
+    if professional_role:
+        text_parts.append(professional_role)
+
+    skills = params.get("skills", [])
+    if skills:
+        text_parts.extend(skills)
+
+    search_text = " ".join(filter(None, text_parts)).strip()
+
+    base_search_params = {
+        "text": search_text or vacancy.name,  # Fallback на название вакансии
+    }
+
+    # Добавляем структурные фильтры ТОЛЬКО при валидных значениях
+    if params.get("area"):
+        # area: только если числовое (id региона из справочника hh)
+        area_value = params["area"]
+        if str(area_value).strip().isdigit():
+            base_search_params["area"] = area_value
+        # Иначе НЕ передаём area - значение уже в text, не ломает запрос
+
+    if params.get("professional_role"):
+        # professional_role: только если числовое (id роли из справочника hh)
+        role_value = params["professional_role"]
+        if str(role_value).strip().isdigit():
+            base_search_params["professional_role"] = role_value
+        # Иначе НЕ передаём - роль уже в text
+
+    if params.get("experience"):
+        # experience: только если валидный enum hh
+        exp_value = params["experience"]
+        valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
+        if exp_value in valid_experience:
+            base_search_params["experience"] = exp_value
+        # Иначе НЕ передаём - опыт может быть в text
+
+    if params.get("skills") and isinstance(params["skills"], list):
+        # skill: только если все элементы - числовые id навыков
+        skills_list = params["skills"]
+        if all(str(skill).strip().isdigit() for skill in skills_list):
+            base_search_params["skill"] = skills_list
+        # Иначе НЕ передаём - навыки уже в text
+
+    # Зарплатные фильтры - всегда валидны
+    if params.get("salary_from"):
+        base_search_params["salary_from"] = params["salary_from"]
+    if params.get("salary_to"):
+        base_search_params["salary_to"] = params["salary_to"]
+    if params.get("include_no_salary"):
+        base_search_params["only_with_salary"] = "false"
+
+    return base_search_params
+
+
 async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
     """Фоновая задача выполнения поиска"""
     from ..database import AsyncSessionLocal
@@ -315,60 +383,9 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             # ЭТАП 1: Поиск резюме с пагинацией
             params = run.params
 
-            # Собираем text из роли + навыков (осмысленный поиск)
-            text_parts = []
-            professional_role = params.get("professional_role") or vacancy.name
-            if professional_role:
-                text_parts.append(professional_role)
-
-            skills = params.get("skills", [])
-            if skills:
-                text_parts.extend(skills)
-
-            search_text = " ".join(filter(None, text_parts)).strip()
-
-            base_search_params = {
-                "text": search_text or vacancy.name,  # Fallback на название вакансии
-                "per_page": 50
-            }
-
-            # Добавляем структурные фильтры ТОЛЬКО при валидных значениях
-            if params.get("area"):
-                # area: только если числовое (id региона из справочника hh)
-                area_value = params["area"]
-                if str(area_value).strip().isdigit():
-                    base_search_params["area"] = area_value
-                # Иначе НЕ передаём area - значение уже в text, не ломает запрос
-
-            if params.get("professional_role"):
-                # professional_role: только если числовое (id роли из справочника hh)
-                role_value = params["professional_role"]
-                if str(role_value).strip().isdigit():
-                    base_search_params["professional_role"] = role_value
-                # Иначе НЕ передаём - роль уже в text
-
-            if params.get("experience"):
-                # experience: только если валидный enum hh
-                exp_value = params["experience"]
-                valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
-                if exp_value in valid_experience:
-                    base_search_params["experience"] = exp_value
-                # Иначе НЕ передаём - опыт может быть в text
-
-            if params.get("skills") and isinstance(params["skills"], list):
-                # skill: только если все элементы - числовые id навыков
-                skills_list = params["skills"]
-                if all(str(skill).strip().isdigit() for skill in skills_list):
-                    base_search_params["skill"] = skills_list
-                # Иначе НЕ передаём - навыки уже в text
-
-            # Зарплатные фильтры - всегда валидны
-            if params.get("salary_from"):
-                base_search_params["salary_from"] = params["salary_from"]
-            if params.get("salary_to"):
-                base_search_params["salary_to"] = params["salary_to"]
-            if params.get("include_no_salary"):
-                base_search_params["only_with_salary"] = "false"
+            # Используем общую функцию построения search_params
+            base_search_params = build_search_params(params, vacancy)
+            base_search_params["per_page"] = 50
 
             # Диагностика: логируем итоговый запрос
             logger.info("[smart] search_params=%s", base_search_params)
@@ -876,6 +893,75 @@ async def get_run_history(session: AsyncSession, company_id: UUID, limit: int = 
         .limit(limit)
     )
     return result.unique().scalars().all()
+
+
+async def preview_found_count(session: AsyncSession, company_id: UUID, request: SmartCountRequest) -> Optional[int]:
+    """
+    Предварительный подсчёт количества резюме по фильтрам (БЕЗ денежных трат)
+
+    Args:
+        session: сессия БД
+        company_id: ID компании
+        request: запрос с фильтрами
+
+    Returns:
+        Optional[int]: количество найденных резюме или None при ошибке
+
+    Raises:
+        NotFoundError: если вакансия не найдена
+    """
+    try:
+        # Загружаем вакансию (company-scoped, активную, не удалённую)
+        result = await session.execute(
+            select(Vacancy).where(
+                Vacancy.id == request.vacancy_id,
+                Vacancy.company_id == company_id,
+                Vacancy.status == "active",
+                Vacancy.deleted_at.is_(None)
+            )
+        )
+        vacancy = result.scalar_one_or_none()
+        if not vacancy:
+            raise NotFoundError("Вакансия")
+
+        # Собираем параметры фильтров из запроса
+        params = {
+            "area": request.area,
+            "professional_role": request.professional_role,
+            "experience": request.experience,
+            "skills": request.skills,
+            "salary_from": request.salary_from,
+            "salary_to": request.salary_to,
+            "include_no_salary": request.include_no_salary,
+        }
+
+        # Используем общую функцию построения search_params
+        search_params = build_search_params(params, vacancy)
+        search_params["per_page"] = 1  # Минимум для получения found
+        search_params["page"] = 0
+
+        try:
+            # Получаем токен hh
+            access_token = await hh_service.get_valid_access_token(session, company_id)
+
+            # Делаем поисковый запрос (БЕСПЛАТНО - только found, без детализации резюме)
+            search_result = await hh_client.search_resumes(access_token, search_params)
+            found = search_result.get("found")
+
+            return found
+
+        except Exception as e:
+            # При ЛЮБОЙ ошибке с hh возвращаем None (превью не должен ронять UI)
+            logger.warning(f"Ошибка превью подсчёта резюме: {e}")
+            return None
+
+    except NotFoundError:
+        # Пробрасываем дальше - это валидная бизнес-ошибка 404
+        raise
+    except Exception as e:
+        # Любые другие ошибки логируем и возвращаем None
+        logger.warning(f"Ошибка превью подсчёта резюме: {e}")
+        return None
 
 
 async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> dict:

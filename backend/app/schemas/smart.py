@@ -98,3 +98,20 @@ class SmartVacancyFilters(BaseModel):
     professional_role: str
     experience: str
     skills: list[str]
+
+
+class SmartCountRequest(BaseModel):
+    """Запрос на превью количества резюме"""
+    vacancy_id: UUID
+    area: Optional[str] = None
+    professional_role: Optional[str] = None
+    experience: Optional[str] = None
+    skills: list[str] = Field(default_factory=list)
+    salary_from: Optional[int] = None
+    salary_to: Optional[int] = None
+    include_no_salary: bool = True
+
+
+class SmartCountResponse(BaseModel):
+    """Ответ с количеством найденных резюме"""
+    found: Optional[int] = None

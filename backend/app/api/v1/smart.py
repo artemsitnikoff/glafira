@@ -15,7 +15,9 @@ from ...schemas.smart import (
     SmartRunStatus,
     SmartRunHistoryItem,
     InvitedCandidate,
-    SmartVacancyFilters
+    SmartVacancyFilters,
+    SmartCountRequest,
+    SmartCountResponse
 )
 from ...services.smart_search import (
     check_access,
@@ -23,7 +25,8 @@ from ...services.smart_search import (
     start_search,
     get_run_status,
     get_run_history,
-    derive_vacancy_filters
+    derive_vacancy_filters,
+    preview_found_count
 )
 from ...core.errors import NotFoundError
 
@@ -141,3 +144,15 @@ async def get_vacancy_filters(
     """Получить AI-фильтры для умного подбора по вакансии"""
     filters = await derive_vacancy_filters(session, company_id, vacancy_id)
     return SmartVacancyFilters(**filters)
+
+
+@router.post("/preview-count", response_model=SmartCountResponse)
+async def smart_preview_count(
+    request: SmartCountRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить предварительное количество резюме по фильтрам"""
+    found = await preview_found_count(session, company_id, request)
+    return SmartCountResponse(found=found)

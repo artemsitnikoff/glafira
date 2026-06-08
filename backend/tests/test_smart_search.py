@@ -14,9 +14,11 @@ from app.services.smart_search import (
     start_search,
     get_run_status,
     derive_vacancy_filters,
+    preview_found_count,
+    build_search_params,
     FREE_SCAN_LIMIT
 )
-from app.schemas.smart import SmartSearchRequest
+from app.schemas.smart import SmartSearchRequest, SmartCountRequest
 from app.models import SmartSearchRun, Candidate, Application
 from app.core.errors import ValidationError
 
@@ -550,3 +552,118 @@ async def test_scored_candidates_structure():
     assert candidate.name == "Иван Тестов"
     assert candidate.passed == True
     assert candidate.score == 85
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+async def test_preview_found_count_success(
+    mock_search_resumes,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест успешного превью подсчёта количества резюме"""
+    mock_token.return_value = "test_token"
+    mock_search_resumes.return_value = {"found": 269, "items": []}
+
+    request = SmartCountRequest(
+        vacancy_id=test_vacancy.id,
+        area="113",  # Москва
+        professional_role="96",  # Разработчик
+        experience="between1And3",
+        skills=["Python", "Django"],
+        salary_from=100000,
+        salary_to=200000,
+        include_no_salary=False
+    )
+
+    found = await preview_found_count(db_session, test_company.id, request)
+
+    assert found == 269
+    mock_search_resumes.assert_called_once()
+    call_args = mock_search_resumes.call_args[1]
+    assert call_args["per_page"] == 1
+    assert call_args["page"] == 0
+
+
+@pytest.mark.asyncio
+async def test_preview_found_count_vacancy_not_found(
+    db_session,
+    test_company
+):
+    """Тест превью подсчёта для несуществующей вакансии - должен вернуть 404"""
+    from app.core.errors import NotFoundError
+
+    request = SmartCountRequest(
+        vacancy_id=uuid4(),  # Несуществующая вакансия
+        skills=["Python"]
+    )
+
+    with pytest.raises(NotFoundError):
+        await preview_found_count(db_session, test_company.id, request)
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+async def test_preview_found_count_hh_error_graceful(
+    mock_search_resumes,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест graceful поведения превью при ошибке hh - возвращает None"""
+    mock_token.return_value = "test_token"
+    mock_search_resumes.side_effect = Exception("API rate limit exceeded")
+
+    request = SmartCountRequest(
+        vacancy_id=test_vacancy.id,
+        skills=["Python"]
+    )
+
+    found = await preview_found_count(db_session, test_company.id, request)
+
+    assert found is None  # НЕ бросает исключение, возвращает None
+
+
+@pytest.mark.asyncio
+async def test_build_search_params_creates_expected_dict():
+    """Тест что build_search_params создаёт ожидаемую структуру"""
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Python Developer"
+
+    params = {
+        "area": "113",  # Числовое значение - включается
+        "professional_role": "Программист",  # Текстовое - НЕ включается как id, но входит в text
+        "experience": "between1And3",  # Валидный enum - включается
+        "skills": ["Python", "Django"],  # Текстовые - НЕ включаются как id, но входят в text
+        "salary_from": 100000,
+        "salary_to": 200000,
+        "include_no_salary": False
+    }
+
+    result = build_search_params(params, vacancy)
+
+    # Проверяем что text содержит роль и навыки
+    expected_text = "Программист Python Django"
+    assert result["text"] == expected_text
+
+    # Проверяем что валидные фильтры включены
+    assert result["area"] == "113"
+    assert result["experience"] == "between1And3"
+    assert result["salary_from"] == 100000
+    assert result["salary_to"] == 200000
+    assert result["only_with_salary"] == "false"
+
+    # Проверяем что невалидные id-фильтры НЕ включены
+    assert "professional_role" not in result
+    assert "skill" not in result
+
+    # Проверяем что page/per_page НЕ включены (их добавляет вызывающий)
+    assert "page" not in result
+    assert "per_page" not in result

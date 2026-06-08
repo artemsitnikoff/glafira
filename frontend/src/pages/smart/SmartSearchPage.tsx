@@ -10,9 +10,11 @@ import {
   useSmartRun,
   useSmartHistory,
   useDeriveVacancyFilters,
+  useSmartCount,
   type SmartVacancy,
   type SmartCandidate,
   type SmartSearchRequest,
+  type SmartCountRequest,
 } from '@/api/hooks/useSmartSearch';
 import './smart-search.css';
 
@@ -40,6 +42,7 @@ export default function SmartSearchPage() {
   const { data: history = [] } = useSmartHistory();
   const startSearch = useStartSmartSearch();
   const deriveFilters = useDeriveVacancyFilters();
+  const countMut = useSmartCount();
 
   // Состояние компонента
   const [phase, setPhase] = useState<Phase>('build');
@@ -67,6 +70,9 @@ export default function SmartSearchPage() {
   // Step 5 — порог
   const [threshold, setThreshold] = useState(75);
 
+  // Живой счётчик найденных резюме
+  const [previewFound, setPreviewFound] = useState<number | null>(null);
+
   // Поллинг прогресса
   const { data: runData } = useSmartRun(runId, phase === 'running' || phase === 'done');
 
@@ -80,6 +86,33 @@ export default function SmartSearchPage() {
       }
     }
   }, [runData, phase]);
+
+  // Debounce-эффект для живого счётчика найденных резюме
+  useEffect(() => {
+    if (!vac) return; // нет выбранной вакансии
+
+    const timer = setTimeout(() => {
+      const request: SmartCountRequest = {
+        vacancy_id: vac.id,
+        area,
+        professional_role: role,
+        experience: exp,
+        skills,
+        salary_from: salFrom > 0 ? salFrom : undefined,
+        salary_to: salTo > 0 ? salTo : undefined,
+        include_no_salary: inclNoSalary,
+      };
+
+      countMut.mutate(request, {
+        onSuccess: (response) => setPreviewFound(response.found),
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
+    // countMut НЕ в deps: объект мутации меняет ссылку каждый рендер → был бы
+    // бесконечный цикл вызовов. countMut.mutate стабилен, поэтому безопасно.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vac?.id, area, role, exp, skills, salFrom, salTo, inclNoSalary]);
 
   const resetAll = () => {
     setPhase('build');
@@ -98,6 +131,7 @@ export default function SmartSearchPage() {
     setScanN(300);
     setInviteM(20);
     setThreshold(75);
+    setPreviewFound(null);
   };
 
   const selectVacancy = (id: string) => {
@@ -106,6 +140,7 @@ export default function SmartSearchPage() {
 
     setVacId(id);
     setSelOpen(false);
+    setPreviewFound(null); // новая вакансия → сбросить старое число
 
     // Сначала заполним превью данные (город/зарплата/found остаются из вакансии)
     setSalFrom(v.salary_from ?? 0);
@@ -428,7 +463,7 @@ export default function SmartSearchPage() {
                 <span className="ssm-step-title">Объём выборки</span>
               </div>
               <div className="ssm-step-hint">
-                По фильтрам найдено <b className="t-mono" style={{ color: 'var(--fg-1)' }}>~{ssFmt(vac ? vac.found || 0 : 0)}</b> резюме.
+                По фильтрам найдено {previewFound !== null ? <b className="t-mono" style={{ color: 'var(--fg-1)' }}>~{ssFmt(previewFound)}</b> : <b>резюме</b>}{previewFound === null && countMut.isPending ? ' (считаем…)' : ''}.
                 Глафира оценит первые N и пригласит лучших.
               </div>
 
@@ -466,7 +501,7 @@ export default function SmartSearchPage() {
               {/* инфографика воронки */}
               <div className="ss-funnel">
                 <div className="ss-fn-node ss-fn-found">
-                  <div className="ss-fn-num">{ssFmt(vac ? vac.found || 0 : 0)}</div>
+                  <div className="ss-fn-num">{previewFound !== null ? ssFmt(previewFound) : (countMut.isPending ? '…' : '—')}</div>
                   <div className="ss-fn-label">Найдено</div>
                   <div className="ss-fn-cap">по фильтрам</div>
                 </div>
@@ -560,7 +595,7 @@ export default function SmartSearchPage() {
           </div>
 
           <div className="ss-sum-sentence">
-            Найдём <b>~{ssFmt(vac!.found || 0)}</b> резюме по фильтрам → оценим первые <span className="hl">{ssFmt(scanN)}</span> AI-матчингом
+            Найдём {previewFound !== null ? <b>~{ssFmt(previewFound)}</b> : <b>резюме</b>}{previewFound === null && countMut.isPending ? ' (считаем…)' : ''} по фильтрам → оценим первые <span className="hl">{ssFmt(scanN)}</span> AI-матчингом
             {willInvite ? (
               <> → пригласим <span className="hl-g">топ-{inviteM}</span> с баллом <span className="hl-g">≥ {threshold}</span>. Приглашённые появятся в воронке вакансии.</>
             ) : (
