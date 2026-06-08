@@ -4,6 +4,7 @@ import { api } from '../client';
 // Локальные типы для умного подбора (openapi не регенерён)
 export interface SmartAccessResponse {
   has_access: boolean;
+  has_paid_access: boolean;
   reason: string | null;
 }
 
@@ -48,11 +49,12 @@ export interface SmartRun {
   evaluated: number;
   invited: number;
   error: string | null;
+  invites_skipped: boolean;
   invited_candidates: SmartCandidate[];
 }
 
 export interface SmartCandidate {
-  candidate_id: string;
+  candidate_id: string | null;
   name: string;
   age: number;
   experience_years: number;

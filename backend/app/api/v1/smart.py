@@ -35,8 +35,12 @@ async def get_smart_access(
     current_user: User = Depends(get_current_user),
 ):
     """Проверка доступа к умному подбору"""
-    has_access, reason = await check_access(session, company_id)
-    return SmartAccessResponse(has_access=has_access, reason=reason)
+    has_access, has_paid_access, reason = await check_access(session, company_id)
+    return SmartAccessResponse(
+        has_access=has_access,
+        has_paid_access=has_paid_access,
+        reason=reason
+    )
 
 
 @router.get("/vacancies", response_model=list[SmartVacancyItem])
@@ -87,6 +91,7 @@ async def get_smart_run_status(
         evaluated=run.evaluated,
         invited=run.invited,
         error=run.error,
+        invites_skipped=getattr(run, 'invites_skipped', False),
         invited_candidates=invited_candidates
     )
 

@@ -180,6 +180,7 @@ export default function SmartSearchPage() {
           threshold={threshold}
           onNew={resetAll}
           onGoFunnel={() => navigate(`/vacancies/${vacId}`)}
+          onGoSettings={() => navigate('/settings')}
         />
         <SSHistory history={history} />
       </div>
@@ -517,13 +518,23 @@ export default function SmartSearchPage() {
             Приглашённые появятся в воронке вакансии.
           </div>
 
+          {accessData.has_access && !accessData.has_paid_access && (
+            <div className="info-banner small" style={{ margin: '12px 0 0' }}>
+              <Icon name="alert-triangle" size={14} />
+              <div>
+                Без платного доступа к базе резюме hh приглашения не отправляются — Глафира выполнит поиск
+                и AI-оценку (превью лучших кандидатов). Чтобы приглашать — подключите доступ в Настройках.
+              </div>
+            </div>
+          )}
+
           <div className="ss-launch-row">
             <button
               className="ss-btn-launch"
               onClick={handleStartSearch}
               disabled={!vac?.hh_published || startSearch.isPending}
             >
-              <span className="em">💃</span> Запустить поиск
+              <span className="em">💃</span> {accessData.has_paid_access ? 'Запустить поиск' : 'Найти и оценить'}
             </button>
             <div className="ss-launch-est">
               Примерно <span className="t-mono">~{Math.max(2, Math.round(scanN / 60))} мин</span> ·
@@ -635,22 +646,27 @@ function SSRunning({ runData, vac }: { runData: any; vac: SmartVacancy | null })
   );
 }
 
-function SSResult({ runData, vac, threshold, onNew, onGoFunnel }: {
+function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings }: {
   runData: any;
   vac: SmartVacancy | null;
   threshold: number;
   onNew: () => void;
   onGoFunnel: () => void;
+  onGoSettings: () => void;
 }) {
   if (!runData) return null;
+
+  const isPreview = runData.invites_skipped === true;
 
   return (
     <div>
       <div className="ss-result-head">
         <div className="ss-result-check"><Icon name="check" size={24} /></div>
         <div>
-          <h2>Поиск завершён</h2>
-          <div className="ss-rh-sub">{vac ? vac.title : ''} · приглашённые добавлены в воронку</div>
+          <h2>{isPreview ? 'Оценка выполнена' : 'Поиск завершён'}</h2>
+          <div className="ss-rh-sub">
+            {vac ? vac.title : ''} · {isPreview ? 'Приглашения не отправлены — нужен платный доступ к базе резюме hh' : 'приглашённые добавлены в воронку'}
+          </div>
         </div>
       </div>
 
@@ -664,37 +680,46 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel }: {
           <div className="lbl">Оценено <b>AI-матчингом</b></div>
         </div>
         <div className="ss-rstat invite">
-          <div className="num">{ssFmt(runData.invited)}</div>
-          <div className="lbl">Приглашено <b>с баллом ≥ {threshold}</b></div>
+          <div className="num">{isPreview ? ssFmt(runData.invited_candidates?.length || 0) : ssFmt(runData.invited)}</div>
+          <div className="lbl">{isPreview ? 'Прошли порог' : `Приглашено <b>с баллом ≥ ${threshold}</b>`}</div>
         </div>
       </div>
 
       {runData.invited_candidates && runData.invited_candidates.length > 0 && (
         <div className="ss-invited-card">
           <div className="ss-invited-head">
-            <span className="title">Приглашённые кандидаты</span>
-            <span className="count">{runData.invited}</span>
+            <span className="title">{isPreview ? 'Лучшие кандидаты' : 'Приглашённые кандидаты'}</span>
+            <span className="count">{runData.invited_candidates.length}</span>
             <div style={{ flex: 1 }} />
-            <span className="live-dot">приглашения отправлены</span>
+            <span className="live-dot">{isPreview ? 'оценены AI' : 'приглашения отправлены'}</span>
           </div>
-          {runData.invited_candidates.map((c: SmartCandidate) => (
-            <div key={c.candidate_id} className="ss-inv-row">
+          {runData.invited_candidates.map((c: SmartCandidate, index: number) => (
+            <div key={c.candidate_id || index} className="ss-inv-row">
               <Avatar name={c.name} size="sm" />
               <div className="ss-inv-main">
                 <div className="ss-inv-name">{c.name}</div>
                 <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
               </div>
               <ScoreLabel value={c.score} size="md" />
-              <span className="ss-inv-sent"><Icon name="check" size={12} /> приглашён</span>
+              <span className="ss-inv-sent">
+                <Icon name="check" size={12} /> {isPreview ? 'оценён' : 'приглашён'}
+              </span>
             </div>
           ))}
         </div>
       )}
 
       <div className="ss-result-actions">
-        <button className="btn btn-primary" onClick={onGoFunnel}>
-          <Icon name="filter" size={15} /> Смотреть в воронке
-        </button>
+        {!isPreview && (
+          <button className="btn btn-primary" onClick={onGoFunnel}>
+            <Icon name="filter" size={15} /> Смотреть в воронке
+          </button>
+        )}
+        {isPreview && (
+          <button className="btn btn-primary" onClick={onGoSettings}>
+            <Icon name="settings" size={15} /> Подключить доступ
+          </button>
+        )}
         <button className="btn btn-secondary" onClick={onNew}>
           <Icon name="refresh-cw" size={14} /> Новый поиск
         </button>

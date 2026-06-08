@@ -730,3 +730,25 @@
 
 /* ---------- Монофонт класс ---------- */
 .ss-page .t-mono { font-family: var(--font-mono); }
+
+/* ---------- info-banner (идиом из Settings.css, доскоуплен под .ss-page:
+   Settings.css на смарт-странице не загружается, иначе плашка без стилей) ---------- */
+.ss-page .info-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  background: var(--ark-blue-50);
+  border: 1px solid var(--ark-blue-100);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--fg-1);
+  margin-bottom: 16px;
+}
+.ss-page .info-banner > svg { color: var(--accent); flex: none; margin-top: 1px; }
+.ss-page .info-banner.muted {
+  background: var(--bg-panel-2);
+  border-color: var(--border-1);
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.ss-page .info-banner.muted > svg { color: var(--fg-3); }
+.ss-page .info-banner.small { padding: 10px; margin-top: 10px; }

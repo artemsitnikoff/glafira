@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Text, ForeignKey, text
+from sqlalchemy import String, Integer, Text, ForeignKey, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -67,6 +67,13 @@ class SmartSearchRun(Base, TimestampMixin, CompanyMixin):
 
     # Время завершения
     finished_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+
+    # Флаг пропуска приглашений (для превью режима)
+    invites_skipped: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false")
+    )
 
     # Relationships
     vacancy: Mapped["Vacancy"] = relationship("Vacancy", back_populates="smart_search_runs")

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class SmartAccessResponse(BaseModel):
     """Ответ на проверку доступа к умному подбору"""
     has_access: bool
+    has_paid_access: bool = False
     reason: Optional[str] = None
 
 
@@ -50,7 +51,7 @@ class SmartSearchResponse(BaseModel):
 
 class InvitedCandidate(BaseModel):
     """Приглашенный кандидат"""
-    candidate_id: UUID
+    candidate_id: Optional[UUID] = None  # None для превью режима
     name: str
     age: Optional[int] = None
     experience_years: Optional[int] = None
@@ -70,6 +71,7 @@ class SmartRunStatus(BaseModel):
     evaluated: int = 0
     invited: int = 0
     error: Optional[str] = None
+    invites_skipped: bool = False
     invited_candidates: list[InvitedCandidate] = Field(default_factory=list)
 
 

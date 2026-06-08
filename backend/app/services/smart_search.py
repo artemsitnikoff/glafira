@@ -66,12 +66,14 @@ def _parse_api_quota(quota_data) -> tuple[bool, int, bool]:
     return unlimited, limited_remaining, has_service
 
 
-async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, Optional[str]]:
+async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, bool, Optional[str]]:
     """
     Проверяет доступ к умному подбору
 
     Returns:
-        tuple[bool, str|None]: (has_access, reason)
+        tuple[bool, bool, str|None]: (has_access, has_paid_access, reason)
+        has_access: hh подключён (валидный токен + employer_id)
+        has_paid_access: есть платный доступ к базе резюме (для приглашений)
     """
     try:
         # Проверяем подключение hh.ru
@@ -82,29 +84,32 @@ async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, O
         employer_id = me_data.get("employer", {}).get("id")
 
         if not employer_id:
-            return False, "hh.ru не подключён"
+            return False, False, "hh.ru не подключён"
 
         # Проверяем наличие платных услуг
         try:
             quota_data = await hh_client.get_payable_api_actions(access_token, str(employer_id))
             unlimited, limited_remaining, has_service = _parse_api_quota(quota_data)
-            has_access = unlimited or has_service
 
-            if not has_access:
-                return False, "Нет доступа к базе резюме hh"
+            # has_access = hh подключён (можем искать и оценивать)
+            has_access = True
 
-            return True, None
+            # has_paid_access = есть платный доступ к базе резюме (для приглашений)
+            has_paid_access = unlimited or has_service
+
+            return has_access, has_paid_access, None
         except Exception as e:
             logger.warning(f"Не удалось проверить квоты hh.ru: {e}")
-            return False, "Не удалось проверить квоту hh"
+            # hh подключён, но квоты неясны - базовый доступ есть, платный неизвестен
+            return True, False, "Не удалось проверить квоту hh"
 
     except ValidationError as e:
         if "не подключён" in str(e):
-            return False, "hh.ru не подключён"
-        return False, str(e)
+            return False, False, "hh.ru не подключён"
+        return False, False, str(e)
     except Exception as e:
         logger.error(f"Ошибка проверки доступа к умному подбору: {e}")
-        return False, "Ошибка проверки доступа"
+        return False, False, "Ошибка проверки доступа"
 
 
 async def get_smart_vacancies(session: AsyncSession, company_id: UUID) -> list[SmartVacancyItem]:
@@ -176,7 +181,7 @@ async def start_search(
     """Запускает умный поиск"""
 
     # Проверяем доступ
-    has_access, reason = await check_access(session, company_id)
+    has_access, has_paid_access, reason = await check_access(session, company_id)
     if not has_access:
         raise ValidationError(f"Нет доступа к умному подбору: {reason}")
 
@@ -193,11 +198,7 @@ async def start_search(
     if not vacancy:
         raise NotFoundError("Вакансия")
 
-    # Проверяем что вакансия опубликована на hh.ru (необходимо для приглашений)
-    if not vacancy.hh_vacancy_id:
-        raise ValidationError("Вакансия не опубликована на hh.ru — приглашения через Умный подбор невозможны. Опубликуйте вакансию на hh в форме вакансии.")
-
-    # Проверяем квоты перед запуском
+    # Получаем токен и квоты для передачи в фоновую задачу
     try:
         access_token = await hh_service.get_valid_access_token(session, company_id)
         me_data = await hh_client.get_me(access_token)
@@ -208,30 +209,10 @@ async def start_search(
         # ДИАГНОСТИКА: логируем сырой ответ для первого реального запуска
         logger.info("[smart] payable_api_actions raw=%s", quota_data)
 
-        # FAIL-CLOSED: если не удается получить данные квот, не запускаем
-        if not quota_data:
-            raise ValidationError("Не удалось определить остаток квоты hh — поиск не запущен (деньги-безопасность)")
-
-        # Парсим квоты по реальной схеме OpenAPI
-        unlimited, limited_remaining, has_service = _parse_api_quota(quota_data)
-
-        # Проверяем наличие услуги
-        if not unlimited and not has_service:
-            raise ValidationError("Нет активной API-услуги hh (нужен доступ к базе резюме / пакет запросов API)")
-
-        # Если не безлимитный - проверяем достаточность квот
-        if not unlimited:
-            if limited_remaining < request.scan_n:
-                raise ValidationError(f"Недостаточно квоты API hh: осталось {limited_remaining}, требуется {request.scan_n}")
-
-            if limited_remaining < request.invite_m:
-                raise ValidationError(f"Недостаточно квоты API hh: осталось {limited_remaining}, требуется {request.invite_m} (консервативно: приглашения тоже тратят запросы)")
-
-    except ValidationError:
-        raise
     except Exception as e:
-        # FAIL-CLOSED при ошибке проверки квот
-        raise ValidationError(f"Не удалось проверить квоту hh: {e}")
+        logger.warning(f"Не удалось проверить квоты hh.ru: {e}")
+        # Если не можем получить квоты - считаем что платного доступа нет
+        has_paid_access = False
 
     # Создаем запись поиска
     search_run = SmartSearchRun(
@@ -250,6 +231,7 @@ async def start_search(
             "scan_n": request.scan_n,
             "invite_m": request.invite_m,
             "threshold": request.threshold,
+            "has_paid_access": has_paid_access,
         }
     )
     session.add(search_run)
@@ -380,82 +362,115 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
             good_candidates.sort(key=lambda x: x["candidate_data"]["ai_score"], reverse=True)
 
             invited_candidates = []
+            has_paid_access = params.get("has_paid_access", False)
+            can_invite = has_paid_access and vacancy.hh_vacancy_id
 
-            for candidate_data in good_candidates[:invite_m]:
-                try:
+            if can_invite:
+                # Режим с приглашениями - создаём кандидатов и заявки в воронку
+                for candidate_data in good_candidates[:invite_m]:
+                    try:
+                        resume_id = candidate_data["resume_id"]
+                        ai_data = candidate_data["candidate_data"]
+                        full_resume = candidate_data["full_resume"]
+
+                        # Проверяем дедубликацию
+                        existing = await _find_existing_candidate(session, resume_id, full_resume, company_id)
+                        if existing:
+                            logger.info(f"Кандидат {resume_id} уже существует, пропускаем приглашение")
+                            continue
+
+                        # Отправляем приглашение через hh.ru (используем реальный hh_vacancy_id)
+                        invitation = await hh_client.invite_to_vacancy(
+                            access_token,
+                            str(resume_id),
+                            vacancy.hh_vacancy_id,
+                            message="Приглашение от Глафира Рекрутёр"
+                        )
+
+                        # Создаем кандидата и заявку
+                        candidate = _create_candidate_from_resume(full_resume, company_id)
+                        candidate.source = "hh"  # Источник "Умный подбор/hh" через extra
+                        candidate.extra = {"smart_search": True, "run_id": str(run_id), "hh_resume_id": str(resume_id)}
+                        session.add(candidate)
+                        await session.flush()
+
+                        # Создаем заявку
+                        negotiation_id = _extract_negotiation_id(invitation)
+                        application = Application(
+                            candidate_id=candidate.id,
+                            vacancy_id=vacancy.id,
+                            company_id=company_id,
+                            stage="response",
+                            hh_negotiation_id=negotiation_id
+                        )
+                        session.add(application)
+
+                        # Audit записи
+                        await audit(
+                            session,
+                            action="smart_search_invite",
+                            entity_type="candidate",
+                            entity_id=candidate.id,
+                            after={
+                                "vacancy_id": str(vacancy.id),
+                                "ai_score": ai_data["ai_score"],
+                                "run_id": str(run_id)
+                            },
+                            actor_type="ai",
+                            company_id=company_id
+                        )
+
+                        # Добавляем в список приглашенных
+                        invited_candidates.append(InvitedCandidate(
+                            candidate_id=candidate.id,
+                            name=f"{candidate.first_name} {candidate.last_name}".strip(),
+                            age=_calculate_age(candidate.birth_date),
+                            experience_years=_extract_experience_years(full_resume),
+                            last_company=candidate.last_company,
+                            city=candidate.city,
+                            score=ai_data["ai_score"],
+                            verdict=ai_data["verdict"]
+                        ))
+
+                        await session.commit()
+
+                    except Exception as e:
+                        logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
+                        continue
+
+                run.invites_skipped = False
+            else:
+                # Режим превью - НЕ создаём кандидатов, только показываем топовых
+                logger.info(f"Умный поиск {run_id}: режим превью (платный доступ={has_paid_access}, hh_vacancy_id={'есть' if vacancy.hh_vacancy_id else 'НЕТ'})")
+
+                for candidate_data in good_candidates[:invite_m]:
                     resume_id = candidate_data["resume_id"]
                     ai_data = candidate_data["candidate_data"]
                     full_resume = candidate_data["full_resume"]
 
-                    # Проверяем дедубликацию
-                    existing = await _find_existing_candidate(session, resume_id, full_resume, company_id)
-                    if existing:
-                        logger.info(f"Кандидат {resume_id} уже существует, пропускаем приглашение")
-                        continue
+                    # Извлекаем имя из резюме
+                    first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
+                    last_name = (full_resume.get("last_name") or "").strip() or ""
+                    name = f"{first_name} {last_name}".strip()
 
-                    # Отправляем приглашение через hh.ru (используем реальный hh_vacancy_id)
-                    invitation = await hh_client.invite_to_vacancy(
-                        access_token,
-                        str(resume_id),
-                        vacancy.hh_vacancy_id,
-                        message="Приглашение от Глафира Рекрутёр"
-                    )
-
-                    # Создаем кандидата и заявку
-                    candidate = _create_candidate_from_resume(full_resume, company_id)
-                    candidate.source = "hh"  # Источник "Умный подбор/hh" через extra
-                    candidate.extra = {"smart_search": True, "run_id": str(run_id), "hh_resume_id": str(resume_id)}
-                    session.add(candidate)
-                    await session.flush()
-
-                    # Создаем заявку
-                    negotiation_id = _extract_negotiation_id(invitation)
-                    application = Application(
-                        candidate_id=candidate.id,
-                        vacancy_id=vacancy.id,
-                        company_id=company_id,
-                        stage="response",
-                        hh_negotiation_id=negotiation_id
-                    )
-                    session.add(application)
-
-                    # Audit записи
-                    await audit(
-                        session,
-                        action="smart_search_invite",
-                        entity_type="candidate",
-                        entity_id=candidate.id,
-                        after={
-                            "vacancy_id": str(vacancy.id),
-                            "ai_score": ai_data["ai_score"],
-                            "run_id": str(run_id)
-                        },
-                        actor_type="ai",
-                        company_id=company_id
-                    )
-
-                    # Добавляем в список приглашенных
+                    # Создаем превью без candidate_id
                     invited_candidates.append(InvitedCandidate(
-                        candidate_id=candidate.id,
-                        name=f"{candidate.first_name} {candidate.last_name}".strip(),
-                        age=_calculate_age(candidate.birth_date),
+                        candidate_id=None,
+                        name=name,
+                        age=_calculate_age_from_resume(full_resume),
                         experience_years=_extract_experience_years(full_resume),
-                        last_company=candidate.last_company,
-                        city=candidate.city,
+                        last_company=(full_resume.get("experience", [{}])[0].get("company") if full_resume.get("experience") else None),
+                        city=(full_resume.get("area") or {}).get("name"),
                         score=ai_data["ai_score"],
                         verdict=ai_data["verdict"]
                     ))
 
-                    await session.commit()
-
-                except Exception as e:
-                    logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
-                    continue
+                run.invites_skipped = True
 
             # Финализируем поиск
             run.stage = "done"
             run.status = "done"
-            run.invited = len(invited_candidates)
+            run.invited = len(invited_candidates) if can_invite else 0  # invited = реальные приглашения
             run.invited_candidates = [c.dict() for c in invited_candidates]
             run.finished_at = datetime.now(timezone.utc)
             await session.commit()
@@ -555,6 +570,21 @@ def _calculate_age(birth_date) -> Optional[int]:
     try:
         today = datetime.now().date()
         return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+    except:
+        return None
+
+
+def _calculate_age_from_resume(resume: dict) -> Optional[int]:
+    """Вычисляет возраст из данных резюме hh.ru"""
+    birth_date = resume.get("birth_date")
+    if not birth_date:
+        return None
+    try:
+        # birth_date в формате "YYYY-MM-DD"
+        from datetime import date
+        birth_year, birth_month, birth_day = map(int, birth_date.split("-"))
+        birth_date_obj = date(birth_year, birth_month, birth_day)
+        return _calculate_age(birth_date_obj)
     except:
         return None
 
