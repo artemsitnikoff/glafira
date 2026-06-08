@@ -6,6 +6,7 @@
 
 import pytest
 import asyncio
+from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 from uuid import uuid4
 
@@ -21,6 +22,10 @@ from app.services.smart_search import (
     _compact_resume_for_display,
     _calculate_search_timeout,
     _run_search_background,
+    _run_search_inner,
+    _update_run_progress,
+    _finalize_run,
+    sweep_orphaned_runs,
     FREE_SCAN_LIMIT
 )
 from app.schemas.smart import SmartSearchRequest, SmartCountRequest
@@ -392,6 +397,202 @@ async def test_confirm_cost_gate_blocks_large_scan_without_confirm(
 
     with pytest.raises(ValidationError) as exc_info:
         await start_search(db_session, test_company.id, admin_user.id, request)
+
+    assert "confirm_cost=true" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_update_run_progress(db_session, test_company, test_vacancy):
+    """Тест обновления прогресса поиска короткой сессией"""
+    # Создаем run
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"scan_n": 10},
+        log=["Старт"]
+    )
+    db_session.add(run)
+    await db_session.commit()
+    run_id = run.id
+
+    # Обновляем прогресс
+    await _update_run_progress(
+        run_id,
+        scanned=5,
+        evaluated=3,
+        log_append="Обработано 5 резюме"
+    )
+
+    # Проверяем что изменения сохранились
+    updated_run = await db_session.get(SmartSearchRun, run_id)
+    assert updated_run.scanned == 5
+    assert updated_run.evaluated == 3
+    assert updated_run.log[-1] == "Обработано 5 резюме"
+
+
+@pytest.mark.asyncio
+async def test_finalize_run_success(db_session, test_company, test_vacancy):
+    """Тест успешной финализации поиска"""
+    # Создаем run
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="eval",
+        params={"scan_n": 10}
+    )
+    db_session.add(run)
+    await db_session.commit()
+    run_id = run.id
+
+    # Финализируем
+    success = await _finalize_run(
+        run_id,
+        status="done",
+        stage="done",
+        note="Поиск завершен успешно",
+        passed_threshold=5,
+        invited=0
+    )
+
+    assert success is True
+
+    # Проверяем что run финализирован
+    finalized_run = await db_session.get(SmartSearchRun, run_id)
+    assert finalized_run.status == "done"
+    assert finalized_run.stage == "done"
+    assert finalized_run.note == "Поиск завершен успешно"
+    assert finalized_run.passed_threshold == 5
+    assert finalized_run.finished_at is not None
+    assert "Финализация: done" in finalized_run.log[-1]
+
+
+@pytest.mark.asyncio
+async def test_finalize_run_nonexistent(db_session):
+    """Тест финализации несуществующего поиска"""
+    fake_run_id = uuid4()
+
+    success = await _finalize_run(
+        fake_run_id,
+        status="error",
+        error="Тест ошибка"
+    )
+
+    assert success is False
+
+
+@pytest.mark.asyncio
+async def test_sweep_orphaned_runs(db_session, test_company, test_vacancy):
+    """Тест очистки зависших поисков"""
+    # Создаем старый running поиск (имитируем зависший)
+    old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+
+    old_run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="eval",
+        params={"scan_n": 10},
+        created_at=old_time,
+        updated_at=old_time  # Давно не обновлялся
+    )
+    db_session.add(old_run)
+
+    # Создаем свежий running поиск (не должен быть затронут)
+    fresh_run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"scan_n": 10}
+    )
+    db_session.add(fresh_run)
+
+    await db_session.commit()
+    old_run_id = old_run.id
+    fresh_run_id = fresh_run.id
+
+    # Запускаем sweep с лимитом 60 минут
+    await sweep_orphaned_runs(max_age_minutes=60)
+
+    # Проверяем результаты
+    old_run_after = await db_session.get(SmartSearchRun, old_run_id)
+    fresh_run_after = await db_session.get(SmartSearchRun, fresh_run_id)
+
+    # Старый run должен быть помечен как error
+    assert old_run_after.status == "error"
+    assert "зависание" in old_run_after.error.lower()
+    assert old_run_after.finished_at is not None
+
+    # Свежий run должен остаться running
+    assert fresh_run_after.status == "running"
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.smart_search.score_resume_dict')
+async def test_run_search_inner_short_sessions(
+    mock_score,
+    mock_get_resume,
+    mock_search,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что _run_search_inner использует короткие сессии и не держит соединение"""
+    # Настройка моков
+    mock_token.return_value = "test_token"
+    mock_search.return_value = {
+        "found": 1,
+        "items": [{"id": "resume123"}]
+    }
+    mock_get_resume.return_value = {
+        "id": "resume123",
+        "first_name": "Иван",
+        "last_name": "Тестовый",
+        "title": "Python разработчик"
+    }
+    mock_score.return_value = {
+        "score": 85,
+        "verdict": "Отлично подходит",
+        "summary": "Опытный разработчик"
+    }
+
+    # Создаем run для тестирования
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"scan_n": 1, "threshold": 70}
+    )
+    db_session.add(run)
+    await db_session.commit()
+    run_id = run.id
+
+    # Запускаем внутреннюю логику поиска
+    await _run_search_inner(run_id, test_company.id, admin_user.id)
+
+    # Проверяем что поиск завершился успешно
+    completed_run = await db_session.get(SmartSearchRun, run_id)
+    assert completed_run.status == "done"
+    assert completed_run.stage == "done"
+    assert completed_run.found == 1
+    assert completed_run.scanned == 1
+    assert completed_run.evaluated == 1
+    assert completed_run.passed_threshold == 1  # score 85 >= threshold 70
+    assert len(completed_run.scored_candidates) == 1
+
+    # Проверяем что внешние вызовы были сделаны
+    mock_search.assert_called_once()
+    mock_get_resume.assert_called_once_with("test_token", "resume123")
+    mock_score.assert_called_once()
 
     error_msg = str(exc_info.value)
     assert "100" in error_msg

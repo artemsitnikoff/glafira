@@ -20,24 +20,29 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
-def log_smart_search(run_id: UUID, message: str) -> None:
+async def log_smart_search(run_id: UUID, message: str) -> None:
     """Дописать одну строку в журнал умного подбора. Безопасно при любых ошибках ФС."""
     path = settings.SMART_SEARCH_LOG_PATH
     if not path:
         return
     try:
-        directory = os.path.dirname(path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        run_short = str(run_id)[:6]
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(f"{ts} UTC  RUN {run_short} • {message}\n")
+        import asyncio
+
+        def _write_log():
+            directory = os.path.dirname(path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            run_short = str(run_id)[:6]
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"{ts} UTC  RUN {run_short} • {message}\n")
+
+        await asyncio.to_thread(_write_log)
     except Exception as e:  # noqa: BLE001 — журнал не критичен, не валим подбор
         logger.warning("Не удалось записать журнал умного подбора: %s", e)
 
 
-def log_and_append_to_run(run, run_id: UUID, message: str, max_log_size: int = 200) -> None:
+async def log_and_append_to_run(run, run_id: UUID, message: str, max_log_size: int = 200) -> None:
     """
     Записывает сообщение в файл-лог И добавляет в run.log (с ограничением размера).
 
@@ -48,7 +53,7 @@ def log_and_append_to_run(run, run_id: UUID, message: str, max_log_size: int = 2
         max_log_size: максимальное количество строк в run.log
     """
     # Записываем в файл
-    log_smart_search(run_id, message)
+    await log_smart_search(run_id, message)
 
     # Добавляем в run.log с ограничением размера
     if not isinstance(run.log, list):

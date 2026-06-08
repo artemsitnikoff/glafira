@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 from typing import Optional
 
@@ -50,21 +50,34 @@ async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
     return 900  # Fallback 15 минут
 
 
-async def sweep_orphaned_runs():
-    """Очистка осиротевших поисков при старте сервера"""
+async def sweep_orphaned_runs(max_age_minutes: int = 60):
+    """
+    Очистка осиротевших поисков при старте сервера и зависших по времени
+
+    Args:
+        max_age_minutes: максимальный возраст running поиска без обновлений (по умолчанию 60 мин)
+    """
     from ..database import AsyncSessionLocal
-    from sqlalchemy import update
+    from sqlalchemy import update, and_
 
     try:
         async with AsyncSessionLocal() as session:
-            # Помечаем все running поиски как прерванные
+            # Находим running поиски старше max_age_minutes без обновлений
+            cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+
             result = await session.execute(
                 update(SmartSearchRun)
-                .where(SmartSearchRun.status == "running")
+                .where(
+                    and_(
+                        SmartSearchRun.status == "running",
+                        SmartSearchRun.updated_at < cutoff_time
+                    )
+                )
                 .values(
                     status="error",
-                    error="Прервано (перезапуск сервера)",
-                    note="Поиск был прерван перезапуском сервера"
+                    error="Прервано (зависание/перезапуск)",
+                    note="Поиск был прерван из-за зависания или перезапуска сервера",
+                    finished_at=datetime.now(timezone.utc)
                 )
                 .returning(SmartSearchRun.id)
             )
@@ -487,13 +500,71 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                 await session.commit()
 
 
-async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
-    """Внутренняя логика выполнения поиска"""
+async def _update_run_progress(run_id: UUID, **updates):
+    """Обновляет прогресс выполнения поиска короткой сессией"""
     from ..database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as session:
-        try:
+        run = await session.get(SmartSearchRun, run_id)
+        if not run:
+            return
+
+        for key, value in updates.items():
+            if key == "log_append":
+                # Специальный case для добавления в лог
+                current_log = run.log if isinstance(run.log, list) else []
+                run.log = current_log + [value]
+            else:
+                setattr(run, key, value)
+
+        await session.commit()
+
+
+async def _finalize_run(run_id: UUID, status: str, stage: str = None, error: str = None, note: str = None, **extra_fields):
+    """Финализирует поиск короткой сессией с гарантией записи"""
+    from ..database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as session:
             run = await session.get(SmartSearchRun, run_id)
+            if not run:
+                logger.error(f"Run {run_id} не найден при финализации")
+                return False
+
+            run.status = status
+            if stage:
+                run.stage = stage
+            if error:
+                run.error = error[:500]
+            if note:
+                run.note = note
+            run.finished_at = datetime.now(timezone.utc)
+
+            # Применяем дополнительные поля
+            for key, value in extra_fields.items():
+                setattr(run, key, value)
+
+            # Добавляем лог-запись о финализации
+            current_log = run.log if isinstance(run.log, list) else []
+            run.log = current_log + [f"Финализация: {status} ({datetime.now(timezone.utc).strftime('%H:%M:%S')})"]
+
+            await session.commit()
+            logger.info(f"Run {run_id} финализирован: {status}")
+            return True
+
+    except Exception as e:
+        logger.error(f"Ошибка финализации run {run_id}: {e}", exc_info=True)
+        return False
+
+
+async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
+    """Внутренняя логика выполнения поиска с короткоживущими сессиями"""
+    from ..database import AsyncSessionLocal
+
+    try:
+        # Инициализация: загружаем run и базовые данные
+        async with AsyncSessionLocal() as init_session:
+            run = await init_session.get(SmartSearchRun, run_id)
             if not run:
                 return
 
@@ -503,217 +574,219 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             if not hasattr(run, 'scored_candidates') or run.scored_candidates is None:
                 run.scored_candidates = []
 
-            log_and_append_to_run(run, run_id, f"Запуск умного подбора для вакансии {run.vacancy_id}")
-
             # Получаем токен и вакансию
-            access_token = await hh_service.get_valid_access_token(session, company_id)
-            vacancy = await session.get(Vacancy, run.vacancy_id)
+            access_token = await hh_service.get_valid_access_token(init_session, company_id)
+            vacancy = await init_session.get(Vacancy, run.vacancy_id)
 
-            log_and_append_to_run(run, run_id, f"Вакансия: {vacancy.name}")
-
-            # ЭТАП 1: Поиск резюме с пагинацией
             params = run.params
+            vacancy_name = vacancy.name
 
-            # Используем общую функцию построения search_params
-            base_search_params = build_search_params(params, vacancy)
-            base_search_params["per_page"] = 50
+            await init_session.commit()  # Сохраняем инициализацию
 
-            # Диагностика: логируем итоговый запрос
-            logger.info("[smart] search_params=%s", base_search_params)
-            log_and_append_to_run(run, run_id, f"Параметры поиска: {base_search_params}")
+        # Логируем старт без открытой сессии
+        await log_smart_search(run_id, f"Запуск умного подбора для вакансии {run.vacancy_id}")
+        await log_smart_search(run_id, f"Вакансия: {vacancy_name}")
 
-            # Пагинация: собираем резюме по страницам
-            accumulated_items = []
-            found_count = 0
-            scan_n = params.get("scan_n", 50)
+        # ЭТАП 1: Поиск резюме с пагинацией (БЕЗ открытой DB сессии)
+        base_search_params = build_search_params(params, vacancy)
+        base_search_params["per_page"] = 50
 
-            for page in range(MAX_PAGES_LIMIT):
-                search_params = base_search_params.copy()
-                search_params["page"] = page
+        logger.info("[smart] search_params=%s", base_search_params)
+        await log_smart_search(run_id, f"Параметры поиска: {base_search_params}")
 
-                search_result = await hh_client.search_resumes(access_token, search_params)
-                page_found = search_result.get("found", 0)
-                page_items = search_result.get("items", [])
+        # Пагинация: собираем резюме по страницам
+        accumulated_items = []
+        found_count = 0
+        scan_n = params.get("scan_n", 50)
 
-                # Берём found из первой страницы
-                if page == 0:
-                    found_count = page_found
+        for page in range(MAX_PAGES_LIMIT):
+            search_params = base_search_params.copy()
+            search_params["page"] = page
 
-                log_and_append_to_run(run, run_id, f"Страница {page + 1}/{MAX_PAGES_LIMIT}: {len(page_items)} резюме, всего найдено: {found_count}")
+            # Сетевой вызов БЕЗ открытой DB сессии
+            search_result = await hh_client.search_resumes(access_token, search_params)
+            page_found = search_result.get("found", 0)
+            page_items = search_result.get("items", [])
 
-                if not page_items:
-                    log_and_append_to_run(run, run_id, f"Страница {page + 1} пустая, завершаем поиск")
-                    break
+            if page == 0:
+                found_count = page_found
 
-                accumulated_items.extend(page_items)
+            await log_smart_search(run_id, f"Страница {page + 1}/{MAX_PAGES_LIMIT}: {len(page_items)} резюме, всего найдено: {found_count}")
 
-                # Проверяем лимиты
-                if len(accumulated_items) >= scan_n:
-                    log_and_append_to_run(run, run_id, f"Набрали достаточно резюме: {len(accumulated_items)} >= {scan_n}")
-                    break
+            if not page_items:
+                await log_smart_search(run_id, f"Страница {page + 1} пустая, завершаем поиск")
+                break
 
-                # Проверяем что не превысили общий найденный count
-                if len(accumulated_items) >= found_count:
-                    log_and_append_to_run(run, run_id, f"Собрали все доступные резюме: {len(accumulated_items)} из {found_count}")
-                    break
+            accumulated_items.extend(page_items)
 
-            resume_items = accumulated_items
+            if len(accumulated_items) >= scan_n:
+                await log_smart_search(run_id, f"Набрали достаточно резюме: {len(accumulated_items)} >= {scan_n}")
+                break
 
-            # Обновляем счетчик найденных
-            run.found = found_count
-            run.stage = "eval"
-            await session.commit()
+            if len(accumulated_items) >= found_count:
+                await log_smart_search(run_id, f"Собрали все доступные резюме: {len(accumulated_items)} из {found_count}")
+                break
 
-            log_and_append_to_run(run, run_id, f"Всего найдено: {found_count}, собрано: {len(resume_items)}")
+        resume_items = accumulated_items
 
-            # ЭТАП 2: Оценка резюме
-            scan_n = min(params.get("scan_n", 50), len(resume_items))
-            threshold = params.get("threshold", 70)
-            evaluated_candidates = []
+        # Обновляем счетчик найденных короткой сессией
+        await _update_run_progress(
+            run_id,
+            found=found_count,
+            stage="eval",
+            log_append=f"Всего найдено: {found_count}, собрано: {len(resume_items)}"
+        )
 
-            log_and_append_to_run(run, run_id, f"Начинаем оценку {scan_n} резюме с порогом {threshold}")
-            await session.commit()
+        # ЭТАП 2: Оценка резюме
+        scan_n = min(params.get("scan_n", 50), len(resume_items))
+        threshold = params.get("threshold", 70)
+        evaluated_candidates = []
 
-            for i, resume_item in enumerate(resume_items[:scan_n]):
-                try:
-                    resume_id = resume_item.get("id")
-                    if not resume_id:
-                        run.scanned = i + 1
-                        log_and_append_to_run(run, run_id, f"Резюме {i + 1}/{scan_n}: нет ID, пропускаем")
-                        await session.commit()
-                        continue
+        await log_smart_search(run_id, f"Начинаем оценку {scan_n} резюме с порогом {threshold}")
 
-                    # Получаем полное резюме (ПЛАТНО)
-                    full_resume = await hh_client.get_resume_by_id(access_token, str(resume_id))
-
-                    # Извлекаем имя для логирования
-                    first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
-                    last_name = (full_resume.get("last_name") or "").strip() or ""
-                    name = f"{first_name} {last_name}".strip()
-
-                    try:
-                        # Оцениваем резюме БЕЗ персиста
-                        score_result = await score_resume_dict(full_resume, vacancy, company_id)
-                        score = score_result["score"]
-                        verdict = score_result["verdict"]
-                        passed = score >= threshold
-
-                        evaluated_candidates.append({
-                            "resume_id": resume_id,
-                            "candidate_data": {
-                                "resume": full_resume,
-                                "ai_score": score,
-                                "verdict": verdict,
-                                "summary": score_result["summary"]
-                            },
-                            "full_resume": full_resume
-                        })
-
-                        # Добавляем в scored_candidates для отчётности (теперь с полным разбором)
-                        scored_candidate = {
-                            "candidate_id": None,  # Ещё не создан
-                            "name": name,
-                            "age": _calculate_age_from_resume(full_resume),
-                            "experience_years": _extract_experience_years(full_resume),
-                            "last_company": (full_resume.get("experience", [{}])[0].get("company") if full_resume.get("experience") else None),
-                            "city": (full_resume.get("area") or {}).get("name"),
-                            "score": score,
-                            "verdict": verdict,
-                            "passed": passed,
-                            # Новые поля с полным разбором
-                            "summary": score_result.get("summary"),
-                            "strengths": score_result.get("strengths") or [],
-                            "risks": score_result.get("risks") or [],
-                            "requirements_match": score_result.get("requirements_match") or [],
-                            "forecast": score_result.get("forecast"),
-                            "resume": _compact_resume_for_display(full_resume),
-                            # Новые поля для ручного приглашения
-                            "hh_resume_id": str(resume_id),
-                            "invited": False
-                        }
-
-                        run.scored_candidates = run.scored_candidates.copy()  # Новый список для SQLAlchemy
-                        run.scored_candidates.append(scored_candidate)
-                        run.evaluated = len(evaluated_candidates)
-
-                        status = "✓ прошёл" if passed else "✗ не прошёл"
-                        log_and_append_to_run(run, run_id, f"Резюме {resume_id} • {name} • score {score} ({verdict}) • {status}")
-
-                    except GlafiraParseError as e:
-                        # При сбое парсинга JSON одного резюме - логируем и пропускаем
-                        logger.warning(f"Ошибка парсинга AI-оценки резюме {resume_id}: {e}")
-                        log_and_append_to_run(run, run_id, f"Резюме {resume_id} • {name} • ошибка оценки AI: {str(e)[:100]}")
-
-                    # Обновляем прогресс
-                    run.scanned = i + 1
-                    await session.commit()
-
-                except Exception as e:
-                    logger.warning(f"Ошибка при обработке резюме {resume_id}: {e}")
-                    log_and_append_to_run(run, run_id, f"Резюме {resume_id or i+1} • ошибка загрузки: {str(e)[:100]}")
-                    run.scanned = i + 1
-                    await session.commit()
+        for i, resume_item in enumerate(resume_items[:scan_n]):
+            try:
+                resume_id = resume_item.get("id")
+                if not resume_id:
+                    # Обновляем прогресс короткой сессией
+                    await _update_run_progress(
+                        run_id,
+                        scanned=i + 1,
+                        log_append=f"Резюме {i + 1}/{scan_n}: нет ID, пропускаем"
+                    )
                     continue
 
-            # passed_threshold в памяти
-            passed_threshold = len([
-                c for c in evaluated_candidates
-                if c["candidate_data"]["ai_score"] >= threshold
-            ])
+                # Получаем полное резюме (ПЛАТНО) БЕЗ открытой DB сессии
+                full_resume = await hh_client.get_resume_by_id(access_token, str(resume_id))
 
-            # Финализация на ТОЙ ЖЕ eval-сессии: её per-iteration commit'ы только что
-            # отработали N раз. СВЕЖАЯ сессия здесь зависала на commit (пул соединений
-            # занят поллингом /runs/{id}) — поэтому пишем финал старой сессией, fresh — fallback.
-            run.passed_threshold = passed_threshold
-            run.stage = "done"
-            run.status = "done"
-            run.invites_skipped = True
-            run.invited = 0
-            run.finished_at = datetime.now(timezone.utc)
-            if (run.evaluated or 0) == 0:
-                run.note = "Не удалось оценить ни одного резюме"
-            elif passed_threshold == 0:
-                run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
-            else:
-                run.note = f"Оценка завершена. Прошли порог: {passed_threshold}. Выберите кандидатов для приглашения."
-            log_and_append_to_run(run, run_id, "Оценка завершена, готово к выбору приглашений")
+                # Извлекаем имя для логирования
+                first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
+                last_name = (full_resume.get("last_name") or "").strip() or ""
+                name = f"{first_name} {last_name}".strip()
 
-            try:
-                await asyncio.wait_for(session.commit(), timeout=30)
-            except Exception as fin_e:
-                logger.warning(f"Финал старой сессией не удался для {run_id}: {fin_e}; пробую свежую")
                 try:
-                    async def _finalize_fresh():
-                        async with AsyncSessionLocal() as fs:
-                            r = await fs.get(SmartSearchRun, run_id)
-                            if r and r.status == "running":
-                                r.passed_threshold = passed_threshold
-                                r.stage = "done"
-                                r.status = "done"
-                                r.invites_skipped = True
-                                r.invited = 0
-                                r.finished_at = datetime.now(timezone.utc)
-                                r.note = run.note
-                                cur = r.log if isinstance(r.log, list) else []
-                                r.log = cur + ["Финализация (свежая сессия)"]
-                                await fs.commit()
-                    await asyncio.wait_for(_finalize_fresh(), timeout=30)
-                except Exception as ff_e:
-                    logger.error(f"Финал свежей сессией тоже не удался для {run_id}: {ff_e}")
-            return
+                    # Оцениваем резюме БЕЗ открытой DB сессии
+                    score_result = await score_resume_dict(full_resume, vacancy, company_id)
+                    score = score_result["score"]
+                    verdict = score_result["verdict"]
+                    passed = score >= threshold
 
-        except Exception as e:
-            logger.error(f"Ошибка в фоновой задаче поиска {run_id}: {e}")
-            try:
-                run2 = await session.get(SmartSearchRun, run_id)
-                if run2 and run2.status == "running":
-                    run2.status = "error"
-                    run2.error = str(e)[:500]
-                    run2.note = f"Ошибка выполнения: {str(e)[:200]}"
-                    run2.finished_at = datetime.now(timezone.utc)
-                    await session.commit()
-            except Exception as ce:
-                logger.error(f"Не удалось записать статус ошибки для {run_id}: {ce}")
+                    evaluated_candidates.append({
+                        "resume_id": resume_id,
+                        "candidate_data": {
+                            "resume": full_resume,
+                            "ai_score": score,
+                            "verdict": verdict,
+                            "summary": score_result["summary"]
+                        },
+                        "full_resume": full_resume
+                    })
+
+                    # Формируем scored_candidate для отчётности
+                    scored_candidate = {
+                        "candidate_id": None,
+                        "name": name,
+                        "age": _calculate_age_from_resume(full_resume),
+                        "experience_years": _extract_experience_years(full_resume),
+                        "last_company": (full_resume.get("experience", [{}])[0].get("company") if full_resume.get("experience") else None),
+                        "city": (full_resume.get("area") or {}).get("name"),
+                        "score": score,
+                        "verdict": verdict,
+                        "passed": passed,
+                        "summary": score_result.get("summary"),
+                        "strengths": score_result.get("strengths") or [],
+                        "risks": score_result.get("risks") or [],
+                        "requirements_match": score_result.get("requirements_match") or [],
+                        "forecast": score_result.get("forecast"),
+                        "resume": _compact_resume_for_display(full_resume),
+                        "hh_resume_id": str(resume_id),
+                        "invited": False
+                    }
+
+                    status = "✓ прошёл" if passed else "✗ не прошёл"
+                    log_message = f"Резюме {resume_id} • {name} • score {score} ({verdict}) • {status}"
+                    await log_smart_search(run_id, log_message)
+
+                    # Обновляем прогресс с результатом оценки короткой сессией
+                    async with AsyncSessionLocal() as eval_session:
+                        run = await eval_session.get(SmartSearchRun, run_id)
+                        if run:
+                            # Добавляем новый scored_candidate
+                            current_scored = run.scored_candidates.copy() if run.scored_candidates else []
+                            current_scored.append(scored_candidate)
+                            run.scored_candidates = current_scored
+                            run.evaluated = len(evaluated_candidates)
+                            run.scanned = i + 1
+
+                            # Добавляем в лог
+                            current_log = run.log if isinstance(run.log, list) else []
+                            run.log = current_log + [log_message]
+
+                            await eval_session.commit()
+
+                except GlafiraParseError as e:
+                    error_msg = f"Резюме {resume_id} • {name} • ошибка оценки AI: {str(e)[:100]}"
+                    logger.warning(f"Ошибка парсинга AI-оценки резюме {resume_id}: {e}")
+                    await log_smart_search(run_id, error_msg)
+
+                    await _update_run_progress(
+                        run_id,
+                        scanned=i + 1,
+                        log_append=error_msg
+                    )
+
+            except Exception as e:
+                error_msg = f"Резюме {resume_id or i+1} • ошибка загрузки: {str(e)[:100]}"
+                logger.warning(f"Ошибка при обработке резюме {resume_id}: {e}")
+                await log_smart_search(run_id, error_msg)
+
+                await _update_run_progress(
+                    run_id,
+                    scanned=i + 1,
+                    log_append=error_msg
+                )
+                continue
+
+        # Подсчёт прошедших порог
+        passed_threshold = len([
+            c for c in evaluated_candidates
+            if c["candidate_data"]["ai_score"] >= threshold
+        ])
+
+        # Формируем финальное сообщение
+        if len(evaluated_candidates) == 0:
+            final_note = "Не удалось оценить ни одного резюме"
+        elif passed_threshold == 0:
+            final_note = f"Оценено {len(evaluated_candidates)} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
+        else:
+            final_note = f"Оценка завершена. Прошли порог: {passed_threshold}. Выберите кандидатов для приглашения."
+
+        await log_smart_search(run_id, "Оценка завершена, готово к выбору приглашений")
+
+        # Финализация короткой сессией с гарантией записи
+        success = await _finalize_run(
+            run_id,
+            status="done",
+            stage="done",
+            note=final_note,
+            passed_threshold=passed_threshold,
+            invites_skipped=True,
+            invited=0
+        )
+
+        if not success:
+            logger.error(f"Финализация run {run_id} не удалась, but task completed")
+
+    except Exception as e:
+        logger.error(f"Ошибка в фоновой задаче поиска {run_id}: {e}", exc_info=True)
+
+        # Гарантированная финализация с ошибкой
+        await _finalize_run(
+            run_id,
+            status="error",
+            error=str(e)[:500],
+            note=f"Ошибка выполнения: {str(e)[:200]}"
+        )
 
 
 def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:
@@ -903,55 +976,59 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     Returns:
         dict с results и invited_count
     """
-    # Загружаем run company-scoped
+    from ..database import AsyncSessionLocal
+
+    # Загружаем базовые данные и проверяем доступ
     run = await session.get(SmartSearchRun, run_id)
     if not run or run.company_id != company_id:
         raise NotFoundError("Поиск")
 
-    # Загружаем вакансию
     vacancy = await session.get(Vacancy, run.vacancy_id)
     if not vacancy:
         raise NotFoundError("Вакансия")
 
-    # Гейты fail-closed (§2.6)
+    # Гейты fail-closed
     if not vacancy.hh_vacancy_id:
         raise ValidationError("Вакансия не опубликована на hh.ru — приглашать некуда.")
 
-    # Проверяем платный доступ
     has_access, has_paid_access, _ = await check_access(session, company_id)
     if not has_paid_access:
         raise ValidationError("Нет платного доступа к базе резюме hh — отправка приглашений недоступна.")
 
-    # Множество разрешённых резюме (только те, что прошли порог)
+    # Множество разрешённых резюме
     allowed = {
         c.get("hh_resume_id") for c in (run.scored_candidates or [])
         if c.get("passed") and c.get("hh_resume_id")
     }
 
-    # Фильтруем только разрешённые resume_ids
     valid_resume_ids = [rid for rid in resume_ids if rid in allowed]
 
     # Получаем токен доступа
     access_token = await hh_service.get_valid_access_token(session, company_id)
+
+    # Сохраняем данные для использования вне сессии
+    vacancy_id = vacancy.id
+    hh_vacancy_id = vacancy.hh_vacancy_id
 
     results = []
     invited_count = 0
 
     for resume_id in valid_resume_ids:
         try:
-            # Проверка дедубликации
-            existing = await _find_existing_candidate(session, resume_id, {}, company_id)
-            if existing:
-                results.append({
-                    "resume_id": resume_id,
-                    "status": "already",
-                    "message": "Кандидат уже в базе",
-                    "candidate_id": existing.id,
-                    "name": f"{existing.first_name} {existing.last_name}".strip()
-                })
-                continue
+            # Проверка дедубликации короткой сессией
+            async with AsyncSessionLocal() as check_session:
+                existing = await _find_existing_candidate(check_session, resume_id, {}, company_id)
+                if existing:
+                    results.append({
+                        "resume_id": resume_id,
+                        "status": "already",
+                        "message": "Кандидат уже в базе",
+                        "candidate_id": existing.id,
+                        "name": f"{existing.first_name} {existing.last_name}".strip()
+                    })
+                    continue
 
-            # Получаем полное резюме (платно)
+            # Получаем полное резюме БЕЗ открытой DB сессии
             try:
                 full_resume = await asyncio.wait_for(
                     hh_client.get_resume_by_id(access_token, resume_id),
@@ -972,13 +1049,13 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                 })
                 continue
 
-            # Отправляем приглашение
+            # Отправляем приглашение БЕЗ открытой DB сессии
             try:
                 invitation = await asyncio.wait_for(
                     hh_client.invite_to_vacancy(
                         access_token,
                         resume_id,
-                        vacancy.hh_vacancy_id,
+                        hh_vacancy_id,
                         message="Приглашение от Глафира Рекрутёр"
                     ),
                     timeout=25
@@ -998,67 +1075,79 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                 })
                 continue
 
-            # Создаём кандидата
-            candidate = _create_candidate_from_resume(full_resume, company_id)
-            candidate.source = "hh"
-            candidate.extra = {
-                "smart_search": True,
-                "run_id": str(run_id),
-                "hh_resume_id": str(resume_id)
-            }
-            session.add(candidate)
-            await session.flush()
+            # Создаём кандидата и заявку короткой сессией
+            try:
+                async with AsyncSessionLocal() as create_session:
+                    candidate = _create_candidate_from_resume(full_resume, company_id)
+                    candidate.source = "hh"
+                    candidate.extra = {
+                        "smart_search": True,
+                        "run_id": str(run_id),
+                        "hh_resume_id": str(resume_id)
+                    }
+                    create_session.add(candidate)
+                    await create_session.flush()
 
-            # Создаём заявку
-            negotiation_id = _extract_negotiation_id(invitation)
-            application = Application(
-                candidate_id=candidate.id,
-                vacancy_id=vacancy.id,
-                company_id=company_id,
-                stage="response",
-                hh_negotiation_id=negotiation_id
-            )
-            session.add(application)
+                    # Создаём заявку
+                    negotiation_id = _extract_negotiation_id(invitation)
+                    application = Application(
+                        candidate_id=candidate.id,
+                        vacancy_id=vacancy_id,
+                        company_id=company_id,
+                        stage="response",
+                        hh_negotiation_id=negotiation_id
+                    )
+                    create_session.add(application)
 
-            # Audit запись (действие рекрутёра)
-            await audit(
-                session,
-                action="smart_search_invite",
-                entity_type="candidate",
-                entity_id=candidate.id,
-                after={
-                    "vacancy_id": str(vacancy.id),
-                    "run_id": str(run_id),
-                    "hh_resume_id": str(resume_id)
-                },
-                actor_type="human",  # ЭТО ДЕЙСТВИЕ РЕКРУТЁРА
-                actor_user_id=user_id,
-                company_id=company_id
-            )
+                    # Audit запись
+                    await audit(
+                        create_session,
+                        action="smart_search_invite",
+                        entity_type="candidate",
+                        entity_id=candidate.id,
+                        after={
+                            "vacancy_id": str(vacancy_id),
+                            "run_id": str(run_id),
+                            "hh_resume_id": str(resume_id)
+                        },
+                        actor_type="human",
+                        actor_user_id=user_id,
+                        company_id=company_id
+                    )
 
-            # Помечаем в run.scored_candidates как приглашённого
-            if run.scored_candidates:
-                for candidate_data in run.scored_candidates:
-                    if candidate_data.get("hh_resume_id") == resume_id:
-                        candidate_data["invited"] = True
-                        break
-                # Reassign для SQLAlchemy
-                run.scored_candidates = run.scored_candidates.copy()
+                    # Обновляем run статистику
+                    run_obj = await create_session.get(SmartSearchRun, run_id)
+                    if run_obj and run_obj.scored_candidates:
+                        for candidate_data in run_obj.scored_candidates:
+                            if candidate_data.get("hh_resume_id") == resume_id:
+                                candidate_data["invited"] = True
+                                break
+                        run_obj.scored_candidates = run_obj.scored_candidates.copy()
 
-            # Увеличиваем счётчик приглашённых
-            run.invited = (run.invited or 0) + 1
+                    run_obj.invited = (run_obj.invited or 0) + 1
 
-            invited_count += 1
+                    await create_session.commit()
 
-            results.append({
-                "resume_id": resume_id,
-                "status": "invited",
-                "candidate_id": candidate.id,
-                "name": f"{candidate.first_name} {candidate.last_name}".strip()
-            })
+                    candidate_id = candidate.id
+                    candidate_name = f"{candidate.first_name} {candidate.last_name}".strip()
 
-            # Коммитим каждый успешный для сохранения прогресса
-            await session.commit()
+                invited_count += 1
+
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "invited",
+                    "candidate_id": candidate_id,
+                    "name": candidate_name
+                })
+
+            except Exception as e:
+                logger.error(f"Ошибка создания кандидата {resume_id}: {e}")
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": f"Ошибка создания кандидата: {str(e)[:100]}"
+                })
+                continue
 
         except Exception as e:
             logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
