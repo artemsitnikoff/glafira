@@ -289,7 +289,6 @@ export default function SmartSearchPage() {
           runId={runId}
           onNew={resetAll}
           onGoFunnel={() => navigate(`/vacancies/${vacId}`)}
-          onGoSettings={() => navigate('/settings')}
           onOpenCandidate={setDetailCandidate}
         />
         <SSHistory history={history} />
@@ -679,11 +678,11 @@ export default function SmartSearchPage() {
               <Icon name="alert-triangle" size={14} />
               <div>
                 {!accessData?.has_paid_access
-                  ? 'Без платного доступа к базе резюме hh приглашения не отправляются.'
+                  ? 'На счёте hh нет квоты на открытие контактов — приглашения не отправляются.'
                   : 'Вакансия не опубликована на hh — приглашать некуда.'}
                 {' '}Глафира выполнит поиск и AI-оценку (превью лучших кандидатов).{' '}
                 {!accessData?.has_paid_access
-                  ? 'Чтобы приглашать — подключите доступ в Настройках.'
+                  ? 'Чтобы приглашать — пополните квоту контактов на hh.ru.'
                   : 'Опубликуйте вакансию на hh, чтобы приглашать.'}
               </div>
             </div>
@@ -904,7 +903,7 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
   );
 }
 
-function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunnel, onGoSettings, onOpenCandidate }: {
+function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunnel, onOpenCandidate }: {
   runData: any;
   vac: SmartVacancy | null;
   threshold: number;
@@ -912,7 +911,6 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
   runId: string | null;
   onNew: () => void;
   onGoFunnel: () => void;
-  onGoSettings: () => void;
   onOpenCandidate?: (candidate: SmartCandidate) => void;
 }) {
   if (!runData) return null;
@@ -1039,7 +1037,7 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
               <Icon name="alert-triangle" size={14} />
               <div>
                 {!accessData?.has_paid_access
-                  ? 'Нет платного доступа к базе резюме hh — приглашения недоступны (поиск и оценка работают без него).'
+                  ? 'На счёте hh нет квоты на открытие контактов — приглашения недоступны (поиск и AI-оценка работают без неё). Квота пополняется на стороне hh.ru.'
                   : 'Вакансия не опубликована на hh.ru — приглашать некуда.'}
               </div>
             </div>
@@ -1221,11 +1219,6 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
         {!isPreview && (
           <button className="btn btn-primary" onClick={onGoFunnel}>
             <Icon name="filter" size={15} /> Смотреть в воронке
-          </button>
-        )}
-        {isPreview && (
-          <button className="btn btn-primary" onClick={onGoSettings}>
-            <Icon name="settings" size={15} /> Подключить доступ
           </button>
         )}
         <button className="btn btn-secondary" onClick={onNew}>
