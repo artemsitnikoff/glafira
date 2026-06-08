@@ -68,7 +68,9 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
         Employee.external_source.is_(None),
         Employee.status == 'left',
         Employee.left_at.is_not(None),
-        func.extract('day', Employee.left_at - Employee.start_date) < 90
+        # left_at и start_date — DATE; в Postgres (date - date) = целое число дней,
+        # поэтому сравниваем разность напрямую (EXTRACT(day FROM integer) не существует → 500).
+        (Employee.left_at - Employee.start_date) < 90
     )
     if cutoff:
         left_90d_query = left_90d_query.where(Employee.left_at >= cutoff.date())
