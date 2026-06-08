@@ -59,11 +59,11 @@
 
 ## 3. БЕКЕНД (состояние)
 
-Завершён по основной функциональности. 9 доменов, **~103 эндпоинта** (`app/api/v1/`), **~145 тестов** (`tests/`, offline — LLM-ключ пуст, живые вызовы не идут).
+Завершён по основной функциональности. **~172 эндпоинта** в 22 роутерах (`app/api/v1/`), **~497 тестов** в 55 файлах (`tests/`, offline — LLM-ключ пуст, живые вызовы не идут). (Числа сверены `grep` 2026-06-08; растут с каждой фичей — при сомнении пересчитать, не верить этой цифре вслепую.)
 
 > ⚠️ **`contracts/openapi.json` НЕ полностью актуален.** Последние правки (CRUD этапов воронки `/vacancies/{id}/stages`, источник `superjob`, поле `messengers`) подключены на фронте через **локальные TS-типы + `as`-cast**, openapi под них НЕ регенерён (нет живого сервера в рабочем окружении). Регенерировать против поднятого бэка, когда появится возможность, и тогда убрать cast.
 
-**Ключевые модели/таблицы (~30):** company, user, client, vacancy, vacancy_stage, candidate, application, stage_history, ai_evaluation, consent, document, message, employee, pulse_survey, audit_log, event, email_template, survey_template и др.
+**Модели/таблицы (37, `grep __tablename__`):** companies, users, clients, vacancies, vacancy_stages, vacancy_team, candidates, candidate_experience, candidate_skills, candidate_education, applications, stage_history, ai_evaluations, consents, documents, messages, comments, employees, pulse_surveys, pulse_plan_items, pulse_alerts, survey_templates, audit_log, events, email_templates, verifications, reject_reasons, tags, candidate_tags, glafira_settings, integrations, hh_integrations, hh_oauth_states, smart_search_runs, funnel_templates, funnel_template_stages, company_default_stages.
 
 **Этапы воронки (`STAGES`, 9 шт., hex-цвета — источник правды на беке** `core/stages.py`, цвет вычисляется, НЕ хранится в БД):
 - `response` Отклик, `added` Добавлен (system), `selected` Отобран, `recruiter` Контакт с рекрутером, `interview` Интервью, `manager` Контакт с менеджером, `offer` Оффер, `hired` Нанят (terminal), `rejected` Отказ (terminal).
@@ -79,6 +79,10 @@
 
 **LLM-сервисы:** `services/glafira/` — scoring (скоринг резюме, взвешенная 100-балльная рубрика; в промпт `description` вакансии идёт со снятыми HTML-тегами `_strip_html`), screening (диалог-скрининг), resume_parse (парсинг PDF/TXT — DOC/DOCX/RTF НЕ парсятся), verify (см. инв. §2.8 — контакты DaData + госреестр-заглушки + OSINT через claude CLI, consent-gated, OSINT в фоне), employee_summary (AI-сводка сотрудника). Все с anti-hallucination guards в промптах и строгим JSON-контрактом. Ретрай-backoff на 403/429/5xx в `client.py` (OpenRouter); claude CLI (`claude_cli.py`) — graceful→None при любом сбое.
 
+**Умный подбор (бек, `services/smart_search.py` + `api/v1/smart.py`, см. память `smart-search-state`):** активный сорсинг резюме hh — фоновая `asyncio`-задача search→eval→invite (паттерн OSINT). Модель `SmartSearchRun` (`smart_search_runs`: status/stage/found/scanned/evaluated/invited/invites_skipped). Оценка — `scoring.score_resume_dict` (рубрика, БЕЗ персиста — кандидатов/`ai_evaluations` не плодит). 6 эндпоинтов (`/smart/access|vacancies|search|runs[/{id}]|vacancy-filters/{id}`). **Денежные предохранители FAIL-CLOSED:** приглашения только при `has_paid_access && vacancy.hh_vacancy_id` (иначе превью без записи в воронку, `invites_skipped=true`); квота hh не определена/мала → 400, фон не стартует; капы scan/invite. ⚠️ В коде ВРЕМЕННЫЕ диаг-логи `[smart] payable_api_actions raw=` / `search_params=` / `режим превью` — для калибровки на первом реальном запуске (его делает заказчик). Тесты — на моках, живых hh-вызовов нет.
+
+**Email «Доступ к аккаунту» (credentials, реален с v0.2.49):** `services/integrations/smtp/templates.py::render_credentials_email` (HTML из кода, не из БД/файла) → `service.py::send_credentials_email` → `send_email` (stdlib `smtplib`, SMTP компании). Триггеры: создание юзера (`POST /users`) и импорт из Б24 — оба шлют письмо с логином/паролем, если SMTP настроен. Фронт (`CreateUserModal`/`BitrixImportModal`) обрабатывает и успех, и fallback. Прототип письма — `project/Письмо - Доступ к аккаунту.html`.
+
 **Снятые CHECK-констрейнты (миграции):** `check_stage_key` на `vacancy_stages` (`a1b2c3d4e5f7`) и `check_application_stage` на `applications.stage` (`c8d9e0f1a2b3`) сняты — чтобы воронка могла иметь кастомные этапы и кандидаты могли на них перемещаться. Downgrade восстанавливает прежний список.
 
 **seed:**
@@ -90,7 +94,7 @@
 
 ## 4. ФРОНТЕНД — ЭКРАНЫ
 
-10 экранов (компоненты в `frontend/src/`). Подробные ТЗ по экранам — в `docs/tz/`.
+11 экранов (компоненты в `frontend/src/`). Подробные ТЗ по экранам — в `docs/tz/` (экран 11 — в `project/docs/11 - Умный подбор.md`).
 
 1. **Главная** (Home/Dashboard) — KPI-сетка, «Требуют внимания», «Лента событий» (polling, live-dot), блок «Адаптация/Пульс», «Топ-источники».
 2. **Вакансии** — список в сайдбаре (inline), форма создания (4 шага, кастомные этапы), форма добавления кандидата (full-screen), архив.
@@ -101,7 +105,8 @@
 7. **Пульс — главный** — пост-найм-модуль, таблица сотрудников в адаптации, алерты, риск ухода.
 8. **Пульс — карточка сотрудника** — профиль адаптации, план, опросы, AI-сводка.
 9. **Настройки** — профиль, команда, интеграции, голос Глафиры, шаблоны, «Воронка по умолчанию» (шаблон для новых вакансий), биллинг.
-10. **Сайдбар** — постоянная навигация, раскрытие подменю (Вакансии/Аналитика inline), бейдж Пульса, user-card. **Список вакансий в сайдбаре — эталонный, НЕ трогать.**
+10. **Сайдбар** — постоянная навигация, раскрытие подменю (Вакансии/Аналитика inline), бейдж Пульса, user-card. **Список вакансий в сайдбаре — эталонный, НЕ трогать.** Пункт ✨ «Умный подбор» (beta) — сразу после «Кандидаты».
+11. **Умный подбор** (`/smart`, beta, RoleGuard admin/recruiter) — активный сорсинг резюме на hh.ru. Один поток с пошаговым конструктором (5 шагов: вакансия → фильтры от Глафиры → ЗП → объём → порог), 4 состояния (`noAccess`/`build`/`running`/`done`). Прогресс — РЕАЛЬНЫЙ поллинг `GET /smart/runs/{id}` (1500мс), не таймер. ⚠️ Тратит реальные деньги клиента (см. §3 + память `smart-search-state`). Эталон — `project/components/SmartSearch.jsx` + `project/styles/smart-search.css`.
 
 ---
 
@@ -129,7 +134,11 @@
 
 **Свежие фичи (0.3.x):** верификация частично реальная (DaData + OSINT claude-cli + «ПдН подписан», см. §2.8); рич-текст редактор описания вакансии (`RichTextField`, contentEditable+execCommand — `description` хранит HTML, в скоринг идёт со снятыми тегами); редактируемое «Описание этапа» воронки.
 
-**Текущая версия:** `frontend/src/lib/version.ts` (`APP_VERSION`) — на 2026-06-04 ~**0.3.32**. Видна в Sidebar под «Глафира». **Bump на каждый значимый деплой.**
+**Свежие фичи (0.4.x) — АВТОМАТИЗАЦИЯ ВОРОНКИ (⚠️ действует с живыми людьми, дефолт OFF, opt-in на вакансии):** см. память `funnel-automation-state`. П.1 автоперевод по скорингу + П.4 настраиваемый текст отказа — РЕАЛЬНЫ. П.2 (вопросы+автоперевод по ответам) и П.3 (автоотказ) — реализованы, тумблеры рабочие, дефолт OFF. **NB:** полный автоотказ+письмо (П.3) требует `glafira_mode='B'`, а селектора режима в UI НЕТ (`glafira_mode` зашит в 'A') → штатно сейчас П.3 = только подсказка `auto_reject_suggested_at`. Адверс-ревью v0.4.7 (131 агент) подтвердило предохранители (режим C/None не двигает, audit `actor_type='ai'`, only-forward, 502 цел, одна alembic-голова); хвосты к починке: автономный discard+письмо П.4 НЕ пишет `audit_log` (нарушение §2.2); UI-подпись «при скоринге AI >» vs код `>=`; `rejection_text` нельзя очистить в None через форму; `glafira_mode` без Pydantic-`Literal` (500 на мусоре); stale-коммент «П.2/П.3 disabled» в `VacancyFormPage.tsx:277`; П.3 бьёт по всем нетерминальным этапам.
+
+**Свежие фичи (0.5.x) — УМНЫЙ ПОДБОР / активный сорсинг (⚠️ ТРАТИТ РЕАЛЬНЫЕ ДЕНЬГИ КЛИЕНТА — квота hh + AI-токены + списание контактов):** новый раздел `/smart` (экран 11) — Глафира сама ищет резюме в базе hh, оценивает AI-скорингом против вакансии и приглашает лучших в воронку. Бек/предохранители — см. §3; UX — §4 п.11; глубокие детали и грабли — память `smart-search-state` ([[hh-resume-search-recon]]). Модель доступа: поиск+оценка без платного доступа, приглашения только при платном доступе + опубликованной на hh вакансии (иначе превью-режим). Фильтры (проф-область/роль hh) подбирает Глафира из вакансии (LLM). **Первый реальный платный запуск делает заказчик осознанно** — не агент. Открытый риск: сам `GET /resumes/{id}` для оценки МОЖЕТ требовать платный доступ hh (проверяется на живом запуске по диаг-логу).
+
+**Текущая версия:** `frontend/src/lib/version.ts` (`APP_VERSION`) — на 2026-06-08 ~**0.5.6**. Видна в Sidebar под «Глафира». **Bump на каждый значимый деплой.**
 
 ---
 
