@@ -42,8 +42,9 @@ async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
             run = await session.get(SmartSearchRun, run_id)
             if run and run.params:
                 scan_n = run.params.get("scan_n", 50)
-                # Щедрый таймаут: базовые 900с + по 30с на каждое резюме (этап оценки долгий)
-                return max(900, scan_n * 30)
+                # Реалистичный таймаут: базовые 900с + по 200с на каждое резюме
+                # (get_resume ~35с + score_resume с ретраями до ~180с)
+                return max(900, scan_n * 200)
     except Exception:
         pass
 
@@ -488,36 +489,74 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
         timeout_s = await _calculate_search_timeout(run_id, company_id)
         await asyncio.wait_for(_run_search_inner(run_id, company_id, user_id), timeout=timeout_s)
     except asyncio.TimeoutError:
-        # Финализируем СВЕЖЕЙ сессией (старая могла зависнуть)
-        from ..database import AsyncSessionLocal
-        async with AsyncSessionLocal() as session:
-            run = await session.get(SmartSearchRun, run_id)
-            if run and run.status == "running":
-                run.status = "error"
-                run.note = "Поиск прерван по таймауту (hh не ответил вовремя). Попробуйте ещё раз."
-                run.error = "timeout"
-                run.finished_at = datetime.now(timezone.utc)
-                await session.commit()
+        # Финализируем СВЕЖЕЙ сессией с таймаутом (старая могла зависнуть)
+        try:
+            await asyncio.wait_for(
+                _finalize_run(
+                    run_id,
+                    status="error",
+                    error="timeout",
+                    note="Поиск прерван по таймауту (hh не ответил вовремя). Попробуйте ещё раз."
+                ),
+                timeout=15
+            )
+        except Exception as e:
+            logger.error(f"Не удалось финализировать run {run_id} по таймауту: {e}")
+    except asyncio.CancelledError:
+        # Обязательная финализация при отмене
+        try:
+            await asyncio.wait_for(
+                _finalize_run(
+                    run_id,
+                    status="error",
+                    error="cancelled",
+                    note="Поиск был отменён"
+                ),
+                timeout=15
+            )
+        except Exception as e:
+            logger.error(f"Не удалось финализировать отменённый run {run_id}: {e}")
+        raise
+    except Exception as e:
+        # Финализируем любые другие ошибки
+        try:
+            await asyncio.wait_for(
+                _finalize_run(
+                    run_id,
+                    status="error",
+                    error=str(e)[:500],
+                    note=f"Неожиданная ошибка: {str(e)[:200]}"
+                ),
+                timeout=15
+            )
+        except Exception as finalize_error:
+            logger.error(f"Не удалось финализировать run {run_id} после ошибки: {finalize_error}")
+        raise
 
 
 async def _update_run_progress(run_id: UUID, **updates):
     """Обновляет прогресс выполнения поиска короткой сессией"""
     from ..database import AsyncSessionLocal
 
-    async with AsyncSessionLocal() as session:
-        run = await session.get(SmartSearchRun, run_id)
-        if not run:
-            return
+    try:
+        async with AsyncSessionLocal() as session:
+            run = await session.get(SmartSearchRun, run_id)
+            if not run:
+                return
 
-        for key, value in updates.items():
-            if key == "log_append":
-                # Специальный case для добавления в лог
-                current_log = run.log if isinstance(run.log, list) else []
-                run.log = current_log + [value]
-            else:
-                setattr(run, key, value)
+            for key, value in updates.items():
+                if key == "log_append":
+                    # Специальный case для добавления в лог
+                    current_log = run.log if isinstance(run.log, list) else []
+                    run.log = current_log + [value]
+                else:
+                    setattr(run, key, value)
 
-        await session.commit()
+            # Обёрнутый commit с таймаутом
+            await asyncio.wait_for(session.commit(), timeout=20)
+    except Exception as e:
+        logger.warning(f"Ошибка обновления прогресса run {run_id}: {e}")
+        # Не пробрасываем исключение - прогресс не критичен для основного flow
 
 
 async def _finalize_run(run_id: UUID, status: str, stage: str = None, error: str = None, note: str = None, **extra_fields):
@@ -548,7 +587,8 @@ async def _finalize_run(run_id: UUID, status: str, stage: str = None, error: str
             current_log = run.log if isinstance(run.log, list) else []
             run.log = current_log + [f"Финализация: {status} ({datetime.now(timezone.utc).strftime('%H:%M:%S')})"]
 
-            await session.commit()
+            # Обёрнутый commit с таймаутом - главная защита от зависания финала
+            await asyncio.wait_for(session.commit(), timeout=30)
             logger.info(f"Run {run_id} финализирован: {status}")
             return True
 
@@ -578,17 +618,31 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             access_token = await hh_service.get_valid_access_token(init_session, company_id)
             vacancy = await init_session.get(Vacancy, run.vacancy_id)
 
+            # Сохраняем нужные данные в локальные переменные до закрытия сессии
             params = run.params
-            vacancy_name = vacancy.name
+            vacancy_id = run.vacancy_id  # Сохраняем ID отдельно
+
+            # Создаём полную копию нужных атрибутов vacancy для использования вне сессии
+            vacancy_data = {
+                'name': vacancy.name,
+                'city': vacancy.city,
+                'salary_from': vacancy.salary_from,
+                'salary_to': vacancy.salary_to,
+                'currency': vacancy.currency,
+                'description': vacancy.description,
+                'recruiter_scoring_instructions': vacancy.recruiter_scoring_instructions
+            }
+            # Создаём объект-заглушку с нужными атрибутами для score_resume_dict
+            vacancy_for_scoring = type('VacancyProxy', (), vacancy_data)()
 
             await init_session.commit()  # Сохраняем инициализацию
 
         # Логируем старт без открытой сессии
-        await log_smart_search(run_id, f"Запуск умного подбора для вакансии {run.vacancy_id}")
-        await log_smart_search(run_id, f"Вакансия: {vacancy_name}")
+        await log_smart_search(run_id, f"Запуск умного подбора для вакансии {vacancy_id}")
+        await log_smart_search(run_id, f"Вакансия: {vacancy_data['name']}")
 
         # ЭТАП 1: Поиск резюме с пагинацией (БЕЗ открытой DB сессии)
-        base_search_params = build_search_params(params, vacancy)
+        base_search_params = build_search_params(params, vacancy_for_scoring)
         base_search_params["per_page"] = 50
 
         logger.info("[smart] search_params=%s", base_search_params)
@@ -603,8 +657,11 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             search_params = base_search_params.copy()
             search_params["page"] = page
 
-            # Сетевой вызов БЕЗ открытой DB сессии
-            search_result = await hh_client.search_resumes(access_token, search_params)
+            # Сетевой вызов БЕЗ открытой DB сессии с таймаутом
+            search_result = await asyncio.wait_for(
+                hh_client.search_resumes(access_token, search_params),
+                timeout=45
+            )
             page_found = search_result.get("found", 0)
             page_items = search_result.get("items", [])
 
@@ -656,8 +713,11 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     )
                     continue
 
-                # Получаем полное резюме (ПЛАТНО) БЕЗ открытой DB сессии
-                full_resume = await hh_client.get_resume_by_id(access_token, str(resume_id))
+                # Получаем полное резюме (ПЛАТНО) БЕЗ открытой DB сессии с таймаутом
+                full_resume = await asyncio.wait_for(
+                    hh_client.get_resume_by_id(access_token, str(resume_id)),
+                    timeout=35
+                )
 
                 # Извлекаем имя для логирования
                 first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
@@ -665,8 +725,11 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                 name = f"{first_name} {last_name}".strip()
 
                 try:
-                    # Оцениваем резюме БЕЗ открытой DB сессии
-                    score_result = await score_resume_dict(full_resume, vacancy, company_id)
+                    # Оцениваем резюме БЕЗ открытой DB сессии с таймаутом
+                    score_result = await asyncio.wait_for(
+                        score_resume_dict(full_resume, vacancy_for_scoring, company_id),
+                        timeout=180  # LLM-вызов может быть долгим с ретраями
+                    )
                     score = score_result["score"]
                     verdict = score_result["verdict"]
                     passed = score >= threshold
@@ -722,7 +785,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                             current_log = run.log if isinstance(run.log, list) else []
                             run.log = current_log + [log_message]
 
-                            await eval_session.commit()
+                            await asyncio.wait_for(eval_session.commit(), timeout=20)
 
                 except GlafiraParseError as e:
                     error_msg = f"Резюме {resume_id} • {name} • ошибка оценки AI: {str(e)[:100]}"
@@ -735,9 +798,10 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                         log_append=error_msg
                     )
 
-            except Exception as e:
+            except (asyncio.TimeoutError, ConnectionError, OSError, ValueError) as e:
+                # Сетевые и ожидаемые ошибки - логируем и продолжаем
                 error_msg = f"Резюме {resume_id or i+1} • ошибка загрузки: {str(e)[:100]}"
-                logger.warning(f"Ошибка при обработке резюме {resume_id}: {e}")
+                logger.warning(f"Сетевая/timeout ошибка при обработке резюме {resume_id}: {e}")
                 await log_smart_search(run_id, error_msg)
 
                 await _update_run_progress(
@@ -746,6 +810,10 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     log_append=error_msg
                 )
                 continue
+            except Exception as e:
+                # Неожиданные системные ошибки - пробрасываем вверх для финализации
+                logger.error(f"Неожиданная ошибка при обработке резюме {resume_id}: {e}", exc_info=True)
+                raise
 
         # Подсчёт прошедших порог
         passed_threshold = len([
