@@ -60,6 +60,31 @@ export interface SmartRun {
   log: string[];
 }
 
+export interface SmartRequirementMatch {
+  criterion: string;
+  weight: number;
+  points: number;
+  comment?: string;
+}
+
+export interface SmartScoredExperience {
+  position?: string;
+  company?: string;
+  period?: string;
+  description?: string;
+}
+
+export interface SmartScoredResume {
+  title?: string;
+  total_experience_months?: number;
+  city?: string;
+  age?: number;
+  salary?: string;
+  experience: SmartScoredExperience[];
+  skills: string[];
+  education?: string;
+}
+
 export interface SmartCandidate {
   candidate_id: string | null;
   name: string;
@@ -70,6 +95,12 @@ export interface SmartCandidate {
   score: number;
   verdict: string;
   passed?: boolean;
+  summary?: string;
+  strengths?: string[];
+  risks?: string[];
+  forecast?: string;
+  requirements_match?: SmartRequirementMatch[];
+  resume?: SmartScoredResume;
 }
 
 export interface SmartHistoryItem {

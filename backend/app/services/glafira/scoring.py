@@ -165,18 +165,15 @@ async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUI
 
     # Валидация полной схемы
     try:
-        _ScoringLLMOutput.model_validate(response_data)
+        validated = _ScoringLLMOutput.model_validate(response_data)
     except ValidationError as e:
         raise GlafiraParseError(details={
             "reason": "LLM-ответ не прошёл валидацию схемы",
             "errors": str(e)[:500]
         })
 
-    return {
-        "score": response_data["score"],
-        "verdict": response_data["verdict"],
-        "summary": response_data["summary"]
-    }
+    # Возвращаем все валидированные поля (обратная совместимость: score/verdict/summary на месте)
+    return validated.model_dump()
 
 
 def _build_hh_experience_text(experiences: list) -> str:

@@ -15,6 +15,7 @@ import {
   useSmartAreaSuggest,
   type SmartVacancy,
   type SmartCandidate,
+  type SmartScoredResume,
   type SmartSearchRequest,
   type SmartCountRequest,
   type SmartAreaSuggestItem,
@@ -54,6 +55,7 @@ export default function SmartSearchPage() {
   const [selOpen, setSelOpen] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [showCostConfirm, setShowCostConfirm] = useState(false);
+  const [detailCandidate, setDetailCandidate] = useState<SmartCandidate | null>(null);
 
   // Step 2 — фильтры
   const [skills, setSkills] = useState<string[]>([]);
@@ -129,6 +131,7 @@ export default function SmartSearchPage() {
     setSelOpen(false);
     setRunId(null);
     setShowCostConfirm(false);
+    setDetailCandidate(null);
     setSkills([]);
     setRole('');
     setExp('');
@@ -257,7 +260,17 @@ export default function SmartSearchPage() {
     return (
       <div className="ss-page">
         <SSHeader />
-        <SSRunning runData={runData} vac={vac} />
+        <SSRunning
+          runData={runData}
+          vac={vac}
+          onOpenCandidate={setDetailCandidate}
+        />
+        {detailCandidate && (
+          <SSCandidateDetail
+            candidate={detailCandidate}
+            onClose={() => setDetailCandidate(null)}
+          />
+        )}
       </div>
     );
   }
@@ -274,8 +287,15 @@ export default function SmartSearchPage() {
           onNew={resetAll}
           onGoFunnel={() => navigate(`/vacancies/${vacId}`)}
           onGoSettings={() => navigate('/settings')}
+          onOpenCandidate={setDetailCandidate}
         />
         <SSHistory history={history} />
+        {detailCandidate && (
+          <SSCandidateDetail
+            candidate={detailCandidate}
+            onClose={() => setDetailCandidate(null)}
+          />
+        )}
       </div>
     );
   }
@@ -751,7 +771,11 @@ function SSInitialHero() {
   );
 }
 
-function SSRunning({ runData, vac }: { runData: any; vac: SmartVacancy | null }) {
+function SSRunning({ runData, vac, onOpenCandidate }: {
+  runData: any;
+  vac: SmartVacancy | null;
+  onOpenCandidate?: (candidate: SmartCandidate) => void;
+}) {
   if (!runData) return null;
 
   const phases = [
@@ -801,9 +825,21 @@ function SSRunning({ runData, vac }: { runData: any; vac: SmartVacancy | null })
               <span className="live-dot">оценка в реальном времени</span>
             </div>
             {runData.scored_candidates.map((c: any, index: number) => (
-              <div key={c.candidate_id || index} className="ss-inv-row" style={{
-                opacity: c.passed === false ? 0.6 : 1
-              }}>
+              <div
+                key={c.candidate_id || index}
+                className="ss-inv-row ss-inv-row-clickable"
+                style={{ opacity: c.passed === false ? 0.6 : 1 }}
+                onClick={() => onOpenCandidate?.(c)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenCandidate?.(c);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`Открыть детальный разбор кандидата ${c.name}`}
+              >
                 <Avatar name={c.name} size="sm" />
                 <div className="ss-inv-main">
                   <div className="ss-inv-name">{c.name}</div>
@@ -865,13 +901,14 @@ function SSRunning({ runData, vac }: { runData: any; vac: SmartVacancy | null })
   );
 }
 
-function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings }: {
+function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings, onOpenCandidate }: {
   runData: any;
   vac: SmartVacancy | null;
   threshold: number;
   onNew: () => void;
   onGoFunnel: () => void;
   onGoSettings: () => void;
+  onOpenCandidate?: (candidate: SmartCandidate) => void;
 }) {
   if (!runData) return null;
 
@@ -922,9 +959,21 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings }: 
             <span className="live-dot">{noOnePassed ? 'порог не пройден' : (isPreview ? 'оценены AI' : 'приглашения отправлены')}</span>
           </div>
           {(noOnePassed ? runData.scored_candidates : runData.invited_candidates).map((c: SmartCandidate, index: number) => (
-            <div key={c.candidate_id || index} className="ss-inv-row" style={{
-              opacity: (noOnePassed && c.passed === false) ? 0.6 : 1
-            }}>
+            <div
+              key={c.candidate_id || index}
+              className="ss-inv-row ss-inv-row-clickable"
+              style={{ opacity: (noOnePassed && c.passed === false) ? 0.6 : 1 }}
+              onClick={() => onOpenCandidate?.(c)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenCandidate?.(c);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={`Открыть детальный разбор кандидата ${c.name}`}
+            >
               <Avatar name={c.name} size="sm" />
               <div className="ss-inv-main">
                 <div className="ss-inv-name">{c.name}</div>
@@ -1208,6 +1257,226 @@ function SmartPeriodSelector({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+// Компонент детального просмотра кандидата из умного подбора
+function SSCandidateDetail({
+  candidate,
+  onClose,
+}: {
+  candidate: SmartCandidate;
+  onClose: () => void;
+}) {
+  // Форматирование стажа в человекочитаемый вид
+  const formatExperience = (months: number | undefined): string => {
+    if (!months) return '';
+    const years = Math.floor(months / 12);
+    const remainingMonths = months % 12;
+    if (years === 0) return `${remainingMonths} мес`;
+    if (remainingMonths === 0) return `${years} лет`;
+    return `${years} лет ${remainingMonths} мес`;
+  };
+
+  // Проверка пустого резюме
+  const isEmptyResume = (resume: SmartScoredResume | undefined): boolean => {
+    if (!resume) return true;
+    return (!resume.experience || resume.experience.length === 0) &&
+           (!resume.skills || resume.skills.length === 0);
+  };
+
+  // Вычисления для requirements_match
+  const totalPoints = candidate.requirements_match?.reduce((sum, match) => sum + match.points, 0) || 0;
+  const totalWeight = candidate.requirements_match?.reduce((sum, match) => sum + match.weight, 0) || 0;
+
+  // Обработка Esc
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  return (
+    <div className="ss-page-modal-overlay" onClick={onClose}>
+      <div className="ss-page-modal-content" onClick={(e) => e.stopPropagation()}>
+        {/* Шапка */}
+        <div className="ss-page-modal-header">
+          <div className="ss-page-modal-title-area">
+            <h2 className="ss-page-modal-title">
+              {candidate.name || 'Без имени'}
+            </h2>
+            <div className="ss-page-modal-meta">
+              <ScoreLabel value={candidate.score} size="lg" />
+              <span className="ss-page-modal-verdict">{candidate.verdict}</span>
+              {candidate.passed !== undefined && (
+                <span className={`ss-page-modal-threshold ${candidate.passed ? 'passed' : 'failed'}`}>
+                  {candidate.passed ? '✓ Прошёл порог' : '✗ Не прошёл порог'}
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            className="ss-page-modal-close"
+            onClick={onClose}
+            aria-label="Закрыть"
+          >
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+
+        <div className="ss-page-modal-body">
+          {/* Резюме (тело) */}
+          <section className="ss-page-modal-section">
+            <h3 className="ss-page-modal-section-title">
+              <Icon name="file-text" size={16} />
+              Резюме
+            </h3>
+
+            {isEmptyResume(candidate.resume) ? (
+              <div className="ss-page-empty-resume">
+                <Icon name="alert-triangle" size={20} className="ss-page-empty-resume-icon" />
+                <div>
+                  <strong>hh вернул резюме без содержимого</strong>
+                  <p>Тело резюме скрыто или пустое — вероятно, поэтому низкий балл</p>
+                </div>
+              </div>
+            ) : (
+              <div className="ss-page-resume-content">
+                {candidate.resume?.title && (
+                  <div className="ss-page-resume-title">{candidate.resume.title}</div>
+                )}
+
+                <div className="ss-page-resume-meta">
+                  {candidate.resume?.total_experience_months && (
+                    <span>Общий стаж: {formatExperience(candidate.resume.total_experience_months)}</span>
+                  )}
+                  {candidate.resume?.city && <span>Город: {candidate.resume.city}</span>}
+                  {candidate.resume?.age && <span>Возраст: {candidate.resume.age} лет</span>}
+                  {candidate.resume?.salary && <span>Ожидаемая ЗП: {candidate.resume.salary}</span>}
+                </div>
+
+                {candidate.resume?.experience && candidate.resume.experience.length > 0 && (
+                  <div className="ss-page-resume-block">
+                    <h4>Опыт работы</h4>
+                    {candidate.resume.experience.map((exp, index) => (
+                      <div key={index} className="ss-page-resume-exp">
+                        <div className="ss-page-resume-exp-header">
+                          {exp.position && <span className="ss-page-resume-exp-position">{exp.position}</span>}
+                          {exp.company && <span className="ss-page-resume-exp-company">{exp.company}</span>}
+                          {exp.period && <span className="ss-page-resume-exp-period">{exp.period}</span>}
+                        </div>
+                        {exp.description && (
+                          <div className="ss-page-resume-exp-desc">{exp.description}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {candidate.resume?.skills && candidate.resume.skills.length > 0 && (
+                  <div className="ss-page-resume-block">
+                    <h4>Навыки</h4>
+                    <div className="ss-page-resume-skills">
+                      {candidate.resume.skills.map((skill, index) => (
+                        <span key={index} className="ss-page-resume-skill">{skill}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {candidate.resume?.education && (
+                  <div className="ss-page-resume-block">
+                    <h4>Образование</h4>
+                    <div className="ss-page-resume-education">{candidate.resume.education}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Разбор AI (как в карточке Глафиры) */}
+          <section className="ss-page-modal-section">
+            <h3 className="ss-page-modal-section-title">
+              <Icon name="sparkles" size={16} />
+              Анализ AI
+            </h3>
+
+            {candidate.summary && (
+              <div className="ss-page-ai-summary">{candidate.summary}</div>
+            )}
+
+            {candidate.strengths && candidate.strengths.length > 0 && (
+              <div className="ss-page-ai-block ss-page-ai-good">
+                <div className="ss-page-ai-header ss-page-ai-header-good">
+                  <span className="ss-page-ai-emoji">✅</span>
+                  Сильные стороны
+                </div>
+                <ul className="ss-page-ai-list">
+                  {candidate.strengths.map((strength, index) => (
+                    <li key={index}>{strength}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {candidate.risks && candidate.risks.length > 0 && (
+              <div className="ss-page-ai-block ss-page-ai-warn">
+                <div className="ss-page-ai-header ss-page-ai-header-warn">
+                  <span className="ss-page-ai-emoji">⚠️</span>
+                  Слабые стороны
+                </div>
+                <ul className="ss-page-ai-list">
+                  {candidate.risks.map((risk, index) => (
+                    <li key={index}>{risk}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {candidate.requirements_match && candidate.requirements_match.length > 0 && (
+              <div className="ss-page-requirements">
+                <h4 className="ss-page-requirements-title">
+                  Разбор по критериям
+                  <span className="ss-page-requirements-total">
+                    <span className="t-mono">{totalPoints}</span> / <span className="t-mono">{totalWeight}</span>
+                  </span>
+                </h4>
+                <div className="ss-page-requirements-list">
+                  {candidate.requirements_match.map((match, index) => {
+                    const pct = match.weight ? Math.round((match.points / match.weight) * 100) : 0;
+                    const color = match.weight === 0 ? 'gray' : pct >= 80 ? 'green' : pct >= 40 ? 'yellow' : 'red';
+                    return (
+                      <div key={index} className={`ss-page-requirements-item ss-page-req-${color}`}>
+                        <div className="ss-page-req-head">
+                          <span className="ss-page-req-criterion">{match.criterion}</span>
+                          <span className="ss-page-req-points t-mono">
+                            {match.points}<span className="ss-page-req-points-max"> / {match.weight || '—'}</span>
+                          </span>
+                        </div>
+                        <div className="ss-page-req-bar">
+                          <span style={{ width: `${pct}%` }} />
+                        </div>
+                        {match.comment && (
+                          <div className="ss-page-req-comment">{match.comment}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {candidate.forecast && (
+              <div className="ss-page-ai-forecast">{candidate.forecast}</div>
+            )}
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

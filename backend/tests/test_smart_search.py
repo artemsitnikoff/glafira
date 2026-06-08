@@ -17,6 +17,7 @@ from app.services.smart_search import (
     preview_found_count,
     build_search_params,
     suggest_areas,
+    _compact_resume_for_display,
     FREE_SCAN_LIMIT
 )
 from app.schemas.smart import SmartSearchRequest, SmartCountRequest
@@ -771,3 +772,183 @@ async def test_suggest_areas_hh_error_graceful(
 
     # Должен вернуть пустой список, а не выбросить исключение
     assert result == []
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.call_json')
+async def test_score_resume_dict_returns_full_breakdown(mock_call_json):
+    """Тест что score_resume_dict теперь возвращает полный разбор"""
+    from app.services.glafira.scoring import score_resume_dict
+    from app.models import Vacancy
+    from uuid import uuid4
+
+    # Мокаем полный ответ LLM
+    mock_call_json.return_value = {
+        "score": 85,
+        "verdict": "good",
+        "summary": "Опытный Python разработчик с сильными навыками",
+        "strengths": ["Python", "Django", "опыт 5+ лет"],
+        "risks": ["нет опыта в тестировании", "завышенные зарплатные ожидания"],
+        "requirements_match": [
+            {"criterion": "Знание Python", "weight": 25, "points": 25, "comment": "Отличное знание"},
+            {"criterion": "Опыт веб-разработки", "weight": 20, "points": 18, "comment": "Хороший опыт в Django"}
+        ],
+        "forecast": "Подойдёт на позицию senior developer",
+        "questions": ["Готовы ли к релокации?", "Опыт работы в команде?"]
+    }
+
+    # Создаём мок-объекты
+    vacancy = Vacancy()
+    vacancy.name = "Python Developer"
+    vacancy.description = "Требуется опытный Python разработчик"
+
+    hh_resume = {
+        "first_name": "Иван",
+        "last_name": "Петров",
+        "title": "Python Developer",
+        "area": {"name": "Москва"},
+        "skills": "Python, Django, PostgreSQL"
+    }
+
+    company_id = uuid4()
+
+    # Вызываем функцию
+    result = await score_resume_dict(hh_resume, vacancy, company_id)
+
+    # Проверяем что возвращаются все поля
+    assert result["score"] == 85
+    assert result["verdict"] == "good"
+    assert result["summary"] == "Опытный Python разработчик с сильными навыками"
+    assert result["strengths"] == ["Python", "Django", "опыт 5+ лет"]
+    assert result["risks"] == ["нет опыта в тестировании", "завышенные зарплатные ожидания"]
+    assert len(result["requirements_match"]) == 2
+    assert result["requirements_match"][0]["criterion"] == "Знание Python"
+    assert result["forecast"] == "Подойдёт на позицию senior developer"
+    assert result["questions"] == ["Готовы ли к релокации?", "Опыт работы в команде?"]
+
+
+@pytest.mark.asyncio
+async def test_compact_resume_for_display():
+    """Тест функции _compact_resume_for_display"""
+    from app.services.smart_search import _compact_resume_for_display
+
+    # Полное резюме с данными
+    full_resume = {
+        "title": "Senior Python Developer",
+        "total_experience": {"months": 60},  # 5 лет
+        "area": {"name": "Москва"},
+        "age": 30,
+        "salary": {
+            "from": 150000,
+            "to": 200000,
+            "currency": "RUR"
+        },
+        "experience": [
+            {
+                "position": "Python Developer",
+                "company": "ООО Рога и Копыта",
+                "start": "2020-01",
+                "end": "2023-06",
+                "description": "Разработка веб-приложений на Django" + "а" * 400  # Длинное описание
+            },
+            {
+                "position": "Junior Developer",
+                "company": "IT Start",
+                "start": "2019-01",
+                "end": None,  # Текущая работа
+                "description": "Изучение Python"
+            }
+        ],
+        "skills": "Python, Django, PostgreSQL",
+        "key_skills": [
+            {"name": "Git"},
+            {"name": "Docker"}
+        ],
+        "education": {
+            "level": {"name": "Высшее"}
+        }
+    }
+
+    result = _compact_resume_for_display(full_resume)
+
+    # Проверяем основные поля
+    assert result["title"] == "Senior Python Developer"
+    assert result["total_experience_months"] == 60
+    assert result["city"] == "Москва"
+    assert result["age"] == 30
+    assert result["salary"] == "150,000 - 200,000 RUR"
+    assert result["education"] == "Высшее"
+
+    # Проверяем опыт работы (обрезание описания)
+    assert len(result["experience"]) == 2
+    assert result["experience"][0]["position"] == "Python Developer"
+    assert result["experience"][0]["company"] == "ООО Рога и Копыта"
+    assert result["experience"][0]["period"] == "2020-01 - 2023-06"
+    assert len(result["experience"][0]["description"]) <= 400
+
+    assert result["experience"][1]["period"] == "2019-01 - по наст.вр."
+
+    # Проверяем навыки (из обоих источников)
+    assert "Python" in result["skills"]
+    assert "Git" in result["skills"]
+    assert "Docker" in result["skills"]
+
+    # Пустое резюме не должно падать
+    empty_result = _compact_resume_for_display({})
+    assert empty_result["title"] is None
+    assert empty_result["experience"] == []
+    assert empty_result["skills"] == []
+
+
+@pytest.mark.asyncio
+async def test_scored_candidates_with_full_breakdown():
+    """Тест что scored_candidates теперь содержит полный разбор"""
+    from app.schemas.smart import InvitedCandidate, SmartScoredResume, SmartRequirementMatch
+
+    # Структура scored_candidate с новыми полями
+    scored_candidate_data = {
+        "candidate_id": None,
+        "name": "Иван Петров",
+        "age": 30,
+        "experience_years": 5,
+        "last_company": "ООО Тест",
+        "city": "Москва",
+        "score": 85,
+        "verdict": "good",
+        "passed": True,
+        # Новые поля с разбором
+        "summary": "Опытный разработчик",
+        "strengths": ["Python", "Django"],
+        "risks": ["нет опыта тестирования"],
+        "forecast": "Подойдёт на senior позицию",
+        "requirements_match": [
+            {"criterion": "Python", "weight": 25, "points": 25, "comment": "Отлично"}
+        ],
+        "resume": {
+            "title": "Python Developer",
+            "total_experience_months": 60,
+            "city": "Москва",
+            "age": 30,
+            "salary": "150,000 - 200,000 RUR",
+            "experience": [
+                {"position": "Developer", "company": "IT Corp", "period": "2020-2023", "description": "Разработка"}
+            ],
+            "skills": ["Python", "Django"],
+            "education": "Высшее"
+        }
+    }
+
+    # Должен корректно парситься в InvitedCandidate
+    candidate = InvitedCandidate(**scored_candidate_data)
+
+    assert candidate.name == "Иван Петров"
+    assert candidate.score == 85
+    assert candidate.summary == "Опытный разработчик"
+    assert candidate.strengths == ["Python", "Django"]
+    assert candidate.risks == ["нет опыта тестирования"]
+    assert candidate.forecast == "Подойдёт на senior позицию"
+    assert len(candidate.requirements_match) == 1
+    assert candidate.requirements_match[0].criterion == "Python"
+    assert candidate.resume.title == "Python Developer"
+    assert candidate.resume.total_experience_months == 60
+    assert len(candidate.resume.experience) == 1

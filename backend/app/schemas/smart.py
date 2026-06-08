@@ -52,6 +52,34 @@ class SmartSearchResponse(BaseModel):
     run_id: UUID
 
 
+class SmartRequirementMatch(BaseModel):
+    """Соответствие требованию при скоринге в умном подборе"""
+    criterion: str  # критерий оценки
+    weight: int  # максимальный вес критерия
+    points: int  # набранные баллы (≤ weight)
+    comment: Optional[str] = None  # комментарий по критерию
+
+
+class SmartScoredExperience(BaseModel):
+    """Опыт работы в компактном резюме"""
+    position: Optional[str] = None
+    company: Optional[str] = None
+    period: Optional[str] = None
+    description: Optional[str] = None
+
+
+class SmartScoredResume(BaseModel):
+    """Компактное резюме для отображения"""
+    title: Optional[str] = None
+    total_experience_months: Optional[int] = None
+    city: Optional[str] = None
+    age: Optional[int] = None
+    salary: Optional[str] = None  # Форматированная строка
+    experience: list[SmartScoredExperience] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    education: Optional[str] = None
+
+
 class InvitedCandidate(BaseModel):
     """Приглашенный кандидат"""
     candidate_id: Optional[UUID] = None  # None для превью режима
@@ -63,6 +91,13 @@ class InvitedCandidate(BaseModel):
     score: int
     verdict: str
     passed: Optional[bool] = None  # для переиспользования в scored_candidates
+    # Новые поля с полным разбором (необязательные для обратной совместимости)
+    summary: Optional[str] = None
+    strengths: Optional[list[str]] = None
+    risks: Optional[list[str]] = None
+    forecast: Optional[str] = None
+    requirements_match: Optional[list[SmartRequirementMatch]] = None
+    resume: Optional[SmartScoredResume] = None
 
 
 class SmartRunStatus(BaseModel):

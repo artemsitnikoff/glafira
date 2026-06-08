@@ -68,6 +68,96 @@ async def sweep_orphaned_runs():
 _active_tasks = {}
 
 
+def _compact_resume_for_display(full_resume: dict) -> dict:
+    """Возвращает компактный dict резюме для UI (ограничивает размер)"""
+    # Зарплата
+    salary = None
+    salary_data = full_resume.get('salary')
+    if salary_data:
+        salary_from = salary_data.get('from')
+        salary_to = salary_data.get('to')
+        currency = salary_data.get('currency', 'RUR')
+        if salary_from and salary_to:
+            salary = f"{salary_from:,} - {salary_to:,} {currency}"
+        elif salary_from:
+            salary = f"от {salary_from:,} {currency}"
+        elif salary_to:
+            salary = f"до {salary_to:,} {currency}"
+        else:
+            salary = f"{currency}"
+
+    # Опыт работы (до 6 элементов)
+    experience = []
+    for exp in (full_resume.get("experience") or [])[:6]:
+        if not isinstance(exp, dict):
+            continue
+
+        position = exp.get('position', '')
+        company = exp.get('company', '')
+        start = exp.get('start', '')
+        end = exp.get('end', '')
+        description = exp.get('description', '')
+
+        # Период
+        period = start
+        if end:
+            period = f"{start} - {end}" if start else end
+        elif start:
+            period = f"{start} - по наст.вр."
+
+        experience.append({
+            "position": position,
+            "company": company,
+            "period": period,
+            "description": description[:400] if description else ""  # Обрезаем до 400 символов
+        })
+
+    # Навыки (до 40)
+    skills = []
+    skills_raw = full_resume.get('skills')
+    if isinstance(skills_raw, str):
+        skills = [skills_raw]
+    elif isinstance(skills_raw, list):
+        # Навыки могут быть строками или объектами с полем name/skill
+        for skill in skills_raw:
+            if isinstance(skill, str):
+                skills.append(skill)
+            elif isinstance(skill, dict):
+                skill_name = skill.get('name') or skill.get('skill') or str(skill)
+                skills.append(skill_name)
+
+    # Из key_skills если есть
+    key_skills = full_resume.get('key_skills', [])
+    for skill in key_skills[:40-len(skills)]:  # Дополняем до лимита 40
+        if isinstance(skill, dict):
+            skill_name = skill.get('name', '')
+            if skill_name and skill_name not in skills:
+                skills.append(skill_name)
+        elif isinstance(skill, str) and skill not in skills:
+            skills.append(skill)
+
+    skills = skills[:40]  # Финальный лимит
+
+    # Образование
+    education = None
+    education_data = full_resume.get("education")
+    if isinstance(education_data, dict):
+        level = education_data.get("level", {})
+        if isinstance(level, dict):
+            education = level.get("name")
+
+    return {
+        "title": full_resume.get("title"),
+        "total_experience_months": (full_resume.get("total_experience") or {}).get("months"),
+        "city": (full_resume.get("area") or {}).get("name"),
+        "age": full_resume.get("age"),
+        "salary": salary,
+        "experience": experience,
+        "skills": skills,
+        "education": education
+    }
+
+
 def _parse_api_quota(quota_data) -> tuple[bool, int, bool]:
     """Парсит ответ get_payable_api_actions по реальной схеме OpenAPI.
 
@@ -484,7 +574,7 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                             "full_resume": full_resume
                         })
 
-                        # Добавляем в scored_candidates для отчётности
+                        # Добавляем в scored_candidates для отчётности (теперь с полным разбором)
                         scored_candidate = {
                             "candidate_id": None,  # Ещё не создан
                             "name": name,
@@ -494,7 +584,14 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
                             "city": (full_resume.get("area") or {}).get("name"),
                             "score": score,
                             "verdict": verdict,
-                            "passed": passed
+                            "passed": passed,
+                            # Новые поля с полным разбором
+                            "summary": score_result.get("summary"),
+                            "strengths": score_result.get("strengths") or [],
+                            "risks": score_result.get("risks") or [],
+                            "requirements_match": score_result.get("requirements_match") or [],
+                            "forecast": score_result.get("forecast"),
+                            "resume": _compact_resume_for_display(full_resume)
                         }
 
                         run.scored_candidates = run.scored_candidates.copy()  # Новый список для SQLAlchemy

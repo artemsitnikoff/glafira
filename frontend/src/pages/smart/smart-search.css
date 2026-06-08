@@ -11,6 +11,21 @@
   margin: 0 auto;
 }
 
+/* ---------- Кликабельные строки кандидатов ---------- */
+.ss-page .ss-inv-row-clickable {
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.ss-page .ss-inv-row-clickable:hover {
+  background-color: var(--bg-3);
+}
+
+.ss-page .ss-inv-row-clickable:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ---------- Header ---------- */
 .ss-page .ss-head {
   display: flex; align-items: flex-start; gap: 14px;
@@ -797,3 +812,433 @@
 }
 .ss-page .info-banner.muted > svg { color: var(--fg-3); }
 .ss-page .info-banner.small { padding: 10px; margin-top: 10px; }
+
+/* ---------- Модалка детального просмотра кандидата ---------- */
+.ss-page .ss-page-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.ss-page .ss-page-modal-content {
+  background: var(--bg-1);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 700px;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+}
+
+.ss-page .ss-page-modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-1);
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.ss-page .ss-page-modal-title-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.ss-page .ss-page-modal-title {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ss-page .ss-page-modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ss-page .ss-page-modal-verdict {
+  padding: 4px 8px;
+  background: var(--bg-3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.ss-page .ss-page-modal-threshold {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ss-page .ss-page-modal-threshold.passed {
+  background: var(--ark-green-100);
+  color: var(--ark-green-600);
+}
+
+.ss-page .ss-page-modal-threshold.failed {
+  background: var(--ark-red-100);
+  color: var(--ark-red-600);
+}
+
+.ss-page .ss-page-modal-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--bg-3);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--fg-2);
+  transition: background-color 150ms ease;
+}
+
+.ss-page .ss-page-modal-close:hover {
+  background: var(--ark-gray-200);
+}
+
+.ss-page .ss-page-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+
+.ss-page .ss-page-modal-section {
+  margin-top: 24px;
+}
+
+.ss-page .ss-page-modal-section:first-child {
+  margin-top: 0;
+}
+
+.ss-page .ss-page-modal-section-title {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-1);
+}
+
+/* Пустое резюме */
+.ss-page .ss-page-empty-resume {
+  padding: 16px;
+  background: var(--ark-yellow-100);
+  border: 1px solid var(--ark-yellow-500);
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ss-page .ss-page-empty-resume-icon {
+  color: var(--ark-yellow-600);
+  flex: none;
+  margin-top: 2px;
+}
+
+.ss-page .ss-page-empty-resume strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ark-yellow-600);
+}
+
+.ss-page .ss-page-empty-resume p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ark-yellow-600);
+}
+
+/* Содержимое резюме */
+.ss-page .ss-page-resume-content {
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.ss-page .ss-page-resume-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--fg-1);
+}
+
+.ss-page .ss-page-resume-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.ss-page .ss-page-resume-block {
+  margin-top: 16px;
+}
+
+.ss-page .ss-page-resume-block:first-child {
+  margin-top: 0;
+}
+
+.ss-page .ss-page-resume-block h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.ss-page .ss-page-resume-exp {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-2);
+}
+
+.ss-page .ss-page-resume-exp:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ss-page .ss-page-resume-exp-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.ss-page .ss-page-resume-exp-position {
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.ss-page .ss-page-resume-exp-company {
+  color: var(--fg-2);
+}
+
+.ss-page .ss-page-resume-exp-period {
+  color: var(--fg-3);
+}
+
+.ss-page .ss-page-resume-exp-desc {
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+
+.ss-page .ss-page-resume-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ss-page .ss-page-resume-skill {
+  padding: 4px 8px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+
+.ss-page .ss-page-resume-education {
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+
+/* AI анализ */
+.ss-page .ss-page-ai-summary {
+  padding: 12px 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--fg-1);
+  line-height: 1.5;
+}
+
+.ss-page .ss-page-ai-block {
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-1);
+}
+
+.ss-page .ss-page-ai-good {
+  background: var(--ark-green-100);
+  border-color: var(--ark-green-500);
+}
+
+.ss-page .ss-page-ai-warn {
+  background: var(--ark-red-100);
+  border-color: var(--ark-red-500);
+}
+
+.ss-page .ss-page-ai-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.ss-page .ss-page-ai-header-good {
+  color: var(--ark-green-600);
+}
+
+.ss-page .ss-page-ai-header-warn {
+  color: var(--ark-red-600);
+}
+
+.ss-page .ss-page-ai-emoji {
+  font-size: 16px;
+}
+
+.ss-page .ss-page-ai-list {
+  margin: 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.ss-page .ss-page-ai-list li {
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: inherit;
+  line-height: 1.4;
+}
+
+.ss-page .ss-page-ai-forecast {
+  padding: 12px 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--fg-1);
+  line-height: 1.5;
+}
+
+/* Разбор по критериям (как в EvaluationTab) */
+.ss-page .ss-page-requirements {
+  margin-top: 16px;
+}
+
+.ss-page .ss-page-requirements-title {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ss-page .ss-page-requirements-total {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.ss-page .ss-page-requirements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ss-page .ss-page-requirements-item {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-1);
+}
+
+.ss-page .ss-page-req-green {
+  border-color: var(--ark-green-500);
+  background: var(--ark-green-100);
+}
+
+.ss-page .ss-page-req-yellow {
+  border-color: var(--ark-yellow-500);
+  background: var(--ark-yellow-100);
+}
+
+.ss-page .ss-page-req-red {
+  border-color: var(--ark-red-500);
+  background: var(--ark-red-100);
+}
+
+.ss-page .ss-page-req-gray {
+  border-color: var(--ark-gray-400);
+  background: var(--ark-gray-100);
+}
+
+.ss-page .ss-page-req-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.ss-page .ss-page-req-criterion {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.ss-page .ss-page-req-points {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.ss-page .ss-page-req-points-max {
+  color: var(--fg-3);
+}
+
+.ss-page .ss-page-req-bar {
+  height: 4px;
+  background: var(--border-2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.ss-page .ss-page-req-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 300ms ease;
+}
+
+.ss-page .ss-page-req-green .ss-page-req-bar span {
+  background: var(--ark-green-600);
+}
+
+.ss-page .ss-page-req-yellow .ss-page-req-bar span {
+  background: var(--ark-yellow-600);
+}
+
+.ss-page .ss-page-req-red .ss-page-req-bar span {
+  background: var(--ark-red-600);
+}
+
+.ss-page .ss-page-req-comment {
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.4;
+}
