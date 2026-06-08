@@ -15,10 +15,12 @@ export default function LoginPage() {
 
   const apiError = login.error as ApiError | null;
   const errCode = apiError?.error?.code;
-  const errMsg =
+  // Показываем ошибку ТОЛЬКО после реальной неудачной попытки входа (иначе строка
+  // висела бы сразу при открытии страницы из-за fallback'а '?? Ошибка входа').
+  const errMsg = !apiError ? null :
     errCode === 'INVALID_CREDENTIALS' ? 'Неверный email или пароль' :
     errCode === 'USER_INACTIVE' ? 'Пользователь деактивирован' :
-    apiError?.error?.message ?? 'Ошибка входа';
+    apiError.error?.message ?? 'Ошибка входа';
 
   return (
     <div className="login-page">
