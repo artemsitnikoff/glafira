@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 FREE_SCAN_LIMIT = 50
 MAX_PAGES_LIMIT = 20  # Защитный потолок страниц
 
+# Сетка безопасности read-path: если фоновая задача не перевела прогон в терминальный
+# статус (известный баг — финал-commit фоновой задачи иногда не доходит), GET сам выводит
+# результат из УЖЕ сохранённых scored_candidates. Данные оценки персистятся по ходу eval
+# короткими сессиями, поэтому терминал достоверно вычисляется при чтении.
+# Порог общего зависания: одна eval-итерация в худшем случае ~215с (resume 35с + LLM 180с),
+# берём с запасом, чтобы НИКОГДА не финализировать ещё идущий eval раньше времени.
+STUCK_RECONCILE_SECONDS = 270
+# Если фоновая задача успела пометить stage='finalizing' (eval точно завершён), а статус
+# всё ещё running — завис именно финал, можно досчитать терминал быстро.
+FINALIZING_RECONCILE_SECONDS = 20
+
 
 async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
     """Вычисляет таймаут поиска на основе параметров"""
@@ -815,6 +826,12 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                 logger.error(f"Неожиданная ошибка при обработке резюме {resume_id}: {e}", exc_info=True)
                 raise
 
+        # eval полностью завершён — помечаем stage='finalizing' проверенным коротким
+        # коммитом (тем же путём, что и eval-итерации, который заведомо работает).
+        # Если последующий финал-commit зависнет, read-path увидит этот маркер и быстро
+        # досчитает терминальный статус из scored_candidates (см. _reconcile_stuck_run).
+        await _update_run_progress(run_id, stage="finalizing")
+
         # Подсчёт прошедших порог
         passed_threshold = len([
             c for c in evaluated_candidates
@@ -1232,6 +1249,65 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     }
 
 
+async def _reconcile_stuck_run(session: AsyncSession, run: SmartSearchRun) -> SmartSearchRun:
+    """Сетка безопасности: фоновая задача не финализировала прогон (завис финал-commit).
+
+    scored_candidates персистятся по ходу eval короткими сессиями, поэтому терминальный
+    статус можно достоверно ВЫВЕСТИ из уже сохранённых данных и зафиксировать здоровой
+    сессией запроса. Идемпотентно: после перевода в done больше не срабатывает.
+    """
+    if run.status != "running":
+        return run
+
+    updated = run.updated_at
+    if updated is None:
+        return run
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - updated).total_seconds()
+
+    threshold_age = FINALIZING_RECONCILE_SECONDS if run.stage == "finalizing" else STUCK_RECONCILE_SECONDS
+    if age < threshold_age:
+        return run  # возможно, eval ещё идёт — не трогаем
+
+    scored = run.scored_candidates if isinstance(run.scored_candidates, list) else []
+    eval_threshold = (run.params or {}).get("threshold", 70)
+    passed = len([c for c in scored if c.get("passed") or (c.get("score") or 0) >= eval_threshold])
+
+    if not scored:
+        note = "Не удалось оценить ни одного резюме"
+    elif passed == 0:
+        note = f"Оценено {len(scored)} резюме, никто не набрал ≥{eval_threshold} — снизьте порог или расширьте фильтры."
+    else:
+        note = f"Оценка завершена. Прошли порог: {passed}. Выберите кандидатов для приглашения."
+
+    run.status = "done"
+    run.stage = "done"
+    run.passed_threshold = passed
+    run.invites_skipped = True
+    run.invited = run.invited or 0
+    run.finished_at = datetime.now(timezone.utc)
+    run.note = note
+    current_log = run.log if isinstance(run.log, list) else []
+    run.log = current_log + [
+        f"Авто-финализация при чтении: фоновая задача не обновила статус (age={int(age)}с)"
+    ]
+
+    try:
+        await session.commit()
+    except Exception as e:
+        logger.error(f"Не удалось авто-финализировать зависший run {run.id}: {e}", exc_info=True)
+        await session.rollback()
+        # Возвращаем чистое состояние из БД (rollback мог истечь атрибуты)
+        result = await session.execute(
+            select(SmartSearchRun).where(SmartSearchRun.id == run.id)
+        )
+        run = result.scalar_one_or_none() or run
+    else:
+        logger.warning(f"Run {run.id} авто-финализирован при чтении (фон не завершил): passed={passed}")
+    return run
+
+
 async def get_run_status(session: AsyncSession, run_id: UUID, company_id: UUID) -> Optional[SmartSearchRun]:
     """Получает статус выполнения поиска"""
 
@@ -1241,7 +1317,10 @@ async def get_run_status(session: AsyncSession, run_id: UUID, company_id: UUID) 
             SmartSearchRun.company_id == company_id
         )
     )
-    return result.scalar_one_or_none()
+    run = result.scalar_one_or_none()
+    if run is not None:
+        run = await _reconcile_stuck_run(session, run)
+    return run
 
 
 async def get_run_history(session: AsyncSession, company_id: UUID, limit: int = 20) -> list[SmartSearchRun]:
