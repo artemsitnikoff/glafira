@@ -1128,3 +1128,229 @@ async def test_note_formatting_for_different_scenarios():
         note = f"Приглашено {invited} из {passed_threshold} прошедших порог {threshold} (оценено {evaluated} резюме)"
 
     assert "Приглашено 2 из 5 прошедших порог 70" in note
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.smart_search.hh_client.invite_to_vacancy')
+@patch('app.services.smart_search.audit')
+async def test_invite_selected_success(
+    mock_audit,
+    mock_invite,
+    mock_get_resume,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест успешного приглашения выбранных кандидатов"""
+
+    # Подготавливаем данные
+    run_id = uuid4()
+    user_id = uuid4()
+    resume_id = "test_resume_123"
+
+    # Создаём SmartSearchRun с scored_candidates
+    from app.models import SmartSearchRun
+
+    run = SmartSearchRun(
+        id=run_id,
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="done",
+        stage="done",
+        scored_candidates=[
+            {
+                "hh_resume_id": resume_id,
+                "passed": True,
+                "invited": False,
+                "name": "Тест Кандидат",
+                "score": 85,
+                "verdict": "Подходит"
+            }
+        ]
+    )
+    db_session.add(run)
+
+    # Устанавливаем hh_vacancy_id
+    test_vacancy.hh_vacancy_id = "hh_vac_123"
+    await db_session.commit()
+
+    # Мокаем внешние вызовы
+    mock_token.return_value = "test_token"
+    mock_get_resume.return_value = {
+        "id": resume_id,
+        "first_name": "Тест",
+        "last_name": "Кандидат",
+        "contact": [{"type": "email", "value": "test@example.com"}],
+        "title": "Тестовая позиция"
+    }
+    mock_invite.return_value = {"url": "/negotiations/456"}
+
+    # Мокаем check_access
+    with patch('app.services.smart_search.check_access', return_value=(True, True, None)):
+        # Вызываем функцию
+        from app.services.smart_search import invite_selected
+        result = await invite_selected(
+            db_session, test_company.id, user_id, run_id, [resume_id]
+        )
+
+    # Проверяем результат
+    assert result["invited_count"] == 1
+    assert len(result["results"]) == 1
+
+    result_item = result["results"][0]
+    assert result_item["resume_id"] == resume_id
+    assert result_item["status"] == "invited"
+    assert result_item["candidate_id"] is not None
+    assert result_item["name"] == "Тест Кандидат"
+
+    # Проверяем что audit был вызван с правильными параметрами
+    mock_audit.assert_called_once()
+    audit_call = mock_audit.call_args[1]
+    assert audit_call["actor_type"] == "human"  # Действие рекрутёра
+    assert audit_call["actor_user_id"] == user_id
+    assert audit_call["action"] == "smart_search_invite"
+
+
+@pytest.mark.asyncio
+async def test_invite_selected_no_vacancy_hh_id(db_session, test_company, test_vacancy):
+    """Тест ошибки при отсутствии hh_vacancy_id"""
+
+    run_id = uuid4()
+    user_id = uuid4()
+
+    # Создаём run без hh_vacancy_id у вакансии
+    from app.models import SmartSearchRun
+    run = SmartSearchRun(
+        id=run_id,
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="done"
+    )
+    db_session.add(run)
+    await db_session.commit()
+
+    # test_vacancy.hh_vacancy_id остаётся None
+
+    from app.services.smart_search import invite_selected
+    from app.core.errors import ValidationError
+
+    with pytest.raises(ValidationError) as exc:
+        await invite_selected(db_session, test_company.id, user_id, run_id, ["test_id"])
+
+    assert "не опубликована на hh.ru" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_invite_selected_no_paid_access(db_session, test_company, test_vacancy):
+    """Тест ошибки при отсутствии платного доступа"""
+
+    run_id = uuid4()
+    user_id = uuid4()
+
+    from app.models import SmartSearchRun
+    run = SmartSearchRun(
+        id=run_id,
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="done"
+    )
+    db_session.add(run)
+
+    test_vacancy.hh_vacancy_id = "hh_vac_123"
+    await db_session.commit()
+
+    # Мокаем check_access без платного доступа
+    with patch('app.services.smart_search.check_access', return_value=(True, False, None)):
+        from app.services.smart_search import invite_selected
+        from app.core.errors import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            await invite_selected(db_session, test_company.id, user_id, run_id, ["test_id"])
+
+        assert "Нет платного доступа" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search._find_existing_candidate')
+async def test_invite_selected_candidate_already_exists(
+    mock_find_existing,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест дедупликации - кандидат уже в базе"""
+
+    run_id = uuid4()
+    user_id = uuid4()
+    resume_id = "test_resume_123"
+
+    from app.models import SmartSearchRun, Candidate
+
+    # Создаём существующего кандидата
+    existing_candidate = Candidate(
+        id=uuid4(),
+        company_id=test_company.id,
+        first_name="Существующий",
+        last_name="Кандидат",
+        source="hh"
+    )
+    db_session.add(existing_candidate)
+
+    run = SmartSearchRun(
+        id=run_id,
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="done",
+        scored_candidates=[{
+            "hh_resume_id": resume_id,
+            "passed": True,
+            "invited": False
+        }]
+    )
+    db_session.add(run)
+
+    test_vacancy.hh_vacancy_id = "hh_vac_123"
+    await db_session.commit()
+
+    # Мокаем что кандидат найден
+    mock_find_existing.return_value = existing_candidate
+    mock_token.return_value = "test_token"
+
+    with patch('app.services.smart_search.check_access', return_value=(True, True, None)):
+        from app.services.smart_search import invite_selected
+        result = await invite_selected(
+            db_session, test_company.id, user_id, run_id, [resume_id]
+        )
+
+    # Проверяем что возвращён статус already
+    assert result["invited_count"] == 0
+    assert len(result["results"]) == 1
+
+    result_item = result["results"][0]
+    assert result_item["status"] == "already"
+    assert result_item["candidate_id"] == existing_candidate.id
+
+
+@pytest.mark.asyncio
+async def test_run_search_inner_no_auto_invites():
+    """Тест что _run_search_inner больше не отправляет авто-приглашения"""
+
+    # Проверяем что в коде нет блоков авто-приглашений
+    import inspect
+    from app.services.smart_search import _run_search_inner
+
+    source = inspect.getsource(_run_search_inner)
+
+    # Проверяем что нет кода создания кандидатов в фоне
+    assert "создаём кандидатов и заявки в воронку" not in source
+    assert "Отправляю приглашение" not in source
+    assert "invite_to_vacancy" not in source
+
+    # Проверяем что есть новая логика финализации
+    assert "Оценка завершена, готово к выбору приглашений" in source
+    assert "invites_skipped = True" in source

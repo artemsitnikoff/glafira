@@ -18,7 +18,9 @@ from ...schemas.smart import (
     SmartVacancyFilters,
     SmartCountRequest,
     SmartCountResponse,
-    SmartAreaSuggestItem
+    SmartAreaSuggestItem,
+    SmartInviteRequest,
+    SmartInviteResponse
 )
 from ...services.smart_search import (
     check_access,
@@ -28,7 +30,8 @@ from ...services.smart_search import (
     get_run_history,
     derive_vacancy_filters,
     preview_found_count,
-    suggest_areas
+    suggest_areas,
+    invite_selected
 )
 from ...core.errors import NotFoundError
 
@@ -171,3 +174,16 @@ async def smart_area_suggest(
     items = await suggest_areas(session, company_id, text)
     return [SmartAreaSuggestItem(id=str(i.get("id")), text=str(i.get("text", "")))
             for i in items if i.get("id")]
+
+
+@router.post("/runs/{run_id}/invite", response_model=SmartInviteResponse)
+async def smart_invite(
+    run_id: UUID,
+    request: SmartInviteRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Отправить приглашения выбранным кандидатам"""
+    data = await invite_selected(session, company_id, current_user.id, run_id, request.resume_ids)
+    return SmartInviteResponse(**data)

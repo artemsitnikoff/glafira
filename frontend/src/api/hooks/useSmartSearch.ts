@@ -101,6 +101,8 @@ export interface SmartCandidate {
   forecast?: string;
   requirements_match?: SmartRequirementMatch[];
   resume?: SmartScoredResume;
+  hh_resume_id?: string;
+  invited?: boolean;
 }
 
 export interface SmartHistoryItem {
@@ -222,5 +224,31 @@ export function useSmartAreaSuggest(text: string) {
       return response.data as SmartAreaSuggestItem[];
     },
     enabled: text.trim().length >= 2,
+  });
+}
+
+export interface SmartInviteResultItem {
+  resume_id: string;
+  status: 'invited' | 'already' | 'error';
+  message?: string;
+  candidate_id?: string;
+  name?: string;
+}
+
+export interface SmartInviteRequest {
+  resume_ids: string[];
+}
+
+export interface SmartInviteResponse {
+  results: SmartInviteResultItem[];
+  invited_count: number;
+}
+
+export function useSmartInvite(runId: string) {
+  return useMutation<SmartInviteResponse, Error, string[]>({
+    mutationFn: async (resumeIds): Promise<SmartInviteResponse> => {
+      const response = await api.post(`/smart/runs/${runId}/invite`, { resume_ids: resumeIds });
+      return response.data as SmartInviteResponse;
+    },
   });
 }

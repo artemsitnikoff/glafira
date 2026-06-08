@@ -1242,3 +1242,107 @@
   color: var(--fg-2);
   line-height: 1.4;
 }
+
+/* ---------- Ручной выбор приглашений ---------- */
+.ss-page .ss-invite-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.ss-page .ss-master-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ss-page .ss-master-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.ss-page .ss-inv-row-selectable {
+  position: relative;
+}
+
+.ss-page .ss-row-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0 12px 0 0;
+  flex: none;
+  cursor: pointer;
+}
+
+.ss-page .ss-row-checkbox:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Результаты приглашения */
+.ss-page .ss-invite-results {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--ark-green-100);
+  border: 1px solid var(--ark-green-500);
+  border-radius: 8px;
+}
+
+.ss-page .ss-ir-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ark-green-600);
+  margin-bottom: 8px;
+}
+
+.ss-page .ss-ir-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ss-page .ss-ir-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.ss-page .ss-ir-item.ss-ir-already {
+  background: var(--ark-blue-100);
+  border-color: var(--accent);
+}
+
+.ss-page .ss-ir-item.ss-ir-error {
+  background: var(--ark-red-100);
+  border-color: var(--ark-red-500);
+}
+
+.ss-page .ss-ir-name {
+  font-weight: 500;
+  color: var(--fg-1);
+}
+
+.ss-page .ss-ir-status {
+  color: var(--fg-2);
+  font-size: 12px;
+}

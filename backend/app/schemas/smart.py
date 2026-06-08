@@ -98,6 +98,9 @@ class InvitedCandidate(BaseModel):
     forecast: Optional[str] = None
     requirements_match: Optional[list[SmartRequirementMatch]] = None
     resume: Optional[SmartScoredResume] = None
+    # Новые поля для ручного приглашения
+    hh_resume_id: Optional[str] = None
+    invited: Optional[bool] = None
 
 
 class SmartRunStatus(BaseModel):
@@ -160,3 +163,23 @@ class SmartAreaSuggestItem(BaseModel):
 class SmartCountResponse(BaseModel):
     """Ответ с количеством найденных резюме"""
     found: Optional[int] = None
+
+
+class SmartInviteRequest(BaseModel):
+    """Запрос на ручное приглашение выбранных кандидатов"""
+    resume_ids: list[str] = Field(description="Список hh_resume_id для приглашения")
+
+
+class SmartInviteResultItem(BaseModel):
+    """Результат приглашения одного кандидата"""
+    resume_id: str
+    status: Literal['invited', 'already', 'error']
+    message: Optional[str] = None
+    candidate_id: Optional[UUID] = None
+    name: Optional[str] = None
+
+
+class SmartInviteResponse(BaseModel):
+    """Ответ на ручное приглашение кандидатов"""
+    results: list[SmartInviteResultItem]
+    invited_count: int

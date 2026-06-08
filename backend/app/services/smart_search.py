@@ -626,7 +626,10 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                             "risks": score_result.get("risks") or [],
                             "requirements_match": score_result.get("requirements_match") or [],
                             "forecast": score_result.get("forecast"),
-                            "resume": _compact_resume_for_display(full_resume)
+                            "resume": _compact_resume_for_display(full_resume),
+                            # Новые поля для ручного приглашения
+                            "hh_resume_id": str(resume_id),
+                            "invited": False
                         }
 
                         run.scored_candidates = run.scored_candidates.copy()  # Новый список для SQLAlchemy
@@ -652,201 +655,31 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     await session.commit()
                     continue
 
-            # ЭТАП 3: Приглашения
-            run.stage = "invite"
-            await session.commit()
-
-            # Сортируем по баллу и отбираем лучших
-            invite_m = params.get("invite_m", 10)
-
-            good_candidates = [
+            # Обновляем passed_threshold
+            run.passed_threshold = len([
                 c for c in evaluated_candidates
                 if c["candidate_data"]["ai_score"] >= threshold
-            ]
-            good_candidates.sort(key=lambda x: x["candidate_data"]["ai_score"], reverse=True)
-
-            # Обновляем passed_threshold
-            run.passed_threshold = len(good_candidates)
+            ])
 
             log_and_append_to_run(run, run_id, f"Оценка завершена: {run.evaluated} резюме, {run.passed_threshold} прошли порог {threshold}")
             await session.commit()
 
-            invited_candidates = []
-            has_paid_access = params.get("has_paid_access", False)
-            can_invite = has_paid_access and vacancy.hh_vacancy_id
-            invite_errors = []  # Собираем ошибки приглашений
-
-            if len(good_candidates) == 0:
-                log_and_append_to_run(run, run_id, f"Никто не прошёл порог {threshold} баллов")
-            else:
-                log_and_append_to_run(run, run_id, f"Топ кандидатов: {min(invite_m, len(good_candidates))} из {len(good_candidates)} прошедших порог")
-
-            if can_invite:
-                # Режим с приглашениями - создаём кандидатов и заявки в воронку
-                log_and_append_to_run(run, run_id, "Режим приглашений: создаём кандидатов в воронку")
-
-                for i, candidate_data in enumerate(good_candidates[:invite_m]):
-                    try:
-                        resume_id = candidate_data["resume_id"]
-                        ai_data = candidate_data["candidate_data"]
-                        full_resume = candidate_data["full_resume"]
-
-                        # Извлекаем имя для логирования
-                        first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
-                        last_name = (full_resume.get("last_name") or "").strip() or ""
-                        name = f"{first_name} {last_name}".strip()
-
-                        # Проверяем дедубликацию
-                        existing = await _find_existing_candidate(session, resume_id, full_resume, company_id)
-                        if existing:
-                            log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} уже в базе, пропускаем")
-                            continue
-
-                        # Диагностика: логируем перед блокирующим вызовом
-                        log_and_append_to_run(run, run_id, f"Отправляю приглашение {i+1}: {name} (resume {resume_id}) → вакансия hh {vacancy.hh_vacancy_id}")
-                        await session.commit()
-
-                        # Отправляем приглашение через hh.ru с таймаутом
-                        try:
-                            invitation = await asyncio.wait_for(
-                                hh_client.invite_to_vacancy(
-                                    access_token,
-                                    str(resume_id),
-                                    vacancy.hh_vacancy_id,
-                                    message="Приглашение от Глафира Рекрутёр"
-                                ),
-                                timeout=25
-                            )
-                        except asyncio.TimeoutError:
-                            error_msg = "таймаут hh (25с)"
-                            invite_errors.append(error_msg)
-                            log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} {error_msg} — пропускаем")
-                            continue
-                        except Exception as e:
-                            error_msg = str(e)[:100]
-                            invite_errors.append(error_msg)
-                            log_and_append_to_run(run, run_id, f"Приглашение {i+1}: {name} ошибка hh — {error_msg}")
-                            continue
-
-                        # Создаем кандидата и заявку
-                        candidate = _create_candidate_from_resume(full_resume, company_id)
-                        candidate.source = "hh"  # Источник "Умный подбор/hh" через extra
-                        candidate.extra = {"smart_search": True, "run_id": str(run_id), "hh_resume_id": str(resume_id)}
-                        session.add(candidate)
-                        await session.flush()
-
-                        # Создаем заявку
-                        negotiation_id = _extract_negotiation_id(invitation)
-                        application = Application(
-                            candidate_id=candidate.id,
-                            vacancy_id=vacancy.id,
-                            company_id=company_id,
-                            stage="response",
-                            hh_negotiation_id=negotiation_id
-                        )
-                        session.add(application)
-
-                        # Audit записи
-                        await audit(
-                            session,
-                            action="smart_search_invite",
-                            entity_type="candidate",
-                            entity_id=candidate.id,
-                            after={
-                                "vacancy_id": str(vacancy.id),
-                                "ai_score": ai_data["ai_score"],
-                                "run_id": str(run_id)
-                            },
-                            actor_type="ai",
-                            actor_user_id=None,
-                            company_id=company_id
-                        )
-
-                        # Добавляем в список приглашенных
-                        invited_candidates.append(InvitedCandidate(
-                            candidate_id=candidate.id,
-                            name=f"{candidate.first_name} {candidate.last_name}".strip(),
-                            age=_calculate_age(candidate.birth_date),
-                            experience_years=_extract_experience_years(full_resume),
-                            last_company=candidate.last_company,
-                            city=candidate.city,
-                            score=ai_data["ai_score"],
-                            verdict=ai_data["verdict"]
-                        ))
-
-                        # Инкрементально обновляем счётчик приглашений
-                        run.invited = len(invited_candidates)
-
-                        log_and_append_to_run(run, run_id, f"Приглашён {i+1}: {name} • score {ai_data['ai_score']} • добавлен в воронку")
-                        await session.commit()
-
-                    except Exception as e:
-                        error_msg = str(e)[:100]
-                        invite_errors.append(error_msg)
-                        logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
-                        log_and_append_to_run(run, run_id, f"Ошибка приглашения {i+1}: {error_msg}")
-                        continue
-
-                run.invites_skipped = False
-            else:
-                # Режим превью - НЕ создаём кандидатов, только показываем топовых
-                logger.info(f"Умный поиск {run_id}: режим превью (платный доступ={has_paid_access}, hh_vacancy_id={'есть' if vacancy.hh_vacancy_id else 'НЕТ'})")
-                log_and_append_to_run(run, run_id, f"Режим превью: показываем топ без добавления в воронку (платный доступ={has_paid_access}, hh_vacancy_id={'есть' if vacancy.hh_vacancy_id else 'НЕТ'})")
-
-                for candidate_data in good_candidates[:invite_m]:
-                    resume_id = candidate_data["resume_id"]
-                    ai_data = candidate_data["candidate_data"]
-                    full_resume = candidate_data["full_resume"]
-
-                    # Извлекаем имя из резюме
-                    first_name = (full_resume.get("first_name") or "").strip() or "Неизвестно"
-                    last_name = (full_resume.get("last_name") or "").strip() or ""
-                    name = f"{first_name} {last_name}".strip()
-
-                    # Создаем превью без candidate_id
-                    invited_candidates.append(InvitedCandidate(
-                        candidate_id=None,
-                        name=name,
-                        age=_calculate_age_from_resume(full_resume),
-                        experience_years=_extract_experience_years(full_resume),
-                        last_company=(full_resume.get("experience", [{}])[0].get("company") if full_resume.get("experience") else None),
-                        city=(full_resume.get("area") or {}).get("name"),
-                        score=ai_data["ai_score"],
-                        verdict=ai_data["verdict"]
-                    ))
-
-                run.invites_skipped = True
-
             # Финализируем поиск
             run.stage = "done"
             run.status = "done"
-
-            # Устанавливаем итоговые значения
-            if not can_invite:
-                run.invited = 0  # В превью режиме реальных приглашений нет
-            # В режиме can_invite значение run.invited уже обновляется инкрементально
-
-            run.invited_candidates = [c.dict() for c in invited_candidates]
+            run.invites_skipped = True  # Авто-приглашений нет
+            run.invited = 0
             run.finished_at = datetime.now(timezone.utc)
 
             # Формируем честную итоговую заметку
             if run.evaluated == 0:
                 run.note = "Не удалось оценить ни одного резюме"
             elif run.passed_threshold == 0:
-                run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} баллов — снизьте порог или расширьте фильтры"
-            elif not has_paid_access:
-                run.note = f"Приглашения не отправлены: нет платного доступа к базе резюме hh (он нужен только для отправки приглашений; поиск и оценка работают без него). Прошли порог: {run.passed_threshold}."
-            elif not vacancy.hh_vacancy_id:
-                run.note = f"Приглашения не отправлены: вакансия не опубликована на hh.ru. Прошли порог: {run.passed_threshold}."
-            elif can_invite and invite_errors:
-                first_error = invite_errors[0] if invite_errors else "неизвестная ошибка"
-                run.note = f"Приглашено {run.invited} из {run.passed_threshold}. Часть не отправлена: {first_error}."
-            elif can_invite:
-                run.note = f"Приглашено {run.invited} из {run.passed_threshold} прошедших порог {threshold} (оценено {run.evaluated} резюме)"
+                run.note = f"Оценено {run.evaluated} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
             else:
-                run.note = f"Превью: {min(invite_m, run.passed_threshold)} лучших из {run.passed_threshold} прошедших порог {threshold} (оценено {run.evaluated} резюме)"
+                run.note = f"Оценка завершена. Прошли порог: {run.passed_threshold}. Выберите кандидатов для приглашения."
 
-            log_and_append_to_run(run, run_id, f"Поиск завершён: {run.note}")
+            log_and_append_to_run(run, run_id, "Оценка завершена, готово к выбору приглашений")
             await session.commit()
 
         except Exception as e:
@@ -1035,6 +868,192 @@ async def _find_existing_candidate(session: AsyncSession, resume_id: str, resume
             return existing
 
     return None
+
+
+async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID, run_id: UUID, resume_ids: list[str]) -> dict:
+    """
+    Отправляет приглашения выбранным кандидатам
+
+    Args:
+        session: DB сессия
+        company_id: ID компании
+        user_id: ID пользователя (рекрутёр)
+        run_id: ID поиска
+        resume_ids: Список hh_resume_id для приглашения
+
+    Returns:
+        dict с results и invited_count
+    """
+    # Загружаем run company-scoped
+    run = await session.get(SmartSearchRun, run_id)
+    if not run or run.company_id != company_id:
+        raise NotFoundError("Поиск")
+
+    # Загружаем вакансию
+    vacancy = await session.get(Vacancy, run.vacancy_id)
+    if not vacancy:
+        raise NotFoundError("Вакансия")
+
+    # Гейты fail-closed (§2.6)
+    if not vacancy.hh_vacancy_id:
+        raise ValidationError("Вакансия не опубликована на hh.ru — приглашать некуда.")
+
+    # Проверяем платный доступ
+    has_access, has_paid_access, _ = await check_access(session, company_id)
+    if not has_paid_access:
+        raise ValidationError("Нет платного доступа к базе резюме hh — отправка приглашений недоступна.")
+
+    # Множество разрешённых резюме (только те, что прошли порог)
+    allowed = {
+        c.get("hh_resume_id") for c in (run.scored_candidates or [])
+        if c.get("passed") and c.get("hh_resume_id")
+    }
+
+    # Фильтруем только разрешённые resume_ids
+    valid_resume_ids = [rid for rid in resume_ids if rid in allowed]
+
+    # Получаем токен доступа
+    access_token = await hh_service.get_valid_access_token(session, company_id)
+
+    results = []
+    invited_count = 0
+
+    for resume_id in valid_resume_ids:
+        try:
+            # Проверка дедубликации
+            existing = await _find_existing_candidate(session, resume_id, {}, company_id)
+            if existing:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "already",
+                    "message": "Кандидат уже в базе",
+                    "candidate_id": existing.id,
+                    "name": f"{existing.first_name} {existing.last_name}".strip()
+                })
+                continue
+
+            # Получаем полное резюме (платно)
+            try:
+                full_resume = await asyncio.wait_for(
+                    hh_client.get_resume_by_id(access_token, resume_id),
+                    timeout=25
+                )
+            except asyncio.TimeoutError:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": "Таймаут получения резюме (25с)"
+                })
+                continue
+            except Exception as e:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": f"Ошибка получения резюме: {str(e)[:100]}"
+                })
+                continue
+
+            # Отправляем приглашение
+            try:
+                invitation = await asyncio.wait_for(
+                    hh_client.invite_to_vacancy(
+                        access_token,
+                        resume_id,
+                        vacancy.hh_vacancy_id,
+                        message="Приглашение от Глафира Рекрутёр"
+                    ),
+                    timeout=25
+                )
+            except asyncio.TimeoutError:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": "Таймаут отправки приглашения (25с)"
+                })
+                continue
+            except Exception as e:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": f"Ошибка отправки приглашения: {str(e)[:100]}"
+                })
+                continue
+
+            # Создаём кандидата
+            candidate = _create_candidate_from_resume(full_resume, company_id)
+            candidate.source = "hh"
+            candidate.extra = {
+                "smart_search": True,
+                "run_id": str(run_id),
+                "hh_resume_id": str(resume_id)
+            }
+            session.add(candidate)
+            await session.flush()
+
+            # Создаём заявку
+            negotiation_id = _extract_negotiation_id(invitation)
+            application = Application(
+                candidate_id=candidate.id,
+                vacancy_id=vacancy.id,
+                company_id=company_id,
+                stage="response",
+                hh_negotiation_id=negotiation_id
+            )
+            session.add(application)
+
+            # Audit запись (действие рекрутёра)
+            await audit(
+                session,
+                action="smart_search_invite",
+                entity_type="candidate",
+                entity_id=candidate.id,
+                after={
+                    "vacancy_id": str(vacancy.id),
+                    "run_id": str(run_id),
+                    "hh_resume_id": str(resume_id)
+                },
+                actor_type="human",  # ЭТО ДЕЙСТВИЕ РЕКРУТЁРА
+                actor_user_id=user_id,
+                company_id=company_id
+            )
+
+            # Помечаем в run.scored_candidates как приглашённого
+            if run.scored_candidates:
+                for candidate_data in run.scored_candidates:
+                    if candidate_data.get("hh_resume_id") == resume_id:
+                        candidate_data["invited"] = True
+                        break
+                # Reassign для SQLAlchemy
+                run.scored_candidates = run.scored_candidates.copy()
+
+            # Увеличиваем счётчик приглашённых
+            run.invited = (run.invited or 0) + 1
+
+            invited_count += 1
+
+            results.append({
+                "resume_id": resume_id,
+                "status": "invited",
+                "candidate_id": candidate.id,
+                "name": f"{candidate.first_name} {candidate.last_name}".strip()
+            })
+
+            # Коммитим каждый успешный для сохранения прогресса
+            await session.commit()
+
+        except Exception as e:
+            logger.error(f"Ошибка при приглашении кандидата {resume_id}: {e}")
+            results.append({
+                "resume_id": resume_id,
+                "status": "error",
+                "message": f"Внутренняя ошибка: {str(e)[:100]}"
+            })
+            continue
+
+    return {
+        "results": results,
+        "invited_count": invited_count
+    }
 
 
 async def get_run_status(session: AsyncSession, run_id: UUID, company_id: UUID) -> Optional[SmartSearchRun]:

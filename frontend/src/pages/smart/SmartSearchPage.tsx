@@ -13,6 +13,7 @@ import {
   useDeriveVacancyFilters,
   useSmartCount,
   useSmartAreaSuggest,
+  useSmartInvite,
   type SmartVacancy,
   type SmartCandidate,
   type SmartScoredResume,
@@ -284,6 +285,8 @@ export default function SmartSearchPage() {
           runData={runData}
           vac={vac}
           threshold={threshold}
+          accessData={accessData}
+          runId={runId}
           onNew={resetAll}
           onGoFunnel={() => navigate(`/vacancies/${vacId}`)}
           onGoSettings={() => navigate('/settings')}
@@ -781,7 +784,7 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
   const phases = [
     { t: 'Глафира ищет резюме на hh.ru…', d: vac ? `по фильтрам вакансии «${vac.title}»` : '' },
     { t: `Оценивает резюме…`, d: `AI-матчинг ${ssFmt(runData.evaluated)} из ${ssFmt(runData.scanned)}` },
-    { t: 'Приглашает лучших…', d: `отправляем приглашения топ-${runData.invited} кандидатам` },
+    { t: 'Готовим результаты…', d: `финализируем оценку кандидатов` },
   ];
 
   const stageIndex = runData.stage === 'search' ? 0 : runData.stage === 'eval' ? 1 : 2;
@@ -795,7 +798,7 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
     pct = 100;
   }
 
-  const stages = ['Поиск', 'Оценка', 'Приглашения'];
+  const stages = ['Поиск', 'Оценка', 'Готово'];
 
   return (
     <div className="ss-run">
@@ -901,10 +904,12 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
   );
 }
 
-function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings, onOpenCandidate }: {
+function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunnel, onGoSettings, onOpenCandidate }: {
   runData: any;
   vac: SmartVacancy | null;
   threshold: number;
+  accessData?: any;
+  runId: string | null;
   onNew: () => void;
   onGoFunnel: () => void;
   onGoSettings: () => void;
@@ -914,15 +919,82 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings, on
 
   const isPreview = runData.invites_skipped === true;
   const noOnePassed = runData.passed_threshold === 0;
+  const passedCandidates = (runData.scored_candidates || []).filter((c: SmartCandidate) => c.passed);
+  const canInvite = !!(accessData?.has_paid_access && vac?.hh_published);
+
+  // Состояние для выбора кандидатов к приглашению
+  const [selectedResumeIds, setSelectedResumeIds] = useState<Set<string>>(new Set());
+  const [inviteResults, setInviteResults] = useState<any>(null);
+
+  const smartInvite = useSmartInvite(runId || '');
+
+  // Обработчики выбора
+  const toggleSelect = (resumeId: string, invited: boolean) => {
+    if (invited) return; // нельзя выбирать уже приглашённых
+    setSelectedResumeIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(resumeId)) {
+        newSet.delete(resumeId);
+      } else {
+        newSet.add(resumeId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    const allEligible = passedCandidates
+      .filter((c: SmartCandidate) => c.hh_resume_id && !c.invited)
+      .map((c: SmartCandidate) => c.hh_resume_id!)
+      .filter(Boolean);
+    setSelectedResumeIds(new Set(allEligible));
+  };
+
+  const clearSelection = () => {
+    setSelectedResumeIds(new Set());
+  };
+
+  const handleInvite = async () => {
+    const resumeIds = Array.from(selectedResumeIds);
+    if (resumeIds.length === 0) return;
+
+    try {
+      const response = await smartInvite.mutateAsync(resumeIds);
+      setInviteResults(response);
+
+      // Обновляем состояние кандидатов локально
+      if (runData.scored_candidates) {
+        response.results.forEach(result => {
+          const candidate = runData.scored_candidates.find((c: SmartCandidate) => c.hh_resume_id === result.resume_id);
+          if (candidate && result.status === 'invited') {
+            candidate.invited = true;
+          }
+        });
+      }
+
+      // Очищаем выбор приглашённых
+      setSelectedResumeIds(prev => {
+        const newSet = new Set(prev);
+        response.results.forEach(result => {
+          if (result.status === 'invited') {
+            newSet.delete(result.resume_id);
+          }
+        });
+        return newSet;
+      });
+    } catch (error) {
+      // Ошибка обрабатывается через smartInvite.error в UI
+    }
+  };
 
   return (
     <div>
       <div className="ss-result-head">
         <div className="ss-result-check"><Icon name="check" size={24} /></div>
         <div>
-          <h2>{isPreview ? 'Оценка выполнена' : 'Поиск завершён'}</h2>
+          <h2>Оценка завершена</h2>
           <div className="ss-rh-sub">
-            {vac ? vac.title : ''} · {isPreview ? 'Приглашения не отправлены — нужен платный доступ к базе резюме hh' : 'приглашённые добавлены в воронку'}
+            {vac ? vac.title : ''}{passedCandidates.length > 0 ? ' · выберите кандидатов для приглашения ниже' : ''}
           </div>
         </div>
       </div>
@@ -949,20 +1021,142 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings, on
         </div>
       </div>
 
-      {/* Показывать кандидатов даже если никто не прошёл порог */}
-      {((runData.invited_candidates && runData.invited_candidates.length > 0) || (noOnePassed && runData.scored_candidates && runData.scored_candidates.length > 0)) && (
+      {/* Прошедшие порог — выбор и приглашение */}
+      {passedCandidates.length > 0 && (
         <div className="ss-invited-card">
           <div className="ss-invited-head">
-            <span className="title">{noOnePassed ? 'Все оценённые кандидаты' : (isPreview ? 'Лучшие кандидаты' : 'Приглашённые кандидаты')}</span>
-            <span className="count">{noOnePassed ? runData.scored_candidates.length : runData.invited_candidates.length}</span>
+            <span className="title">Прошедшие порог — выберите кого пригласить</span>
+            <span className="count">Прошли: {passedCandidates.length}</span>
             <div style={{ flex: 1 }} />
-            <span className="live-dot">{noOnePassed ? 'порог не пройден' : (isPreview ? 'оценены AI' : 'приглашения отправлены')}</span>
+            {inviteResults && (
+              <span className="live-dot">Приглашено: {inviteResults.invited_count}</span>
+            )}
           </div>
-          {(noOnePassed ? runData.scored_candidates : runData.invited_candidates).map((c: SmartCandidate, index: number) => (
+
+          {/* Гейт приглашений */}
+          {!canInvite && (
+            <div className="info-banner" style={{ margin: '12px 0' }}>
+              <Icon name="alert-triangle" size={14} />
+              <div>
+                {!accessData?.has_paid_access
+                  ? 'Нет платного доступа к базе резюме hh — приглашения недоступны (поиск и оценка работают без него).'
+                  : 'Вакансия не опубликована на hh.ru — приглашать некуда.'}
+              </div>
+            </div>
+          )}
+
+          {/* Управление выбором */}
+          {canInvite && (
+            <div className="ss-invite-controls">
+              <label className="ss-master-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectedResumeIds.size > 0 && passedCandidates.filter((c: SmartCandidate) => c.hh_resume_id && !c.invited).every((c: SmartCandidate) => selectedResumeIds.has(c.hh_resume_id!))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      selectAll();
+                    } else {
+                      clearSelection();
+                    }
+                  }}
+                />
+                Выбрать всех
+              </label>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={selectedResumeIds.size === 0 || smartInvite.isPending}
+                onClick={handleInvite}
+              >
+                <Icon name="mail" size={14} />
+                Пригласить выбранных ({selectedResumeIds.size})
+              </button>
+            </div>
+          )}
+
+          {/* Список кандидатов */}
+          {passedCandidates.map((c: SmartCandidate, index: number) => (
+            <div
+              key={c.candidate_id || index}
+              className={`ss-inv-row ss-inv-row-clickable ${canInvite ? 'ss-inv-row-selectable' : ''}`}
+              onClick={() => onOpenCandidate?.(c)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenCandidate?.(c);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={`Открыть детальный разбор кандидата ${c.name}`}
+            >
+              {canInvite && c.hh_resume_id && (
+                <input
+                  type="checkbox"
+                  className="ss-row-checkbox"
+                  checked={selectedResumeIds.has(c.hh_resume_id)}
+                  disabled={c.invited}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    toggleSelect(c.hh_resume_id!, !!c.invited);
+                  }}
+                />
+              )}
+              <Avatar name={c.name} size="sm" />
+              <div className="ss-inv-main">
+                <div className="ss-inv-name">{c.name}</div>
+                <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+              </div>
+              <ScoreLabel value={c.score} size="md" />
+              <span className="ss-inv-sent" style={{
+                background: c.invited ? 'var(--ark-green-100)' : 'var(--ark-blue-100)',
+                color: c.invited ? 'var(--ark-green-600)' : 'var(--accent)'
+              }}>
+                <Icon name={c.invited ? 'check' : 'user'} size={12} />
+                {c.invited ? '✓ приглашён' : 'прошёл порог'}
+              </span>
+            </div>
+          ))}
+
+          {/* Результаты приглашения */}
+          {inviteResults && (
+            <div className="ss-invite-results">
+              <div className="ss-ir-summary">
+                <Icon name="check-circle" size={16} style={{ color: 'var(--ark-green-600)' }} />
+                Приглашено: <strong>{inviteResults.invited_count}</strong>
+              </div>
+              {inviteResults.results.some((r: any) => r.status === 'already' || r.status === 'error') && (
+                <div className="ss-ir-details">
+                  {inviteResults.results.map((result: any, i: number) => (
+                    result.status !== 'invited' && (
+                      <div key={i} className={`ss-ir-item ss-ir-${result.status}`}>
+                        <span className="ss-ir-name">{result.name || result.resume_id}</span>
+                        <span className="ss-ir-status">
+                          {result.status === 'already' ? 'уже в базе' : `ошибка: ${result.message}`}
+                        </span>
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Если никто не прошёл порог — показать всех оценённых */}
+      {noOnePassed && runData.scored_candidates && runData.scored_candidates.length > 0 && (
+        <div className="ss-invited-card">
+          <div className="ss-invited-head">
+            <span className="title">Все оценённые кандидаты</span>
+            <span className="count">{runData.scored_candidates.length}</span>
+            <div style={{ flex: 1 }} />
+            <span className="live-dot">порог не пройден</span>
+          </div>
+          {runData.scored_candidates.map((c: SmartCandidate, index: number) => (
             <div
               key={c.candidate_id || index}
               className="ss-inv-row ss-inv-row-clickable"
-              style={{ opacity: (noOnePassed && c.passed === false) ? 0.6 : 1 }}
+              style={{ opacity: c.passed === false ? 0.6 : 1 }}
               onClick={() => onOpenCandidate?.(c)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -981,10 +1175,11 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings, on
               </div>
               <ScoreLabel value={c.score} size="md" />
               <span className="ss-inv-sent" style={{
-                background: (noOnePassed && c.passed === false) ? 'var(--ark-gray-200)' : (isPreview ? 'var(--ark-blue-100)' : 'var(--ark-green-100)'),
-                color: (noOnePassed && c.passed === false) ? 'var(--fg-3)' : (isPreview ? 'var(--accent)' : 'var(--ark-green-600)')
+                background: c.passed === false ? 'var(--ark-gray-200)' : 'var(--ark-blue-100)',
+                color: c.passed === false ? 'var(--fg-3)' : 'var(--accent)'
               }}>
-                <Icon name="check" size={12} /> {noOnePassed ? `${c.score} баллов` : (isPreview ? 'оценён' : 'приглашён')}
+                <Icon name={c.passed === false ? 'x' : 'check'} size={12} />
+                {c.passed === false ? 'не прошёл' : `${c.score} баллов`}
               </span>
             </div>
           ))}
@@ -1041,6 +1236,12 @@ function SSResult({ runData, vac, threshold, onNew, onGoFunnel, onGoSettings, on
       {runData.error && (
         <div className="error-banner" style={{ marginTop: '16px' }}>
           {runData.error}
+        </div>
+      )}
+
+      {smartInvite.error && (
+        <div className="error-banner" style={{ marginTop: '16px' }}>
+          {(smartInvite.error as any)?.response?.data?.error?.message || 'Ошибка отправки приглашений'}
         </div>
       )}
     </div>
