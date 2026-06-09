@@ -30,7 +30,7 @@ export interface PreviewRow {
     comment: string | null;
     resume_url: string | null;
     age: number | null;
-    salary: string | null;
+    salary: number | null;
   };
 }
 
@@ -139,7 +139,9 @@ export function useImportJob(jobId: string | null, enabled: boolean = true) {
       return response.data;
     },
     enabled: enabled && !!jobId,
-    refetchInterval: 1200,
+    // Поллим 1200мс ПОКА импорт идёт; после done/error — стоп (не долбим эндпоинт).
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.status === 'running' ? 1200 : false,
     refetchIntervalInBackground: false,
   });
 }

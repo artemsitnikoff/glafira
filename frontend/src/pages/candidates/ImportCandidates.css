@@ -658,8 +658,8 @@
   border-top: 1px solid var(--border-1);
 }
 
-/* ====== Глобальные стили модального окна (идиом ss-page-modal-*) ====== */
-.ss-page-modal-backdrop {
+/* ====== Глобальные стили модального окна (идиом iw-modal-*) ====== */
+.iw-modal-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -671,7 +671,7 @@
   padding: var(--space-5);
 }
 
-.ss-page-modal-content {
+.iw-modal-content {
   background: var(--bg-1);
   border-radius: var(--radius-lg);
   width: 100%;
@@ -682,7 +682,7 @@
   flex-direction: column;
 }
 
-.ss-page-modal-header {
+.iw-modal-header {
   padding: var(--space-5) var(--space-6);
   border-bottom: 1px solid var(--border-1);
   display: flex;
@@ -690,7 +690,7 @@
   gap: var(--space-4);
 }
 
-.ss-page-modal-title-group {
+.iw-modal-title-group {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -698,14 +698,14 @@
   gap: var(--space-3);
 }
 
-.ss-page-modal-title {
+.iw-modal-title {
   margin: 0;
   font-size: var(--fs-18);
   font-weight: 600;
   color: var(--fg-1);
 }
 
-.ss-page-modal-close {
+.iw-modal-close {
   flex: none;
   width: 32px;
   height: 32px;
@@ -720,18 +720,18 @@
   transition: all var(--dur-normal);
 }
 
-.ss-page-modal-close:hover {
+.iw-modal-close:hover {
   background: var(--bg-3-hover);
   color: var(--fg-1);
 }
 
-.ss-page-modal-body {
+.iw-modal-body {
   flex: 1;
   overflow-y: auto;
   padding: 0 var(--space-6) var(--space-6);
 }
 
-/* ====== Попап резюме (идиом ss-page-modal-*) ====== */
+/* ====== Попап резюме (идиом iw-modal-*) ====== */
 .resume-modal {
   max-width: 600px;
 }
@@ -831,8 +831,9 @@
   line-height: 1.4;
 }
 
-/* ====== Кнопки (переиспользуем идиомы проекта) ====== */
-.btn {
+/* ====== Кнопки — СКОУП под .import-wizard (не течёт на весь апп; глобального .btn-primary
+   в проекте нет, иначе переопределили бы кнопки всех экранов). ====== */
+.import-wizard .btn {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -846,35 +847,35 @@
   text-decoration: none;
 }
 
-.btn:disabled {
+.import-wizard .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.btn-primary {
+.import-wizard .btn-primary {
   background: var(--accent);
   color: white;
 }
 
-.btn-primary:hover:not(:disabled) {
+.import-wizard .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
-.btn-secondary {
+.import-wizard .btn-secondary {
   background: var(--bg-3);
   color: var(--fg-1);
   border: 1px solid var(--border-1);
 }
 
-.btn-secondary:hover:not(:disabled) {
+.import-wizard .btn-secondary:hover:not(:disabled) {
   background: var(--bg-3-hover);
 }
 
-.btn-sm {
+.import-wizard .btn-sm {
   padding: var(--space-2) var(--space-3);
   font-size: var(--fs-13);
 }
 
-.t-mono {
+.import-wizard .t-mono {
   font-family: var(--font-mono);
 }

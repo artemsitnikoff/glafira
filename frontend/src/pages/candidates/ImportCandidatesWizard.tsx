@@ -65,6 +65,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   // Шаг 4: Выполнение
   const [jobId, setJobId] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // API hooks
   const parseFile = useParseFile();
@@ -138,6 +139,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
 
   const handlePreview = async () => {
     if (!file || !isValidMapping()) return;
+    setActionError(null);
 
     try {
       const result = await previewImport.mutateAsync({
@@ -147,13 +149,14 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
       });
       setPreviewData(result);
       setCurrentStep(3);
-    } catch (error) {
-      console.error('Preview error:', error);
+    } catch {
+      setActionError('Не удалось построить превью. Проверьте файл и попробуйте ещё раз.');
     }
   };
 
   const handleExecute = async () => {
     if (!file) return;
+    setActionError(null);
 
     try {
       const result = await executeImport.mutateAsync({
@@ -163,8 +166,8 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
       });
       setJobId(result.job_id);
       setCurrentStep(4);
-    } catch (error) {
-      console.error('Execute error:', error);
+    } catch {
+      setActionError('Не удалось запустить импорт. Попробуйте ещё раз.');
     }
   };
 
@@ -178,6 +181,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setDetailCandidate(null);
     setJobId(null);
     setFileError(null);
+    setActionError(null);
   };
 
   const getStepClass = (step: Step) => {
@@ -399,6 +403,8 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               </div>
             )}
 
+            {actionError && <div className="iw-validation-hint">{actionError}</div>}
+
             <div className="iw-step-actions">
               <button className="btn btn-secondary" onClick={() => setCurrentStep(1)}>
                 ← Назад
@@ -498,6 +504,8 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               </div>
             )}
 
+            {actionError && <div className="iw-validation-hint">{actionError}</div>}
+
             <div className="iw-step-actions">
               <button className="btn btn-secondary" onClick={() => setCurrentStep(2)}>
                 ← Назад
@@ -591,7 +599,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   );
 }
 
-// Попап резюме (идиом SSCandidateDetail/ss-page-modal-*)
+// Попап резюме (идиом SSCandidateDetail/iw-modal-*)
 function ResumeModal({ candidate, onClose }: { candidate: PreviewRow; onClose: () => void }) {
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -608,21 +616,21 @@ function ResumeModal({ candidate, onClose }: { candidate: PreviewRow; onClose: (
   }, [onClose]);
 
   return (
-    <div className="ss-page-modal-backdrop" onClick={handleBackdropClick}>
-      <div className="ss-page-modal-content resume-modal">
-        <div className="ss-page-modal-header">
-          <div className="ss-page-modal-title-group">
+    <div className="iw-modal-backdrop" onClick={handleBackdropClick}>
+      <div className="iw-modal-content resume-modal">
+        <div className="iw-modal-header">
+          <div className="iw-modal-title-group">
             <Avatar name={candidate.name} size="md" />
             <div>
-              <h2 className="ss-page-modal-title">{candidate.name}</h2>
+              <h2 className="iw-modal-title">{candidate.name}</h2>
             </div>
           </div>
-          <button className="ss-page-modal-close" onClick={onClose}>
+          <button className="iw-modal-close" onClick={onClose}>
             <Icon name="x" size={20} />
           </button>
         </div>
 
-        <div className="ss-page-modal-body">
+        <div className="iw-modal-body">
           <div className="resume-chips">
             <span className="resume-chip">Резюме из Потока</span>
             {candidate.source && (

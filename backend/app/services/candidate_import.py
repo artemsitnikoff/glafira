@@ -22,6 +22,22 @@ from ..services.audit import audit
 
 logger = logging.getLogger(__name__)
 
+# Удерживаем ссылки на фоновые задачи импорта — иначе event loop держит лишь слабую
+# ссылку и GC может убить задачу до завершения (job навсегда застрянет в running).
+_active_tasks: dict = {}
+
+# Потолок размера загружаемого файла (защита воркера от OOM на гигантском .xlsx).
+MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024
+
+
+def _fit(value, maxlen: int):
+    """Обрезает строковое значение под лимит колонки БД (иначе StringDataRightTruncation
+    на commit уронит весь батч). None — как есть."""
+    if value is None:
+        return None
+    s = str(value)
+    return s[:maxlen] if len(s) > maxlen else s
+
 # Синонимы для авто-распознавания колонок (fuzzy matching, lowercase)
 FIELD_SYNONYMS = {
     "name": ["фио кандидата", "фио", "имя", "кандидат", "full name", "полное имя"],
@@ -140,8 +156,9 @@ def _clean_name(value: str) -> tuple[str, str, str]:
     if not value:
         return "", "", ""
 
-    # Убираем коды анонимизации типа "123-"
-    cleaned = re.sub(r'\d{3}-', '', str(value)).strip()
+    # Убираем коды анонимизации типа "062-" (только в начале токена — чтобы не клеить
+    # слова вроде "Иван123-Петров").
+    cleaned = re.sub(r'\b\d{3}-', '', str(value)).strip()
 
     # Разбиваем по пробелам
     parts = [p.strip() for p in cleaned.split() if p.strip()]
@@ -545,21 +562,21 @@ def _apply_update(candidate: Candidate, detail: dict) -> None:
     """Режим «Обновить»: переписывает поля существующего кандидата значениями из файла
     (только непустыми — не затираем имеющееся пустым). Имя/этап не трогаем."""
     if detail.get("phone"):
-        candidate.phone = detail["phone"]
+        candidate.phone = _fit(detail["phone"], 20)
     if detail.get("email"):
-        candidate.email = detail["email"]
+        candidate.email = _fit(detail["email"], 255)
     if detail.get("city"):
-        candidate.city = detail["city"]
+        candidate.city = _fit(detail["city"], 120)
     if detail.get("salary"):
         candidate.salary_expectation = detail["salary"]
     if detail.get("position"):
-        candidate.last_position = detail["position"]
+        candidate.last_position = _fit(detail["position"], 255)
     if detail.get("company"):
-        candidate.last_company = detail["company"]
+        candidate.last_company = _fit(detail["company"], 255)
     if detail.get("experience"):
-        candidate.last_period = detail["experience"]
+        candidate.last_period = _fit(detail["experience"], 120)
     if detail.get("resume_url"):
-        candidate.source_url = detail["resume_url"]
+        candidate.source_url = _fit(detail["resume_url"], 500)
 
 
 async def _update_job_progress(job_id: UUID, **updates):
@@ -686,19 +703,19 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                             detail = row_data["detail"]
                             candidate = Candidate(
                                 company_id=company_id,  # ВСЕГДА из контекста, не из файла
-                                last_name=detail.get("last_name") or "",
-                                first_name=detail.get("first_name") or "Неизвестно",
-                                middle_name=detail.get("middle_name") or None,
-                                phone=detail.get("phone"),
-                                email=detail.get("email"),
-                                city=detail.get("city"),
+                                last_name=_fit(detail.get("last_name") or "", 120),
+                                first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
+                                middle_name=_fit(detail.get("middle_name") or None, 120),
+                                phone=_fit(detail.get("phone"), 20),
+                                email=_fit(detail.get("email"), 255),
+                                city=_fit(detail.get("city"), 120),
                                 salary_expectation=detail.get("salary"),
-                                last_position=detail.get("position"),
-                                last_company=detail.get("company"),
-                                last_period=detail.get("experience"),
+                                last_position=_fit(detail.get("position"), 255),
+                                last_company=_fit(detail.get("company"), 255),
+                                last_period=_fit(detail.get("experience"), 120),
                                 source=detail.get("source") or "import",
                                 external_source="import",
-                                source_url=detail.get("resume_url"),
+                                source_url=_fit(detail.get("resume_url"), 500),
                                 extra={"imported": True}
                             )
                             session.add(candidate)
@@ -758,7 +775,14 @@ async def execute_import(session: AsyncSession, company_id: UUID, user_id: UUID,
     job = await create_import_job(session, company_id, row_count)
     await session.commit()
 
-    # Запускаем в фоне
+    # Запускаем в фоне. Удерживаем ссылку в _active_tasks — иначе GC может убить задачу
+    # до завершения (job застрянет в running навсегда). callback снимает ссылку по завершении.
     task = asyncio.create_task(_run_import(job.id, company_id, user_id, content, mapping, dedup_mode))
+    _active_tasks[job.id] = task
+
+    def _cleanup_task(_t, _jid=job.id):
+        _active_tasks.pop(_jid, None)
+
+    task.add_done_callback(_cleanup_task)
 
     return job.id

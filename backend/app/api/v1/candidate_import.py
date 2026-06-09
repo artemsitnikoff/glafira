@@ -6,21 +6,33 @@ import json
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...database import get_db
-from ...core.errors import ValidationError, NotFoundError
+from ...core.errors import ValidationError, NotFoundError, ForbiddenError
 from ...services.candidate_import import (
     parse_excel_file,
     preview_import,
     execute_import,
-    get_import_job
+    get_import_job,
+    MAX_IMPORT_FILE_BYTES,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
+_MANAGER_FORBIDDEN = "Менеджеры не имеют доступа к общей базе кандидатов"
+
+
+def _read_capped(content: bytes) -> None:
+    """Защита воркера: отклоняем слишком большой файл (OOM)."""
+    if len(content) > MAX_IMPORT_FILE_BYTES:
+        raise ValidationError(
+            f"Файл слишком большой. Максимальный размер — {MAX_IMPORT_FILE_BYTES // (1024*1024)} МБ"
+        )
+
 
 @router.post("/parse")
 async def parse_file(
     file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id)
 ):
     """
@@ -32,12 +44,15 @@ async def parse_file(
         - row_count: количество строк данных
         - auto_mapping: автоматически распознанные соответствия колонок
     """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
     if not file.filename:
         raise ValidationError("Файл не выбран")
 
     content = await file.read()
     if not content:
         raise ValidationError("Файл пустой")
+    _read_capped(content)
 
     result = await parse_excel_file(content, file.filename)
     return result
@@ -48,6 +63,7 @@ async def preview_import_data(
     file: UploadFile = File(...),
     mapping: str = Form(...),  # JSON строка с маппингом колонок
     dedup_mode: str = Form(...),  # "skip" или "update"
+    user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db)
 ):
@@ -65,6 +81,8 @@ async def preview_import_data(
         - shown: количество показанных строк
         - remaining: количество оставшихся строк
     """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
     if not file.filename:
         raise ValidationError("Файл не выбран")
 
@@ -79,6 +97,7 @@ async def preview_import_data(
     content = await file.read()
     if not content:
         raise ValidationError("Файл пустой")
+    _read_capped(content)
 
     result = await preview_import(session, company_id, content, mapping_dict, dedup_mode)
     return result
@@ -104,6 +123,8 @@ async def execute_import_job(
     Returns:
         job_id: UUID задачи импорта для отслеживания прогресса
     """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
     if not file.filename:
         raise ValidationError("Файл не выбран")
 
@@ -118,6 +139,7 @@ async def execute_import_job(
     content = await file.read()
     if not content:
         raise ValidationError("Файл пустой")
+    _read_capped(content)
 
     job_id = await execute_import(session, company_id, user.id, content, mapping_dict, dedup_mode)
 
@@ -127,6 +149,7 @@ async def execute_import_job(
 @router.get("/jobs/{job_id}")
 async def get_import_job_status(
     job_id: UUID,
+    user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db)
 ):
@@ -136,6 +159,8 @@ async def get_import_job_status(
     Returns:
         Информация о задаче импорта: id, status, прогресс, статистика
     """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
     job = await get_import_job(session, job_id, company_id)
     if not job:
         raise NotFoundError(f"Задача импорта {job_id} не найдена")
