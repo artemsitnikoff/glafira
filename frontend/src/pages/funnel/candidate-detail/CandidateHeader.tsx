@@ -65,6 +65,8 @@ export function CandidateHeader({ candidateId, application }: Props) {
   };
 
   const sourceInfo = getSourceInfo();
+  // Кандидат заведён Умным подбором (invite_selected ставит extra.smart_search=true).
+  const isSmartSearch = !!((candidate as any)?.extra?.smart_search);
   const formattedDate = (application as any)?.created_at ? formatDate((application as any).created_at) : null;
 
   return (
@@ -140,6 +142,23 @@ export function CandidateHeader({ candidateId, application }: Props) {
           <div className="cb-row">
             <span className="cb-label">E-mail:</span>
             <span>{candidate.email || 'Не указан'}</span>
+          </div>
+          <div className="cb-row">
+            <span className="cb-label">Источник:</span>
+            <span>{sourceInfo.label}</span>
+            {isSmartSearch && (
+              <span
+                title="Кандидат найден через Умный подбор"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  marginLeft: '8px', padding: '1px 8px', borderRadius: '999px',
+                  fontSize: '11px', fontWeight: 600,
+                  background: 'var(--ark-blue-100)', color: 'var(--accent)',
+                }}
+              >
+                <Icon name="sparkles" size={11} /> Умный подбор
+              </span>
+            )}
           </div>
           {(candidate as { source_url?: string | null }).source_url && (
             <div className="cb-row">
