@@ -56,6 +56,19 @@ def _utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _is_ai_credits_error(reason: str | None, raw: str | None) -> bool:
+    """Похоже ли, что у OpenRouter закончились токены/баланс (HTTP 402 Payment Required
+    или явное сообщение о нехватке кредитов). Тогда оценивать дальше нечем — стоп."""
+    r = (reason or "").lower()
+    if "402" in r:
+        return True
+    blob = f"{reason or ''} {raw or ''}".lower()
+    return any(k in blob for k in (
+        "insufficient credit", "insufficient_quota", "requires more credits",
+        "not enough credits", "negative credit", "payment required",
+    ))
+
+
 async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
     """Вычисляет таймаут поиска на основе параметров"""
     from ..database import AsyncSessionLocal
@@ -721,6 +734,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         scan_n = min(params.get("scan_n", 50), len(resume_items))
         threshold = params.get("threshold", 70)
         evaluated_candidates = []
+        ai_credits_exhausted = False  # кончились токены OpenRouter → стоп (не жечь платные hh-запросы)
 
         await log_smart_search(run_id, f"Начинаем оценку {scan_n} резюме с порогом {threshold}")
 
@@ -816,6 +830,17 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     details = getattr(e, "details", None) or {}
                     reason = details.get("reason") if isinstance(details, dict) else None
                     raw = details.get("raw") if isinstance(details, dict) else None
+
+                    # Кончились токены/баланс OpenRouter → дальше оценивать НЕЧЕМ. Останавливаем
+                    # подбор СРАЗУ, чтобы не тратить платные hh-запросы (get_resume_by_id) впустую.
+                    if _is_ai_credits_error(reason, raw):
+                        ai_credits_exhausted = True
+                        stop_msg = "Подбор остановлен: закончились токены AI (OpenRouter)"
+                        logger.warning(f"AI-кредиты OpenRouter исчерпаны на резюме {resume_id}: reason={reason} raw={str(raw)[:300]}")
+                        await log_smart_search(run_id, stop_msg)
+                        await _update_run_progress(run_id, scanned=i + 1, log_append=stop_msg)
+                        break
+
                     detail_txt = f" — {reason}" if reason else ""
                     if raw:
                         detail_txt += f" | ответ: {str(raw)[:160]}"
@@ -859,7 +884,9 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         ])
 
         # Формируем финальное сообщение
-        if len(evaluated_candidates) == 0:
+        if ai_credits_exhausted:
+            final_note = "❌ Закончились токены AI (OpenRouter). Пополните баланс на openrouter.ai и запустите подбор снова."
+        elif len(evaluated_candidates) == 0:
             final_note = "Не удалось оценить ни одного резюме"
         elif passed_threshold == 0:
             final_note = f"Оценено {len(evaluated_candidates)} резюме, никто не набрал ≥{threshold} — снизьте порог или расширьте фильтры."
