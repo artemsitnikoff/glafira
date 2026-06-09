@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from .base import ORMBase
 
@@ -47,6 +47,20 @@ class SurveyOut(ORMBase):
     answers: list = []
     public_token: str | None = None
     questions: list = []
+
+    @field_validator("answers", "questions", mode="before")
+    @classmethod
+    def _normalize_list(cls, v):
+        # Толерантность к легаси-форме JSONB: иногда answers/questions лежат как
+        # {"items": [...]} (а не как список) — нормализуем, чтобы не падать 500.
+        if v is None:
+            return []
+        if isinstance(v, dict):
+            items = v.get("items")
+            return items if isinstance(items, list) else []
+        if isinstance(v, list):
+            return v
+        return []
 
 
 class SurveyCreate(BaseModel):
