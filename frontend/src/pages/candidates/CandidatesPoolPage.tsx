@@ -8,6 +8,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { ScoreLabel } from '../../components/ui/ScoreLabel'
 import { StageChip } from '../../components/ui/StageChip'
 import NewCandidateForm from '../funnel/NewCandidateForm'
+import { ImportCandidatesWizard } from './ImportCandidatesWizard'
 import type { CandidateFilters as FilterType } from '../../api/hooks/useCandidates'
 import type { CandidateGridItem } from '../../api/aliases'
 import './CandidatesPoolPage.css'
@@ -18,6 +19,7 @@ export function CandidatesPoolPage() {
   const [searchInput, setSearchInput] = useState(searchParams.get('search') || '')
   const [showFilters, setShowFilters] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
 
   // Ref для стабильности коллбэков - используем актуальные searchParams без пересоздания коллбэков
@@ -159,7 +161,7 @@ export function CandidatesPoolPage() {
   }
 
   const handleImportFile = () => {
-    // Disabled for now - "Скоро"
+    setShowImport(true)
   }
 
   const handleFiltersClick = () => {
@@ -197,6 +199,18 @@ export function CandidatesPoolPage() {
     )
   }
 
+  if (showImport) {
+    return (
+      <ImportCandidatesWizard
+        onClose={() => setShowImport(false)}
+        onDone={() => {
+          setShowImport(false);
+          // Список сам перезапросится через invalidate
+        }}
+      />
+    )
+  }
+
   return (
     <div className="cp-page">
       {/* ====== Sticky Header ====== */}
@@ -213,8 +227,6 @@ export function CandidatesPoolPage() {
         <div className="cp-header-actions">
           <button
             className="btn btn-secondary btn-sm"
-            disabled
-            title="Скоро"
             onClick={handleImportFile}
           >
             <Icon name="download" size={14}/> Импорт из файла
