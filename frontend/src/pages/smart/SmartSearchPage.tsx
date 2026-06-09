@@ -1152,7 +1152,7 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                       <div key={i} className={`ss-ir-item ss-ir-${result.status}`}>
                         <span className="ss-ir-name">{result.name || result.resume_id}</span>
                         <span className="ss-ir-status">
-                          {result.status === 'already' ? 'уже в базе' : `ошибка: ${result.message}`}
+                          {result.status === 'already' ? (result.message || 'уже в базе') : `ошибка: ${result.message}`}
                         </span>
                       </div>
                     )

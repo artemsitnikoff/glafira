@@ -1165,10 +1165,22 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                 })
                 continue
             except Exception as e:
+                emsg = str(e)
+                # already_applied: между вакансией и резюме УЖЕ есть переговоры на hh
+                # (кандидат откликался ИЛИ был приглашён ранее) — это НЕ ошибка. Заново
+                # пригласить нельзя; локально не создаём (negotiation_id неизвестен →
+                # cron-поллинг по hh_negotiation_id задублировал бы). Рекрутёр откроет по hh.
+                if "already_applied" in emsg:
+                    results.append({
+                        "resume_id": resume_id,
+                        "status": "already",
+                        "message": "Уже в работе на hh (откликался или приглашён ранее) — откройте по ссылке на hh"
+                    })
+                    continue
                 results.append({
                     "resume_id": resume_id,
                     "status": "error",
-                    "message": f"Ошибка отправки приглашения: {str(e)[:400]}"
+                    "message": f"Ошибка отправки приглашения: {emsg[:400]}"
                 })
                 continue
 
