@@ -811,8 +811,16 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                             await asyncio.wait_for(eval_session.commit(), timeout=20)
 
                 except GlafiraParseError as e:
-                    error_msg = f"Резюме {resume_id} • {name} • ошибка оценки AI: {str(e)[:100]}"
-                    logger.warning(f"Ошибка парсинга AI-оценки резюме {resume_id}: {e}")
+                    # Реальная причина (HTTP-код OpenRouter / raw-ответ / нет ключа) лежит в
+                    # e.details, а str(e) — лишь generic «Ошибка парсинга». Вытаскиваем в журнал.
+                    details = getattr(e, "details", None) or {}
+                    reason = details.get("reason") if isinstance(details, dict) else None
+                    raw = details.get("raw") if isinstance(details, dict) else None
+                    detail_txt = f" — {reason}" if reason else ""
+                    if raw:
+                        detail_txt += f" | ответ: {str(raw)[:160]}"
+                    error_msg = f"Резюме {resume_id} • {name} • ошибка оценки AI{detail_txt}"
+                    logger.warning(f"Ошибка AI-оценки резюме {resume_id}: reason={reason} raw={str(raw)[:300]}")
                     await log_smart_search(run_id, error_msg)
 
                     await _update_run_progress(
