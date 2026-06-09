@@ -107,8 +107,9 @@ class SmartRunStatus(BaseModel):
     """Статус выполнения умного поиска"""
     id: UUID
     status: Literal['running', 'done', 'error']
-    stage: Literal['search', 'eval', 'invite', 'done'] = 'search'
+    stage: Literal['search', 'eval', 'finalizing', 'invite', 'done'] = 'search'
     found: int = 0
+    scan_n: int = 0  # план скана (для прогресса: оценено из min(scan_n, found))
     scanned: int = 0
     evaluated: int = 0
     invited: int = 0

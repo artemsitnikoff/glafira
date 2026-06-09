@@ -780,9 +780,18 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
 }) {
   if (!runData) return null;
 
+  // Цель оценки = сколько реально оценим: min(план скана, найдено фильтром). Знаменатель
+  // ФИКСИРОВАН (не растёт вместе с evaluated, как было со scanned).
+  const f = Number(runData.found) || 0;
+  const s = Number(runData.scan_n) || 0;
+  const evalTarget = (f > 0 && s > 0 ? Math.min(f, s) : (f || s)) || Number(runData.scanned) || Number(runData.evaluated) || 1;
+  // Прошедшие порог — считаем ЖИВЬЁМ из scored_candidates (passed_threshold проставляется
+  // только на финализации, до неё = 0).
+  const passedLive = (runData.scored_candidates || []).filter((c: any) => c.passed).length;
+
   const phases = [
     { t: 'Глафира ищет резюме на hh.ru…', d: vac ? `по фильтрам вакансии «${vac.title}»` : '' },
-    { t: `Оценивает резюме…`, d: `AI-матчинг ${ssFmt(runData.evaluated)} из ${ssFmt(runData.scanned)}` },
+    { t: `Оценивает резюме…`, d: `AI-матчинг ${ssFmt(runData.evaluated)} из ${ssFmt(evalTarget)}` },
     { t: 'Готовим результаты…', d: `финализируем оценку кандидатов` },
   ];
 
@@ -792,8 +801,8 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
   // Прогресс в процентах
   let pct = 12;
   if (runData.stage === 'eval') {
-    pct = 12 + (runData.evaluated / (runData.scanned || 1)) * 70;
-  } else if (runData.stage === 'invite' || runData.stage === 'done') {
+    pct = 12 + Math.min(1, runData.evaluated / evalTarget) * 70;
+  } else if (runData.stage === 'finalizing' || runData.stage === 'invite' || runData.stage === 'done') {
     pct = 100;
   }
 
@@ -864,7 +873,7 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
             color: 'var(--fg-2)',
             textAlign: 'center'
           }}>
-            Оценено {runData.evaluated} из {runData.scanned} · Прошли порог: <strong>{runData.passed_threshold}</strong>
+            Оценено {runData.evaluated} из {evalTarget} · Прошли порог: <strong>{passedLive}</strong>
           </div>
         </div>
       )}
@@ -916,8 +925,8 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
   if (!runData) return null;
 
   const isPreview = runData.invites_skipped === true;
-  const noOnePassed = runData.passed_threshold === 0;
   const passedCandidates = (runData.scored_candidates || []).filter((c: SmartCandidate) => c.passed);
+  const noOnePassed = passedCandidates.length === 0;
   const canInvite = !!(accessData?.has_paid_access && vac?.hh_published);
 
   // Состояние для выбора кандидатов к приглашению
@@ -1014,7 +1023,7 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
           <div className="lbl">Оценено <b>AI-матчингом</b></div>
         </div>
         <div className="ss-rstat invite">
-          <div className="num">{isPreview ? ssFmt(runData.passed_threshold || 0) : ssFmt(runData.invited)}</div>
+          <div className="num">{isPreview ? ssFmt(passedCandidates.length) : ssFmt(runData.invited)}</div>
           <div className="lbl">{isPreview ? 'Прошли порог' : `Приглашено <b>с баллом ≥ ${threshold}</b>`}</div>
         </div>
       </div>

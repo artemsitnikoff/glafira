@@ -102,6 +102,7 @@ async def get_smart_run_status(
         status=run.status,
         stage=run.stage,
         found=run.found,
+        scan_n=(run.params or {}).get('scan_n', 0),
         scanned=run.scanned,
         evaluated=run.evaluated,
         invited=run.invited,

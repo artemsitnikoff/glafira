@@ -46,8 +46,9 @@ export interface SmartSearchResponse {
 export interface SmartRun {
   id: string;
   status: 'running' | 'done' | 'error';
-  stage: 'search' | 'eval' | 'invite' | 'done';
+  stage: 'search' | 'eval' | 'finalizing' | 'invite' | 'done';
   found: number;
+  scan_n: number;
   scanned: number;
   evaluated: number;
   invited: number;
