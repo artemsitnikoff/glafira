@@ -40,6 +40,7 @@ from ..models import (
     Client,
     Consent,
     Event,
+    SmartSearchRun,
     Tag,
     User,
     Vacancy,
@@ -493,6 +494,20 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
     last_tenure = last_job_tenure(candidate.experience)
     total_exp = total_experience(candidate.experience)
 
+    # «Найден Умным подбором»: hh-resume-id кандидата (из extra.hh_resume_id для
+    # smart-invite или external_id для импорта откликов) есть среди scored_candidates
+    # любого смарт-прогона компании. Надёжно независимо от способа создания кандидата.
+    from_smart_search = False
+    resume_hh_id = (candidate.extra or {}).get("hh_resume_id") or candidate.external_id
+    if resume_hh_id:
+        ss = await session.execute(
+            select(SmartSearchRun.id).where(
+                SmartSearchRun.company_id == company_id,
+                SmartSearchRun.scored_candidates.contains([{"hh_resume_id": str(resume_hh_id)}]),
+            ).limit(1)
+        )
+        from_smart_search = ss.first() is not None
+
     return CandidateDetail(
         id=candidate.id,
         display_number=candidate.display_number,
@@ -529,6 +544,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         education=education,
         skills=skills,
         extra=candidate.extra,
+        from_smart_search=from_smart_search,
         created_at=candidate.created_at
     )
 

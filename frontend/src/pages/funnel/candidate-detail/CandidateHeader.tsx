@@ -65,8 +65,9 @@ export function CandidateHeader({ candidateId, application }: Props) {
   };
 
   const sourceInfo = getSourceInfo();
-  // Кандидат заведён Умным подбором (invite_selected ставит extra.smart_search=true).
-  const isSmartSearch = !!((candidate as any)?.extra?.smart_search);
+  // «Найден Умным подбором» — флаг с бэка (резюме есть среди scored_candidates смарт-прогона;
+  // работает и для smart-invite, и для импортированных откликов).
+  const isSmartSearch = !!((candidate as any)?.from_smart_search);
   const formattedDate = (application as any)?.created_at ? formatDate((application as any).created_at) : null;
 
   return (

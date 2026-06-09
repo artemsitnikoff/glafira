@@ -115,6 +115,7 @@ class CandidateDetail(ORMBase):
     education: list[CandidateEducationOut] = []
     skills: list[str] = []
     extra: dict | None = None
+    from_smart_search: bool = False  # резюме найдено через «Умный подбор» (по scored_candidates)
     created_at: datetime
 
 
