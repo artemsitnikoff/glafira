@@ -1102,6 +1102,7 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                   className="ss-row-checkbox"
                   checked={selectedResumeIds.has(c.hh_resume_id)}
                   disabled={c.invited}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => {
                     e.stopPropagation();
                     toggleSelect(c.hh_resume_id!, !!c.invited);

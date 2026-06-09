@@ -611,17 +611,23 @@ async def invite_to_vacancy(access_token: str, resume_id: str, vacancy_id: str, 
                 headers={"Authorization": f"Bearer {access_token}"},
                 data=data
             )
-            response.raise_for_status()
-
-            result = response.json()
-
-            if not isinstance(result, dict):
-                raise ValidationError("Некорректный формат ответа hh.ru POST /negotiations/phone_interview")
-
-            return result
-
         except httpx.HTTPError as e:
             raise ValidationError(f"Ошибка приглашения кандидата hh.ru: {e}")
+
+        # Тело ответа hh при ошибке содержит РЕАЛЬНУЮ причину (лимит приглашений, нет прав
+        # на вакансию, нужен доступ к контактам и т.п.) — пробрасываем её, иначе видно
+        # лишь обобщённое «403 Forbidden» от httpx.
+        if response.status_code >= 400:
+            raise ValidationError(
+                f"hh.ru отклонил приглашение (HTTP {response.status_code}): {response.text[:400]}"
+            )
+
+        # Успех phone_interview может прийти 201 с пустым телом — это нормально.
+        try:
+            result = response.json()
+        except Exception:
+            result = {}
+        return result if isinstance(result, dict) else {}
 
 
 async def get_payable_api_actions(access_token: str, employer_id: str) -> dict:

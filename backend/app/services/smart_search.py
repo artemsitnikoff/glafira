@@ -1168,7 +1168,7 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                 results.append({
                     "resume_id": resume_id,
                     "status": "error",
-                    "message": f"Ошибка отправки приглашения: {str(e)[:100]}"
+                    "message": f"Ошибка отправки приглашения: {str(e)[:400]}"
                 })
                 continue
 
