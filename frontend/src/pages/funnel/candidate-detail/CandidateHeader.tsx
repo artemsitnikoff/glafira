@@ -7,6 +7,7 @@ import { messengerChannel } from '@/lib/messengers';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
 import { PdnBadge } from '@/components/PdnBadge';
 import { CandidateTagPicker } from '@/components/CandidateTagPicker';
+import { SOURCE_CONFIG } from '@/lib/source-colors';
 
 type Props = {
   candidateId: string | null | undefined;
@@ -146,7 +147,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
           </div>
           <div className="cb-row">
             <span className="cb-label">Источник:</span>
-            <span>{sourceInfo.label}</span>
+            <span>{SOURCE_CONFIG[candidate.source]?.label || candidate.source || '—'}</span>
             {isSmartSearch && (
               <span
                 title="Кандидат найден через Умный подбор"
