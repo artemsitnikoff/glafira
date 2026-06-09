@@ -33,6 +33,7 @@ from .settings import (
 )
 from .hh_integration import HhIntegration, HhOauthState
 from .smart_search import SmartSearchRun
+from .candidate_import import CandidateImportJob
 
 __all__ = [
     "Base",
@@ -73,4 +74,5 @@ __all__ = [
     "HhIntegration",
     "HhOauthState",
     "SmartSearchRun",
+    "CandidateImportJob",
 ]

@@ -1,0 +1,350 @@
+import pytest
+import json
+from io import BytesIO
+from uuid import uuid4
+
+from openpyxl import Workbook
+
+from app.models import Candidate, CandidateImportJob
+from app.services.candidate_import import (
+    parse_excel_file,
+    _clean_name,
+    _clean_phone,
+    _clean_source,
+    _clean_salary,
+    _auto_map_columns,
+    _parse_company_position,
+    preview_import,
+    create_import_job,
+    get_import_job
+)
+
+
+def create_test_excel(headers, rows):
+    """Создает Excel файл в памяти для тестов"""
+    workbook = Workbook()
+    worksheet = workbook.active
+
+    # Добавляем заголовки
+    for i, header in enumerate(headers, 1):
+        worksheet.cell(row=1, column=i, value=header)
+
+    # Добавляем данные
+    for row_idx, row_data in enumerate(rows, 2):
+        for col_idx, value in enumerate(row_data, 1):
+            worksheet.cell(row=row_idx, column=col_idx, value=value)
+
+    # Сохраняем в BytesIO
+    file_buffer = BytesIO()
+    workbook.save(file_buffer)
+    file_buffer.seek(0)
+    return file_buffer.getvalue()
+
+
+class TestCandidateImportParsing:
+    """Тесты парсинга Excel файлов"""
+
+    @pytest.mark.asyncio
+    async def test_parse_excel_file_success(self):
+        """Тест успешного парсинга Excel файла"""
+        headers = ["ФИО Кандидата", "Телефон", "Email", "Город"]
+        rows = [
+            ["Иванов Иван Иванович", "+7 915 123-45-67", "ivan@example.com", "Москва"],
+            ["Петров Петр", "8 916 234-56-78", "petr@example.com", "СПб"],
+            ["", "", "", ""],  # Пустая строка - должна игнорироваться
+            ["Сидоров Сидор", "7 917 345-67-89", "", "Казань"]
+        ]
+
+        content = create_test_excel(headers, rows)
+
+        result = await parse_excel_file(content, "test.xlsx")
+
+        assert result["columns"] == headers
+        assert result["row_count"] == 3  # Пустая строка не считается
+        assert "ФИО Кандидата" in result["samples"]
+        assert len(result["samples"]["ФИО Кандидата"]) == 3
+        assert "auto_mapping" in result
+        assert result["auto_mapping"]["ФИО Кандидата"] == "name"
+        assert result["auto_mapping"]["Телефон"] == "phone"
+
+    @pytest.mark.asyncio
+    async def test_parse_xls_file_error(self):
+        """Тест ошибки при загрузке .xls файла"""
+        content = b"fake content"
+
+        with pytest.raises(Exception) as exc_info:
+            await parse_excel_file(content, "test.xls")
+
+        assert "Старый формат .xls не поддерживается" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_parse_invalid_file_error(self):
+        """Тест ошибки при загрузке невалидного файла"""
+        content = b"not an excel file"
+
+        with pytest.raises(Exception) as exc_info:
+            await parse_excel_file(content, "test.txt")
+
+        assert "Поддерживаются только файлы формата .xlsx" in str(exc_info.value)
+
+
+class TestColumnRecognition:
+    """Тесты автоматического распознавания колонок"""
+
+    def test_auto_map_columns_basic(self):
+        """Тест базового распознавания колонок"""
+        columns = ["ФИО Кандидата", "Моб. телефон", "E-mail", "Город", "Неизвестная колонка"]
+
+        mapping = _auto_map_columns(columns)
+
+        assert mapping["ФИО Кандидата"] == "name"
+        assert mapping["Моб. телефон"] == "phone"
+        assert mapping["E-mail"] == "email"
+        assert mapping["Город"] == "city"
+        assert mapping["Неизвестная колонка"] == "skip"
+
+    def test_auto_map_columns_english(self):
+        """Тест распознавания английских названий"""
+        columns = ["Full name", "Phone", "Email", "City", "Salary", "Company"]
+
+        mapping = _auto_map_columns(columns)
+
+        assert mapping["Full name"] == "name"
+        assert mapping["Phone"] == "phone"
+        assert mapping["Email"] == "email"
+        assert mapping["City"] == "city"
+        assert mapping["Salary"] == "salary"
+        assert mapping["Company"] == "company"
+
+    def test_auto_map_columns_case_insensitive(self):
+        """Тест нечувствительности к регистру"""
+        columns = ["ФИО КАНДИДАТА", "моб. телефон", "E-MAIL"]
+
+        mapping = _auto_map_columns(columns)
+
+        assert mapping["ФИО КАНДИДАТА"] == "name"
+        assert mapping["моб. телефон"] == "phone"
+        assert mapping["E-MAIL"] == "email"
+
+
+class TestDataCleaning:
+    """Тесты очистки данных"""
+
+    def test_clean_name_full(self):
+        """Тест очистки полного ФИО"""
+        last, first, middle = _clean_name("Иванов Иван Иванович")
+        assert last == "Иванов"
+        assert first == "Иван"
+        assert middle == "Иванович"
+
+    def test_clean_name_with_code(self):
+        """Тест очистки ФИО с кодом анонимизации"""
+        last, first, middle = _clean_name("123-Иванов Иван")
+        assert last == "Иванов"
+        assert first == "Иван"
+        assert middle == ""
+
+    def test_clean_name_two_parts(self):
+        """Тест очистки ФИО из двух частей"""
+        last, first, middle = _clean_name("Петров Петр")
+        assert last == "Петров"
+        assert first == "Петр"
+        assert middle == ""
+
+    def test_clean_name_one_part(self):
+        """Тест очистки ФИО из одной части"""
+        last, first, middle = _clean_name("Иван")
+        assert last == ""
+        assert first == "Иван"
+        assert middle == ""
+
+    def test_clean_phone_normalization(self):
+        """Тест нормализации телефонов"""
+        assert _clean_phone("8 915 123-45-67") == "+79151234567"
+        assert _clean_phone("7 916 234 56 78") == "+79162345678"
+        assert _clean_phone("9173456789") == "+79173456789"
+        assert _clean_phone("+7 918 456-78-90") == "+79184567890"
+        assert _clean_phone("invalid") == "invalid"
+
+    def test_clean_source_mapping(self):
+        """Тест маппинга источников"""
+        assert _clean_source("headhunter") == "hh"
+        assert _clean_source("hh.ru") == "hh"
+        assert _clean_source("вручную") == "manual"
+        assert _clean_source("Telegram") == "telegram"
+        assert _clean_source("авито") == "avito"
+        assert _clean_source("superjob") == "superjob"
+        assert _clean_source("linkedin") == "other"
+        assert _clean_source("") == "other"
+
+    def test_clean_salary_extraction(self):
+        """Тест извлечения зарплаты"""
+        assert _clean_salary("150 000 руб") == 150000
+        assert _clean_salary("от 100000") == 100000
+        assert _clean_salary("200-300k") == 200300
+        assert _clean_salary("invalid") is None
+        assert _clean_salary("") is None
+
+    def test_parse_company_position(self):
+        """Тест парсинга 'Компания: Должность'"""
+        company, position = _parse_company_position("Сбербанк: Senior Frontend", "position")
+        assert company == "Сбербанк"
+        assert position == "Senior Frontend"
+
+        company, position = _parse_company_position("Яндекс: Аналитик", "company")
+        assert company == "Яндекс"
+        assert position == "Аналитик"
+
+        company, position = _parse_company_position("Простая должность", "position")
+        assert company == ""
+        assert position == "Простая должность"
+
+
+class TestDeduplication:
+    """Тесты дедупликации"""
+
+    @pytest.mark.asyncio
+    async def test_preview_import_with_duplicates(self, db_session, admin_user):
+        """Тест превью импорта с дублями"""
+        company_id = admin_user.company_id
+
+        # Создаем существующего кандидата
+        existing_candidate = Candidate(
+            company_id=company_id,
+            first_name="Иван",
+            last_name="Иванов",
+            phone="+79151234567",
+            email="ivan@example.com",
+            source="manual"
+        )
+        db_session.add(existing_candidate)
+        await db_session.commit()
+
+        # Создаем файл с дублем и новым кандидатом
+        headers = ["ФИО", "Телефон", "Email"]
+        rows = [
+            ["Иванов Иван", "+7 915 123-45-67", "ivan@example.com"],  # Дубль
+            ["Петров Петр", "+7 916 234-56-78", "petr@example.com"]   # Новый
+        ]
+        content = create_test_excel(headers, rows)
+        mapping = {"ФИО": "name", "Телефон": "phone", "Email": "email"}
+
+        result = await preview_import(db_session, company_id, content, mapping, "skip")
+
+        assert result["summary"]["total"] == 2
+        assert result["summary"]["new"] == 1
+        assert result["summary"]["duplicates"] == 1
+        assert result["summary"]["errors"] == 0
+
+        # Проверяем статусы строк
+        rows_data = result["rows"]
+        assert rows_data[0]["status"] == "duplicate"
+        assert rows_data[1]["status"] == "new"
+
+    @pytest.mark.asyncio
+    async def test_preview_import_company_scoped(self, db_session, admin_user):
+        """Тест того, что дедупликация работает в рамках компании"""
+        company_id = admin_user.company_id
+        other_company_id = uuid4()
+
+        # Создаем кандидата в другой компании
+        other_company_candidate = Candidate(
+            company_id=other_company_id,
+            first_name="Иван",
+            last_name="Иванов",
+            phone="+79151234567",
+            source="manual"
+        )
+        db_session.add(other_company_candidate)
+        await db_session.commit()
+
+        # Импортируем того же кандидата в нашу компанию
+        headers = ["ФИО", "Телефон"]
+        rows = [["Иванов Иван", "+7 915 123-45-67"]]
+        content = create_test_excel(headers, rows)
+        mapping = {"ФИО": "name", "Телефон": "phone"}
+
+        result = await preview_import(db_session, company_id, content, mapping, "skip")
+
+        # Не должно быть дублей - кандидат из другой компании
+        assert result["summary"]["duplicates"] == 0
+        assert result["summary"]["new"] == 1
+
+
+class TestImportJob:
+    """Тесты управления задачами импорта"""
+
+    @pytest.mark.asyncio
+    async def test_create_import_job(self, db_session, admin_user):
+        """Тест создания задачи импорта"""
+        company_id = admin_user.company_id
+
+        job = await create_import_job(db_session, company_id, 100)
+        await db_session.commit()
+
+        assert job.company_id == company_id
+        assert job.total == 100
+        assert job.status == "running"
+        assert job.processed == 0
+
+    @pytest.mark.asyncio
+    async def test_get_import_job(self, db_session, admin_user):
+        """Тест получения задачи импорта"""
+        company_id = admin_user.company_id
+
+        # Создаем задачу
+        job = await create_import_job(db_session, company_id, 50)
+        await db_session.commit()
+
+        # Получаем задачу
+        retrieved_job = await get_import_job(db_session, job.id, company_id)
+
+        assert retrieved_job is not None
+        assert retrieved_job.id == job.id
+        assert retrieved_job.company_id == company_id
+
+    @pytest.mark.asyncio
+    async def test_get_import_job_company_scoped(self, db_session, admin_user):
+        """Тест получения задачи импорта с проверкой company_id"""
+        company_id = admin_user.company_id
+        other_company_id = uuid4()
+
+        # Создаем задачу
+        job = await create_import_job(db_session, company_id, 50)
+        await db_session.commit()
+
+        # Пытаемся получить задачу от имени другой компании
+        retrieved_job = await get_import_job(db_session, job.id, other_company_id)
+
+        assert retrieved_job is None  # Не должна найтись
+
+
+class TestErrorHandling:
+    """Тесты обработки ошибок"""
+
+    @pytest.mark.asyncio
+    async def test_preview_import_with_errors(self, db_session, admin_user):
+        """Тест превью импорта с ошибочными строками"""
+        company_id = admin_user.company_id
+
+        headers = ["ФИО", "Телефон", "Email"]
+        rows = [
+            ["", "+7 915 123-45-67", ""],              # Нет имени
+            ["Петров Петр", "", ""],                   # Нет контактов
+            ["Сидоров Сидор", "+7 916 234-56-78", ""] # Валидная строка
+        ]
+        content = create_test_excel(headers, rows)
+        mapping = {"ФИО": "name", "Телефон": "phone", "Email": "email"}
+
+        result = await preview_import(db_session, company_id, content, mapping, "skip")
+
+        assert result["summary"]["total"] == 3
+        assert result["summary"]["new"] == 1
+        assert result["summary"]["errors"] == 2
+
+        rows_data = result["rows"]
+        assert rows_data[0]["status"] == "error"
+        assert rows_data[0]["error"] == "нет имени"
+        assert rows_data[1]["status"] == "error"
+        assert rows_data[1]["error"] == "нет контакта"
+        assert rows_data[2]["status"] == "new"
