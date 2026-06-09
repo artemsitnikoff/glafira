@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Optional, Dict, List, Any
 from uuid import UUID
 
-from sqlalchemy import select, or_
+from openpyxl import load_workbook
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import ValidationError
+from ..database import AsyncSessionLocal
 from ..models import Candidate, CandidateImportJob
 from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
@@ -39,7 +41,6 @@ FIELD_SYNONYMS = {
 
 def _parse_excel_sync(content: bytes) -> tuple[list[str], dict[str, list[str]], int]:
     """Синхронный парсинг Excel файла с возвратом колонок, примеров и количества строк"""
-    from openpyxl import load_workbook
 
     workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
     worksheet = workbook.active
@@ -244,17 +245,38 @@ def _normalize_contact(value: str) -> str:
         return _clean_phone(value).replace('+', '').replace(' ', '')
 
 
+def _phone_query_variants(norm_digits: str) -> list[str]:
+    """Возможные форматы хранения телефона в БД для нормализованных цифр (телефоны в базе
+    приходят в разном виде: '+7…' из импорта/формы, '8…'/'7…' из других источников).
+    Нужно для дедуп-матча: ключ дедупа нормализуется через _normalize_contact одинаково
+    с обеих сторон, но SQL-запрос должен ВЕРНУТЬ кандидата по любому из форматов."""
+    if not norm_digits:
+        return []
+    out = {norm_digits, "+" + norm_digits}
+    if len(norm_digits) == 11 and norm_digits.startswith("7"):
+        rest = norm_digits[1:]
+        out.update({"8" + rest, "+7" + rest, "7" + rest})
+    return list(out)
+
+
 async def _get_existing_candidates(session: AsyncSession, company_id: UUID,
                                  phones: list[str], emails: list[str]) -> list[Candidate]:
-    """Получение существующих кандидатов для дедупликации"""
+    """Получение существующих кандидатов для дедупликации (СТРОГО в рамках company)."""
     if not phones and not emails:
         return []
 
     conditions = []
     if phones:
-        conditions.append(Candidate.phone.in_(phones))
+        variants = set()
+        for p in phones:
+            variants.update(_phone_query_variants(p))
+        if variants:
+            conditions.append(Candidate.phone.in_(list(variants)))
     if emails:
-        conditions.append(Candidate.email.in_(emails))
+        conditions.append(func.lower(Candidate.email).in_([e.lower() for e in emails]))
+
+    if not conditions:
+        return []
 
     result = await session.execute(
         select(Candidate).where(
@@ -311,6 +333,9 @@ def _classify_rows(rows: list[dict], existing_candidates: list[Candidate],
                 last_name, first_name, middle_name = _clean_name(name_value)
                 preview_row["name"] = f"{first_name} {last_name}".strip()
                 preview_row["detail"]["full_name"] = f"{last_name} {first_name} {middle_name}".strip()
+                preview_row["detail"]["last_name"] = last_name
+                preview_row["detail"]["first_name"] = first_name
+                preview_row["detail"]["middle_name"] = middle_name
 
             elif field == "phone":
                 phone_value = str(value).strip()
@@ -379,21 +404,22 @@ def _classify_rows(rows: list[dict], existing_candidates: list[Candidate],
             norm_phone = _normalize_contact(phone_value)
             norm_email = _normalize_contact(email_value)
 
-            is_duplicate = False
-
-            # Проверяем с существующими в базе
+            # Базовый дубль (есть в БД) — запоминаем кандидата для режима «Обновить».
+            matched = None
             if norm_phone and norm_phone in existing_phones:
-                is_duplicate = True
+                matched = existing_phones[norm_phone]
             elif norm_email and norm_email in existing_emails:
-                is_duplicate = True
+                matched = existing_emails[norm_email]
+            # Внутрифайловый дубль (повтор более ранней строки этого же файла).
+            within_file = bool(
+                (norm_phone and norm_phone in seen_phones)
+                or (norm_email and norm_email in seen_emails)
+            )
 
-            # Проверяем внутрифайловые дубли
-            elif norm_phone and norm_phone in seen_phones:
-                is_duplicate = True
-            elif norm_email and norm_email in seen_emails:
-                is_duplicate = True
-
-            if is_duplicate:
+            if matched is not None:
+                preview_row["status"] = "duplicate"
+                preview_row["_match_id"] = str(matched.id)
+            elif within_file:
                 preview_row["status"] = "duplicate"
             else:
                 # Запоминаем контакты для следующих строк
@@ -414,7 +440,6 @@ async def preview_import(session: AsyncSession, company_id: UUID, content: bytes
     columns, samples, row_count = await asyncio.to_thread(_parse_excel_sync, content)
 
     # Читаем все строки данных
-    from openpyxl import load_workbook
 
     workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
     worksheet = workbook.active
@@ -467,9 +492,13 @@ async def preview_import(session: AsyncSession, company_id: UUID, content: bytes
     duplicates = len([r for r in classified_rows if r["status"] == "duplicate"])
     errors = len([r for r in classified_rows if r["status"] == "error"])
 
-    # Возвращаем первые 50 строк
+    # Возвращаем первые 50 строк (без внутренних служебных ключей вроде _match_id)
     shown = min(50, total)
     remaining = max(0, total - shown)
+    clean_rows = [
+        {k: v for k, v in r.items() if not k.startswith("_")}
+        for r in classified_rows[:shown]
+    ]
 
     return {
         "summary": {
@@ -478,7 +507,7 @@ async def preview_import(session: AsyncSession, company_id: UUID, content: bytes
             "duplicates": duplicates,
             "errors": errors
         },
-        "rows": classified_rows[:shown],
+        "rows": clean_rows,
         "shown": shown,
         "remaining": remaining
     }
@@ -512,9 +541,29 @@ def _utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _apply_update(candidate: Candidate, detail: dict) -> None:
+    """Режим «Обновить»: переписывает поля существующего кандидата значениями из файла
+    (только непустыми — не затираем имеющееся пустым). Имя/этап не трогаем."""
+    if detail.get("phone"):
+        candidate.phone = detail["phone"]
+    if detail.get("email"):
+        candidate.email = detail["email"]
+    if detail.get("city"):
+        candidate.city = detail["city"]
+    if detail.get("salary"):
+        candidate.salary_expectation = detail["salary"]
+    if detail.get("position"):
+        candidate.last_position = detail["position"]
+    if detail.get("company"):
+        candidate.last_company = detail["company"]
+    if detail.get("experience"):
+        candidate.last_period = detail["experience"]
+    if detail.get("resume_url"):
+        candidate.source_url = detail["resume_url"]
+
+
 async def _update_job_progress(job_id: UUID, **updates):
     """Обновление прогресса задачи короткой сессией"""
-    from ..database import AsyncSessionLocal
 
     try:
         async with AsyncSessionLocal() as session:
@@ -532,7 +581,6 @@ async def _update_job_progress(job_id: UUID, **updates):
 
 async def _finalize_job(job_id: UUID, status: str, error: str = None):
     """Финализация задачи импорта"""
-    from ..database import AsyncSessionLocal
 
     try:
         async with AsyncSessionLocal() as session:
@@ -553,15 +601,12 @@ async def _finalize_job(job_id: UUID, status: str, error: str = None):
 async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                      file_bytes: bytes, mapping: dict[str, str], dedup_mode: str):
     """Фоновое выполнение импорта"""
-    from ..database import AsyncSessionLocal
 
     try:
         # Парсим файл
         columns, samples, row_count = await asyncio.to_thread(_parse_excel_sync, file_bytes)
 
         # Читаем все строки
-        from openpyxl import load_workbook
-
         workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
         worksheet = workbook.active
 
@@ -625,41 +670,25 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                         if row_data["status"] == "error":
                             errors_count += 1
                         elif row_data["status"] == "duplicate":
-                            if dedup_mode == "skip":
-                                skipped_count += 1
-                            else:  # update
-                                # Пока просто считаем как обновленные, реальное обновление - в следующей итерации
-                                updated_count += 1
-                        elif row_data["status"] == "new":
-                            # Создаем нового кандидата
-                            detail = row_data["detail"]
-                            full_name = detail.get("full_name", "")
-
-                            # Правильно разбираем ФИО
-                            if full_name:
-                                name_parts = full_name.split()
-                                if len(name_parts) >= 2:
-                                    last_name = name_parts[0]
-                                    first_name = name_parts[1]
-                                    middle_name = " ".join(name_parts[2:]) if len(name_parts) > 2 else None
-                                elif len(name_parts) == 1:
-                                    last_name = ""
-                                    first_name = name_parts[0]
-                                    middle_name = None
+                            match_id = row_data.get("_match_id")
+                            if dedup_mode == "update" and match_id:
+                                # Реальное обновление существующего кандидата полями из файла.
+                                existing = await session.get(Candidate, UUID(match_id))
+                                if existing is not None and existing.company_id == company_id:
+                                    _apply_update(existing, row_data["detail"])
+                                    updated_count += 1
                                 else:
-                                    last_name = ""
-                                    first_name = "Неизвестно"
-                                    middle_name = None
+                                    skipped_count += 1
                             else:
-                                last_name = ""
-                                first_name = "Неизвестно"
-                                middle_name = None
-
+                                # skip-режим ИЛИ внутрифайловый дубль (без базового совпадения)
+                                skipped_count += 1
+                        elif row_data["status"] == "new":
+                            detail = row_data["detail"]
                             candidate = Candidate(
-                                company_id=company_id,
-                                last_name=last_name,
-                                first_name=first_name,
-                                middle_name=middle_name,
+                                company_id=company_id,  # ВСЕГДА из контекста, не из файла
+                                last_name=detail.get("last_name") or "",
+                                first_name=detail.get("first_name") or "Неизвестно",
+                                middle_name=detail.get("middle_name") or None,
                                 phone=detail.get("phone"),
                                 email=detail.get("email"),
                                 city=detail.get("city"),
@@ -667,12 +696,11 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                                 last_position=detail.get("position"),
                                 last_company=detail.get("company"),
                                 last_period=detail.get("experience"),
-                                source=detail.get("source", "import"),
+                                source=detail.get("source") or "import",
                                 external_source="import",
                                 source_url=detail.get("resume_url"),
                                 extra={"imported": True}
                             )
-
                             session.add(candidate)
                             created_count += 1
 
