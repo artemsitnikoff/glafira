@@ -896,11 +896,14 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     # Забираем коллекции «Отклик» (неразобранные → этап «Отклик») и «Отказ»
     # (отклонённые на hh → этап «Отказ»). Этап для каждого item определяет
     # import_response по item.state.id.
-    # Забираем «Отклик» (неразобранные) + все коллекции отказа hh. consider/
-    # phone_interview/interview/offer/hired НЕ трогаем (это уже продвинутые на hh —
-    # их этап на нашей стороне определяет рекрутёр, не импорт).
+    # Забираем «Отклик» (неразобранные) + «Приглашённые» (phone_interview — кого
+    # пригласил работодатель, в т.ч. через Умный подбор; на нашей стороне = этап «Отклик»,
+    # дедуп по hh_negotiation_id → без дублей) + все коллекции отказа hh.
+    # consider/interview/offer/hired НЕ трогаем (продвинутые на hh — их этап определяет
+    # рекрутёр, не импорт).
     wanted = (
         "response",
+        "phone_interview",
         "discard_by_employer", "discard_by_applicant", "discard_no_interaction",
         "discard_vacancy_closed", "discard_to_other_vacancy",
     )
