@@ -130,6 +130,7 @@ class SmartRunHistoryItem(BaseModel):
     created_at: datetime
     found: int
     evaluated: int
+    passed: int = 0  # сколько прошло порог (живой счёт по scored_candidates)
     invited: int
 
 

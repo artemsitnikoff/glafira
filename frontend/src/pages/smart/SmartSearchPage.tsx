@@ -1121,6 +1121,19 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                 <Icon name={c.invited ? 'check' : 'user'} size={12} />
                 {c.invited ? '✓ приглашён' : 'прошёл порог'}
               </span>
+              {c.hh_resume_id && (
+                <a
+                  href={`https://hh.ru/resume/${c.hh_resume_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="icon-btn"
+                  onClick={(e) => e.stopPropagation()}
+                  title="Открыть на hh.ru"
+                  style={{ marginLeft: '8px' }}
+                >
+                  <Icon name="open" size={14} />
+                </a>
+              )}
             </div>
           ))}
 
@@ -1251,6 +1264,8 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
 }
 
 function SSHistory({ history }: { history: any[] }) {
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('ru-RU', {
       day: 'numeric',
@@ -1268,7 +1283,20 @@ function SSHistory({ history }: { history: any[] }) {
       </div>
       <div className="ss-hist-list">
         {history.map(h => (
-          <div key={h.id} className="ss-hist-row">
+          <div
+            key={h.id}
+            className="ss-hist-row ss-hist-row-clickable"
+            onClick={() => setSelectedRunId(h.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setSelectedRunId(h.id);
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            aria-label={`Открыть результаты поиска для вакансии ${h.vacancy_title}`}
+          >
             <div className="ss-hist-main">
               <div className="ss-hist-vac">{h.vacancy_title}</div>
               <div className="ss-hist-date">{formatDate(h.created_at)}</div>
@@ -1282,6 +1310,10 @@ function SSHistory({ history }: { history: any[] }) {
                 <div className="hv">{ssFmt(h.evaluated)}</div>
                 <div className="hl">оценено</div>
               </div>
+              <div className="ss-hist-stat">
+                <div className="hv">{ssFmt(h.passed)}</div>
+                <div className="hl">прошло отбор</div>
+              </div>
               <div className="ss-hist-stat invite">
                 <div className="hv">{h.invited}</div>
                 <div className="hl">приглашено</div>
@@ -1290,6 +1322,13 @@ function SSHistory({ history }: { history: any[] }) {
           </div>
         ))}
       </div>
+
+      {selectedRunId && (
+        <SSHistoryRunDetail
+          runId={selectedRunId}
+          onClose={() => setSelectedRunId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1678,6 +1717,119 @@ function SSCandidateDetail({
               <div className="ss-page-ai-forecast">{candidate.forecast}</div>
             )}
           </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Компонент детального просмотра прошедших кандидатов из истории
+function SSHistoryRunDetail({
+  runId,
+  onClose,
+}: {
+  runId: string;
+  onClose: () => void;
+}) {
+  const { data: runData } = useSmartRun(runId, true);
+
+  // Обработка Esc
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
+  if (!runData) {
+    return (
+      <div className="ss-page-modal-overlay" onClick={onClose}>
+        <div className="ss-page-modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="ss-page-modal-header">
+            <div className="ss-page-modal-title-area">
+              <h2 className="ss-page-modal-title">Загрузка...</h2>
+            </div>
+            <button
+              className="ss-page-modal-close"
+              onClick={onClose}
+              aria-label="Закрыть"
+            >
+              <Icon name="x" size={20} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const passedCandidates = (runData.scored_candidates || []).filter((c: SmartCandidate) => c.passed);
+
+  return (
+    <div className="ss-page-modal-overlay" onClick={onClose}>
+      <div className="ss-page-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="ss-page-modal-header">
+          <div className="ss-page-modal-title-area">
+            <h2 className="ss-page-modal-title">
+              Прошли порог: {passedCandidates.length}
+            </h2>
+            <div className="ss-page-modal-meta">
+              <span>Результаты поиска</span>
+            </div>
+          </div>
+          <button
+            className="ss-page-modal-close"
+            onClick={onClose}
+            aria-label="Закрыть"
+          >
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+
+        <div className="ss-page-modal-body">
+          {passedCandidates.length > 0 ? (
+            <div className="ss-invited-card">
+              <div className="ss-invited-head">
+                <span className="title">Прошли порог: {passedCandidates.length}</span>
+                <div style={{ flex: 1 }} />
+                <span className="live-dot">Приглашено: {runData.invited}</span>
+              </div>
+
+              {passedCandidates.map((c: SmartCandidate, index: number) => (
+                <div key={c.candidate_id || index} className="ss-inv-row">
+                  <Avatar name={c.name} size="sm" />
+                  <div className="ss-inv-main">
+                    <div className="ss-inv-name">{c.name}</div>
+                    <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+                  </div>
+                  <ScoreLabel value={c.score} />
+                  {c.hh_resume_id && (
+                    <a
+                      href={`https://hh.ru/resume/${c.hh_resume_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="icon-btn"
+                      title="Открыть на hh.ru"
+                      style={{ marginLeft: '8px' }}
+                    >
+                      <Icon name="open" size={14} />
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              padding: '40px 20px',
+              textAlign: 'center',
+              color: 'var(--fg-3)',
+              fontSize: '14px'
+            }}>
+              Никто не прошёл порог
+            </div>
+          )}
         </div>
       </div>
     </div>

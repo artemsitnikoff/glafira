@@ -134,6 +134,9 @@ async def get_smart_runs_history(
             created_at=run.created_at,
             found=run.found,
             evaluated=run.evaluated,
+            # Прошедшие порог — живой счёт по scored_candidates (passed_threshold бывает 0
+            # у старых/недофинализированных прогонов).
+            passed=sum(1 for c in (run.scored_candidates or []) if c.get('passed')),
             invited=run.invited
         ))
 

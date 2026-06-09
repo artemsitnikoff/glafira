@@ -114,6 +114,7 @@ export interface SmartHistoryItem {
   found: number;
   evaluated: number;
   invited: number;
+  passed: number;
 }
 
 export interface SmartVacancyFilters {

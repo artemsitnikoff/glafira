@@ -726,6 +726,10 @@
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .ss-page .ss-hist-row:hover { border-color: var(--ark-gray-400); box-shadow: var(--shadow-1); }
+.ss-page .ss-hist-row:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .ss-page .ss-hist-main { flex: 1; min-width: 0; }
 .ss-page .ss-hist-vac { font-size: 13px; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
