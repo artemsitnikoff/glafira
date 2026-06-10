@@ -1554,7 +1554,12 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
             "area": response_data["area"],
             "professional_role": response_data["professional_role"],
             "experience": response_data["experience"],
-            "skills": response_data["skills"]
+            "skills": response_data["skills"],
+            # Город/ЗП — прямо из полей вакансии (не LLM). Доп. ключи: hh-ветка их игнорит,
+            # ветка «по своей базе» использует для фильтра по candidates.
+            "city": vacancy.city or "",
+            "salary_from": vacancy.salary_from,
+            "salary_to": vacancy.salary_to,
         }
 
     except (GlafiraParseError, Exception) as e:
@@ -1565,7 +1570,10 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
             "area": "",
             "professional_role": vacancy.name,
             "experience": "",
-            "skills": []
+            "skills": [],
+            "city": vacancy.city or "",
+            "salary_from": vacancy.salary_from,
+            "salary_to": vacancy.salary_to,
         }
 
 

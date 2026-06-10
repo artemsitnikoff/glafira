@@ -337,23 +337,23 @@ async def search_base(
 async def search_by_vacancy(
     session: AsyncSession,
     company_id: UUID,
-    vacancy_id: UUID
+    vacancy_id: UUID,
+    override: Optional[dict] = None,
 ) -> dict:
     """
-    Поиск кандидатов по критериям вакансии
+    Поиск кандидатов по критериям вакансии.
 
     Args:
         session: Сессия БД
         company_id: ID компании
         vacancy_id: ID вакансии
+        override: критерии {role, skills, city, salary_from, salary_to} от фронта
+            (отредактированные рекрутёром автофильтры). Если None — derive из вакансии.
 
     Returns:
-        dict: {total: int, results: list[dict], criteria: dict, vacancy_title: str}
+        dict: {total, results, criteria(BaseSearchCriteria-форма), vacancy_title}
     """
-    # Получаем критерии из вакансии
-    filters = await derive_vacancy_filters(session, company_id, vacancy_id)
-
-    # Получаем название вакансии
+    # Название вакансии (и проверка принадлежности company)
     vacancy_result = await session.execute(
         select(Vacancy.name).where(
             Vacancy.id == vacancy_id,
@@ -365,29 +365,40 @@ async def search_by_vacancy(
     if not vacancy:
         raise NotFoundError("Вакансия")
 
-    # Выполняем поиск
+    # Критерии: либо присланные фронтом (правленые автофильтры), либо derive из вакансии.
+    # В ЛЮБОМ случае приводим к форме BaseSearchCriteria (role/skills/city/salary_*),
+    # иначе Pydantic-валидация ответа упадёт → 500.
+    if override is not None:
+        criteria = {
+            "role": override.get("role") or "",
+            "skills": override.get("skills") or [],
+            "city": override.get("city") or "",
+            "salary_from": override.get("salary_from"),
+            "salary_to": override.get("salary_to"),
+        }
+    else:
+        filters = await derive_vacancy_filters(session, company_id, vacancy_id)
+        criteria = {
+            "role": filters.get("professional_role", ""),
+            "skills": filters.get("skills", []),
+            "city": filters.get("city", ""),
+            "salary_from": filters.get("salary_from"),
+            "salary_to": filters.get("salary_to"),
+        }
+
     search_result = await search_base(
         session,
         company_id,
-        role=filters.get("professional_role", ""),
-        skills=filters.get("skills", []),
-        city="",  # Город из вакансии не используем
-        salary_from=None,  # ЗП из вакансии не используем для фильтрации
-        salary_to=None
+        role=criteria["role"],
+        skills=criteria["skills"],
+        city=criteria["city"],
+        salary_from=criteria["salary_from"],
+        salary_to=criteria["salary_to"],
     )
 
-    # Приводим фильтры вакансии (area/professional_role/experience/skills)
-    # к форме BaseSearchCriteria (role/skills/city/salary_from/salary_to),
-    # иначе Pydantic-валидация ответа упадёт → 500 на vacancy-поиске.
     return {
         **search_result,
-        "criteria": {
-            "role": filters.get("professional_role", ""),
-            "skills": filters.get("skills", []),
-            "city": "",
-            "salary_from": None,
-            "salary_to": None,
-        },
+        "criteria": criteria,
         "vacancy_title": vacancy,
     }
 

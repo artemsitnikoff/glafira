@@ -12,6 +12,13 @@ class BaseSearchRequest(BaseModel):
     search_type: Literal["prompt", "vacancy"]
     query: Optional[str] = Field(None, min_length=3, description="Текст запроса (для типа 'prompt')")
     vacancy_id: Optional[UUID] = Field(None, description="ID вакансии (для типа 'vacancy')")
+    # Критерии для типа 'vacancy' — переданы фронтом (автофильтры из вакансии, уже
+    # отредактированные рекрутёром). Если не присланы — бек сам derive'ит из вакансии.
+    role: Optional[str] = Field(None, description="Должность/роль (vacancy)")
+    skills: Optional[list[str]] = Field(None, description="Навыки (vacancy)")
+    city: Optional[str] = Field(None, description="Город (vacancy)")
+    salary_from: Optional[int] = Field(None, description="ЗП от (vacancy)")
+    salary_to: Optional[int] = Field(None, description="ЗП до (vacancy)")
 
     @model_validator(mode='after')
     def validate_fields(self):

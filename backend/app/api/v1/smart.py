@@ -251,8 +251,17 @@ async def base_search_candidates(
         vacancy_title = None
 
     elif request.search_type == "vacancy":
-        # Поиск по критериям вакансии
-        search_result = await search_by_vacancy(session, company_id, request.vacancy_id)
+        # Если фронт прислал (отредактированные) автофильтры — ищем по ним; иначе derive.
+        override = None
+        if request.role is not None:
+            override = {
+                "role": request.role,
+                "skills": request.skills or [],
+                "city": request.city or "",
+                "salary_from": request.salary_from,
+                "salary_to": request.salary_to,
+            }
+        search_result = await search_by_vacancy(session, company_id, request.vacancy_id, override)
         criteria = search_result.pop("criteria")
         query_echo = search_result.pop("vacancy_title")
         vacancy_title = query_echo

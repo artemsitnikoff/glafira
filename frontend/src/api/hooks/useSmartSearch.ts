@@ -122,6 +122,9 @@ export interface SmartVacancyFilters {
   professional_role: string;
   experience: string;
   skills: string[];
+  city?: string;
+  salary_from?: number | null;
+  salary_to?: number | null;
 }
 
 export interface SmartAreaSuggestItem {
@@ -278,6 +281,12 @@ export interface BaseSearchRequest {
   search_type: 'prompt' | 'vacancy';
   query?: string;
   vacancy_id?: string;
+  // Отредактированные автофильтры из вакансии (метод 'vacancy') — бек ищет по ним.
+  role?: string;
+  skills?: string[];
+  city?: string;
+  salary_from?: number;
+  salary_to?: number;
 }
 
 export interface BaseSearchResponse {

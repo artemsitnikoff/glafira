@@ -1958,9 +1958,12 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
   const [vacId, setVacId] = useState<string | null>(null);
   const [selOpen, setSelOpen] = useState(false);
   const [skills, setSkills] = useState<string[]>([]);
-  const [area, setArea] = useState('');
   const [role, setRole] = useState('');
   const [exp, setExp] = useState('');
+  const [city, setCity] = useState('');
+  const [salFrom, setSalFrom] = useState(0);
+  const [salTo, setSalTo] = useState(0);
+  const [newSkill, setNewSkill] = useState('');
 
   // результаты
   const [results, setResults] = useState<BaseSearchCandidate[]>([]);
@@ -1984,19 +1987,23 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
     setVacId(id);
     setSelOpen(false);
 
-    // AI-подбор фильтров
+    // AI-подбор фильтров (бек отдаёт и город/ЗП прямо из вакансии)
     deriveFilters.mutate(id, {
       onSuccess: (filters) => {
-        setArea(filters.area);
         setRole(filters.professional_role);
         setExp(filters.experience);
         setSkills(filters.skills);
+        setCity(filters.city || '');
+        setSalFrom(filters.salary_from || 0);
+        setSalTo(filters.salary_to || 0);
       },
       onError: () => {
-        setArea('');
         setRole('');
         setExp('');
         setSkills([]);
+        setCity('');
+        setSalFrom(0);
+        setSalTo(0);
       }
     });
   };
@@ -2007,7 +2014,16 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
     if (!canSearch) return;
 
     const request: BaseSearchRequest = byVacancy && vac
-      ? { search_type: 'vacancy', vacancy_id: vac.id }
+      ? {
+          search_type: 'vacancy',
+          vacancy_id: vac.id,
+          // Шлём (правленые) автофильтры — бек ищет по базе именно по ним.
+          role,
+          skills,
+          city,
+          salary_from: salFrom > 0 ? salFrom : undefined,
+          salary_to: salTo > 0 ? salTo : undefined,
+        }
       : { search_type: 'prompt', query: prompt.trim() };
 
     setPhase('running');
@@ -2200,16 +2216,32 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 
                 <div className="ss-field-row" style={{ marginBottom: 14 }}>
                   <div className="ss-field">
-                    <div className="ss-field-label">Область / профобласть</div>
-                    <input className="ss-input" value={area} onChange={(e) => setArea(e.target.value)} />
+                    <div className="ss-field-label">Должность</div>
+                    <input className="ss-input" value={role} onChange={(e) => setRole(e.target.value)}
+                      placeholder="любая должность" />
                   </div>
                   <div className="ss-field">
-                    <div className="ss-field-label">Проф-роль</div>
-                    <input className="ss-input" value={role} onChange={(e) => setRole(e.target.value)} />
+                    <div className="ss-field-label">Город</div>
+                    <input className="ss-input" value={city} onChange={(e) => setCity(e.target.value)}
+                      placeholder="любой город" />
                   </div>
-                  <div className="ss-field" style={{ maxWidth: 160 }}>
+                  <div className="ss-field" style={{ maxWidth: 180 }}>
                     <div className="ss-field-label">Опыт</div>
-                    <input className="ss-input" value={exp} onChange={(e) => setExp(e.target.value)} />
+                    <input className="ss-input" value={exp} onChange={(e) => setExp(e.target.value)}
+                      placeholder="любой опыт" />
+                  </div>
+                </div>
+
+                <div className="ss-field-row" style={{ marginBottom: 14 }}>
+                  <div className="ss-field" style={{ maxWidth: 200 }}>
+                    <div className="ss-field-label">Зарплата от, ₽</div>
+                    <input className="ss-input t-mono" type="number" min={0} value={salFrom || ''}
+                      onChange={(e) => setSalFrom(Number(e.target.value) || 0)} placeholder="не важно" />
+                  </div>
+                  <div className="ss-field" style={{ maxWidth: 200 }}>
+                    <div className="ss-field-label">Зарплата до, ₽</div>
+                    <input className="ss-input t-mono" type="number" min={0} value={salTo || ''}
+                      onChange={(e) => setSalTo(Number(e.target.value) || 0)} placeholder="не важно" />
                   </div>
                 </div>
 
@@ -2224,12 +2256,23 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
                         </button>
                       </span>
                     ))}
-                    <button className="ss-chip-add" onClick={() => {
-                      const extra = ['Git', 'Agile', 'English B2', 'SQL', 'Code review'].find(x => !skills.includes(x));
-                      if (extra) setSkills([...skills, extra]);
-                    }}>
-                      <Icon name="plus" size={12} /> навык
-                    </button>
+                    <input
+                      className="ss-input"
+                      style={{ maxWidth: 200 }}
+                      value={newSkill}
+                      onChange={(e) => setNewSkill(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const v = newSkill.trim();
+                          if (v && !skills.some(s => s.toLowerCase() === v.toLowerCase())) {
+                            setSkills([...skills, v]);
+                          }
+                          setNewSkill('');
+                        }
+                      }}
+                      placeholder="+ навык (Enter)"
+                    />
                   </div>
                 </div>
               </div>
