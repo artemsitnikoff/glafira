@@ -355,26 +355,26 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
       {/* ===== Нижняя панель навигации ===== */}
       {phase === 'upload' && uploadState === 'idle' && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => { setSource(null); setPhase('source'); }}>
-            <Icon name="chevron-left" size={14}/> Назад
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSource(null); setPhase('source'); }}>
+            <Icon name="chevL" size={13}/> Назад
           </button>
         </div>
       )}
       {phase === 'upload' && uploadState === 'done' && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => { setSource(null); setPhase('source'); setUploadState('idle'); }}>
-            <Icon name="chevron-left" size={14}/> Назад
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSource(null); setPhase('source'); setUploadState('idle'); }}>
+            <Icon name="chevL" size={13}/> Назад
           </button>
           <div style={{flex:1}}/>
-          <button className="btn btn-primary" onClick={() => setPhase('columns')}>
-            Далее → Сопоставить колонки
+          <button className="btn btn-primary btn-sm" onClick={() => setPhase('columns')}>
+            <Icon name="arrowRight" size={14}/> Сопоставить колонки
           </button>
         </div>
       )}
       {phase === 'token' && tokenState === 'idle' && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => { setSource(null); setPhase('source'); }}>
-            <Icon name="chevron-left" size={14}/> Назад
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSource(null); setPhase('source'); }}>
+            <Icon name="chevL" size={13}/> Назад
           </button>
           <div className="imp-foot-hint">
             {actionError
@@ -383,15 +383,15 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Токен введён</span>
               : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Вставьте API-токен Потока</span>}
           </div>
-          <button className="btn btn-primary" disabled={!tokenVal.trim() || previewPotokImport.isPending} onClick={() => tokenVal.trim() && connectPotok()}>
-            {previewPotokImport.isPending ? 'Подключаемся…' : 'Подключиться и загрузить →'}
+          <button className="btn btn-primary btn-sm" disabled={!tokenVal.trim() || previewPotokImport.isPending} onClick={() => tokenVal.trim() && connectPotok()}>
+            {previewPotokImport.isPending ? 'Подключаемся…' : <><Icon name="arrowRight" size={14}/> Подключиться и загрузить</>}
           </button>
         </div>
       )}
       {phase === 'columns' && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => setPhase('upload')}>
-            <Icon name="chevron-left" size={14}/> Назад
+          <button className="btn btn-secondary btn-sm" onClick={() => setPhase('upload')}>
+            <Icon name="chevL" size={13}/> Назад
           </button>
           <div className="imp-foot-hint">
             {actionError
@@ -400,18 +400,18 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Обязательные поля сопоставлены</span>
               : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Сопоставьте ФИО и хотя бы один контакт</span>}
           </div>
-          <button className="btn btn-primary" disabled={!requiredOk || previewImport.isPending} onClick={handlePreview}>
-            {previewImport.isPending ? 'Обработка…' : 'Далее → Превью'}
+          <button className="btn btn-primary btn-sm" disabled={!requiredOk || previewImport.isPending} onClick={handlePreview}>
+            {previewImport.isPending ? 'Обработка…' : <><Icon name="arrowRight" size={14}/> Превью</>}
           </button>
         </div>
       )}
       {phase === 'preview' && previewData && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => setPhase(source === 'potok' ? 'token' : 'columns')}>
-            <Icon name="chevron-left" size={14}/> Назад{source === 'potok' ? '' : ' к колонкам'}
+          <button className="btn btn-secondary btn-sm" onClick={() => setPhase(source === 'potok' ? 'token' : 'columns')}>
+            <Icon name="chevL" size={13}/> Назад{source === 'potok' ? '' : ' к колонкам'}
           </button>
           <div style={{flex:1}}/>
-          <button className="btn btn-primary imp-btn-import" onClick={handleExecute}>
+          <button className="btn btn-primary btn-sm imp-btn-import" onClick={handleExecute}>
             <Icon name="check" size={15}/> Импортировать {fmtIM(previewData.summary.new + (dedupMode === 'update' ? previewData.summary.duplicates : 0))}&nbsp;кандидатов
           </button>
         </div>
