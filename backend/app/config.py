@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     TELEGRAM_API_ID: int = 0
     TELEGRAM_API_HASH: str = ""
 
+    # Potok.io API integration
+    POTOK_API_BASE: str = "https://app.potok.io/api/v3"
+    POTOK_TIMEOUT: int = 30
+
     # DaData — подсказки городов (suggestions API использует только API_KEY/Token;
     # SECRET_KEY нужен лишь для Clean API стандартизации, держим на будущее).
     DADATA_API_KEY: str = ""

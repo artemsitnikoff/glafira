@@ -56,6 +56,8 @@ import {
   Copy,
   MapPin,
   Heart,
+  Key,
+  Phone,
 } from 'lucide-react';
 
 const iconMap = {
@@ -94,10 +96,13 @@ const iconMap = {
   sparkle: Sparkles, // alias для совместимости
   pin: MapPin,
   more: MoreHorizontal,
+  'more-horizontal': MoreHorizontal,
   pause: Pause,
   'cal-clock': Calendar,
   // New icons for candidate detail
   user: User,
+  key: Key,
+  phone: Phone,
   loader: Loader2,
   bot: Bot,
   paperclip: Paperclip,

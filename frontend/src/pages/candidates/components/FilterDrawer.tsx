@@ -189,6 +189,7 @@ export function FilterDrawer({ onClose }: FilterDrawerProps) {
     { id: 'superjob', label: 'SuperJob' },
     { id: 'linkedin', label: 'LinkedIn' },
     { id: 'telegram', label: 'Глафира · Telegram' },
+    { id: 'potok', label: 'Поток' },
     { id: 'referral', label: 'Реферал' },
     { id: 'direct', label: 'Прямое обращение' },
     { id: 'agency', label: 'Агентство' },

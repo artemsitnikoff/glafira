@@ -16,6 +16,7 @@ const SOURCES = [
   { id: 'superjob', label: 'SuperJob' },
   { id: 'linkedin', label: 'LinkedIn' },
   { id: 'telegram', label: 'Telegram' },
+  { id: 'potok', label: 'Поток' },
   { id: 'referral', label: 'Реферал' },
   { id: 'direct', label: 'Напрямую' },
   { id: 'agency', label: 'Агентство' },

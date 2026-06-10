@@ -43,6 +43,8 @@ const Icon = ({ name, size = 18, ...rest }) => {
     antenna:  <><path d="M5 21l4-9M19 21l-4-9M9 12h6M7 7a5 5 0 0 1 10 0M4.5 4.5a8 8 0 0 1 15 0"/></>,
     down:     <><path d="M3 6l4 4 4-4 4 4 4-4M3 14l4 4 4-4 4 4 4-4"/></>,
     telegram: <><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></>,
+    key:      <><circle cx="8" cy="8" r="4.5"/><path d="M11.2 11.2 21 21M18 18l2-2M15 15l2-2"/></>,
+    link:     <><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"

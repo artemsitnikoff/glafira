@@ -86,7 +86,7 @@ function StageLabel({ stage }) {
 }
 
 // ====== 4A. Список ======
-function CandidatesPool({ onOpen, onAddCandidate }) {
+function CandidatesPool({ onOpen, onAddCandidate, onImport }) {
   const [query, setQuery] = useStateCP('');
   const [sort, setSort] = useStateCP('date');
   const [openSort, setOpenSort] = useStateCP(false);
@@ -169,8 +169,8 @@ function CandidatesPool({ onOpen, onAddCandidate }) {
           </div>
         </div>
         <div className="cp-header-actions">
-          <button className="btn btn-secondary btn-sm">
-            <Icon name="download" size={14}/> Импорт из файла
+          <button className="btn btn-secondary btn-sm" onClick={onImport}>
+            <Icon name="download" size={14}/> Импорт кандидатов
           </button>
           <button className="btn btn-primary btn-sm" onClick={onAddCandidate}>
             <Icon name="plus" size={14}/> Добавить кандидата

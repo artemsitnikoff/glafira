@@ -9,7 +9,7 @@ from .base import ORMBase
 # (app/models/candidate.py). Невалидное значение → 422 от Pydantic, НЕ 500 IntegrityError.
 CandidateSource = Literal[
     "hh", "avito", "superjob", "telegram", "referral",
-    "direct", "agency", "import", "manual", "linkedin", "other",
+    "direct", "agency", "import", "manual", "linkedin", "potok", "other",
 ]
 
 

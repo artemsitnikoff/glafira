@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="styles/new-vacancy.css"/>
 <link rel="stylesheet" href="styles/new-candidate.css"/>
 <link rel="stylesheet" href="styles/smart-search.css"/>
+<link rel="stylesheet" href="styles/import.css"/>
 </head>
 <body>
 <template id="__bundler_thumbnail">
@@ -32,6 +33,7 @@
 <script type="text/babel" src="components/Vacancies.jsx"></script>
 <script type="text/babel" src="components/Candidates.jsx"></script>
 <script type="text/babel" src="components/CandidatesPool.jsx"></script>
+<script type="text/babel" src="components/ImportCandidates.jsx"></script>
 <script type="text/babel" src="components/SmartSearch.jsx"></script>
 <script type="text/babel" src="components/AnalyticsCharts.jsx"></script>
 <script type="text/babel" src="components/AnalyticsReports.jsx"></script>
@@ -55,7 +57,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "compactSidebar": true,
   "hasBitrix": true,
   "smartHhAccess": true,
-  "smartView": "auto"
+  "smartView": "auto",
+  "importPreset": "live"
 }/*EDITMODE-END*/;
 
 function App() {
@@ -68,6 +71,7 @@ function App() {
   const [creatingCandidate, setCreatingCandidate] = useState(false); // new candidate flow
   const [candidateId, setCandidateId] = useState(null);             // open candidate inside vacancy
   const [poolCandidateId, setPoolCandidateId] = useState(null);    // open candidate inside pool
+  const [importingPool, setImportingPool] = useState(false);       // import-from-file flow
 
   // Settings state
   const [settingsSection, setSettingsSection] = useState('profile');
@@ -202,7 +206,16 @@ function App() {
     );
     else content = <EmptyVacancyPane/>;
   } else if (active === 'candidates') {
-    if (poolCandidateId) {
+    if (importingPool) {
+      content = (
+        <ImportCandidates
+          key={tweaks.importPreset || 'live'}
+          preset={tweaks.importPreset === 'live' ? undefined : tweaks.importPreset}
+          onClose={() => setImportingPool(false)}
+          onViewBase={() => setImportingPool(false)}
+        />
+      );
+    } else if (poolCandidateId) {
       content = (
         <CandidateFullPage
           candidateId={poolCandidateId}
@@ -210,7 +223,7 @@ function App() {
         />
       );
     } else {
-      content = <CandidatesPool onOpen={setPoolCandidateId} onAddCandidate={() => { setCreatingCandidate(true); setActive('vacancies'); setVacanciesOpen(true); }}/>;
+      content = <CandidatesPool onOpen={setPoolCandidateId} onImport={() => setImportingPool(true)} onAddCandidate={() => { setCreatingCandidate(true); setActive('vacancies'); setVacanciesOpen(true); }}/>;
     }
   } else if (active === 'smart') {
     content = (
@@ -329,6 +342,7 @@ function App() {
           (vacancyId && candidateId) ? 'Vacancies / Candidate Card' :
           vacancyId ? 'Vacancies / Candidates List' :
           active === 'vacancies' ? 'Vacancies / Empty' :
+          (active === 'candidates' && importingPool) ? 'Candidates / Import from file' :
           (active === 'candidates' && poolCandidateId) ? 'Candidates / Full Page' :
           active === 'candidates' ? 'Candidates / Pool list' :
           active === 'smart' ? 'Smart Search' :
@@ -389,6 +403,22 @@ function App() {
               { value: 'done',        label: 'Результат' },
             ]}/>
           <TweakButton label="Открыть Умный подбор" onClick={() => { setActive('smart'); }}/>
+        </TweakSection>
+        <TweakSection title="Раздел «Импорт из файла»">
+          <TweakSelect label="Открыть состояние"
+            value={tweaks.importPreset || 'live'}
+            onChange={v => { setTweak('importPreset', v); setActive('candidates'); setImportingPool(true); setPoolCandidateId(null); }}
+            options={[
+              { value: 'live',            label: '— живой flow (с начала) —' },
+              { value: 'upload-done',     label: '1 · Файл загружен' },
+              { value: 'upload-error',    label: '1 · Ошибка чтения файла' },
+              { value: 'columns',         label: '2 · Сопоставление колонок' },
+              { value: 'columns-invalid', label: '2 · Обязательные не замаплены' },
+              { value: 'preview',         label: '3 · Превью импорта' },
+              { value: 'importing',       label: '4 · Импорт идёт' },
+              { value: 'result',          label: '4 · Готово (результат)' },
+            ]}/>
+          <TweakButton label="Открыть импорт" onClick={() => { setActive('candidates'); setImportingPool(true); setPoolCandidateId(null); }}/>
         </TweakSection>
         <TweakSection title="Раздел «Настройки»">
           <TweakSelect label="Открыть подраздел"

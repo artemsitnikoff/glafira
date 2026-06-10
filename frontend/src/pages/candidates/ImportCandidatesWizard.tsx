@@ -5,6 +5,8 @@ import {
   useParseFile,
   usePreviewImport,
   useExecuteImport,
+  usePreviewPotokImport,
+  useExecutePotokImport,
   useImportJob,
   type ParseResponse,
   type PreviewResponse,
@@ -38,23 +40,44 @@ const IMP_FIELDS = [
 
 const FIELD_LABEL: Record<string, string> = IMP_FIELDS.reduce((m, f) => (m[f.id] = f.label, m), { skip: 'Не импортировать' } as Record<string, string>);
 
-type Step = 1 | 2 | 3 | 4;
+// Фазы для развилки источников
+type Phase = 'source' | 'upload' | 'columns' | 'token' | 'preview' | 'result';
+type Source = 'file' | 'potok' | null;
+
+// Потоки шагов по источнику (для индикатора)
+const IMP_FLOWS = {
+  file: ['upload', 'columns', 'preview', 'result'] as const,
+  potok: ['token', 'preview', 'result'] as const,
+};
+
+const IMP_PHASE_LABEL = {
+  upload: 'Загрузка',
+  columns: 'Колонки',
+  token: 'Токен Потока',
+  preview: 'Превью',
+  result: 'Готово',
+};
 
 export function ImportCandidatesWizard({ onClose, onDone }: Props) {
-  // Состояние визарда
-  const [currentStep, setCurrentStep] = useState<Step>(1);
+  // Состояние визарда - теперь через фазы и источник
+  const [phase, setPhase] = useState<Phase>('source');
+  const [source, setSource] = useState<Source>(null);
 
-  // Шаг 1: Загрузка файла
+  // Шаг загрузки файла
   const [file, setFile] = useState<File | null>(null);
   const [parseData, setParseData] = useState<ParseResponse | null>(null);
   const [uploadState, setUploadState] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle');
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Шаг 2: Маппинг колонок
+  // Шаг токена Потока
+  const [tokenVal, setTokenVal] = useState('');
+  const [tokenState, setTokenState] = useState<'idle' | 'connecting'>('idle');
+
+  // Шаг маппинг колонок
   const [mapping, setMapping] = useState<ColumnMapping>({});
 
-  // Шаг 3: Превью
+  // Шаг превью
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
   const [dedupMode, setDedupMode] = useState<DedupMode>('skip');
   const [detailCandidate, setDetailCandidate] = useState<PreviewRow | null>(null);
@@ -65,7 +88,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const hasContact = mappedFields.has('phone') || mappedFields.has('email');
   const requiredOk = hasName && hasContact;
 
-  // Шаг 4: Выполнение
+  // Шаг выполнения
   const [jobId, setJobId] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,9 +97,39 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const parseFile = useParseFile();
   const previewImport = usePreviewImport();
   const executeImport = useExecuteImport();
-  const { data: jobData } = useImportJob(jobId, currentStep === 4);
+  const previewPotokImport = usePreviewPotokImport();
+  const executePotokImport = useExecutePotokImport();
+  const { data: jobData } = useImportJob(jobId, phase === 'result');
 
-  // Обработчики
+  // Выбор источника
+  const pickSource = (s: 'file' | 'potok') => {
+    setSource(s);
+    setPhase(s === 'file' ? 'upload' : 'token');
+  };
+
+  // Подключение к Потоку
+  const connectPotok = async () => {
+    if (!tokenVal.trim()) return;
+    setActionError(null);
+    setTokenState('connecting');
+
+    try {
+      const result = await previewPotokImport.mutateAsync({
+        token: tokenVal,
+        dedup_mode: dedupMode,
+      });
+      setPreviewData(result);
+      setTokenState('idle');
+      setPhase('preview');
+    } catch (error: any) {
+      setTokenState('idle');
+      // Показываем человекочитаемое сообщение об ошибке
+      const errorMsg = error?.response?.data?.error?.message || 'Не удалось подключиться к Потоку';
+      setActionError(errorMsg);
+    }
+  };
+
+  // Обработчики файлов
   const handleFileSelect = async (selectedFile: File) => {
     setFileError(null);
 
@@ -139,8 +192,6 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     });
   };
 
-  // Удаляем дублированную функцию, используем вычисляемые значения
-
   const handlePreview = async () => {
     if (!file || !requiredOk) return;
     setActionError(null);
@@ -152,35 +203,54 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
         dedup_mode: dedupMode,
       });
       setPreviewData(result);
-      setCurrentStep(3);
+      setPhase('preview');
     } catch {
       setActionError('Не удалось построить превью. Проверьте файл и попробуйте ещё раз.');
     }
   };
 
   const handleExecute = async () => {
-    if (!file) return;
     setActionError(null);
 
     try {
-      const result = await executeImport.mutateAsync({
-        file,
-        mapping,
-        dedup_mode: dedupMode,
-      });
+      const result = source === 'potok'
+        ? await executePotokImport.mutateAsync({ token: tokenVal, dedup_mode: dedupMode })
+        : await executeImport.mutateAsync({ file: file!, mapping, dedup_mode: dedupMode });
+
       setJobId(result.job_id);
-      setCurrentStep(4);
+      setPhase('result');
     } catch {
       setActionError('Не удалось запустить импорт. Попробуйте ещё раз.');
     }
   };
 
+  // Обработка изменения режима дедупликации (для Потока)
+  const handleDedupModeChange = async (newMode: DedupMode) => {
+    setDedupMode(newMode);
+
+    // Если мы в Потоке и в превью, перезапрашиваем превью с новым режимом
+    if (source === 'potok' && phase === 'preview' && tokenVal) {
+      try {
+        const result = await previewPotokImport.mutateAsync({
+          token: tokenVal,
+          dedup_mode: newMode,
+        });
+        setPreviewData(result);
+      } catch {
+        // При ошибке оставляем как есть
+      }
+    }
+  };
+
   const reset = () => {
-    setCurrentStep(1);
+    setPhase('source');
+    setSource(null);
     setFile(null);
     setParseData(null);
     setUploadState('idle');
     setDragging(false);
+    setTokenVal('');
+    setTokenState('idle');
     setMapping({});
     setPreviewData(null);
     setDedupMode('skip');
@@ -191,7 +261,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   };
 
   // Форматирование чисел как в эталоне
-  const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
+  const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
 
   return (
     <div className="imp-page">
@@ -200,17 +270,21 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
         <div className="imp-top-row">
           <div className="imp-top-title">
             <Icon name="download" size={17}/>
-            <span>Импорт кандидатов из файла</span>
+            <span>Импорт кандидатов</span>
           </div>
           <button className="icon-btn" onClick={onClose} title="Закрыть импорт"><Icon name="x" size={18}/></button>
         </div>
-        <ImpStepper step={currentStep}/>
+        <ImpStepper source={source} phase={phase}/>
       </div>
 
       {/* ===== Тело ===== */}
       <div className="imp-body">
         <div className="imp-inner">
-          {currentStep === 1 && (
+          {phase === 'source' && (
+            <ImpStepSource onPick={pickSource}/>
+          )}
+
+          {phase === 'upload' && (
             <ImpStepUpload
               uploadState={uploadState}
               dragging={dragging}
@@ -225,11 +299,20 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               parseData={parseData}
               onReplaceFile={handleReplaceFile}
               fileError={fileError}
-              onNext={() => setCurrentStep(2)}
             />
           )}
 
-          {currentStep === 2 && parseData && (
+          {phase === 'token' && (
+            <ImpStepToken
+              tokenVal={tokenVal}
+              setTokenVal={setTokenVal}
+              tokenState={tokenState}
+              onConnect={connectPotok}
+              actionError={actionError}
+            />
+          )}
+
+          {phase === 'columns' && parseData && (
             <ImpStepColumns
               parseData={parseData}
               mapping={mapping}
@@ -241,47 +324,66 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               actionError={actionError}
               onPreview={handlePreview}
               previewLoading={previewImport.isPending}
-              onBack={() => setCurrentStep(1)}
             />
           )}
 
-          {currentStep === 3 && previewData && (
+          {phase === 'preview' && previewData && (
             <ImpStepPreview
               previewData={previewData}
               dedupMode={dedupMode}
-              setDedupMode={setDedupMode}
+              setDedupMode={handleDedupModeChange}
               onRowClick={setDetailCandidate}
               actionError={actionError}
               onExecute={handleExecute}
-              executeLoading={executeImport.isPending}
-              onBack={() => setCurrentStep(2)}
+              executeLoading={executeImport.isPending || executePotokImport.isPending}
+              source={source}
             />
           )}
 
-          {currentStep === 4 && (
+          {phase === 'result' && (
             <ImpStepResult
               jobData={jobData}
               dedupMode={dedupMode}
               onDone={onDone}
               onAgain={reset}
+              source={source}
             />
           )}
         </div>
       </div>
 
       {/* ===== Нижняя панель навигации ===== */}
-      {currentStep === 1 && uploadState === 'done' && (
+      {phase === 'upload' && uploadState === 'done' && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
+          <button className="btn btn-secondary" onClick={() => { setSource(null); setPhase('source'); setUploadState('idle'); }}>
+            <Icon name="chevron-left" size={14}/> Назад
+          </button>
           <div style={{flex:1}}/>
-          <button className="btn btn-primary" onClick={() => setCurrentStep(2)}>
+          <button className="btn btn-primary" onClick={() => setPhase('columns')}>
             Далее → Сопоставить колонки
           </button>
         </div>
       )}
-      {currentStep === 2 && (
+      {phase === 'token' && tokenState === 'idle' && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => setCurrentStep(1)}>
+          <button className="btn btn-secondary" onClick={() => { setSource(null); setPhase('source'); }}>
+            <Icon name="chevron-left" size={14}/> Назад
+          </button>
+          <div className="imp-foot-hint">
+            {actionError
+              ? <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {actionError}</span>
+              : tokenVal.trim()
+              ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Токен введён</span>
+              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Вставьте API-токен Потока</span>}
+          </div>
+          <button className="btn btn-primary" disabled={!tokenVal.trim() || previewPotokImport.isPending} onClick={() => tokenVal.trim() && connectPotok()}>
+            {previewPotokImport.isPending ? 'Подключаемся…' : 'Подключиться и загрузить →'}
+          </button>
+        </div>
+      )}
+      {phase === 'columns' && (
+        <div className="imp-foot">
+          <button className="btn btn-secondary" onClick={() => setPhase('upload')}>
             <Icon name="chevron-left" size={14}/> Назад
           </button>
           <div className="imp-foot-hint">
@@ -296,10 +398,10 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
           </button>
         </div>
       )}
-      {currentStep === 3 && previewData && (
+      {phase === 'preview' && previewData && (
         <div className="imp-foot">
-          <button className="btn btn-secondary" onClick={() => setCurrentStep(2)}>
-            <Icon name="chevron-left" size={14}/> Назад к колонкам
+          <button className="btn btn-secondary" onClick={() => setPhase(source === 'potok' ? 'token' : 'columns')}>
+            <Icon name="chevron-left" size={14}/> Назад{source === 'potok' ? '' : ' к колонкам'}
           </button>
           <div style={{flex:1}}/>
           <button className="btn btn-primary imp-btn-import" onClick={handleExecute}>
@@ -312,6 +414,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
       {detailCandidate && (
         <ImpResumeModal
           candidate={detailCandidate}
+          source={source}
           onClose={() => setDetailCandidate(null)}
         />
       )}
@@ -322,20 +425,23 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
 // =====================================================================
 // Индикатор шагов
 // =====================================================================
-function ImpStepper({ step }: { step: Step }) {
-  const steps = ['Загрузка', 'Колонки', 'Превью', 'Готово'];
+function ImpStepper({ source, phase }: { source: Source; phase: Phase }) {
+  const flow = source ? IMP_FLOWS[source] : IMP_FLOWS.file;
+  const phases = ['source', ...flow];
+  const labels = ['Источник', ...flow.map(p => IMP_PHASE_LABEL[p])];
+  const activeIdx = phases.indexOf(phase);
+
   return (
     <div className="imp-stepper">
-      {steps.map((s, i) => {
-        const n = i + 1;
-        const state = step > n ? 'done' : step === n ? 'current' : 'upcoming';
+      {labels.map((s, i) => {
+        const state = activeIdx > i ? 'done' : activeIdx === i ? 'current' : 'upcoming';
         return (
           <Fragment key={s}>
             <div className={`imp-step ${state}`}>
-              <span className="imp-step-dot">{step > n ? <Icon name="check" size={14}/> : n}</span>
+              <span className="imp-step-dot">{activeIdx > i ? <Icon name="check" size={14}/> : i + 1}</span>
               <span className="imp-step-label">{s}</span>
             </div>
-            {i < steps.length - 1 && <span className={`imp-step-line ${step > n ? 'done' : ''}`}/>}
+            {i < labels.length - 1 && <span className={`imp-step-line ${activeIdx > i ? 'done' : ''}`}/>}
           </Fragment>
         );
       })}
@@ -344,7 +450,111 @@ function ImpStepper({ step }: { step: Step }) {
 }
 
 // =====================================================================
-// ШАГ 1 — Загрузка файла
+// ШАГ «Источник» — развилка: Файл или Поток
+// =====================================================================
+function ImpStepSource({ onPick }: { onPick: (source: 'file' | 'potok') => void }) {
+  return (
+    <div className="imp-source">
+      <h2 className="imp-h2">Откуда импортировать кандидатов?</h2>
+      <div className="imp-glafira-note">
+        <span className="imp-em">💃</span>
+        Выберите источник — Глафира заберёт кандидатов в общую базу.
+      </div>
+      <div className="imp-source-grid">
+        <button className="imp-source-card" onClick={() => onPick('file')}>
+          <div className="imp-source-ic file"><Icon name="download" size={26}/></div>
+          <div className="imp-source-name">Импорт из файла</div>
+          <div className="imp-source-desc">Excel-выгрузка из любой системы — hh, Хантфлоу, таблица. Сопоставите колонки вручную.</div>
+          <div className="imp-source-tags">
+            <span className="imp-source-tag">.xlsx</span>
+            <span className="imp-source-tag">.xls</span>
+            <span className="imp-source-tag">маппинг</span>
+          </div>
+          <span className="imp-source-go">Выбрать файл <Icon name="chevron-right" size={14}/></span>
+        </button>
+        <button className="imp-source-card" onClick={() => onPick('potok')}>
+          <div className="imp-source-ic potok"><span className="imp-source-em">💃</span></div>
+          <div className="imp-source-name">Импорт из Потока</div>
+          <div className="imp-source-desc">Подключение по API-токену. Глафира сама заберёт кандидатов и резюме — без файла и маппинга.</div>
+          <div className="imp-source-tags">
+            <span className="imp-source-tag">API-токен</span>
+            <span className="imp-source-tag">резюме</span>
+            <span className="imp-source-tag">без маппинга</span>
+          </div>
+          <span className="imp-source-go">Подключить Поток <Icon name="chevron-right" size={14}/></span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// ШАГ «Токен» — подключение к Потоку по API-токену
+// =====================================================================
+interface ImpStepTokenProps {
+  tokenVal: string;
+  setTokenVal: (val: string) => void;
+  tokenState: 'idle' | 'connecting';
+  onConnect: () => void;
+  actionError: string | null;
+}
+
+function ImpStepToken({ tokenVal, setTokenVal, tokenState, onConnect, actionError }: ImpStepTokenProps) {
+  if (tokenState === 'connecting') {
+    return (
+      <div className="imp-parse">
+        <div className="imp-parse-dancer">💃</div>
+        <div className="imp-parse-text">Глафира подключается к Потоку<span className="cd-load-dots"></span></div>
+        <div className="imp-parse-sub">Забираем кандидатов и резюме по API</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="imp-token">
+      <h2 className="imp-h2">Подключение к Потоку</h2>
+      <div className="imp-glafira-note">
+        <span className="imp-em">💃</span>
+        Вставьте API-токен из Потока — Глафира подключится и сразу покажет превью кандидатов.
+      </div>
+
+      <div className="imp-token-card">
+        <label className="imp-token-label" htmlFor="imp-token-input">API-токен Потока</label>
+        <div className="imp-token-input-row">
+          <Icon name="key" size={16}/>
+          <input
+            id="imp-token-input"
+            className="imp-token-input"
+            type="text"
+            placeholder="pk_live_••••••••••••••••••••••••"
+            value={tokenVal}
+            onChange={e => setTokenVal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && tokenVal.trim()) onConnect(); }}
+          />
+        </div>
+        {actionError && (
+          <div className="imp-token-error">
+            <Icon name="alert-triangle" size={13}/>
+            {actionError}
+          </div>
+        )}
+        <div className="imp-token-help">
+          <Icon name="info" size={13}/>
+          Токен можно создать в Потоке: <b>Настройки → API → Создать токен</b>. Достаточно доступа на чтение кандидатов.
+        </div>
+      </div>
+
+      <div className="imp-token-steps">
+        <div className="imp-token-step"><span className="imp-token-step-n">1</span> Глафира подключится к вашему аккаунту Потока</div>
+        <div className="imp-token-step"><span className="imp-token-step-n">2</span> Заберёт кандидатов и их резюме</div>
+        <div className="imp-token-step"><span className="imp-token-step-n">3</span> Покажет превью перед заливкой в базу</div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// ШАГ «Загрузка файла» (сохраняем как есть)
 // =====================================================================
 interface ImpStepUploadProps {
   uploadState: 'idle' | 'parsing' | 'done' | 'error';
@@ -360,7 +570,6 @@ interface ImpStepUploadProps {
   parseData: ParseResponse | null;
   onReplaceFile: () => void;
   fileError: string | null;
-  onNext: () => void;
 }
 
 function ImpStepUpload({
@@ -371,11 +580,9 @@ function ImpStepUpload({
   fileInputRef,
   onPick,
   onFileSelect,
-  onPickError,
   onRetry,
   file,
-  parseData,
-  onReplaceFile
+  parseData
 }: ImpStepUploadProps) {
   const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
 
@@ -397,7 +604,7 @@ function ImpStepUpload({
           <div className="imp-drop-title">Не удалось прочитать файл</div>
           <div className="imp-drop-sub">Поддерживаются только таблицы Excel — <b>.xlsx</b> и <b>.xls</b>. Проверьте формат и попробуйте ещё раз.</div>
           <div className="imp-drop-actions">
-            <button className="btn btn-primary" onClick={onRetry}><Icon name="refresh" size={14}/> Выбрать другой файл</button>
+            <button className="btn btn-primary" onClick={onRetry}><Icon name="refresh-cw" size={14}/> Выбрать другой файл</button>
           </div>
         </div>
       </div>
@@ -419,7 +626,7 @@ function ImpStepUpload({
               </div>
             </div>
             <span className="imp-file-ok"><Icon name="check" size={13}/> Файл прочитан</span>
-            <button className="imp-file-replace" onClick={onReplaceFile} title="Заменить файл"><Icon name="refresh" size={14}/></button>
+            <button className="imp-file-replace" onClick={() => fileInputRef.current?.click()} title="Заменить файл"><Icon name="refresh-cw" size={14}/></button>
           </div>
           <div className="imp-file-cols">
             <div className="imp-file-cols-label">Распознанные колонки</div>
@@ -456,15 +663,12 @@ function ImpStepUpload({
           <Icon name="download" size={14}/> Выбрать файл
         </button>
       </div>
-      <button className="imp-demo-link" onClick={onPickError}>
-        Что будет, если файл не Excel? →
-      </button>
     </div>
   );
 }
 
 // =====================================================================
-// ШАГ 2 — Сопоставление колонок
+// ШАГ «Сопоставление колонок» (сохраняем как есть, упрощаем интерфейс)
 // =====================================================================
 interface ImpStepColumnsProps {
   parseData: ParseResponse;
@@ -477,7 +681,6 @@ interface ImpStepColumnsProps {
   actionError: string | null;
   onPreview: () => void;
   previewLoading: boolean;
-  onBack: () => void;
 }
 
 function ImpStepColumns({
@@ -604,7 +807,7 @@ function ImpFieldSelect({ value, open, onToggle, onPick, usedFields }: ImpFieldS
 }
 
 // =====================================================================
-// ШАГ 3 — Превью импорта
+// ШАГ «Превью импорта» (добавляем поддержку источника)
 // =====================================================================
 interface ImpStepPreviewProps {
   previewData: PreviewResponse;
@@ -614,14 +817,15 @@ interface ImpStepPreviewProps {
   actionError: string | null;
   onExecute: () => void;
   executeLoading: boolean;
-  onBack: () => void;
+  source: Source;
 }
 
 function ImpStepPreview({
   previewData,
   dedupMode,
   setDedupMode,
-  onRowClick
+  onRowClick,
+  source
 }: ImpStepPreviewProps) {
   const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
 
@@ -630,12 +834,20 @@ function ImpStepPreview({
     hh: 'hh.ru',
     avito: 'Авито',
     telegram: 'Telegram',
-    tg: 'Telegram'
+    tg: 'Telegram',
+    potok: 'Поток'
   };
+
+  const fromPotok = source === 'potok';
 
   return (
     <div className="imp-preview">
       <h2 className="imp-h2">Превью импорта</h2>
+      <div className="imp-preview-from">
+        {fromPotok
+          ? <><span className="imp-em">💃</span> Глафира забрала кандидатов из <b>Потока</b> по API — проверьте перед заливкой в базу.</>
+          : <><Icon name="download" size={14}/> Кандидаты из файла — проверьте перед заливкой в базу.</>}
+      </div>
 
       {/* сводка-полоса */}
       <div className="imp-stat-row">
@@ -666,7 +878,7 @@ function ImpStepPreview({
             <button className={`imp-seg-btn ${dedupMode === 'update' ? 'active' : ''}`} onClick={() => setDedupMode('update')}>Обновить</button>
           </div>
           <span className="imp-dup-hint">
-            {dedupMode === 'skip' ? 'Совпавшие с базой — не тронем' : 'Совпавшим обновим контакты и поля из файла'}
+            {dedupMode === 'skip' ? 'Совпавшие с базой — не тронем' : 'Совпавшим обновим контакты и поля из источника'}
           </span>
         </div>
         <div className="imp-preview-count">
@@ -675,7 +887,7 @@ function ImpStepPreview({
       </div>
 
       <div className="imp-pv-tip">
-        <Icon name="external-link" size={13}/> Нажмите на кандидата, чтобы посмотреть детали
+        <Icon name="external-link" size={13}/> Нажмите на кандидата, чтобы посмотреть {fromPotok ? 'резюме, забранное из Потока' : 'детали'}
       </div>
 
       {/* таблица превью */}
@@ -704,8 +916,8 @@ function ImpStepPreview({
                     <div className="imp-pv-badges">
                       {r.status === 'duplicate' && <span className="imp-badge-dup">дубль</span>}
                       {r.status === 'error' && <span className="imp-badge-err"><Icon name="alert-triangle" size={10}/> {r.error}</span>}
-                      {r.detail.resume_url && r.status !== 'error' && (
-                        <span className="imp-badge-resume" title="Ссылка на резюме сохранится в карточке">
+                      {(r.detail.resume_url || r.detail.source_url) && r.status !== 'error' && (
+                        <span className="imp-badge-resume" title={fromPotok ? "Ссылка на резюме из Потока сохранится в карточке, но сам файл недоступен вне Потока" : "Ссылка на резюме сохранится в карточке"}>
                           <Icon name="external-link" size={10}/> резюме-ссылка
                         </span>
                       )}
@@ -727,7 +939,7 @@ function ImpStepPreview({
         </div>
         {previewData.remaining > 0 && (
           <div className="imp-pv-more">
-            <Icon name="more" size={16}/> и ещё <b className="t-mono">{fmtIM(previewData.remaining)}</b> строк будут обработаны при импорте
+            <Icon name="more-horizontal" size={16}/> и ещё <b className="t-mono">{fmtIM(previewData.remaining)}</b> строк будут обработаны при импорте
           </div>
         )}
       </div>
@@ -736,17 +948,19 @@ function ImpStepPreview({
 }
 
 // =====================================================================
-// ШАГ 4 — Импорт и результат
+// ШАГ «Импорт и результат» (добавляем поддержку источника)
 // =====================================================================
 interface ImpStepResultProps {
   jobData: any;
   dedupMode: DedupMode;
   onDone: () => void;
   onAgain: () => void;
+  source: Source;
 }
 
-function ImpStepResult({ jobData, dedupMode, onDone, onAgain }: ImpStepResultProps) {
+function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepResultProps) {
   const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
+  const fromPotok = source === 'potok';
 
   if (!jobData || jobData.status === 'running') {
     const pct = jobData ? Math.round((jobData.processed / jobData.total) * 100) : 0;
@@ -769,7 +983,7 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain }: ImpStepResultPro
   if (jobData.status === 'error') {
     return (
       <div className="imp-result">
-        <div className="imp-result-check" style={{ background: 'var(--error-bg)', color: 'var(--error-fg)' }}>
+        <div className="imp-result-check" style={{ background: 'var(--ark-red-100)', color: 'var(--ark-red-600)' }}>
           <Icon name="alert-triangle" size={28}/>
         </div>
         <h2 className="imp-result-title">Ошибка импорта</h2>
@@ -777,7 +991,7 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain }: ImpStepResultPro
 
         <div className="imp-result-actions">
           <button className="btn btn-secondary" onClick={onAgain}>
-            <Icon name="refresh" size={14}/> Попробовать ещё раз
+            <Icon name="refresh-cw" size={14}/> Попробовать ещё раз
           </button>
         </div>
       </div>
@@ -794,7 +1008,7 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain }: ImpStepResultPro
     <div className="imp-result">
       <div className="imp-result-check"><Icon name="check" size={28}/></div>
       <h2 className="imp-result-title">Импорт завершён</h2>
-      <div className="imp-result-sub">Кандидаты из файла добавлены в общую базу</div>
+      <div className="imp-result-sub">{fromPotok ? 'Кандидаты из Потока добавлены в общую базу' : 'Кандидаты из файла добавлены в общую базу'}</div>
 
       <div className="imp-result-stats">
         <div className="imp-rstat is-new">
@@ -816,27 +1030,28 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain }: ImpStepResultPro
           <Icon name="users" size={15}/> Смотреть в базе
         </button>
         <button className="btn btn-secondary" onClick={onAgain}>
-          <Icon name="refresh" size={14}/> Импортировать ещё
+          <Icon name="refresh-cw" size={14}/> Импортировать ещё
         </button>
       </div>
 
       {errors > 0 && (
         <div className="imp-result-note">
           <Icon name="alert-triangle" size={13}/>
-          {fmtIM(errors)} строк пропущено из-за отсутствия имени или контакта — их можно поправить в файле и загрузить повторно.
+          {fmtIM(errors)} строк пропущено из-за отсутствия имени или контакта — {fromPotok ? 'их можно поправить в Потоке и подключиться повторно.' : 'их можно поправить в файле и загрузить повторно.'}
         </div>
       )}
     </div>
   );
 }
 
-// ====== Центральный попап резюме ======
+// ====== Центральный попап резюме (обновляем для поддержки источника) ======
 interface ImpResumeModalProps {
   candidate: PreviewRow;
+  source: Source;
   onClose: () => void;
 }
 
-function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
+function ImpResumeModal({ candidate, source, onClose }: ImpResumeModalProps) {
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -849,8 +1064,25 @@ function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
     hh: 'hh.ru',
     avito: 'Авито',
     telegram: 'Telegram',
-    tg: 'Telegram'
+    tg: 'Telegram',
+    potok: 'Поток'
   };
+
+  const fromPotok = source === 'potok';
+
+  // detail приходит в двух формах: «Файл» (Excel, плоские поля) и «Поток» (структура из API).
+  // Нормализуем, чтобы не показывать пустоту/«[object Object]» (experience у Потока — список).
+  const d = candidate.detail;
+  const title = fromPotok ? (d.last_position || null) : (d.position || null);
+  const expList = Array.isArray(d.experience) ? d.experience : null;
+  const expString = typeof d.experience === 'string' ? d.experience : null;
+  const lastCompany = fromPotok ? (expList && expList[0]?.company) || null : (d.company || null);
+  const about = fromPotok ? (d.resume_summary || null) : (d.comment || null);
+  const resumeLink = fromPotok ? (d.source_url || null) : (d.resume_url || null);
+  const skills = fromPotok && Array.isArray(d.skills) ? d.skills : null;
+  const education = fromPotok && Array.isArray(d.education) ? d.education : null;
+  const languages = fromPotok && Array.isArray(d.languages) ? d.languages : null;
+  const salaryVal = fromPotok ? d.salary_expectation : d.salary;
 
   return (
     <div className="imp-modal-overlay" onClick={onClose}>
@@ -863,12 +1095,15 @@ function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
             <h2 className="imp-modal-name">{candidate.name}</h2>
           </div>
           <div className="imp-modal-chips">
-            <span className="imp-resume-from"><span className="imp-resume-from-dot"/> Резюме из файла</span>
+            <span className="imp-resume-from">
+              <span className="imp-resume-from-dot"/>
+              {fromPotok ? 'Резюме из Потока' : 'Резюме из файла'}
+            </span>
             {candidate.source && (
               <span className={`src-pill src-${candidate.source}`}>{SRC_LABEL[candidate.source] || candidate.source}</span>
             )}
-            {candidate.detail.position && (
-              <span className="imp-modal-role">{candidate.detail.position}</span>
+            {title && (
+              <span className="imp-modal-role">{title}</span>
             )}
           </div>
         </div>
@@ -882,20 +1117,20 @@ function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
           </div>
 
           <div className="imp-resume-card">
-            {candidate.detail.position && (
-              <div className="imp-rcard-title">{candidate.detail.position}</div>
+            {title && (
+              <div className="imp-rcard-title">{title}</div>
             )}
             <div className="imp-rcard-meta">
-              {candidate.detail.experience && <span>Опыт: <b>{candidate.detail.experience}</b></span>}
-              {candidate.detail.experience && candidate.city && <span className="imp-rcard-sep">·</span>}
+              {expString && <span>Опыт: <b>{expString}</b></span>}
+              {expString && candidate.city && <span className="imp-rcard-sep">·</span>}
               {candidate.city && <span>Город: <b>{candidate.city}</b></span>}
-              {(candidate.detail.experience || candidate.city) && candidate.detail.company && <span className="imp-rcard-sep">·</span>}
-              {candidate.detail.company && <span>Компания: <b>{candidate.detail.company}</b></span>}
+              {(expString || candidate.city) && lastCompany && <span className="imp-rcard-sep">·</span>}
+              {lastCompany && <span>{fromPotok ? 'Последнее место' : 'Компания'}: <b>{lastCompany}</b></span>}
             </div>
 
             <div className="imp-resume-contacts">
               {candidate.phone && (
-                <div className="imp-rc-row"><Icon name="user" size={14}/><span className="t-mono">{candidate.phone}</span></div>
+                <div className="imp-rc-row"><Icon name="phone" size={14}/><span className="t-mono">{candidate.phone}</span></div>
               )}
               {candidate.email && (
                 <div className="imp-rc-row"><Icon name="mail" size={14}/><span>{candidate.email}</span></div>
@@ -904,21 +1139,65 @@ function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
 
             <div className="imp-resume-note">
               <Icon name="alert-triangle" size={13}/>
-              Резюме забрано из исходного файла. Ссылка сохранится в карточке, но детальные данные ограничены файлом импорта.
+              {fromPotok
+                ? 'Резюме и биография забраны из Потока. Ссылка на исходный файл сохранится в карточке, но сам PDF-файл резюме недоступен вне Потока.'
+                : 'Резюме забрано из исходного файла. Ссылка сохранится в карточке, но детальные данные ограничены файлом импорта.'}
             </div>
 
-            {candidate.detail.comment && (
+            {about && (
               <>
                 <h3 className="imp-resume-sec">О кандидате</h3>
-                <p className="imp-resume-bio">{candidate.detail.comment}</p>
+                <p className="imp-resume-bio">{about}</p>
               </>
             )}
 
-            {candidate.detail.resume_url && (
+            {expList && expList.length > 0 && (
+              <>
+                <h3 className="imp-resume-sec">Опыт работы</h3>
+                {expList.map((j, k) => (
+                  <div key={k} className="imp-job">
+                    <div className="imp-job-head">
+                      <div>
+                        <div className="imp-job-title">{j.position}</div>
+                        {j.company && <div className="imp-job-co">{j.company}</div>}
+                      </div>
+                      {j.period && <div className="imp-job-period">{j.period}</div>}
+                    </div>
+                    {j.description && <div className="imp-job-desc">{j.description}</div>}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {skills && skills.length > 0 && (
+              <>
+                <h3 className="imp-resume-sec">Навыки</h3>
+                <div className="imp-skill-row">
+                  {skills.map((s, k) => <span key={k} className="imp-skill-chip">{s.skill}</span>)}
+                </div>
+              </>
+            )}
+
+            {education && education.length > 0 && (
+              <>
+                <h3 className="imp-resume-sec">Образование</h3>
+                {education.map((e, k) => (
+                  <div key={k} className="imp-edu-row">
+                    <div>
+                      <div className="imp-job-title">{e.institution}</div>
+                      {e.specialty && <div className="imp-job-co">{e.specialty}</div>}
+                    </div>
+                    {e.years && <div className="imp-job-period">{e.years}</div>}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {resumeLink && (
               <>
                 <h3 className="imp-resume-sec">Ссылка на резюме</h3>
                 <div className="imp-resume-extra">
-                  <div><span className="imp-re-k">Ссылка:</span> <a href={candidate.detail.resume_url} target="_blank" rel="noopener">{candidate.detail.resume_url}</a></div>
+                  <div><span className="imp-re-k">Ссылка:</span> <a href={resumeLink} target="_blank" rel="noopener">{resumeLink}</a></div>
                 </div>
               </>
             )}
@@ -928,11 +1207,14 @@ function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
               {candidate.source && (
                 <div><span className="imp-re-k">Источник:</span> {SRC_LABEL[candidate.source] || candidate.source}</div>
               )}
-              {candidate.detail.age && (
+              {languages && languages.length > 0 && (
+                <div><span className="imp-re-k">Языки:</span> {languages.join(', ')}</div>
+              )}
+              {!fromPotok && candidate.detail.age && (
                 <div><span className="imp-re-k">Возраст:</span> {candidate.detail.age}</div>
               )}
-              {candidate.detail.salary && (
-                <div><span className="imp-re-k">Зарплата:</span> {candidate.detail.salary}</div>
+              {salaryVal && (
+                <div><span className="imp-re-k">Зарплата:</span> {salaryVal}</div>
               )}
             </div>
           </div>

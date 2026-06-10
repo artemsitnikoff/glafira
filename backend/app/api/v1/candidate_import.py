@@ -13,8 +13,11 @@ from ...services.candidate_import import (
     execute_import,
     get_import_job,
     MAX_IMPORT_FILE_BYTES,
+    preview_potok_import,
+    execute_potok_import,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from ...schemas.potok_import import PotokImportRequest, PotokImportResponse
 
 router = APIRouter()
 
@@ -176,3 +179,50 @@ async def get_import_job_status(
         "errors": job.errors,
         "error": job.error
     }
+
+
+@router.post("/potok/preview")
+async def preview_potok_import_data(
+    data: PotokImportRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Превью импорта кандидатов из Potok.io
+
+    Args:
+        data: токен и режим дедупликации
+
+    Returns:
+        Статистика превью аналогично Excel-импорту
+    """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
+
+    result = await preview_potok_import(session, company_id, data.token, data.dedup_mode)
+    return result
+
+
+@router.post("/potok/execute", response_model=PotokImportResponse)
+async def execute_potok_import_job(
+    data: PotokImportRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Запуск импорта из Potok.io в фоновом режиме
+
+    Args:
+        data: токен и режим дедупликации
+
+    Returns:
+        job_id: UUID задачи импорта для отслеживания прогресса
+    """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
+
+    job_id = await execute_potok_import(session, company_id, user.id, data.token, data.dedup_mode)
+
+    return PotokImportResponse(job_id=str(job_id))

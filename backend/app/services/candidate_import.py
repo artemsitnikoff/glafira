@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import ValidationError
 from ..database import AsyncSessionLocal
-from ..models import Candidate, CandidateImportJob
+from ..models import Candidate, CandidateImportJob, CandidateExperience, CandidateSkill, CandidateEducation
 from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
+from ..services.integrations.potok.client import list_applicants
+from ..services.integrations.potok.mapper import map_potok_applicant
 
 logger = logging.getLogger(__name__)
 
@@ -778,6 +780,449 @@ async def execute_import(session: AsyncSession, company_id: UUID, user_id: UUID,
     # Запускаем в фоне. Удерживаем ссылку в _active_tasks — иначе GC может убить задачу
     # до завершения (job застрянет в running навсегда). callback снимает ссылку по завершении.
     task = asyncio.create_task(_run_import(job.id, company_id, user_id, content, mapping, dedup_mode))
+    _active_tasks[job.id] = task
+
+    def _cleanup_task(_t, _jid=job.id):
+        _active_tasks.pop(_jid, None)
+
+    task.add_done_callback(_cleanup_task)
+
+    return job.id
+
+
+# === POTOK IMPORT FUNCTIONS ===
+
+async def preview_potok_import(session: AsyncSession, company_id: UUID, token: str, dedup_mode: str) -> dict:
+    """
+    Превью импорта кандидатов из Potok.io с дедупликацией
+
+    ВНИМАНИЕ: Двойной фетч (preview + execute) — осознанный компромисс ради честных
+    счётчиков. Потом при execute будет повторный запрос к API Potok.
+
+    Args:
+        session: DB сессия
+        company_id: ID компании
+        token: API токен Potok
+        dedup_mode: режим дедупликации ('skip' или 'update')
+
+    Returns:
+        Статистика превью аналогично Excel-импорту
+    """
+    all_candidates = []
+    page = 1
+    per_page = 100
+
+    # Фетчим все страницы (с защитой от бесконечности)
+    max_pages = 100  # защита от API без pages
+    while page <= max_pages:
+        logger.info(f"Загрузка страницы {page} Potok")
+        try:
+            response = await list_applicants(token, page, per_page)
+        except Exception as e:
+            logger.error(f"Ошибка загрузки страницы {page} Potok: {e}")
+            raise
+
+        applicants = response.get("data") or []
+        if not applicants:
+            break
+
+        all_candidates.extend(applicants)
+
+        # Проверяем есть ли еще страницы
+        total_pages = response.get("pages", 1)
+        if page >= total_pages:
+            break
+
+        page += 1
+
+    logger.info(f"Загружено {len(all_candidates)} кандидатов из Potok")
+
+    # Маппим всех кандидатов
+    mapped_candidates = []
+    for raw in all_candidates:
+        try:
+            mapped = map_potok_applicant(raw)
+            mapped_candidates.append(mapped)
+        except Exception as e:
+            logger.error(f"Ошибка маппинга кандидата Potok {raw.get('id', '?')}: {e}")
+            continue
+
+    # Собираем контакты для дедупликации
+    all_phones = []
+    all_emails = []
+    for candidate in mapped_candidates:
+        if candidate.get("phone"):
+            norm_phone = _normalize_contact(candidate["phone"])
+            if norm_phone:
+                all_phones.append(norm_phone)
+        if candidate.get("email"):
+            norm_email = _normalize_contact(candidate["email"])
+            if norm_email:
+                all_emails.append(norm_email)
+
+    # Получаем существующих кандидатов
+    existing_candidates = await _get_existing_candidates(session, company_id, all_phones, all_emails)
+
+    # Классифицируем (адаптируем _classify_rows под формат Potok)
+    classified_rows = _classify_potok_rows(mapped_candidates, existing_candidates)
+
+    # Подсчет статистики
+    total = len(classified_rows)
+    new = len([r for r in classified_rows if r["status"] == "new"])
+    duplicates = len([r for r in classified_rows if r["status"] == "duplicate"])
+    errors = len([r for r in classified_rows if r["status"] == "error"])
+
+    # Возвращаем первые 50 строк для превью
+    shown = min(50, total)
+    remaining = max(0, total - shown)
+    clean_rows = [
+        {k: v for k, v in r.items() if not k.startswith("_")}
+        for r in classified_rows[:shown]
+    ]
+
+    return {
+        "summary": {
+            "total": total,
+            "new": new,
+            "duplicates": duplicates,
+            "errors": errors
+        },
+        "rows": clean_rows,
+        "shown": shown,
+        "remaining": remaining
+    }
+
+
+def _classify_potok_rows(candidates: list[dict], existing_candidates: list[Candidate]) -> list[dict]:
+    """Классификация кандидатов Potok на new/duplicate/error (аналог _classify_rows)"""
+    # Создаем словари существующих контактов
+    existing_phones = {_normalize_contact(c.phone or ""): c for c in existing_candidates if c.phone}
+    existing_emails = {_normalize_contact(c.email or ""): c for c in existing_candidates if c.email}
+
+    # Для отслеживания внутренних дублей
+    seen_phones = {}
+    seen_emails = {}
+
+    classified_rows = []
+
+    for i, candidate in enumerate(candidates):
+        # Базовая информация для превью
+        first_name = candidate.get("first_name", "")
+        last_name = candidate.get("last_name", "")
+        phone = candidate.get("phone", "")
+        email = candidate.get("email", "")
+
+        preview_row = {
+            "index": i + 1,
+            "name": f"{first_name} {last_name}".strip() or "Неизвестно",
+            "phone": phone,
+            "email": email,
+            "city": candidate.get("city", ""),
+            "source": "potok",
+            "status": "new",
+            "error": None,
+            "detail": candidate  # полные данные для импорта
+        }
+
+        # Проверяем ошибки
+        if not first_name.strip() and not last_name.strip():
+            preview_row["status"] = "error"
+            preview_row["error"] = "нет имени"
+        elif not phone.strip() and not email.strip():
+            preview_row["status"] = "error"
+            preview_row["error"] = "нет контакта"
+        else:
+            # Проверяем дедупликацию
+            norm_phone = _normalize_contact(phone)
+            norm_email = _normalize_contact(email)
+
+            # Базовый дубль (есть в БД)
+            matched = None
+            if norm_phone and norm_phone in existing_phones:
+                matched = existing_phones[norm_phone]
+            elif norm_email and norm_email in existing_emails:
+                matched = existing_emails[norm_email]
+
+            # Внутренний дубль (повтор в этом же запросе)
+            within_request = bool(
+                (norm_phone and norm_phone in seen_phones)
+                or (norm_email and norm_email in seen_emails)
+            )
+
+            if matched is not None:
+                preview_row["status"] = "duplicate"
+                preview_row["_match_id"] = str(matched.id)
+            elif within_request:
+                preview_row["status"] = "duplicate"
+            else:
+                # Запоминаем контакты для следующих строк
+                if norm_phone:
+                    seen_phones[norm_phone] = i
+                if norm_email:
+                    seen_emails[norm_email] = i
+
+        classified_rows.append(preview_row)
+
+    return classified_rows
+
+
+def _apply_potok_update(candidate: Candidate, detail: dict) -> None:
+    """
+    Режим «Обновить» для кандидата Potok: обновляем скалярные поля.
+
+    Для MVP обновляем только основные поля, child-таблицы (опыт/навыки/образование)
+    пересоздаем только для НОВЫХ кандидатов чтобы не плодить дубли.
+    """
+    if detail.get("phone"):
+        candidate.phone = _fit(detail["phone"], 20)
+    if detail.get("email"):
+        candidate.email = _fit(detail["email"], 255)
+    if detail.get("city"):
+        candidate.city = _fit(detail["city"], 120)
+    if detail.get("birth_date"):
+        candidate.birth_date = detail["birth_date"]
+    if detail.get("gender"):
+        candidate.gender = detail["gender"]
+    if detail.get("salary_expectation"):
+        candidate.salary_expectation = detail["salary_expectation"]
+    if detail.get("last_position"):
+        candidate.last_position = _fit(detail["last_position"], 255)
+    if detail.get("resume_text"):
+        candidate.resume_text = detail["resume_text"]
+    if detail.get("resume_summary"):
+        candidate.resume_summary = detail["resume_summary"]
+    if detail.get("source_url"):
+        candidate.source_url = _fit(detail["source_url"], 500)
+    if detail.get("external_id"):
+        candidate.external_id = _fit(detail["external_id"], 120)
+
+
+async def _create_potok_child_records(session: AsyncSession, company_id: UUID, candidate_id: UUID, detail: dict):
+    """Создание связанных записей (опыт, навыки, образование) для кандидата Potok"""
+
+    # Опыт работы
+    experience_list = detail.get("experience") or []
+    for exp in experience_list:
+        if exp.get("position"):
+            session.add(CandidateExperience(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                position=_fit(exp["position"], 255),
+                company=_fit(exp.get("company"), 255) if exp.get("company") else None,
+                period=_fit(exp.get("period"), 120) if exp.get("period") else None,
+                description=exp.get("description"),
+                order_index=exp.get("order_index", 0)
+            ))
+
+    # Навыки
+    skills_list = detail.get("skills") or []
+    for skill in skills_list:
+        if skill.get("skill"):
+            session.add(CandidateSkill(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                skill=_fit(skill["skill"], 120),
+                order_index=skill.get("order_index", 0)
+            ))
+
+    # Образование
+    education_list = detail.get("education") or []
+    for edu in education_list:
+        if edu.get("institution"):
+            session.add(CandidateEducation(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                institution=_fit(edu["institution"], 255),
+                specialty=_fit(edu.get("specialty"), 255) if edu.get("specialty") else None,
+                years=_fit(edu.get("years"), 40) if edu.get("years") else None,
+                order_index=edu.get("order_index", 0)
+            ))
+
+
+async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token: str, dedup_mode: str):
+    """Фоновое выполнение импорта из Potok.io"""
+
+    try:
+        # Фетчим всех кандидатов из Potok (повторно, но с честными счетчиками)
+        all_candidates = []
+        page = 1
+        per_page = 100
+        max_pages = 100
+
+        while page <= max_pages:
+            logger.info(f"Импорт Potok: страница {page}")
+            try:
+                response = await list_applicants(token, page, per_page)
+            except Exception as e:
+                logger.error(f"Ошибка загрузки страницы {page} Potok в импорте: {e}")
+                raise
+
+            applicants = response.get("data") or []
+            if not applicants:
+                break
+
+            all_candidates.extend(applicants)
+
+            total_pages = response.get("pages", 1)
+            if page >= total_pages:
+                break
+
+            page += 1
+
+        # Обновляем total в джобе
+        await _update_job_progress(job_id, total=len(all_candidates))
+
+        # Маппим кандидатов
+        mapped_candidates = []
+        for raw in all_candidates:
+            try:
+                mapped = map_potok_applicant(raw)
+                mapped_candidates.append(mapped)
+            except Exception as e:
+                logger.error(f"Ошибка маппинга кандидата Potok {raw.get('id', '?')}: {e}")
+                continue
+
+        # Получаем существующих кандидатов для дедупликации
+        all_phones = []
+        all_emails = []
+        for candidate in mapped_candidates:
+            if candidate.get("phone"):
+                norm_phone = _normalize_contact(candidate["phone"])
+                if norm_phone:
+                    all_phones.append(norm_phone)
+            if candidate.get("email"):
+                norm_email = _normalize_contact(candidate["email"])
+                if norm_email:
+                    all_emails.append(norm_email)
+
+        async with AsyncSessionLocal() as session:
+            existing_candidates = await _get_existing_candidates(session, company_id, all_phones, all_emails)
+
+        # Классифицируем кандидатов
+        classified_rows = _classify_potok_rows(mapped_candidates, existing_candidates)
+
+        # Обрабатываем батчами
+        batch_size = 500
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        errors_count = 0
+
+        for i in range(0, len(classified_rows), batch_size):
+            batch = classified_rows[i:i + batch_size]
+
+            async with AsyncSessionLocal() as session:
+                for row_data in batch:
+                    try:
+                        if row_data["status"] == "error":
+                            errors_count += 1
+                            continue
+
+                        # Каждую строку обрабатываем в savepoint: сбой одной записи
+                        # (нарушение CHECK и т.п.) откатывает ТОЛЬКО её, не «отравляет»
+                        # сессию и не валит весь батч (до 500 кандидатов). Счётчики
+                        # инкрементим строго ПОСЛЕ успешного flush.
+                        async with session.begin_nested():
+                            if row_data["status"] == "duplicate":
+                                match_id = row_data.get("_match_id")
+                                if dedup_mode == "update" and match_id:
+                                    # Обновление существующего кандидата
+                                    existing = await session.get(Candidate, UUID(match_id))
+                                    if existing is not None and existing.company_id == company_id:
+                                        _apply_potok_update(existing, row_data["detail"])
+                                        await session.flush()
+                                        updated_count += 1
+                                    else:
+                                        skipped_count += 1
+                                else:
+                                    # skip-режим или внутренний дубль
+                                    skipped_count += 1
+                            elif row_data["status"] == "new":
+                                detail = row_data["detail"]
+                                candidate = Candidate(
+                                    company_id=company_id,
+                                    first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
+                                    last_name=_fit(detail.get("last_name") or "", 120),
+                                    middle_name=_fit(detail.get("middle_name"), 120) if detail.get("middle_name") else None,
+                                    phone=_fit(detail.get("phone"), 20) if detail.get("phone") else None,
+                                    email=_fit(detail.get("email"), 255) if detail.get("email") else None,
+                                    city=_fit(detail.get("city"), 120) if detail.get("city") else None,
+                                    birth_date=detail.get("birth_date"),
+                                    gender=detail.get("gender"),
+                                    salary_expectation=detail.get("salary_expectation"),
+                                    last_position=_fit(detail.get("last_position"), 255) if detail.get("last_position") else None,
+                                    resume_text=detail.get("resume_text"),
+                                    resume_summary=detail.get("resume_summary"),
+                                    source="potok",
+                                    external_source="potok",
+                                    external_id=_fit(detail.get("external_id"), 120) if detail.get("external_id") else None,
+                                    source_url=_fit(detail.get("source_url"), 500) if detail.get("source_url") else None,
+                                    extra={"imported": True, "languages": detail.get("languages") or []}
+                                )
+                                session.add(candidate)
+                                await session.flush()  # получаем ID
+
+                                # Создаем связанные записи и фиксируем их в savepoint
+                                await _create_potok_child_records(session, company_id, candidate.id, detail)
+                                await session.flush()
+
+                                created_count += 1
+
+                    except Exception as e:
+                        logger.error(f"Ошибка обработки кандидата Potok: {e}")
+                        errors_count += 1
+
+                await session.commit()
+
+            # Обновляем прогресс
+            processed = min(i + batch_size, len(classified_rows))
+            await _update_job_progress(
+                job_id,
+                processed=processed,
+                created=created_count,
+                updated=updated_count,
+                skipped=skipped_count,
+                errors=errors_count
+            )
+
+        # Создаем audit запись
+        async with AsyncSessionLocal() as session:
+            await audit(
+                session,
+                action="candidates_import_potok",
+                entity_type="candidate_import_job",
+                entity_id=job_id,
+                after={
+                    "source": "potok",
+                    "created": created_count,
+                    "updated": updated_count,
+                    "skipped": skipped_count,
+                    "errors": errors_count
+                },
+                actor_type="human",
+                actor_user_id=user_id,
+                company_id=company_id
+            )
+            await session.commit()
+
+        # Финализируем
+        await _finalize_job(job_id, "done")
+
+    except Exception as e:
+        logger.error(f"Ошибка выполнения импорта Potok {job_id}: {e}")
+        await _finalize_job(job_id, "error", str(e)[:500])
+
+
+async def execute_potok_import(session: AsyncSession, company_id: UUID, user_id: UUID,
+                              token: str, dedup_mode: str) -> UUID:
+    """Запуск импорта из Potok в фоновой задаче"""
+
+    # Создаем задачу с предварительным total (будет обновлен в _run_potok_import)
+    job = await create_import_job(session, company_id, 0)  # total обновится позже
+    await session.commit()
+
+    # Запускаем в фоне с защитой от GC
+    task = asyncio.create_task(_run_potok_import(job.id, company_id, user_id, token, dedup_mode))
     _active_tasks[job.id] = task
 
     def _cleanup_task(_t, _jid=job.id):

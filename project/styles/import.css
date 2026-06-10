@@ -1,5 +1,5 @@
 /* ============================================================
-   Import — Глафира · Импорт кандидатов из Excel (по эталону)
+   Import — Глафира · Импорт кандидатов из Excel
    Использует tokens.css. Десктоп-first.
    ============================================================ */
 
@@ -43,11 +43,11 @@
   font-family: var(--font-mono); font-size: 13px; font-weight: 600;
   background: var(--ark-gray-200); color: var(--fg-3);
   border: 1.5px solid transparent;
-  transition: all var(--dur-normal) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-out);
 }
 .imp-step-label {
   font-size: 13px; font-weight: 500; color: var(--fg-3);
-  transition: color var(--dur-normal) var(--ease-out);
+  transition: color var(--dur-base) var(--ease-out);
 }
 .imp-step.current .imp-step-dot { background: var(--accent); color: #fff; }
 .imp-step.current .imp-step-label { color: var(--fg-1); font-weight: 600; }
@@ -57,7 +57,7 @@
   flex: 1; height: 2px; margin: 0 12px;
   background: var(--ark-gray-200); border-radius: 2px;
   min-width: 24px;
-  transition: background var(--dur-normal) var(--ease-out);
+  transition: background var(--dur-base) var(--ease-out);
 }
 .imp-step-line.done { background: var(--ark-green-100); }
 
@@ -77,10 +77,11 @@
 .imp-foot-ok, .imp-foot-warn {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12.5px; font-weight: 500;
-  padding: 4px 10px; border-radius: var(--radius-full);
+  padding: 4px 10px; border-radius: var(--rad-pill);
 }
 .imp-foot-ok   { color: var(--ark-green-600); background: var(--ark-green-100); }
 .imp-foot-warn { color: var(--ark-red-600);   background: var(--ark-red-100); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
 .imp-btn-import { font-weight: 600; }
 
 .imp-stage-wrap { display: flex; flex-direction: column; align-items: stretch; }
@@ -89,25 +90,25 @@
    ШАГ 1 — Загрузка
    ============================================================ */
 .imp-drop {
-  border: 2px dashed var(--ark-gray-400);
-  border-radius: var(--radius-lg);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--rad-xl);
   background: var(--bg-panel-2);
   padding: 46px 32px;
   display: flex; flex-direction: column; align-items: center; text-align: center;
   cursor: pointer;
-  transition: border-color var(--dur-normal) var(--ease-out), background var(--dur-normal) var(--ease-out);
+  transition: border-color var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out);
 }
-.imp-drop:hover { border-color: var(--accent); background: var(--ark-blue-100); }
-.imp-drop.dragging { border-color: var(--accent); background: var(--ark-blue-100); }
+.imp-drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.imp-drop.dragging { border-color: var(--accent); background: var(--accent-soft); }
 .imp-drop-ic {
-  width: 64px; height: 64px; border-radius: var(--radius-lg);
+  width: 64px; height: 64px; border-radius: var(--rad-xl);
   display: inline-flex; align-items: center; justify-content: center;
   background: #fff; color: var(--accent);
   border: 1px solid var(--border-1);
   box-shadow: var(--shadow-1);
   margin-bottom: 18px;
 }
-.imp-drop-ic-error { color: var(--status-error); }
+.imp-drop-ic-error { color: var(--danger); }
 .imp-drop-title { font-size: 16px; font-weight: 600; color: var(--fg-1); line-height: 1.4; }
 .imp-drop-sub { font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 460px; line-height: 1.5; }
 .imp-drop-sub b { color: var(--fg-1); font-weight: 600; }
@@ -137,30 +138,10 @@
 .imp-parse-text { margin-top: 18px; font-size: 15px; font-weight: 600; color: var(--fg-1); }
 .imp-parse-sub { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
 
-/* анимация танцующей Глафиры */
-@keyframes dancerBounce {
-  0%   { transform: rotate(-12deg) translateY(0)   scale(1); }
-  25%  { transform: rotate(8deg)   translateY(-6px) scale(1.04); }
-  50%  { transform: rotate(-8deg)  translateY(0)   scale(1); }
-  75%  { transform: rotate(12deg)  translateY(-6px) scale(1.04); }
-  100% { transform: rotate(-12deg) translateY(0)   scale(1); }
-}
-
-/* точки загрузки */
-.imp-page .cd-load-dots::after {
-  content: "…";
-  animation: loadDots 1.2s infinite ease-in-out;
-}
-@keyframes loadDots {
-  0%, 20% { opacity: 0; }
-  50% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
 /* карточка-итог файла */
 .imp-file-card {
   border: 1px solid var(--border-1);
-  border-radius: var(--radius-lg);
+  border-radius: var(--rad-xl);
   background: #fff;
   box-shadow: var(--shadow-1);
   overflow: hidden;
@@ -171,9 +152,9 @@
   border-bottom: 1px solid var(--border-2);
 }
 .imp-file-ic {
-  width: 44px; height: 44px; border-radius: var(--radius-lg);
+  width: 44px; height: 44px; border-radius: var(--rad-lg);
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--ark-blue-100); color: var(--accent); flex: none;
+  background: var(--accent-soft); color: var(--accent); flex: none;
 }
 .imp-file-main { flex: 1; min-width: 0; }
 .imp-file-name { font-size: 15px; font-weight: 600; color: var(--fg-1); }
@@ -182,31 +163,31 @@
 .imp-file-ok {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12px; font-weight: 600; color: var(--ark-green-600);
-  background: var(--ark-green-100); padding: 4px 10px; border-radius: var(--radius-full);
+  background: var(--ark-green-100); padding: 4px 10px; border-radius: var(--rad-pill);
   flex: none;
 }
 .imp-file-replace {
-  width: 32px; height: 32px; border-radius: var(--radius-md); flex: none;
+  width: 32px; height: 32px; border-radius: var(--rad-md); flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   background: #fff; border: 1px solid var(--border-1); color: var(--fg-2); cursor: pointer;
 }
-.imp-file-replace:hover { background: var(--bg-3-hover); color: var(--fg-1); }
+.imp-file-replace:hover { background: var(--bg-hover); color: var(--fg-1); }
 .imp-file-cols { padding: 16px 20px 20px; }
 .imp-file-cols-label {
-  font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
+  font-size: 11px; font-weight: 500; letter-spacing: var(--ls-wide);
   text-transform: uppercase; color: var(--fg-3); margin-bottom: 10px;
 }
 .imp-chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
 .imp-col-chip {
   font-size: 12px; font-weight: 500; color: var(--fg-1);
   background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 4px 10px; border-radius: var(--radius-full);
+  padding: 4px 10px; border-radius: var(--rad-pill);
   white-space: nowrap;
 }
 .imp-next-hint {
   margin-top: 16px; font-size: 13px; color: var(--fg-2);
-  background: var(--ark-blue-100); border: 1px solid var(--ark-blue-100);
-  border-radius: var(--radius-lg); padding: 12px 14px; line-height: 1.5;
+  background: var(--accent-soft); border: 1px solid var(--ark-blue-100);
+  border-radius: var(--rad-lg); padding: 12px 14px; line-height: 1.5;
 }
 
 /* ============================================================
@@ -218,20 +199,20 @@
 .imp-source-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0;
   text-align: left; cursor: pointer;
-  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-1); border-radius: var(--rad-xl);
   background: #fff; box-shadow: var(--shadow-1);
   padding: 24px 24px 20px; font-family: var(--font-sans);
-  transition: border-color var(--dur-normal) var(--ease-out), box-shadow var(--dur-normal) var(--ease-out), transform var(--dur-normal) var(--ease-out);
+  transition: border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
 .imp-source-card:hover {
-  border-color: var(--accent); box-shadow: var(--shadow-lg); transform: translateY(-2px);
+  border-color: var(--accent); box-shadow: var(--shadow-2); transform: translateY(-2px);
 }
 .imp-source-ic {
-  width: 56px; height: 56px; border-radius: var(--radius-lg);
+  width: 56px; height: 56px; border-radius: var(--rad-lg);
   display: inline-flex; align-items: center; justify-content: center;
   margin-bottom: 16px; flex: none;
 }
-.imp-source-ic.file  { background: var(--ark-blue-100); color: var(--accent); }
+.imp-source-ic.file  { background: var(--accent-soft); color: var(--accent); }
 .imp-source-ic.potok { background: #FFF1EA; }
 .imp-source-em { font-size: 30px; line-height: 1; }
 .imp-source-name { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg-1); }
@@ -240,7 +221,7 @@
 .imp-source-tag {
   font-size: 11px; font-weight: 500; color: var(--fg-3);
   background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 2px 9px; border-radius: var(--radius-full);
+  padding: 2px 9px; border-radius: var(--rad-pill);
 }
 .imp-source-go {
   display: inline-flex; align-items: center; gap: 5px;
@@ -253,35 +234,35 @@
    ============================================================ */
 .imp-token-card {
   margin-top: 20px;
-  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-1); border-radius: var(--rad-xl);
   background: #fff; box-shadow: var(--shadow-1); padding: 22px 24px;
 }
 .imp-token-label {
   display: block; font-size: 11px; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3);
+  letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--fg-3);
   margin-bottom: 8px;
 }
 .imp-token-input-row {
   display: flex; align-items: center; gap: 10px;
   height: 44px; padding: 0 12px;
-  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-1); border-radius: var(--rad-lg);
   background: var(--bg-panel-2);
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.imp-token-input-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ark-blue-100); background: #fff; }
+.imp-token-input-row:focus-within { border-color: var(--accent); box-shadow: var(--shadow-focus); background: #fff; }
 .imp-token-input-row > svg { color: var(--fg-3); flex: none; }
 .imp-token-input {
   flex: 1; border: none; background: none; outline: none;
   font-family: var(--font-mono); font-size: 14px; color: var(--fg-1); letter-spacing: 0.02em;
 }
 .imp-token-input::placeholder { color: var(--ark-gray-400); }
-.imp-token-error {
-  display: flex; align-items: center; gap: 7px;
-  margin-top: 12px; font-size: 12.5px; color: var(--ark-red-600); line-height: 1.4;
-  background: var(--ark-red-100); border: 1px solid var(--ark-red-100);
-  border-radius: var(--radius-lg); padding: 8px 12px;
+.imp-token-demo {
+  flex: none; border: 1px solid var(--border-1); background: #fff;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: var(--accent);
+  padding: 5px 11px; border-radius: var(--rad-pill); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.imp-token-error svg { flex: none; }
+.imp-token-demo:hover { background: var(--accent-soft); }
 .imp-token-help {
   display: flex; align-items: flex-start; gap: 7px;
   margin-top: 14px; font-size: 12.5px; color: var(--fg-2); line-height: 1.5;
@@ -298,7 +279,7 @@
 .imp-token-step-n {
   width: 22px; height: 22px; border-radius: 50%; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--ark-blue-100); color: var(--accent);
+  background: var(--accent-soft); color: var(--accent);
   font-size: 12px; font-weight: 700; font-family: var(--font-mono);
 }
 
@@ -307,7 +288,7 @@
   display: flex; align-items: center; gap: 9px;
   margin-top: 12px; font-size: 13px; color: var(--fg-2); line-height: 1.45;
   background: var(--bg-panel-2); border: 1px solid var(--border-2);
-  border-radius: var(--radius-lg); padding: 10px 14px;
+  border-radius: var(--rad-lg); padding: 10px 14px;
 }
 .imp-preview-from svg { color: var(--accent); flex: none; }
 .imp-preview-from b { color: var(--fg-1); font-weight: 600; }
@@ -322,7 +303,7 @@
   font-size: 13.5px; color: var(--fg-1);
   background: linear-gradient(0deg, #FFF6F2, #FFF6F2);
   border: 1px solid #FAD9CC;
-  border-radius: var(--radius-lg); padding: 11px 14px;
+  border-radius: var(--rad-lg); padding: 11px 14px;
 }
 .imp-em { font-size: 18px; line-height: 1; flex: none; }
 
@@ -334,14 +315,14 @@
 .imp-req-chip {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12.5px; font-weight: 600;
-  padding: 4px 11px; border-radius: var(--radius-full);
+  padding: 4px 11px; border-radius: var(--rad-pill);
 }
 .imp-req-chip.ok  { color: var(--ark-green-600); background: var(--ark-green-100); }
 .imp-req-chip.bad { color: var(--ark-red-600);   background: var(--ark-red-100); }
 
 /* таблица сопоставления */
 .imp-map-table {
-  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-1); border-radius: var(--rad-lg);
   background: #fff; overflow: visible;
 }
 .imp-map-thead {
@@ -350,8 +331,8 @@
   padding: 9px 16px;
   background: var(--bg-panel-2);
   border-bottom: 1px solid var(--border-2);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  border-radius: var(--rad-lg) var(--rad-lg) 0 0;
+  font-size: 11px; font-weight: 600; letter-spacing: var(--ls-wide);
   text-transform: uppercase; color: var(--fg-3);
 }
 .imp-map-row {
@@ -371,17 +352,17 @@
 .imp-auto-tag {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 11px; font-weight: 600; color: var(--ark-green-600);
-  background: var(--ark-green-100); padding: 1px 7px; border-radius: var(--radius-full);
+  background: var(--ark-green-100); padding: 1px 7px; border-radius: var(--rad-pill);
 }
 .imp-manual-tag {
   font-size: 11px; font-weight: 600; color: var(--ark-yellow-600);
-  background: var(--ark-yellow-100); padding: 1px 8px; border-radius: var(--radius-full);
+  background: var(--ark-yellow-100); padding: 1px 8px; border-radius: var(--rad-pill);
 }
 .imp-col-samples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .imp-sample {
   font-size: 11.5px; color: var(--fg-3);
   background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 1px 7px; border-radius: var(--radius-sm);
+  padding: 1px 7px; border-radius: var(--rad-sm);
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -396,49 +377,76 @@
 .imp-sel {
   width: 100%; height: 34px; padding: 0 10px;
   display: flex; align-items: center; gap: 8px;
-  background: #fff; border: 1px solid var(--border-1); border-radius: var(--radius-md);
+  background: #fff; border: 1px solid var(--border-1); border-radius: var(--rad-md);
   font-family: var(--font-sans); font-size: 13.5px; color: var(--fg-1); cursor: pointer;
-  transition: border-color 150ms var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
-.imp-sel:hover { border-color: var(--ark-gray-400); }
-.imp-sel-wrap.open .imp-sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ark-blue-100); }
+.imp-sel:hover { border-color: var(--border-strong); }
+.imp-sel-wrap.open .imp-sel { border-color: var(--accent); box-shadow: var(--shadow-focus); }
 .imp-sel.skip { color: var(--fg-3); }
 .imp-sel-val { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.imp-sel-chev { color: var(--fg-3); flex: none; transition: transform 150ms var(--ease-out); }
+.imp-sel-chev { color: var(--fg-3); flex: none; transition: transform var(--dur-fast) var(--ease-out); }
 .imp-sel-wrap.open .imp-sel-chev { transform: rotate(180deg); }
 
 .imp-sel-backdrop { position: fixed; inset: 0; z-index: 40; }
 .imp-sel-menu {
   position: absolute; z-index: 41; top: calc(100% + 4px); left: 0; right: 0;
-  background: #fff; border: 1px solid var(--border-1); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg); padding: 5px;
+  background: #fff; border: 1px solid var(--border-1); border-radius: var(--rad-lg);
+  box-shadow: var(--shadow-3); padding: 5px;
   max-height: 320px; overflow-y: auto;
 }
 .imp-sel-opt {
   width: 100%; display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: var(--radius-sm);
+  padding: 7px 10px; border-radius: var(--rad-sm);
   background: none; border: none; cursor: pointer;
   font-family: var(--font-sans); font-size: 13.5px; color: var(--fg-1); text-align: left;
 }
-.imp-sel-opt:hover { background: var(--bg-3-hover); }
+.imp-sel-opt:hover { background: var(--bg-hover); }
 .imp-sel-opt.sel { background: var(--bg-selected); color: var(--accent); font-weight: 600; }
 .imp-sel-opt.sel svg { color: var(--accent); margin-left: auto; }
 .imp-sel-opt-label { flex: 1; display: flex; align-items: center; gap: 6px; }
 .imp-sel-opt-req {
-  font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--fg-3); background: var(--bg-panel); padding: 1px 5px; border-radius: var(--radius-sm);
+  font-size: 9.5px; font-weight: 600; letter-spacing: var(--ls-wide); text-transform: uppercase;
+  color: var(--fg-3); background: var(--bg-panel); padding: 1px 5px; border-radius: var(--rad-sm);
 }
 .imp-sel-opt.used { color: var(--fg-3); }
 .imp-sel-opt-used { font-size: 11px; color: var(--ark-yellow-600); margin-left: auto; }
 .imp-sel-sep { height: 1px; background: var(--border-2); margin: 5px 4px; }
 .imp-sel-skip { color: var(--fg-2); }
 
+/* мини-блок этапов */
+.imp-stagemap {
+  margin-top: 16px; border: 1px solid var(--border-1); border-radius: var(--rad-lg);
+  background: var(--bg-panel-2); overflow: hidden;
+}
+.imp-stagemap-head {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 11px 16px; background: none; border: none; cursor: pointer; text-align: left;
+}
+.imp-stagemap-title { font-size: 13.5px; font-weight: 600; color: var(--fg-1); }
+.imp-stagemap-sub { font-size: 12px; color: var(--fg-3); }
+.imp-stagemap-chev { color: var(--fg-3); margin-left: auto; transition: transform var(--dur-fast) var(--ease-out); }
+.imp-stagemap-chev.rot { transform: rotate(180deg); }
+.imp-stagemap-body {
+  padding: 6px 16px 14px;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 28px;
+  border-top: 1px solid var(--border-2);
+}
+.imp-sm-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; }
+.imp-sm-from { flex: 1; color: var(--fg-2); }
+.imp-sm-arr { color: var(--ark-gray-400); flex: none; }
+.imp-sm-to {
+  flex: 1; display: inline-flex; align-items: center; gap: 7px;
+  font-weight: 500; color: var(--fg-1);
+}
+.imp-sm-to .stage-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
 /* ============================================================
    ШАГ 3 — Превью
    ============================================================ */
 .imp-stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
 .imp-stat {
-  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-1); border-radius: var(--rad-lg);
   background: #fff; padding: 14px 16px;
   border-left: 3px solid var(--ark-gray-400);
 }
@@ -460,12 +468,12 @@
 .imp-dup-label { font-size: 13px; color: var(--fg-2); font-weight: 500; }
 .imp-seg {
   display: inline-flex; background: var(--bg-panel); border: 1px solid var(--border-1);
-  border-radius: var(--radius-md); padding: 2px;
+  border-radius: var(--rad-md); padding: 2px;
 }
 .imp-seg-btn {
   height: 26px; padding: 0 12px; border: none; background: none; cursor: pointer;
   font-family: var(--font-sans); font-size: 12.5px; font-weight: 500; color: var(--fg-2);
-  border-radius: var(--radius-sm);
+  border-radius: var(--rad-sm);
 }
 .imp-seg-btn.active { background: #fff; color: var(--fg-1); font-weight: 600; box-shadow: var(--shadow-1); }
 .imp-dup-hint { font-size: 12px; color: var(--fg-3); }
@@ -473,7 +481,7 @@
 .imp-preview-count b { color: var(--fg-1); }
 
 /* таблица превью */
-.imp-pv-table { border: 1px solid var(--border-1); border-radius: var(--radius-lg); background: #fff; overflow: hidden; }
+.imp-pv-table { border: 1px solid var(--border-1); border-radius: var(--rad-lg); background: #fff; overflow: hidden; }
 .imp-pv-head, .imp-pv-row {
   display: grid;
   grid-template-columns: minmax(240px, 1.5fr) 160px minmax(180px, 1.2fr) 130px 110px 26px;
@@ -481,7 +489,7 @@
 }
 .imp-pv-head {
   padding: 9px 16px; background: var(--bg-panel-2); border-bottom: 1px solid var(--border-2);
-  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3);
+  font-size: 11px; font-weight: 600; letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--fg-3);
 }
 .imp-pv-body { max-height: 440px; overflow-y: auto; }
 .imp-pv-row {
@@ -503,18 +511,18 @@
 .imp-pv-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
 .imp-badge-dup {
   font-size: 10.5px; font-weight: 600; color: var(--ark-yellow-600);
-  background: var(--ark-yellow-100); padding: 1px 7px; border-radius: var(--radius-full);
+  background: var(--ark-yellow-100); padding: 1px 7px; border-radius: var(--rad-pill);
 }
 .imp-badge-err {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 10.5px; font-weight: 600; color: var(--ark-red-600);
-  background: var(--ark-red-100); padding: 1px 7px; border-radius: var(--radius-full);
+  background: var(--ark-red-100); padding: 1px 7px; border-radius: var(--rad-pill);
 }
 .imp-badge-resume {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 10.5px; font-weight: 500; color: var(--fg-3);
   background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 1px 7px; border-radius: var(--radius-full); cursor: help;
+  padding: 1px 7px; border-radius: var(--rad-pill); cursor: help;
 }
 .imp-pv-c-phone, .imp-pv-c-email, .imp-pv-c-city {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); padding-right: 8px;
@@ -526,27 +534,6 @@
   background: var(--bg-panel-2); border-top: 1px solid var(--border-2);
 }
 .imp-pv-more b { color: var(--fg-2); }
-
-.imp-pv-tip {
-  display: flex; align-items: center; gap: 6px;
-  margin: 0 0 8px; font-size: 12px; color: var(--fg-3);
-}
-.imp-pv-tip svg { color: var(--accent); }
-.imp-pv-row.clickable { cursor: pointer; transition: background 150ms var(--ease-out); }
-.imp-pv-row.clickable:hover { background: var(--bg-3-hover); }
-.imp-pv-open { color: var(--ark-gray-400); justify-self: end; opacity: 0; transition: opacity 150ms var(--ease-out); }
-.imp-pv-row.clickable:hover .imp-pv-open { opacity: 1; color: var(--accent); }
-
-/* источники кандидатов */
-.imp-page .src-pill {
-  font-size: 11px; font-weight: 600; color: #fff;
-  padding: 2px 8px; border-radius: var(--radius-sm);
-  background: var(--fg-3); /* фоллбэк для источников без явного цвета (superjob/manual/other) */
-}
-.imp-page .src-pill.src-hh { background: var(--src-hh); }
-.imp-page .src-pill.src-avito { background: var(--src-avito); }
-.imp-page .src-pill.src-telegram, .imp-page .src-pill.src-tg { background: var(--src-tg); }
-.imp-page .src-pill.src-potok { background: var(--ark-violet-500); }
 
 /* ============================================================
    ШАГ 4 — Импорт / результат
@@ -588,7 +575,7 @@
 .imp-result-sub { margin-top: 6px; font-size: 14px; color: var(--fg-2); }
 .imp-result-stats { display: grid; grid-template-columns: repeat(3, minmax(150px, 200px)); gap: 12px; margin: 26px 0 4px; }
 .imp-rstat {
-  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-1); border-radius: var(--rad-lg);
   background: #fff; padding: 16px; text-align: center;
   border-top: 3px solid var(--ark-gray-400);
 }
@@ -606,13 +593,31 @@
   display: flex; align-items: center; gap: 7px; max-width: 520px;
   margin-top: 20px; font-size: 12.5px; color: var(--fg-2); line-height: 1.5;
   background: var(--bg-panel-2); border: 1px solid var(--border-2);
-  border-radius: var(--radius-lg); padding: 10px 14px;
+  border-radius: var(--rad-lg); padding: 10px 14px;
 }
 .imp-result-note svg { color: var(--ark-yellow-600); flex: none; }
 
 /* ============================================================
-   Попап резюме
+   Превью — кликабельные строки + панель резюме из Потока
    ============================================================ */
+.imp-pv-tip {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 8px; font-size: 12px; color: var(--fg-3);
+}
+.imp-pv-tip svg { color: var(--accent); }
+.imp-pv-row.clickable { cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.imp-pv-row.clickable:hover { background: var(--bg-hover); }
+.imp-pv-open { color: var(--ark-gray-400); justify-self: end; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.imp-pv-row.clickable:hover .imp-pv-open { opacity: 1; color: var(--accent); }
+
+/* overlay — затемнение + центрирование попапа */
+.imp-resume-overlay {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(15, 22, 32, .32);
+  animation: impFade 160ms var(--ease-out);
+}
+@keyframes impFade { from { opacity: 0; } to { opacity: 1; } }
+
 .imp-modal-overlay {
   position: fixed; inset: 0; z-index: 80;
   background: rgba(15, 22, 32, .38);
@@ -620,13 +625,11 @@
   padding: 32px;
   animation: impFade 160ms var(--ease-out);
 }
-@keyframes impFade { from { opacity: 0; } to { opacity: 1; } }
-
 .imp-modal {
   position: relative;
   width: min(760px, 100%); max-height: 86vh;
-  background: #fff; border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  background: #fff; border-radius: var(--rad-xl);
+  box-shadow: var(--shadow-3);
   display: flex; flex-direction: column; overflow: hidden;
   animation: impPop 200ms var(--ease-out);
 }
@@ -636,7 +639,7 @@
   position: absolute; top: 16px; right: 16px; z-index: 2;
   background: var(--bg-panel); border: 1px solid var(--border-2);
 }
-.imp-modal-close:hover { background: var(--bg-3-hover); }
+.imp-modal-close:hover { background: var(--bg-press); }
 
 .imp-modal-head {
   flex: none; padding: 24px 56px 16px 28px;
@@ -648,7 +651,7 @@
 .imp-modal-role {
   font-size: 12.5px; color: var(--fg-2);
   background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 3px 10px; border-radius: var(--radius-full);
+  padding: 3px 10px; border-radius: var(--rad-pill);
 }
 
 .imp-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 28px 28px; }
@@ -659,7 +662,7 @@
 .imp-modal-seclabel svg { color: var(--fg-3); }
 
 .imp-resume-card {
-  border: 1px solid var(--border-2); border-radius: var(--radius-lg);
+  border: 1px solid var(--border-2); border-radius: var(--rad-lg);
   background: var(--bg-panel-2); padding: 22px 24px;
 }
 .imp-rcard-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg-1); }
@@ -674,7 +677,7 @@
   display: inline-flex; align-items: center; gap: 7px;
   font-size: 12px; font-weight: 600; color: var(--ark-blue-700);
   background: var(--ark-blue-50); border: 1px solid var(--ark-blue-100);
-  padding: 4px 11px; border-radius: var(--radius-full);
+  padding: 4px 11px; border-radius: var(--rad-pill);
 }
 .imp-resume-from-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 
@@ -691,64 +694,14 @@
   display: flex; align-items: flex-start; gap: 7px;
   margin: 14px 0 4px; font-size: 12px; color: var(--fg-2); line-height: 1.5;
   background: #FFFBF0; border: 1px solid var(--ark-yellow-100);
-  border-radius: var(--radius-lg); padding: 10px 12px;
+  border-radius: var(--rad-lg); padding: 10px 12px;
 }
 .imp-resume-note svg { color: var(--ark-yellow-600); flex: none; margin-top: 1px; }
 
 .imp-resume-sec {
   margin: 22px 0 10px; font-size: 12px; font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3);
+  letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--fg-3);
 }
 .imp-resume-bio { margin: 0; font-size: 13.5px; color: var(--fg-1); line-height: 1.6; }
 .imp-resume-extra { display: grid; gap: 6px; font-size: 13px; color: var(--fg-1); }
 .imp-re-k { color: var(--fg-3); }
-
-/* Структурные блоки резюме из Потока (scoped под модалку импорта; идиом ResumeTab) */
-.imp-modal .imp-job { padding: 12px 0; border-top: 1px solid var(--border-2); }
-.imp-modal .imp-job:first-of-type { border-top: 0; padding-top: 0; }
-.imp-modal .imp-job-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.imp-modal .imp-job-title { font-size: 14px; font-weight: 600; color: var(--fg-1); }
-.imp-modal .imp-job-co { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
-.imp-modal .imp-job-period { font-size: 12px; color: var(--fg-3); font-family: var(--font-mono); white-space: nowrap; }
-.imp-modal .imp-job-desc { font-size: 13px; color: var(--fg-1); margin-top: 8px; line-height: 1.5; white-space: pre-line; }
-.imp-modal .imp-skill-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.imp-modal .imp-skill-chip { font-size: 12px; background: var(--ark-gray-100); border: 1px solid var(--border-2); padding: 3px 10px; border-radius: 999px; color: var(--fg-1); }
-.imp-modal .imp-edu-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-
-/* ============================================================
-   Кнопки и общие стили — СКОУП под .imp-page
-   ============================================================ */
-.imp-page .btn {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: none; border-radius: var(--radius-md);
-  font-size: var(--fs-14); font-weight: 500;
-  cursor: pointer; text-decoration: none;
-  transition: all var(--dur-normal);
-}
-.imp-page .btn:disabled { opacity: .5; cursor: not-allowed; }
-.imp-page .btn-primary {
-  background: var(--accent); color: white;
-}
-.imp-page .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-.imp-page .btn-secondary {
-  background: var(--bg-3); color: var(--fg-1);
-  border: 1px solid var(--border-1);
-}
-.imp-page .btn-secondary:hover:not(:disabled) {
-  background: var(--bg-3-hover);
-}
-
-.imp-page .icon-btn {
-  width: 32px; height: 32px; border-radius: var(--radius-md);
-  background: var(--bg-3); border: 1px solid var(--border-1); color: var(--fg-2);
-  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-  transition: all var(--dur-normal);
-}
-.imp-page .icon-btn:hover {
-  background: var(--bg-3-hover); color: var(--fg-1);
-}
-
-.imp-page .t-mono { font-family: var(--font-mono); }
