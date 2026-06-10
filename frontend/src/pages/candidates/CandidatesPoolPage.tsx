@@ -229,7 +229,7 @@ export function CandidatesPoolPage() {
             className="btn btn-secondary btn-sm"
             onClick={handleImportFile}
           >
-            <Icon name="download" size={14}/> Импорт из файла
+            <Icon name="download" size={14}/> Импорт кандидатов
           </button>
           <button
             className="btn btn-primary btn-sm"

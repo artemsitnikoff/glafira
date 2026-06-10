@@ -429,6 +429,28 @@ function ImpStepSource({ onPick }) {
           </div>
           <span className="imp-source-go">Подключить Поток <Icon name="chevR" size={14}/></span>
         </button>
+        <div className="imp-source-card soon" aria-disabled="true">
+          <span className="imp-source-soon">Скоро</span>
+          <div className="imp-source-ic talantix">T</div>
+          <div className="imp-source-name">Импорт из Talantix</div>
+          <div className="imp-source-desc">Подключение по API-токену — как Поток. Глафира заберёт кандидатов и резюме без файла.</div>
+          <div className="imp-source-tags">
+            <span className="imp-source-tag">API-токен</span>
+            <span className="imp-source-tag">резюме</span>
+          </div>
+          <span className="imp-source-go muted">В разработке</span>
+        </div>
+        <div className="imp-source-card soon" aria-disabled="true">
+          <span className="imp-source-soon">Скоро</span>
+          <div className="imp-source-ic huntflow"><Icon name="briefcase" size={24}/></div>
+          <div className="imp-source-name">Импорт из Хантфлоу</div>
+          <div className="imp-source-desc">Подключение по API-токену — как Поток. Глафира заберёт кандидатов и резюме без файла.</div>
+          <div className="imp-source-tags">
+            <span className="imp-source-tag">API-токен</span>
+            <span className="imp-source-tag">резюме</span>
+          </div>
+          <span className="imp-source-go muted">В разработке</span>
+        </div>
       </div>
     </div>
   );

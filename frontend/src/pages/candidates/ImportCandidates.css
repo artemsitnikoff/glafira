@@ -223,7 +223,7 @@
   padding: 24px 24px 20px; font-family: var(--font-sans);
   transition: border-color var(--dur-normal) var(--ease-out), box-shadow var(--dur-normal) var(--ease-out), transform var(--dur-normal) var(--ease-out);
 }
-.imp-source-card:hover {
+.imp-source-card:not(.soon):hover {
   border-color: var(--accent); box-shadow: var(--shadow-lg); transform: translateY(-2px);
 }
 .imp-source-ic {
@@ -233,6 +233,8 @@
 }
 .imp-source-ic.file  { background: var(--ark-blue-100); color: var(--accent); }
 .imp-source-ic.potok { background: #FFF1EA; }
+.imp-source-ic.talantix { background: #EAF1FF; color: #2F5FD0; font-size: 26px; font-weight: 800; font-family: var(--font-mono); }
+.imp-source-ic.huntflow { background: #E9F6EF; color: #1F8A5B; }
 .imp-source-em { font-size: 30px; line-height: 1; }
 .imp-source-name { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg-1); }
 .imp-source-desc { margin-top: 6px; font-size: 13px; color: var(--fg-2); line-height: 1.5; }
@@ -246,7 +248,20 @@
   display: inline-flex; align-items: center; gap: 5px;
   margin-top: 18px; font-size: 13px; font-weight: 600; color: var(--accent);
 }
-.imp-source-card:hover .imp-source-go { gap: 8px; }
+/* «Скоро» — заглушка, не нажимается */
+.imp-source-card.soon {
+  cursor: default; background: var(--bg-panel-2);
+  border-style: dashed; box-shadow: none; opacity: .72;
+}
+.imp-source-card.soon .imp-source-ic { filter: grayscale(0.5); }
+.imp-source-soon {
+  position: absolute; top: 14px; right: 14px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-3); background: var(--bg-panel); border: 1px solid var(--border-2);
+  padding: 2px 9px; border-radius: var(--radius-full);
+}
+.imp-source-go.muted { color: var(--fg-3); font-weight: 500; }
+.imp-source-card:not(.soon):hover .imp-source-go { gap: 8px; }
 
 /* ============================================================
    ШАГ «Токен» — подключение к Потоку
