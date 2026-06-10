@@ -14,13 +14,22 @@ import {
   useSmartCount,
   useSmartAreaSuggest,
   useSmartInvite,
+  useSmartBaseSearch,
+  useSmartBaseHistory,
+  useSmartBaseCount,
+  useMarkBaseRunAdded,
   type SmartVacancy,
   type SmartCandidate,
   type SmartScoredResume,
   type SmartSearchRequest,
   type SmartCountRequest,
   type SmartAreaSuggestItem,
+  type BaseSearchCandidate,
+  type BaseSearchRequest,
+  type BaseSearchResponse,
+  type BaseSearchRunItem,
 } from '@/api/hooks/useSmartSearch';
+import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
 import './smart-search.css';
 
 // Форматирование чисел с разделителями
@@ -38,13 +47,19 @@ function ssThrColor(v: number) {
 
 type Phase = 'build' | 'running' | 'done';
 
+type Mode = 'hh' | 'base' | null;
+
 export default function SmartSearchPage() {
   const navigate = useNavigate();
+
+  // Режим: null = развилка, 'hh' = ветка hh, 'base' = ветка по своей базе
+  const [mode, setMode] = useState<Mode>(null);
 
   // Запросы к API
   const { data: accessData } = useSmartAccess();
   const { data: vacancies = [] } = useSmartVacancies();
   const { data: history = [] } = useSmartHistory();
+  const { data: baseCount = { count: 0 } } = useSmartBaseCount();
   const startSearch = useStartSmartSearch();
   const deriveFilters = useDeriveVacancyFilters();
   const countMut = useSmartCount();
@@ -251,16 +266,50 @@ export default function SmartSearchPage() {
   // иначе — превью-режим (поиск + AI-оценка без приглашений). Запуск доступен всегда.
   const willInvite = !!(accessData?.has_paid_access && vac?.hh_published);
 
+  // Рендер ветки Б (по своей базе)
+  if (mode === 'base') {
+    return (
+      <div className="ss-page">
+        <SSHeader
+          onBack={() => setMode(null)}
+          sub={<>Поиск среди ваших кандидатов: опишите промтом, кто нужен, — или включите поиск под открытую вакансию с автофильтрами.</>}
+        />
+        <SSBaseFlow
+          vacancies={vacancies}
+          onOpenCandidate={(candidateId) => navigate(`/candidates/${candidateId}`)}
+          onGoFunnel={() => navigate('/vacancies')} // переход в общий список вакансий
+        />
+      </div>
+    );
+  }
+
+  // Рендер развилки (вход в раздел)
+  if (mode === null) {
+    return (
+      <div className="ss-page">
+        <SSHeader
+          sub={<>С чего начнём? Глафира умеет искать кандидатов <b>снаружи</b> — в базе резюме hh.ru — и <b>внутри</b>, по вашей собственной базе кандидатов.</>}
+        />
+        <SSFork
+          hasHhAccess={accessData?.has_access ?? false}
+          poolCount={baseCount.count}
+          onPick={setMode}
+        />
+      </div>
+    );
+  }
+
+  // Ниже — оригинальная логика ветки hh (mode === 'hh')
   // Нет доступа к hh.ru
   if (!accessData?.has_access) {
-    return <SSNoAccess onGoSettings={() => navigate('/settings')} />;
+    return <SSNoAccess onGoSettings={() => navigate('/settings')} onBack={() => setMode(null)} />;
   }
 
   // Выполнение
   if (phase === 'running') {
     return (
       <div className="ss-page">
-        <SSHeader />
+        <SSHeader onBack={() => setMode(null)} />
         <SSRunning
           runData={runData}
           vac={vac}
@@ -280,7 +329,7 @@ export default function SmartSearchPage() {
   if (phase === 'done' && runData) {
     return (
       <div className="ss-page">
-        <SSHeader />
+        <SSHeader onBack={() => setMode(null)} />
         <SSResult
           runData={runData}
           vac={vac}
@@ -302,10 +351,10 @@ export default function SmartSearchPage() {
     );
   }
 
-  // Конструктор
+  // Конструктор hh
   return (
     <div className="ss-page">
-      <SSHeader />
+      <SSHeader onBack={() => setMode(null)} />
 
       {!vac && maxStep === 1 && <SSInitialHero />}
 
@@ -725,15 +774,22 @@ export default function SmartSearchPage() {
 }
 
 // Компоненты состояний
-function SSHeader() {
+function SSHeader({ onBack, sub }: { onBack?: () => void; sub?: React.ReactNode }) {
   return (
-    <div className="ss-head">
-      <div className="ss-head-mark">💃</div>
-      <div className="ss-head-text">
-        <h1>Умный подбор <span className="ss-beta">beta</span></h1>
-        <div className="ss-sub">
-          Активный поиск кандидатов на hh.ru: Глафира строит фильтры из вакансии, сканирует резюме,
-          оценивает их AI-матчингом и приглашает лучших — прямо в воронку.
+    <div>
+      {onBack && (
+        <button className="ss-back" onClick={onBack}>
+          <Icon name="chevron-left" size={14} /> Выбор источника
+        </button>
+      )}
+      <div className="ss-head">
+        <div className="ss-head-mark">💃</div>
+        <div className="ss-head-text">
+          <h1>Умный подбор <span className="ss-beta">beta</span></h1>
+          <div className="ss-sub">
+            {sub || <>Активный поиск кандидатов на hh.ru: Глафира строит фильтры из вакансии, сканирует резюме,
+            оценивает их AI-матчингом и приглашает лучших — прямо в воронку.</>}
+          </div>
         </div>
       </div>
     </div>
@@ -1334,10 +1390,10 @@ function SSHistory({ history }: { history: any[] }) {
   );
 }
 
-function SSNoAccess({ onGoSettings }: { onGoSettings: () => void }) {
+function SSNoAccess({ onGoSettings, onBack }: { onGoSettings: () => void; onBack?: () => void }) {
   return (
     <div className="ss-page">
-      <SSHeader />
+      <SSHeader onBack={onBack} />
       <div className="ss-noaccess">
         <div className="ss-noaccess-ic"><Icon name="search" size={28} /></div>
         <div className="ss-noaccess-body">
@@ -1832,6 +1888,494 @@ function SSHistoryRunDetail({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ====== Развилка: выбор источника подбора ======
+function SSFork({ hasHhAccess, poolCount, onPick }: {
+  hasHhAccess: boolean;
+  poolCount: number;
+  onPick: (mode: Mode) => void;
+}) {
+  return (
+    <div className="ssf-grid">
+      {/* hh.ru */}
+      <button className="ssf-card ssf-hh" onClick={() => onPick('hh')}>
+        <div className="ssf-card-top">
+          <div className="ssf-card-ic ic-hh"><Icon name="zap" size={22} /></div>
+          {hasHhAccess
+            ? <span className="ssf-tag on"><Icon name="check" size={11} /> доступ к hh подключён</span>
+            : <span className="ssf-tag off"><Icon name="key" size={11} /> нужен платный доступ</span>}
+        </div>
+        <div className="ssf-card-title">Умный подбор на hh.ru</div>
+        <div className="ssf-card-desc">
+          Активный поиск в базе резюме hh.ru. Глафира строит фильтры из вакансии,
+          сканирует резюме, оценивает AI-матчингом и приглашает лучших.
+        </div>
+        <ul className="ssf-card-list">
+          <li><Icon name="search" size={14} /> Поиск по всей базе резюме hh.ru</li>
+          <li><Icon name="sparkles" size={14} /> AI-оценка против описания вакансии</li>
+          <li><Icon name="mail" size={14} /> Авто-приглашения в воронку</li>
+        </ul>
+        <span className="ssf-go">Выбрать <Icon name="arrow-right" size={15} /></span>
+      </button>
+
+      {/* своя база */}
+      <button className="ssf-card ssf-base" onClick={() => onPick('base')}>
+        <div className="ssf-card-top">
+          <div className="ssf-card-ic ic-base"><Icon name="users" size={22} /></div>
+          <span className="ssf-tag neutral"><span className="t-mono">{ssFmt(poolCount)}</span> кандидатов в базе</span>
+        </div>
+        <div className="ssf-card-title">Подбор по своей базе кандидатов</div>
+        <div className="ssf-card-desc">
+          AI-поиск среди уже накопленных кандидатов. Опишите словами, кто нужен,
+          или ищите под открытую вакансию с автофильтрами.
+        </div>
+        <ul className="ssf-card-list">
+          <li><Icon name="message-circle" size={14} /> Поиск промтом — «напишите, кто нужен»</li>
+          <li><Icon name="briefcase" size={14} /> Или поиск под открытую вакансию</li>
+          <li><Icon name="filter" size={14} /> Автофильтры как на hh — по базе</li>
+        </ul>
+        <span className="ssf-go">Выбрать <Icon name="arrow-right" size={15} /></span>
+      </button>
+    </div>
+  );
+}
+
+// ====== Ветка Б: поиск по своей базе ======
+function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
+  vacancies: SmartVacancy[];
+  onOpenCandidate: (candidateId: string) => void;
+  onGoFunnel: () => void;
+}) {
+  const [byVacancy, setByVacancy] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [phase, setPhase] = useState<'build' | 'running' | 'done'>('build');
+
+  // режим вакансии
+  const [vacId, setVacId] = useState<string | null>(null);
+  const [selOpen, setSelOpen] = useState(false);
+  const [skills, setSkills] = useState<string[]>([]);
+  const [area, setArea] = useState('');
+  const [role, setRole] = useState('');
+  const [exp, setExp] = useState('');
+
+  // результаты
+  const [results, setResults] = useState<BaseSearchCandidate[]>([]);
+  const [searchResponse, setSearchResponse] = useState<BaseSearchResponse | null>(null);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  // хуки
+  const searchMutation = useSmartBaseSearch();
+  const { data: baseHistory = [] } = useSmartBaseHistory();
+  const markAdded = useMarkBaseRunAdded();
+  const deriveFilters = useDeriveVacancyFilters();
+
+  // модал назначения
+  const [assignCandidateId, setAssignCandidateId] = useState<string | null>(null);
+
+  const vac = useMemo(() => vacancies.find(v => v.id === vacId) || null, [vacancies, vacId]);
+
+  const selectVacancy = (id: string) => {
+    const v = vacancies.find(x => x.id === id);
+    if (!v) return;
+    setVacId(id);
+    setSelOpen(false);
+
+    // AI-подбор фильтров
+    deriveFilters.mutate(id, {
+      onSuccess: (filters) => {
+        setArea(filters.area);
+        setRole(filters.professional_role);
+        setExp(filters.experience);
+        setSkills(filters.skills);
+      },
+      onError: () => {
+        setArea('');
+        setRole('');
+        setExp('');
+        setSkills([]);
+      }
+    });
+  };
+
+  const canSearch = byVacancy ? !!vac : prompt.trim().length > 2;
+
+  const runSearch = async () => {
+    if (!canSearch) return;
+
+    const request: BaseSearchRequest = byVacancy && vac
+      ? { search_type: 'vacancy', vacancy_id: vac.id }
+      : { search_type: 'prompt', query: prompt.trim() };
+
+    setPhase('running');
+
+    try {
+      const response = await searchMutation.mutateAsync(request);
+      setResults(response.results);
+      setSearchResponse(response);
+      setPhase('done');
+    } catch (error) {
+      setPhase('build');
+    }
+  };
+
+  const resetSearch = () => {
+    setPhase('build');
+    setResults([]);
+    setSearchResponse(null);
+  };
+
+  // повтор поиска из истории
+  const pickHistory = (h: BaseSearchRunItem) => {
+    if (h.search_type === 'vacancy') {
+      setByVacancy(true);
+      setVacId(h.vacancy_id);
+    } else {
+      setByVacancy(false);
+      setVacId(null);
+      setSelOpen(false);
+      setPrompt(h.query_text);
+    }
+  };
+
+  // обработка "В вакансию"
+  const handleAddToVacancy = (candidate: BaseSearchCandidate) => {
+    setAssignCandidateId(candidate.id);
+  };
+
+  const handleAssignSuccess = async () => {
+    if (!assignCandidateId || !searchResponse) return;
+
+    setAdded(prev => new Set(prev).add(assignCandidateId));
+    setAssignCandidateId(null);
+
+    // отметить добавление в истории
+    try {
+      await markAdded.mutateAsync(searchResponse.run_id);
+    } catch {
+      // не критично
+    }
+  };
+
+  // Выполнение
+  if (phase === 'running') {
+    return (
+      <div className="ss-run">
+        <div className="ss-run-dancer">💃</div>
+        <div className="ss-run-phase">Глафира читает вашу базу…</div>
+        <div className="ss-run-detail">сопоставляет кандидатов по критериям</div>
+        <div className="ss-run-bar"><span style={{ width: '85%' }} /></div>
+      </div>
+    );
+  }
+
+  // Результаты
+  if (phase === 'done' && searchResponse) {
+    return (
+      <div>
+        <SSBaseResults
+          results={results}
+          searchResponse={searchResponse}
+          added={added}
+          onToggleAdd={handleAddToVacancy}
+          onOpen={onOpenCandidate}
+          onReset={resetSearch}
+          onGoFunnel={onGoFunnel}
+        />
+
+        {assignCandidateId && (
+          <AssignToVacancyModal
+            candidateId={assignCandidateId}
+            candidateName={results.find(r => r.id === assignCandidateId)?.full_name || 'Кандидат'}
+            isOpen={true}
+            onClose={() => setAssignCandidateId(null)}
+            onSuccess={handleAssignSuccess}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Конструктор ввода
+  return (
+    <div>
+      {/* Метод 1: поиск промтом */}
+      <div className={`ssb-method ${byVacancy ? 'is-dim' : 'is-active'}`}>
+        <div className="ssb-method-head">
+          <span className="ssb-method-ic prompt">💬</span>
+          <div className="ssb-method-titles">
+            <div className="ssb-method-title">Поиск промтом</div>
+            <div className="ssb-method-desc">Опишите обычными словами, кто вам нужен — Глафира найдёт релевантных в базе.</div>
+          </div>
+        </div>
+        <div className="ssb-prompt-box">
+          <textarea
+            className="ssb-textarea"
+            placeholder="Например: Senior Frontend на React и TypeScript, от 5 лет опыта, Москва, готов выйти быстро…"
+            value={prompt}
+            rows={3}
+            onFocus={() => { if (byVacancy) setByVacancy(false); }}
+            onChange={(e) => { if (byVacancy) setByVacancy(false); setPrompt(e.target.value); }}
+            onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runSearch(); }}
+          />
+        </div>
+        <div className="ssb-examples">
+          <span className="ssb-ex-label">Примеры:</span>
+          {[
+            'Senior Frontend на React, от 5 лет, Москва',
+            'Менеджер по продажам B2B с опытом холодных звонков',
+            'DevOps-инженер: Kubernetes, Docker, CI/CD',
+            'QA-автоматизатор на Python'
+          ].map((ex, i) => (
+            <button key={i} className="ssb-ex-chip"
+              onClick={() => { setByVacancy(false); setPrompt(ex); }}>
+              {ex}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* разделитель */}
+      <div className="ssb-or"><span>или</span></div>
+
+      {/* Метод 2: по открытой вакансии */}
+      <div className={`ssb-method ${byVacancy ? 'is-active' : 'is-dim'}`}>
+        <label className="ssb-method-head ssb-method-toggle">
+          <input type="checkbox" checked={byVacancy}
+            onChange={(e) => { setByVacancy(e.target.checked); setVacId(null); setSelOpen(false); }} />
+          <span className="ssb-check-box">
+            <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+              <rect x="1" y="1" width="20" height="20" rx="6"
+                fill={byVacancy ? '#7E5CF0' : '#fff'}
+                stroke={byVacancy ? '#7E5CF0' : '#C9CFD6'} strokeWidth="1.5" />
+              {byVacancy && <path d="M6 11.2l3 3 6.5-7" fill="none"
+                stroke="#fff" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />}
+            </svg>
+          </span>
+          <div className="ssb-method-titles">
+            <div className="ssb-method-title">Искать по открытой вакансии</div>
+            <div className="ssb-method-desc">Выберите вакансию — Глафира соберёт автофильтры как на hh и найдёт совпадения в базе.</div>
+          </div>
+        </label>
+
+        {byVacancy && (
+          <div className="ssb-vac-body">
+            <div className="ssb-field-label">Открытая вакансия</div>
+            <div className="ss-select-wrap">
+              <button className={`ss-select ${selOpen ? 'open' : ''}`} onClick={() => setSelOpen(o => !o)}>
+                <Icon name="briefcase" size={16} style={{ color: 'var(--fg-3)', flex: 'none' }} />
+                {vac
+                  ? <span className="ss-select-val">{vac.title}</span>
+                  : <span className="ss-select-ph">Выберите вакансию компании…</span>}
+                <Icon name="chevron-down" size={16} className="ss-chev" />
+              </button>
+              {selOpen && (
+                <div className="ss-select-menu">
+                  {vacancies.map(v => (
+                    <div key={v.id}
+                      className={`ss-select-opt ${vacId === v.id ? 'sel' : ''}`}
+                      onClick={() => selectVacancy(v.id)}>
+                      <Icon name="briefcase" size={15} className="ss-opt-ic" />
+                      <div className="ss-opt-main">
+                        <div className="ss-opt-title">{v.title}</div>
+                        <div className="ss-opt-meta">{v.city} · {ssFmt(v.salary_from)}–{ssFmt(v.salary_to)} ₽</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {vac && (
+              <div className="ssb-autofilters">
+                <div className="ss-glafira-note">
+                  <span className="em">💃</span>
+                  {deriveFilters.isPending
+                    ? 'Глафира подбирает фильтры из вакансии…'
+                    : 'Глафира собрала автофильтры из вакансии — поправьте при необходимости'}
+                </div>
+
+                <div className="ss-field-row" style={{ marginBottom: 14 }}>
+                  <div className="ss-field">
+                    <div className="ss-field-label">Область / профобласть</div>
+                    <input className="ss-input" value={area} onChange={(e) => setArea(e.target.value)} />
+                  </div>
+                  <div className="ss-field">
+                    <div className="ss-field-label">Проф-роль</div>
+                    <input className="ss-input" value={role} onChange={(e) => setRole(e.target.value)} />
+                  </div>
+                  <div className="ss-field" style={{ maxWidth: 160 }}>
+                    <div className="ss-field-label">Опыт</div>
+                    <input className="ss-input" value={exp} onChange={(e) => setExp(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="ss-filter-group">
+                  <div className="ss-fg-label">Ключевые навыки</div>
+                  <div className="ss-chip-row">
+                    {skills.map((sk, i) => (
+                      <span key={i} className="ss-chip">
+                        {sk}
+                        <button className="ss-chip-x" onClick={() => setSkills(skills.filter((_, j) => j !== i))} aria-label="Убрать">
+                          <Icon name="x" size={11} />
+                        </button>
+                      </span>
+                    ))}
+                    <button className="ss-chip-add" onClick={() => {
+                      const extra = ['Git', 'Agile', 'English B2', 'SQL', 'Code review'].find(x => !skills.includes(x));
+                      if (extra) setSkills([...skills, extra]);
+                    }}>
+                      <Icon name="plus" size={12} /> навык
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* кнопка поиска */}
+      <div className="ssb-actions">
+        <button className="ssb-search-btn" disabled={!canSearch} onClick={runSearch}>
+          <Icon name="search" size={16} /> Найти в базе
+        </button>
+        <span className="ssb-actions-hint">
+          <Icon name="users" size={13} className="ssb-hint-ic" />
+          Поиск только по вашей базе. Доступ к hh.ru не требуется.
+        </span>
+      </div>
+
+      <SSBaseHistory history={baseHistory} onPick={pickHistory} />
+    </div>
+  );
+}
+
+// Результаты по базе
+function SSBaseResults({ results, searchResponse, added, onToggleAdd, onOpen, onReset, onGoFunnel }: {
+  results: BaseSearchCandidate[];
+  searchResponse: BaseSearchResponse;
+  added: Set<string>;
+  onToggleAdd: (candidate: BaseSearchCandidate) => void;
+  onOpen: (candidateId: string) => void;
+  onReset: () => void;
+  onGoFunnel: () => void;
+}) {
+  const exact = searchResponse?.found === searchResponse?.total;
+
+  return (
+    <div>
+      <div className="ssb-res-head">
+        <div className="ssb-res-check"><Icon name="check" size={22} /></div>
+        <div className="ssb-res-head-text">
+          <h2>Нашлось {results.length} {results.length === 1 ? 'кандидат' : results.length <= 4 ? 'кандидата' : 'кандидатов'} в базе</h2>
+          <div className="ssb-res-sub">
+            {searchResponse.vacancy_title
+              ? <>под вакансию «{searchResponse.vacancy_title}»</>
+              : <>по запросу «{searchResponse.query_echo}»</>}
+            {!exact && <span className="ssb-res-flag"> · точных совпадений нет — показаны ближайшие по AI-баллу</span>}
+          </div>
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={onReset}>
+          <Icon name="refresh-cw" size={14} /> Новый поиск
+        </button>
+      </div>
+
+      <div className="ssb-res-list">
+        {results.map(c => {
+          const isAdded = added.has(c.id);
+          const relColor = c.match_percent != null && c.match_percent >= 80 ? 'green' :
+                          c.match_percent != null && c.match_percent >= 60 ? 'blue' : 'gray';
+          return (
+            <div key={c.id} className="ssb-row">
+              <Avatar name={c.full_name} size="md" />
+              <div className="ssb-row-main">
+                <div className="ssb-row-name-line">
+                  <span className="ssb-row-name">{c.full_name}</span>
+                  {c.match_percent != null && (
+                    <span className={`ssb-rel ssb-rel-${relColor}`}>{c.match_percent}% совпадение</span>
+                  )}
+                </div>
+                <div className="ssb-row-meta">
+                  {[
+                    c.age && `${c.age} лет`,
+                    c.last_period,
+                    c.last_company,
+                    c.city
+                  ].filter(Boolean).join(' · ')}
+                </div>
+                <div className="ssb-row-chips">
+                  {c.all_skills.map((t, i) => {
+                    const hit = c.matched_skills.includes(t);
+                    return (
+                      <span key={i} className={`ssb-tag ${hit ? 'hit' : ''}`}>
+                        {hit && <Icon name="check" size={10} />}{t}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              {c.ai_score != null && <ScoreLabel value={c.ai_score} size="md" />}
+              <div className="ssb-row-actions">
+                <button className="ssb-act open" onClick={() => onOpen(c.id)}>
+                  <Icon name="external-link" size={14} /> Открыть
+                </button>
+                <button className={`ssb-act add ${isAdded ? 'is-added' : ''}`} onClick={() => onToggleAdd(c)}>
+                  <Icon name={isAdded ? 'check' : 'plus'} size={14} /> {isAdded ? 'В вакансии' : 'В вакансию'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {added.size > 0 && (
+        <div className="ssb-res-bar">
+          <span><b className="t-mono">{added.size}</b> {added.size === 1 ? 'кандидат' : added.size <= 4 ? 'кандидата' : 'кандидатов'} добавлено в воронку</span>
+          <button className="btn btn-primary btn-sm" onClick={onGoFunnel}>
+            <Icon name="filter" size={14} /> Смотреть в воронке
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// История поиска по базе
+function SSBaseHistory({ history, onPick }: { history: BaseSearchRunItem[]; onPick: (h: BaseSearchRunItem) => void }) {
+  return (
+    <div className="ss-history ssb-history">
+      <div className="ss-history-head">
+        <Icon name="clock" size={15} style={{ color: 'var(--fg-3)' }} />
+        <span className="title">История поиска по базе</span>
+        <span className="count">{history.length}</span>
+      </div>
+      <div className="ss-hist-list">
+        {history.map(h => (
+          <div key={h.id} className="ss-hist-row" onClick={() => onPick(h)} title="Повторить — заполнит поиск">
+            <span className={`ssb-hist-kind ${h.search_type}`}>
+              <Icon name={h.search_type === 'vacancy' ? 'briefcase' : 'message-circle'} size={11} />
+              {h.search_type === 'vacancy' ? 'по вакансии' : 'промт'}
+            </span>
+            <div className="ss-hist-main">
+              <div className="ss-hist-vac">{h.query_text}</div>
+              <div className="ss-hist-date">{new Date(h.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+            </div>
+            <div className="ss-hist-stats">
+              <div className="ss-hist-stat">
+                <div className="hv">{h.found}</div>
+                <div className="hl">найдено</div>
+              </div>
+              <div className="ss-hist-stat invite">
+                <div className="hv">{h.added_to_funnel}</div>
+                <div className="hl">в воронку</div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -90,6 +90,24 @@ async def admin_user(db_session: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture
+async def manager_user(db_session: AsyncSession, admin_user: User) -> User:
+    """Менеджер для тестов RBAC (общий в conftest; локальный в test_rbac.py имеет приоритет
+    в своих тестах). Отдельный email во избежание коллизии."""
+    user = User(
+        company_id=admin_user.company_id,
+        email="manager.shared@example.com",
+        password_hash=get_password_hash("Glafira2026!"),
+        full_name="Менеджер Общий",
+        role="manager",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
 async def test_company(db_session: AsyncSession, admin_user: User) -> Company:
     """Компания тест-окружения (создаётся фикстурой admin_user)."""
     return await db_session.get(Company, admin_user.company_id)

@@ -1,0 +1,85 @@
+"""Схемы для поиска по собственной базе кандидатов"""
+
+from datetime import datetime
+from typing import Optional, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+
+
+class BaseSearchRequest(BaseModel):
+    """Запрос поиска по собственной базе"""
+    search_type: Literal["prompt", "vacancy"]
+    query: Optional[str] = Field(None, min_length=3, description="Текст запроса (для типа 'prompt')")
+    vacancy_id: Optional[UUID] = Field(None, description="ID вакансии (для типа 'vacancy')")
+
+    @model_validator(mode='after')
+    def validate_fields(self):
+        if self.search_type == 'prompt' and not self.query:
+            raise ValueError("Для типа 'prompt' обязательно поле 'query'")
+        if self.search_type == 'vacancy' and not self.vacancy_id:
+            raise ValueError("Для типа 'vacancy' обязательно поле 'vacancy_id'")
+        return self
+
+
+class BaseSearchCriteria(BaseModel):
+    """Критерии поиска"""
+    role: str
+    skills: list[str]
+    city: str
+    salary_from: Optional[int]
+    salary_to: Optional[int]
+
+
+class BaseSearchCandidate(BaseModel):
+    """Кандидат в результатах поиска"""
+    id: UUID
+    full_name: str
+    age: Optional[int]
+    last_position: Optional[str]
+    last_company: Optional[str]
+    last_period: Optional[str]  # last_tenure
+    city: Optional[str]
+    ai_score: Optional[int]
+    source: str
+    salary_expectation: Optional[int]
+    matched_skills: list[str]
+    all_skills: list[str]
+    match_percent: Optional[int]
+    has_pdn: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BaseSearchResponse(BaseModel):
+    """Ответ поиска по базе"""
+    found: int
+    total: int
+    results: list[BaseSearchCandidate]
+    criteria: BaseSearchCriteria
+    query_echo: str
+    vacancy_title: Optional[str] = None
+    run_id: UUID
+
+
+class BaseSearchRunResponse(BaseModel):
+    """История поиска"""
+    id: UUID
+    search_type: str
+    query_text: str
+    vacancy_id: Optional[UUID]
+    found: int
+    added_to_funnel: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BaseSearchCountResponse(BaseModel):
+    """Количество кандидатов в базе"""
+    count: int
+
+
+class MarkAddedRequest(BaseModel):
+    """Запрос отметки добавления в воронку"""
+    pass  # Пустой body

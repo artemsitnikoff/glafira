@@ -44,8 +44,33 @@ function ssThrColor(v) {
   return { cls:'red', bg:'var(--ark-red-100)', fg:'var(--ark-red-600)', label:'низкий порог' };
 }
 
-// ====== Главный компонент ======
-function SmartSearch({ hasHhAccess = true, presetView = 'auto', onGoSettings, onGoFunnel }) {
+// ====== Главный компонент — развилка источника подбора ======
+function SmartSearch(props) {
+  const presetView = props.presetView || 'auto';
+  // какой режим открыть исходя из пресета (для превью в Tweaks):
+  //  auto/fork → развилка; base → своя база; остальное (hh-состояния) → hh
+  const modeFor = (pv) => pv === 'base' ? 'base' : (pv === 'auto' || pv === 'fork') ? null : 'hh';
+  const [mode, setMode] = useStateSS(modeFor(presetView));
+  useEffectSS(() => { setMode(modeFor(presetView)); }, [presetView]);
+
+  if (mode === 'hh') {
+    return <SSHhFlow {...props} onBack={() => setMode(null)} />;
+  }
+  if (mode === 'base') {
+    return (
+      <SSBaseFlow
+        vacancies={SMART_VACANCIES}
+        onBack={() => setMode(null)}
+        onOpenCandidate={props.onOpenCandidate}
+        onGoFunnel={props.onGoFunnel}
+      />
+    );
+  }
+  return <SSFork hasHhAccess={props.hasHhAccess !== false} poolCount={(typeof POOL !== 'undefined' ? POOL.length : (typeof CANDIDATES !== 'undefined' ? CANDIDATES.length : 0))} onPick={setMode} />;
+}
+
+// ====== Ветка hh.ru (бывший «Умный подбор» целиком) ======
+function SSHhFlow({ hasHhAccess = true, presetView = 'auto', onGoSettings, onGoFunnel, onBack }) {
   // phase: 'build' | 'running' | 'done'
   const [phase, setPhase] = useStateSS('build');
   const [vacId, setVacId] = useStateSS(null);
@@ -160,14 +185,14 @@ function SmartSearch({ hasHhAccess = true, presetView = 'auto', onGoSettings, on
 
   // ====== НЕТ ДОСТУПА ======
   if (!hasHhAccess) {
-    return <SSNoAccess onGoSettings={onGoSettings}/>;
+    return <SSNoAccess onGoSettings={onGoSettings} onBack={onBack}/>;
   }
 
   // ====== ВЫПОЛНЕНИЕ ======
   if (phase === 'running') {
     return (
       <div className="ss-page" data-screen-label="Smart Search / Running">
-        <SSHeader/>
+        <SSHeader onBack={onBack}/>
         <SSRunning stage={runStage} evalCount={evalCount} scanN={scanN} inviteM={Math.min(inviteM, passThreshold)} vac={vac}/>
       </div>
     );
@@ -178,7 +203,7 @@ function SmartSearch({ hasHhAccess = true, presetView = 'auto', onGoSettings, on
     const invitedCount = Math.min(inviteM, invitedList.length || passThreshold);
     return (
       <div className="ss-page" data-screen-label="Smart Search / Result">
-        <SSHeader/>
+        <SSHeader onBack={onBack}/>
         <SSResult
           vac={vac} found={vac ? vac.found : 0} evaluated={scanN}
           invited={invitedCount} threshold={threshold}
@@ -197,7 +222,7 @@ function SmartSearch({ hasHhAccess = true, presetView = 'auto', onGoSettings, on
 
   return (
     <div className="ss-page" data-screen-label="Smart Search / Constructor">
-      <SSHeader/>
+      <SSHeader onBack={onBack}/>
 
       {!vac && maxStep === 1 && <SSInitialHero/>}
 
@@ -534,16 +559,74 @@ function SmartSearch({ hasHhAccess = true, presetView = 'auto', onGoSettings, on
 }
 
 // ====== Шапка раздела ======
-function SSHeader() {
+function SSHeader({ onBack, sub }) {
   return (
-    <div className="ss-head">
-      <div className="ss-head-mark">💃</div>
-      <div className="ss-head-text">
-        <h1>Умный подбор <span className="ss-beta">beta</span></h1>
-        <div className="ss-sub">
-          Активный поиск кандидатов на hh.ru: Глафира строит фильтры из вакансии, сканирует резюме,
-          оценивает их AI-матчингом и приглашает лучших — прямо в воронку.
+    <div>
+      {onBack && (
+        <button className="ss-back" onClick={onBack}>
+          <Icon name="chevL" size={14}/> Выбор источника
+        </button>
+      )}
+      <div className="ss-head">
+        <div className="ss-head-mark">💃</div>
+        <div className="ss-head-text">
+          <h1>Умный подбор <span className="ss-beta">beta</span></h1>
+          <div className="ss-sub">
+            {sub || <>Активный поиск кандидатов на hh.ru: Глафира строит фильтры из вакансии, сканирует резюме,
+            оценивает их AI-матчингом и приглашает лучших — прямо в воронку.</>}
+          </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ====== Развилка: выбор источника подбора ======
+function SSFork({ hasHhAccess, poolCount, onPick }) {
+  return (
+    <div className="ss-page" data-screen-label="Smart Search / Fork">
+      <SSHeader sub={<>С чего начнём? Глафира умеет искать кандидатов <b>снаружи</b> — в базе резюме hh.ru — и <b>внутри</b>, по вашей собственной базе кандидатов.</>}/>
+
+      <div className="ssf-grid">
+        {/* hh.ru */}
+        <button className="ssf-card ssf-hh" onClick={() => onPick('hh')}>
+          <div className="ssf-card-top">
+            <div className="ssf-card-ic ic-hh"><Icon name="antenna" size={22}/></div>
+            {hasHhAccess
+              ? <span className="ssf-tag on"><Icon name="check" size={11}/> доступ к hh подключён</span>
+              : <span className="ssf-tag off"><Icon name="key" size={11}/> нужен платный доступ</span>}
+          </div>
+          <div className="ssf-card-title">Умный подбор на hh.ru</div>
+          <div className="ssf-card-desc">
+            Активный поиск в базе резюме hh.ru. Глафира строит фильтры из вакансии,
+            сканирует резюме, оценивает AI-матчингом и приглашает лучших.
+          </div>
+          <ul className="ssf-card-list">
+            <li><Icon name="search" size={14}/> Поиск по всей базе резюме hh.ru</li>
+            <li><Icon name="sparkle" size={14}/> AI-оценка против описания вакансии</li>
+            <li><Icon name="mail" size={14}/> Авто-приглашения в воронку</li>
+          </ul>
+          <span className="ssf-go">Выбрать <Icon name="arrowRight" size={15}/></span>
+        </button>
+
+        {/* своя база */}
+        <button className="ssf-card ssf-base" onClick={() => onPick('base')}>
+          <div className="ssf-card-top">
+            <div className="ssf-card-ic ic-base"><Icon name="users" size={22}/></div>
+            <span className="ssf-tag neutral"><span className="t-mono">{ssFmt(poolCount)}</span> кандидатов в базе</span>
+          </div>
+          <div className="ssf-card-title">Подбор по своей базе кандидатов</div>
+          <div className="ssf-card-desc">
+            AI-поиск среди уже накопленных кандидатов. Опишите словами, кто нужен,
+            или ищите под открытую вакансию с автофильтрами.
+          </div>
+          <ul className="ssf-card-list">
+            <li><Icon name="message" size={14}/> Поиск промтом — «напишите, кто нужен»</li>
+            <li><Icon name="briefcase" size={14}/> Или поиск под открытую вакансию</li>
+            <li><Icon name="filter" size={14}/> Автофильтры как на hh — по базе</li>
+          </ul>
+          <span className="ssf-go">Выбрать <Icon name="arrowRight" size={15}/></span>
+        </button>
       </div>
     </div>
   );
@@ -710,10 +793,10 @@ function SSHistory() {
 }
 
 // ====== Нет доступа hh ======
-function SSNoAccess({ onGoSettings }) {
+function SSNoAccess({ onGoSettings, onBack }) {
   return (
     <div className="ss-page" data-screen-label="Smart Search / No hh access">
-      <SSHeader/>
+      <SSHeader onBack={onBack}/>
       <div className="ss-noaccess">
         <div className="ss-noaccess-ic"><Icon name="search" size={28}/></div>
         <div className="ss-noaccess-body">
@@ -745,4 +828,4 @@ function SSNoAccess({ onGoSettings }) {
   );
 }
 
-Object.assign(window, { SmartSearch });
+Object.assign(window, { SmartSearch, SSHeader, SSHistory, ssFmt, ssThrColor, SMART_VACANCIES });

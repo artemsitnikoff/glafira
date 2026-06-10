@@ -22,6 +22,15 @@ from ...schemas.smart import (
     SmartInviteRequest,
     SmartInviteResponse
 )
+from ...schemas.base_search import (
+    BaseSearchRequest,
+    BaseSearchResponse,
+    BaseSearchRunResponse,
+    BaseSearchCountResponse,
+    MarkAddedRequest,
+    BaseSearchCriteria,
+    BaseSearchCandidate
+)
 from ...services.smart_search import (
     check_access,
     get_smart_vacancies,
@@ -33,7 +42,16 @@ from ...services.smart_search import (
     suggest_areas,
     invite_selected
 )
-from ...core.errors import NotFoundError
+from ...services.base_search import (
+    parse_query_to_criteria,
+    search_base,
+    search_by_vacancy,
+    create_search_run,
+    increment_added_to_funnel,
+    get_search_runs,
+    get_candidates_count
+)
+from ...core.errors import NotFoundError, ForbiddenError, ValidationError
 
 router = APIRouter()
 
@@ -191,3 +209,121 @@ async def smart_invite(
     """Отправить приглашения выбранным кандидатам"""
     data = await invite_selected(session, company_id, current_user.id, run_id, request.resume_ids)
     return SmartInviteResponse(**data)
+
+
+# === ПОИСК ПО СОБСТВЕННОЙ БАЗЕ ===
+
+@router.post("/base/search", response_model=BaseSearchResponse)
+async def base_search_candidates(
+    request: BaseSearchRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Поиск кандидатов в собственной базе"""
+    # RBAC: manager запрещён
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    # Дополнительная валидация запроса
+    if request.search_type == "prompt" and (not request.query or len(request.query.strip()) < 3):
+        raise ValidationError("Для поиска по запросу нужно минимум 3 символа")
+
+    if request.search_type == "vacancy" and not request.vacancy_id:
+        raise ValidationError("Для поиска по вакансии нужно указать vacancy_id")
+
+    if request.search_type == "prompt":
+        # Парсим запрос через LLM
+        criteria = await parse_query_to_criteria(request.query)
+
+        # Выполняем поиск
+        search_result = await search_base(
+            session,
+            company_id,
+            role=criteria.get("role", ""),
+            skills=criteria.get("skills", []),
+            city=criteria.get("city", ""),
+            salary_from=criteria.get("salary_from"),
+            salary_to=criteria.get("salary_to")
+        )
+
+        query_echo = request.query
+        vacancy_title = None
+
+    elif request.search_type == "vacancy":
+        # Поиск по критериям вакансии
+        search_result = await search_by_vacancy(session, company_id, request.vacancy_id)
+        criteria = search_result.pop("criteria")
+        query_echo = search_result.pop("vacancy_title")
+        vacancy_title = query_echo
+
+    else:
+        raise ValidationError("Неверный тип поиска")
+
+    # Создаём запись истории
+    search_run = await create_search_run(
+        session,
+        company_id,
+        request.search_type,
+        query_echo,
+        request.vacancy_id,
+        search_result["total"]
+    )
+    await session.commit()
+
+    return BaseSearchResponse(
+        found=len(search_result["results"]),
+        total=search_result["total"],
+        results=[BaseSearchCandidate(**candidate) for candidate in search_result["results"]],
+        criteria=BaseSearchCriteria(**criteria),
+        query_echo=query_echo,
+        vacancy_title=vacancy_title,
+        run_id=search_run.id
+    )
+
+
+@router.get("/base/runs", response_model=list[BaseSearchRunResponse])
+async def get_base_search_runs(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """История поиска по собственной базе"""
+    # RBAC: manager запрещён
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    runs = await get_search_runs(session, company_id)
+    return [BaseSearchRunResponse.model_validate(run) for run in runs]
+
+
+@router.get("/base/count", response_model=BaseSearchCountResponse)
+async def get_base_candidates_count(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Количество кандидатов в собственной базе"""
+    # RBAC: manager запрещён
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    count = await get_candidates_count(session, company_id)
+    return BaseSearchCountResponse(count=count)
+
+
+@router.post("/base/runs/{run_id}/mark-added", status_code=204)
+async def mark_candidate_added_to_funnel(
+    run_id: UUID,
+    request: MarkAddedRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Отметить добавление кандидата в воронку"""
+    # RBAC: manager запрещён
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    await increment_added_to_funnel(session, company_id, run_id)
+    await session.commit()

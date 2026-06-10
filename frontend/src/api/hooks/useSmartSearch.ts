@@ -254,3 +254,99 @@ export function useSmartInvite(runId: string) {
     },
   });
 }
+
+// === ВЕТКА Б: Умный подбор по своей базе ===
+
+export interface BaseSearchCandidate {
+  id: string;
+  full_name: string;
+  age: number | null;
+  last_position: string | null;
+  last_company: string | null;
+  last_period: string | null; // стаж/tenure
+  city: string | null;
+  ai_score: number | null;
+  source: string;
+  salary_expectation: number | null;
+  matched_skills: string[];
+  all_skills: string[];
+  match_percent: number | null;
+  has_pdn: boolean;
+}
+
+export interface BaseSearchRequest {
+  search_type: 'prompt' | 'vacancy';
+  query?: string;
+  vacancy_id?: string;
+}
+
+export interface BaseSearchResponse {
+  found: number;
+  total: number;
+  results: BaseSearchCandidate[];
+  criteria: {
+    role: string;
+    skills: string[];
+    city: string;
+    salary_from: number | null;
+    salary_to: number | null;
+  };
+  query_echo: string;
+  vacancy_title: string | null;
+  run_id: string;
+}
+
+export interface BaseSearchRunItem {
+  id: string;
+  search_type: 'prompt' | 'vacancy';
+  query_text: string;
+  vacancy_id: string | null;
+  found: number;
+  added_to_funnel: number;
+  created_at: string;
+}
+
+export interface BaseCountResponse {
+  count: number;
+}
+
+// Поиск по своей базе
+export function useSmartBaseSearch() {
+  return useMutation<BaseSearchResponse, Error, BaseSearchRequest>({
+    mutationFn: async (request): Promise<BaseSearchResponse> => {
+      const response = await api.post('/smart/base/search', request);
+      return response.data as BaseSearchResponse;
+    },
+  });
+}
+
+// История поиска по базе
+export function useSmartBaseHistory() {
+  return useQuery({
+    queryKey: ['smart', 'base', 'runs'],
+    queryFn: async (): Promise<BaseSearchRunItem[]> => {
+      const response = await api.get('/smart/base/runs');
+      return response.data as BaseSearchRunItem[];
+    },
+  });
+}
+
+// Счётчик кандидатов в базе
+export function useSmartBaseCount() {
+  return useQuery({
+    queryKey: ['smart', 'base', 'count'],
+    queryFn: async (): Promise<BaseCountResponse> => {
+      const response = await api.get('/smart/base/count');
+      return response.data as BaseCountResponse;
+    },
+  });
+}
+
+// Отметка добавления в воронку
+export function useMarkBaseRunAdded() {
+  return useMutation<void, Error, string>({
+    mutationFn: async (runId): Promise<void> => {
+      await api.post(`/smart/base/runs/${runId}/mark-added`, {});
+    },
+  });
+}

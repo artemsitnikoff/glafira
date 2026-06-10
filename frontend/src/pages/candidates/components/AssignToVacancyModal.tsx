@@ -14,9 +14,10 @@ interface Props {
   candidateName: string
   isOpen: boolean
   onClose: () => void
+  onSuccess?: () => void
 }
 
-export function AssignToVacancyModal({ candidateId, candidateName, isOpen, onClose }: Props) {
+export function AssignToVacancyModal({ candidateId, candidateName, isOpen, onClose, onSuccess }: Props) {
   const [searchQuery, setSearchQuery] = useState('')
   const [apiError, setApiError] = useState<string | null>(null)
   const [assigningId, setAssigningId] = useState<string | null>(null)
@@ -42,6 +43,7 @@ export function AssignToVacancyModal({ candidateId, candidateName, isOpen, onClo
         data: { vacancy_id: vacancyId, stage: 'added' },
       })
       // useAssignToVacancy сам инвалидирует кэш и ведёт в воронку
+      onSuccess?.()
       onClose()
     } catch (error: unknown) {
       const e = error as ApiError
