@@ -95,6 +95,18 @@ export function SettingsAI({ readOnly = false }: SettingsAIProps) {
             </button>
           </div>
 
+          {reindexMutation.isSuccess && isIndexing && (
+            <div className="ai-index-done" role="status">
+              <Icon name="loader" size={14} /> Индексация запущена…
+            </div>
+          )}
+          {reindexMutation.isSuccess && !isIndexing && (
+            <div className="ai-index-done" role="status">
+              <Icon name="check" size={14} /> Индексация выполнена — проиндексировано{' '}
+              {indexStatus?.indexed_candidates} из {indexStatus?.total_candidates}
+            </div>
+          )}
+
           {reindexMutation.error && (
             <div className="error-banner" role="alert">
               {((reindexMutation.error as unknown as ApiError)?.error?.message) || 'Ошибка запуска индексации'}
@@ -110,11 +122,9 @@ export function SettingsAI({ readOnly = false }: SettingsAIProps) {
         <div className="ai-model-section">
           <div className="form-field">
             <label className="field-label">Основная модель</label>
-            <select className="field-input" disabled>
+            <select className="field-input" disabled value={indexStatus?.model || ''}>
               {indexStatus?.model ? (
-                <option value={indexStatus.model} selected>
-                  {indexStatus.model}
-                </option>
+                <option value={indexStatus.model}>{indexStatus.model}</option>
               ) : (
                 <option value="">Загрузка...</option>
               )}
