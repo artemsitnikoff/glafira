@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, Fragment } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { SOURCE_CONFIG } from '@/lib/source-colors';
 import {
   useParseFile,
   usePreviewImport,
@@ -21,27 +20,23 @@ interface Props {
   onDone: () => void;
 }
 
-// RU-метки для полей
-const FIELD_LABELS: Record<FieldKey, string> = {
-  name: 'Имя*',
-  phone: 'Телефон',
-  email: 'Email',
-  city: 'Город',
-  age: 'Возраст',
-  salary: 'Зарплата',
-  source: 'Источник',
-  position: 'Должность',
-  company: 'Компания',
-  experience: 'Опыт',
-  comment: 'Комментарий',
-  resume_url: 'Резюме-ссылка',
-  skip: '— Не импортировать —',
-};
+// Поля для импорта (как в эталоне)
+const IMP_FIELDS = [
+  { id: 'name',       label: 'Имя',            req: true },
+  { id: 'phone',      label: 'Телефон',        contact: true },
+  { id: 'email',      label: 'Email',          contact: true },
+  { id: 'city',       label: 'Город' },
+  { id: 'age',        label: 'Возраст' },
+  { id: 'salary',     label: 'Зарплата' },
+  { id: 'source',     label: 'Источник' },
+  { id: 'position',   label: 'Должность' },
+  { id: 'company',    label: 'Компания' },
+  { id: 'experience', label: 'Опыт' },
+  { id: 'comment',    label: 'Комментарий' },
+  { id: 'resume_url', label: 'Резюме-ссылка' },
+];
 
-const FIELD_OPTIONS: { id: FieldKey; label: string }[] = Object.entries(FIELD_LABELS).map(([id, label]) => ({
-  id: id as FieldKey,
-  label,
-}));
+const FIELD_LABEL: Record<string, string> = IMP_FIELDS.reduce((m, f) => (m[f.id] = f.label, m), { skip: 'Не импортировать' } as Record<string, string>);
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -52,6 +47,8 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   // Шаг 1: Загрузка файла
   const [file, setFile] = useState<File | null>(null);
   const [parseData, setParseData] = useState<ParseResponse | null>(null);
+  const [uploadState, setUploadState] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle');
+  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Шаг 2: Маппинг колонок
@@ -61,6 +58,12 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
   const [dedupMode, setDedupMode] = useState<DedupMode>('skip');
   const [detailCandidate, setDetailCandidate] = useState<PreviewRow | null>(null);
+
+  // Вычисляемые значения для UI
+  const mappedFields = useMemo(() => new Set(Object.values(mapping)), [mapping]);
+  const hasName = mappedFields.has('name');
+  const hasContact = mappedFields.has('phone') || mappedFields.has('email');
+  const requiredOk = hasName && hasContact;
 
   // Шаг 4: Выполнение
   const [jobId, setJobId] = useState<string | null>(null);
@@ -78,27 +81,32 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setFileError(null);
 
     if (!selectedFile.name.match(/\.(xlsx?|xls)$/i)) {
+      setUploadState('error');
       setFileError('Поддерживаются только файлы .xlsx и .xls');
       return;
     }
 
     setFile(selectedFile);
+    setUploadState('parsing');
 
     try {
       const result = await parseFile.mutateAsync(selectedFile);
       setParseData(result);
+      setUploadState('done');
 
       // Инициализируем маппинг из auto_mapping
       setMapping(result.auto_mapping as ColumnMapping);
     } catch (error) {
       setFile(null);
       setParseData(null);
+      setUploadState('error');
       setFileError('Не удалось прочитать файл');
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setDragging(false);
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile) {
       handleFileSelect(droppedFile);
@@ -108,6 +116,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const handleReplaceFile = () => {
     setFile(null);
     setParseData(null);
+    setUploadState('idle');
     setFileError(null);
     fileInputRef.current?.click();
   };
@@ -130,15 +139,10 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     });
   };
 
-  const isValidMapping = () => {
-    const mappedFields = Object.values(mapping);
-    const hasName = mappedFields.includes('name');
-    const hasContact = mappedFields.includes('phone') || mappedFields.includes('email');
-    return hasName && hasContact;
-  };
+  // Удаляем дублированную функцию, используем вычисляемые значения
 
   const handlePreview = async () => {
-    if (!file || !isValidMapping()) return;
+    if (!file || !requiredOk) return;
     setActionError(null);
 
     try {
@@ -175,6 +179,8 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setCurrentStep(1);
     setFile(null);
     setParseData(null);
+    setUploadState('idle');
+    setDragging(false);
     setMapping({});
     setPreviewData(null);
     setDedupMode('skip');
@@ -184,413 +190,124 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setActionError(null);
   };
 
-  const getStepClass = (step: Step) => {
-    if (step === currentStep) return 'current';
-    if (step < currentStep) return 'completed';
-    return 'upcoming';
-  };
+  // Форматирование чисел как в эталоне
+  const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
 
   return (
-    <div className="import-wizard">
-      {/* Шапка визарда */}
-      <div className="iw-header">
-        <div className="iw-header-left">
-          <h1 className="iw-title">Импорт кандидатов из файла</h1>
-
-          {/* Индикатор шагов */}
-          <div className="iw-steps">
-            <div className={`iw-step ${getStepClass(1)}`}>
-              <div className="iw-step-circle">
-                {currentStep > 1 ? <Icon name="check" size={12} /> : '1'}
-              </div>
-              <span className="iw-step-label">Загрузка</span>
-            </div>
-            <div className="iw-step-line" />
-            <div className={`iw-step ${getStepClass(2)}`}>
-              <div className="iw-step-circle">
-                {currentStep > 2 ? <Icon name="check" size={12} /> : '2'}
-              </div>
-              <span className="iw-step-label">Колонки</span>
-            </div>
-            <div className="iw-step-line" />
-            <div className={`iw-step ${getStepClass(3)}`}>
-              <div className="iw-step-circle">
-                {currentStep > 3 ? <Icon name="check" size={12} /> : '3'}
-              </div>
-              <span className="iw-step-label">Превью</span>
-            </div>
-            <div className="iw-step-line" />
-            <div className={`iw-step ${getStepClass(4)}`}>
-              <div className="iw-step-circle">4</div>
-              <span className="iw-step-label">Готово</span>
-            </div>
+    <div className="imp-page">
+      {/* ===== Верхняя панель + индикатор шагов ===== */}
+      <div className="imp-top">
+        <div className="imp-top-row">
+          <div className="imp-top-title">
+            <Icon name="download" size={17}/>
+            <span>Импорт кандидатов из файла</span>
           </div>
+          <button className="icon-btn" onClick={onClose} title="Закрыть импорт"><Icon name="x" size={18}/></button>
         </div>
-
-        <button className="iw-close" onClick={onClose}>
-          <Icon name="x" size={20} />
-        </button>
+        <ImpStepper step={currentStep}/>
       </div>
 
-      {/* Содержимое */}
-      <div className="iw-content">
-        {/* Шаг 1: Загрузка файла */}
-        {currentStep === 1 && (
-          <div className="iw-step-content">
-            {!file && (
-              <>
-                <div
-                  className="iw-dropzone"
-                  onDrop={handleDrop}
-                  onDragOver={(e) => e.preventDefault()}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {parseFile.isPending ? (
-                    <div className="iw-loading">
-                      <div className="iw-brand-char">💃</div>
-                      <p>Глафира читает файл…</p>
-                    </div>
-                  ) : (
-                    <>
-                      <Icon name="upload" size={48} style={{ color: 'var(--fg-3)' }} />
-                      <h3>Перетащите Excel-файл с кандидатами</h3>
-                      <p>или нажмите для выбора</p>
-                      <div className="iw-hint">
-                        Поддерживаются выгрузки из hh, Потока, Хантфлоу и других систем
-                      </div>
-                      <button className="btn btn-primary" type="button">
-                        Выбрать файл
-                      </button>
-                    </>
-                  )}
-                </div>
+      {/* ===== Тело ===== */}
+      <div className="imp-body">
+        <div className="imp-inner">
+          {currentStep === 1 && (
+            <ImpStepUpload
+              uploadState={uploadState}
+              dragging={dragging}
+              setDragging={setDragging}
+              onDrop={handleDrop}
+              fileInputRef={fileInputRef}
+              onPick={() => fileInputRef.current?.click()}
+              onPickError={() => setUploadState('error')}
+              onRetry={() => { setUploadState('idle'); setFileError(null); }}
+              file={file}
+              parseData={parseData}
+              onReplaceFile={handleReplaceFile}
+              fileError={fileError}
+              onNext={() => setCurrentStep(2)}
+            />
+          )}
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={(e) => {
-                    const selectedFile = e.target.files?.[0];
-                    if (selectedFile) handleFileSelect(selectedFile);
-                  }}
-                  style={{ display: 'none' }}
-                />
-              </>
-            )}
+          {currentStep === 2 && parseData && (
+            <ImpStepColumns
+              parseData={parseData}
+              mapping={mapping}
+              setMapping={setMapping}
+              hasName={hasName}
+              hasContact={hasContact}
+              onMappingChange={handleMappingChange}
+              requiredOk={requiredOk}
+              actionError={actionError}
+              onPreview={handlePreview}
+              previewLoading={previewImport.isPending}
+              onBack={() => setCurrentStep(1)}
+            />
+          )}
 
-            {(parseFile.isError || fileError) && (
-              <div className="iw-error-state">
-                <Icon name="alert-triangle" size={36} style={{ color: 'var(--error-fg)' }} />
-                <h3>Не удалось прочитать файл</h3>
-                <p>{fileError || 'Поддерживаются только .xlsx и .xls'}</p>
-                <button className="btn btn-secondary" onClick={() => {
-                  setFileError(null);
-                  fileInputRef.current?.click();
-                }}>
-                  Выбрать другой файл
-                </button>
-              </div>
-            )}
+          {currentStep === 3 && previewData && (
+            <ImpStepPreview
+              previewData={previewData}
+              dedupMode={dedupMode}
+              setDedupMode={setDedupMode}
+              onRowClick={setDetailCandidate}
+              actionError={actionError}
+              onExecute={handleExecute}
+              executeLoading={executeImport.isPending}
+              onBack={() => setCurrentStep(2)}
+            />
+          )}
 
-            {file && parseData && (
-              <div className="iw-file-card">
-                <div className="iw-file-info">
-                  <Icon name="file" size={24} style={{ color: 'var(--accent)' }} />
-                  <div>
-                    <div className="iw-file-name">{file.name}</div>
-                    <div className="iw-file-stats">
-                      Найдено {parseData.row_count} строк · {parseData.columns.length} колонок
-                    </div>
-                  </div>
-                </div>
-
-                <div className="iw-file-columns">
-                  {parseData.columns.map((col, i) => (
-                    <span key={i} className="iw-column-chip">{col}</span>
-                  ))}
-                </div>
-
-                <div className="iw-file-actions">
-                  <button className="btn btn-secondary btn-sm" onClick={handleReplaceFile}>
-                    Заменить файл
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setCurrentStep(2)}
-                  >
-                    Далее → Колонки
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Шаг 2: Сопоставление колонок */}
-        {currentStep === 2 && parseData && (
-          <div className="iw-step-content">
-            <div className="iw-glafira-hint">
-              <div className="iw-brand-char">💃</div>
-              <p>Глафира распознала колонки автоматически — проверьте и поправьте, если нужно</p>
-            </div>
-
-            {/* Индикатор обязательных полей */}
-            <div className="iw-required-fields">
-              <div className={`iw-req-field ${Object.values(mapping).includes('name') ? 'valid' : 'invalid'}`}>
-                Имя {Object.values(mapping).includes('name') && <Icon name="check" size={14} />}
-              </div>
-              <span>·</span>
-              <div className={`iw-req-field ${
-                Object.values(mapping).includes('phone') || Object.values(mapping).includes('email') ? 'valid' : 'invalid'
-              }`}>
-                Контакт (телефон/email) {(Object.values(mapping).includes('phone') || Object.values(mapping).includes('email')) && <Icon name="check" size={14} />}
-              </div>
-            </div>
-
-            {/* Таблица сопоставления */}
-            <div className="iw-mapping-table">
-              {parseData.columns.map((column) => {
-                const currentMapping = mapping[column] || 'skip';
-                const isAutoMapped = parseData.auto_mapping[column] && parseData.auto_mapping[column] !== 'skip';
-                const samples = parseData.samples[column] || [];
-
-                return (
-                  <div key={column} className="iw-mapping-row">
-                    <div className="iw-column-info">
-                      <div className="iw-column-name">{column}</div>
-                      <div className="iw-column-samples">
-                        {samples.slice(0, 3).map((sample, i) => (
-                          <span key={i} className="iw-sample">{sample}</span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <Icon name="arrow-right" size={16} style={{ color: 'var(--fg-3)' }} />
-
-                    <div className="iw-field-select">
-                      <select
-                        value={currentMapping}
-                        onChange={(e) => handleMappingChange(column, e.target.value as FieldKey)}
-                        className={isAutoMapped && currentMapping !== 'skip' ? 'auto-mapped' : ''}
-                      >
-                        {FIELD_OPTIONS.map(option => {
-                          const isOccupied = option.id !== 'skip' && option.id !== currentMapping && Object.values(mapping).includes(option.id);
-                          return (
-                            <option
-                              key={option.id}
-                              value={option.id}
-                              disabled={isOccupied}
-                            >
-                              {option.label}{isOccupied ? ' (занято)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      {isAutoMapped && currentMapping !== 'skip' && (
-                        <div className="iw-auto-badge">
-                          <Icon name="check" size={12} /> распознано
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {!isValidMapping() && (
-              <div className="iw-validation-hint">
-                Сопоставьте Имя и хотя бы один контакт
-              </div>
-            )}
-
-            {actionError && <div className="iw-validation-hint">{actionError}</div>}
-
-            <div className="iw-step-actions">
-              <button className="btn btn-secondary" onClick={() => setCurrentStep(1)}>
-                ← Назад
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handlePreview}
-                disabled={!isValidMapping() || previewImport.isPending}
-              >
-                {previewImport.isPending ? 'Обработка…' : 'Далее → Превью'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Шаг 3: Превью */}
-        {currentStep === 3 && previewData && (
-          <div className="iw-step-content">
-            {/* Статистика */}
-            <div className="iw-stats-cards">
-              <div className="iw-stat-card neutral">
-                <div className="iw-stat-value">{previewData.summary.total}</div>
-                <div className="iw-stat-label">Всего строк</div>
-              </div>
-              <div className="iw-stat-card success">
-                <div className="iw-stat-value">{previewData.summary.new}</div>
-                <div className="iw-stat-label">Новых кандидатов</div>
-              </div>
-              <div className="iw-stat-card warning">
-                <div className="iw-stat-value">{previewData.summary.duplicates}</div>
-                <div className="iw-stat-label">Дублей</div>
-              </div>
-              <div className="iw-stat-card error">
-                <div className="iw-stat-value">{previewData.summary.errors}</div>
-                <div className="iw-stat-label">С ошибками</div>
-              </div>
-            </div>
-
-            {/* Тумблер дублей */}
-            <div className="iw-dedup-control">
-              <span>Дубли:</span>
-              <div className="iw-segment-control">
-                <button
-                  className={dedupMode === 'skip' ? 'active' : ''}
-                  onClick={() => setDedupMode('skip')}
-                >
-                  Пропустить
-                </button>
-                <button
-                  className={dedupMode === 'update' ? 'active' : ''}
-                  onClick={() => setDedupMode('update')}
-                >
-                  Обновить
-                </button>
-              </div>
-            </div>
-
-            {/* Таблица превью */}
-            <div className="iw-preview-table">
-              {previewData.rows.map((row) => (
-                <div
-                  key={row.index}
-                  className={`iw-preview-row ${row.status} ${row.status !== 'error' ? 'clickable' : ''}`}
-                  onClick={row.status !== 'error' ? () => setDetailCandidate(row) : undefined}
-                >
-                  <Avatar name={row.name} size="sm" />
-                  <div className="iw-row-info">
-                    <div className="iw-row-name">{row.name}</div>
-                    <div className="iw-row-contacts">
-                      {row.phone && <span>{row.phone}</span>}
-                      {row.phone && row.email && <span>·</span>}
-                      {row.email && <span>{row.email}</span>}
-                    </div>
-                  </div>
-                  <div className="iw-row-details">
-                    {row.city && <span>{row.city}</span>}
-                    {row.source && (
-                      <span
-                        className="iw-source-chip"
-                        style={{ backgroundColor: SOURCE_CONFIG[row.source]?.color || 'var(--fg-3)' }}
-                      >
-                        {SOURCE_CONFIG[row.source]?.label || row.source}
-                      </span>
-                    )}
-                  </div>
-                  <div className="iw-row-status">
-                    {row.status === 'duplicate' && <span className="iw-badge warning">дубль</span>}
-                    {row.status === 'error' && <span className="iw-badge error">{row.error}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {previewData.remaining > 0 && (
-              <div className="iw-remaining">
-                и ещё <strong>{previewData.remaining}</strong> строк будут обработаны при импорте
-              </div>
-            )}
-
-            {actionError && <div className="iw-validation-hint">{actionError}</div>}
-
-            <div className="iw-step-actions">
-              <button className="btn btn-secondary" onClick={() => setCurrentStep(2)}>
-                ← Назад
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleExecute}
-                disabled={executeImport.isPending}
-              >
-                {executeImport.isPending ? 'Запуск…' : `✓ Импортировать ${previewData.summary.new + (dedupMode === 'update' ? previewData.summary.duplicates : 0)} кандидатов`}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Шаг 4: Выполнение и результат */}
-        {currentStep === 4 && (
-          <div className="iw-step-content">
-            {jobData?.status === 'running' && (
-              <div className="iw-progress-state">
-                <div className="iw-brand-char">💃</div>
-                <h3>Импорт в процессе</h3>
-                <div className="iw-progress-bar">
-                  <div
-                    className="iw-progress-fill"
-                    style={{ width: `${Math.round((jobData.processed / jobData.total) * 100)}%` }}
-                  />
-                </div>
-                <p>
-                  Импортировано <strong>{jobData.processed}</strong> из <strong>{jobData.total}</strong>
-                  <span className="t-mono"> ({Math.round((jobData.processed / jobData.total) * 100)}%)</span>
-                </p>
-              </div>
-            )}
-
-            {jobData?.status === 'done' && (
-              <div className="iw-done-state">
-                <div className="iw-success-icon">
-                  <Icon name="check-circle" size={48} style={{ color: 'var(--status-success)' }} />
-                </div>
-                <h3>Импорт завершён</h3>
-
-                <div className="iw-result-stats">
-                  <div className="iw-result-card">
-                    <div className="iw-result-value">{jobData.created}</div>
-                    <div className="iw-result-label">Создано</div>
-                  </div>
-                  <div className="iw-result-card">
-                    <div className="iw-result-value">{dedupMode === 'update' ? jobData.updated : jobData.skipped}</div>
-                    <div className="iw-result-label">{dedupMode === 'update' ? 'Обновлено' : 'Пропущено'}</div>
-                  </div>
-                  <div className="iw-result-card">
-                    <div className="iw-result-value">{jobData.errors}</div>
-                    <div className="iw-result-label">Ошибок</div>
-                  </div>
-                </div>
-
-                <div className="iw-done-actions">
-                  <button className="btn btn-primary" onClick={onDone}>
-                    Смотреть в базе
-                  </button>
-                  <button className="btn btn-secondary" onClick={reset}>
-                    Импортировать ещё
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {jobData?.status === 'error' && (
-              <div className="iw-error-state">
-                <Icon name="alert-triangle" size={36} style={{ color: 'var(--error-fg)' }} />
-                <h3>Ошибка импорта</h3>
-                <p>{jobData.error || 'Произошла неизвестная ошибка'}</p>
-                <button className="btn btn-secondary" onClick={reset}>
-                  Попробовать ещё раз
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+          {currentStep === 4 && (
+            <ImpStepResult
+              jobData={jobData}
+              dedupMode={dedupMode}
+              onDone={onDone}
+              onAgain={reset}
+            />
+          )}
+        </div>
       </div>
+
+      {/* ===== Нижняя панель навигации ===== */}
+      {currentStep === 1 && uploadState === 'done' && (
+        <div className="imp-foot">
+          <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
+          <div style={{flex:1}}/>
+          <button className="btn btn-primary" onClick={() => setCurrentStep(2)}>
+            Далее → Сопоставить колонки
+          </button>
+        </div>
+      )}
+      {currentStep === 2 && (
+        <div className="imp-foot">
+          <button className="btn btn-secondary" onClick={() => setCurrentStep(1)}>
+            <Icon name="chevron-left" size={14}/> Назад
+          </button>
+          <div className="imp-foot-hint">
+            {requiredOk
+              ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Обязательные поля сопоставлены</span>
+              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Сопоставьте Имя и хотя бы один контакт</span>}
+          </div>
+          <button className="btn btn-primary" disabled={!requiredOk} onClick={() => requiredOk && setCurrentStep(3)}>
+            Далее → Превью
+          </button>
+        </div>
+      )}
+      {currentStep === 3 && previewData && (
+        <div className="imp-foot">
+          <button className="btn btn-secondary" onClick={() => setCurrentStep(2)}>
+            <Icon name="chevron-left" size={14}/> Назад к колонкам
+          </button>
+          <div style={{flex:1}}/>
+          <button className="btn btn-primary imp-btn-import" onClick={handleExecute}>
+            <Icon name="check" size={15}/> Импортировать {fmtIM(previewData.summary.new + (dedupMode === 'update' ? previewData.summary.duplicates : 0))}&nbsp;кандидатов
+          </button>
+        </div>
+      )}
 
       {/* Попап резюме */}
       {detailCandidate && (
-        <ResumeModal
+        <ImpResumeModal
           candidate={detailCandidate}
           onClose={() => setDetailCandidate(null)}
         />
@@ -599,14 +316,522 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   );
 }
 
-// Попап резюме (идиом SSCandidateDetail/iw-modal-*)
-function ResumeModal({ candidate, onClose }: { candidate: PreviewRow; onClose: () => void }) {
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
+// =====================================================================
+// Индикатор шагов
+// =====================================================================
+function ImpStepper({ step }: { step: Step }) {
+  const steps = ['Загрузка', 'Колонки', 'Превью', 'Готово'];
+  return (
+    <div className="imp-stepper">
+      {steps.map((s, i) => {
+        const n = i + 1;
+        const state = step > n ? 'done' : step === n ? 'current' : 'upcoming';
+        return (
+          <Fragment key={s}>
+            <div className={`imp-step ${state}`}>
+              <span className="imp-step-dot">{step > n ? <Icon name="check" size={14}/> : n}</span>
+              <span className="imp-step-label">{s}</span>
+            </div>
+            {i < steps.length - 1 && <span className={`imp-step-line ${step > n ? 'done' : ''}`}/>}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// =====================================================================
+// ШАГ 1 — Загрузка файла
+// =====================================================================
+interface ImpStepUploadProps {
+  uploadState: 'idle' | 'parsing' | 'done' | 'error';
+  dragging: boolean;
+  setDragging: (dragging: boolean) => void;
+  onDrop: (e: React.DragEvent) => void;
+  fileInputRef: React.RefObject<HTMLInputElement>;
+  onPick: () => void;
+  onPickError: () => void;
+  onRetry: () => void;
+  file: File | null;
+  parseData: ParseResponse | null;
+  onReplaceFile: () => void;
+  fileError: string | null;
+  onNext: () => void;
+}
+
+function ImpStepUpload({
+  uploadState,
+  dragging,
+  setDragging,
+  onDrop,
+  fileInputRef,
+  onPick,
+  onPickError,
+  onRetry,
+  file,
+  parseData,
+  onReplaceFile
+}: ImpStepUploadProps) {
+  const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
+
+  if (uploadState === 'parsing') {
+    return (
+      <div className="imp-parse">
+        <div className="imp-parse-dancer">💃</div>
+        <div className="imp-parse-text">Глафира читает файл<span className="cd-load-dots"></span></div>
+        <div className="imp-parse-sub">Распознаём строки и колонки</div>
+      </div>
+    );
+  }
+
+  if (uploadState === 'error') {
+    return (
+      <div className="imp-stage-wrap">
+        <div className="imp-drop imp-drop-error">
+          <div className="imp-drop-ic imp-drop-ic-error"><Icon name="alert-triangle" size={30}/></div>
+          <div className="imp-drop-title">Не удалось прочитать файл</div>
+          <div className="imp-drop-sub">Поддерживаются только таблицы Excel — <b>.xlsx</b> и <b>.xls</b>. Проверьте формат и попробуйте ещё раз.</div>
+          <div className="imp-drop-actions">
+            <button className="btn btn-primary" onClick={onRetry}><Icon name="refresh" size={14}/> Выбрать другой файл</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (uploadState === 'done' && file && parseData) {
+    return (
+      <div className="imp-stage-wrap">
+        {/* Карточка-итог файла */}
+        <div className="imp-file-card">
+          <div className="imp-file-head">
+            <div className="imp-file-ic"><Icon name="download" size={20}/></div>
+            <div className="imp-file-main">
+              <div className="imp-file-name">{file.name}</div>
+              <div className="imp-file-meta">
+                Найдено <b className="t-mono">{fmtIM(parseData.row_count)}</b> строк ·
+                <b className="t-mono"> {parseData.columns.length}</b> колонок
+              </div>
+            </div>
+            <span className="imp-file-ok"><Icon name="check" size={13}/> Файл прочитан</span>
+            <button className="imp-file-replace" onClick={onReplaceFile} title="Заменить файл"><Icon name="refresh" size={14}/></button>
+          </div>
+          <div className="imp-file-cols">
+            <div className="imp-file-cols-label">Распознанные колонки</div>
+            <div className="imp-chip-row">
+              {parseData.columns.map(c => (
+                <span key={c} className="imp-col-chip">{c}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="imp-next-hint">
+          Глафира уже сопоставила колонки автоматически — на следующем шаге проверьте и поправьте маппинг.
+        </div>
+      </div>
+    );
+  }
+
+  // idle
+  return (
+    <div className="imp-stage-wrap">
+      <div
+        className={`imp-drop ${dragging ? 'dragging' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        onClick={() => onPick()}
+      >
+        <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{display:'none'}}
+               onChange={() => onPick()}/>
+        <div className="imp-drop-ic"><Icon name="download" size={30}/></div>
+        <div className="imp-drop-title">Перетащите Excel-файл с кандидатами<br/>или нажмите для выбора</div>
+        <div className="imp-drop-sub">Поддерживаются выгрузки из hh, Потока, Хантфлоу и других систем · форматы <b>.xlsx</b>, <b>.xls</b></div>
+        <button className="btn btn-primary imp-drop-btn" onClick={(e) => { e.stopPropagation(); onPick(); }}>
+          <Icon name="download" size={14}/> Выбрать файл
+        </button>
+      </div>
+      <button className="imp-demo-link" onClick={onPickError}>
+        Что будет, если файл не Excel? →
+      </button>
+    </div>
+  );
+}
+
+// =====================================================================
+// ШАГ 2 — Сопоставление колонок
+// =====================================================================
+interface ImpStepColumnsProps {
+  parseData: ParseResponse;
+  mapping: ColumnMapping;
+  setMapping: (mapping: ColumnMapping) => void;
+  hasName: boolean;
+  hasContact: boolean;
+  onMappingChange: (column: string, fieldKey: FieldKey) => void;
+  requiredOk: boolean;
+  actionError: string | null;
+  onPreview: () => void;
+  previewLoading: boolean;
+  onBack: () => void;
+}
+
+function ImpStepColumns({
+  parseData,
+  mapping,
+  hasName,
+  hasContact,
+  onMappingChange
+}: ImpStepColumnsProps) {
+  const [openDrop, setOpenDrop] = useState<string | null>(null);
+
+  return (
+    <div className="imp-cols">
+      <h2 className="imp-h2">Сопоставьте колонки</h2>
+      <div className="imp-glafira-note">
+        <span className="imp-em">💃</span>
+        Глафира распознала колонки автоматически — проверьте и поправьте, если нужно.
+      </div>
+
+      {/* индикатор обязательных полей */}
+      <div className="imp-req-row">
+        <span className="imp-req-label">Обязательные поля:</span>
+        <span className={`imp-req-chip ${hasName ? 'ok' : 'bad'}`}>
+          <Icon name={hasName ? 'check' : 'x'} size={12}/> Имя
+        </span>
+        <span className={`imp-req-chip ${hasContact ? 'ok' : 'bad'}`}>
+          <Icon name={hasContact ? 'check' : 'x'} size={12}/> Контакт (телефон / email)
+        </span>
+      </div>
+
+      {/* таблица сопоставления */}
+      <div className="imp-map-table">
+        <div className="imp-map-thead">
+          <div className="imp-mt-col">Колонка из файла</div>
+          <div className="imp-mt-arrow"/>
+          <div className="imp-mt-field">Поле кандидата</div>
+        </div>
+        {parseData.columns.map(c => {
+          const val = mapping[c] || 'skip';
+          const auto = parseData.auto_mapping[c] && val === parseData.auto_mapping[c];
+          const unmapped = val === 'skip';
+          const needsManual = !parseData.auto_mapping[c] && unmapped;
+          const samples = parseData.samples[c] || [];
+
+          return (
+            <div key={c} className={`imp-map-row ${needsManual ? 'needs' : ''}`}>
+              <div className="imp-mt-col">
+                <div className="imp-col-name">
+                  {c}
+                  {auto && <span className="imp-auto-tag"><Icon name="check" size={11}/> распознано</span>}
+                  {needsManual && <span className="imp-manual-tag">выберите вручную</span>}
+                </div>
+                <div className="imp-col-samples">
+                  {samples.slice(0, 3).map((s, i) => <span key={i} className="imp-sample">{s}</span>)}
+                </div>
+              </div>
+              <div className="imp-mt-arrow"><Icon name="arrow-right" size={16}/></div>
+              <div className="imp-mt-field">
+                <ImpFieldSelect
+                  colId={c}
+                  value={val}
+                  open={openDrop === c}
+                  onToggle={() => setOpenDrop(openDrop === c ? null : c)}
+                  onPick={(fid) => { onMappingChange(c, fid); setOpenDrop(null); }}
+                  usedFields={Object.entries(mapping).filter(([k]) => k !== c).map(([, v]) => v)}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// дропдаун выбора поля
+interface ImpFieldSelectProps {
+  colId: string;
+  value: FieldKey;
+  open: boolean;
+  onToggle: () => void;
+  onPick: (fieldId: FieldKey) => void;
+  usedFields: FieldKey[];
+}
+
+function ImpFieldSelect({ value, open, onToggle, onPick, usedFields }: ImpFieldSelectProps) {
+  const isSkip = value === 'skip';
+  return (
+    <div className={`imp-sel-wrap ${open ? 'open' : ''}`}>
+      <button className={`imp-sel ${isSkip ? 'skip' : ''}`} onClick={onToggle}>
+        <span className="imp-sel-val">{FIELD_LABEL[value]}</span>
+        <Icon name="chevron-down" size={14} className="imp-sel-chev"/>
+      </button>
+      {open && (
+        <>
+          <div className="imp-sel-backdrop" onClick={onToggle}/>
+          <div className="imp-sel-menu">
+            {IMP_FIELDS.map(f => {
+              const used = usedFields.includes(f.id as FieldKey) && f.id !== value;
+              return (
+                <button key={f.id}
+                        className={`imp-sel-opt ${value === f.id ? 'sel' : ''} ${used ? 'used' : ''}`}
+                        onClick={() => onPick(f.id as FieldKey)}>
+                  <span className="imp-sel-opt-label">
+                    {f.label}
+                    {f.req && <span className="imp-sel-opt-req">обяз.</span>}
+                  </span>
+                  {used && <span className="imp-sel-opt-used">занято</span>}
+                  {value === f.id && <Icon name="check" size={14}/>}
+                </button>
+              );
+            })}
+            <div className="imp-sel-sep"/>
+            <button className={`imp-sel-opt imp-sel-skip ${value === 'skip' ? 'sel' : ''}`}
+                    onClick={() => onPick('skip')}>
+              <span className="imp-sel-opt-label">Не импортировать</span>
+              {value === 'skip' && <Icon name="check" size={14}/>}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// ШАГ 3 — Превью импорта
+// =====================================================================
+interface ImpStepPreviewProps {
+  previewData: PreviewResponse;
+  dedupMode: DedupMode;
+  setDedupMode: (mode: DedupMode) => void;
+  onRowClick: (row: PreviewRow) => void;
+  actionError: string | null;
+  onExecute: () => void;
+  executeLoading: boolean;
+  onBack: () => void;
+}
+
+function ImpStepPreview({
+  previewData,
+  dedupMode,
+  setDedupMode,
+  onRowClick
+}: ImpStepPreviewProps) {
+  const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
+
+  // Источники кандидатов (упрощённый маппинг)
+  const SRC_LABEL: Record<string, string> = {
+    hh: 'hh.ru',
+    avito: 'Авито',
+    telegram: 'Telegram',
+    tg: 'Telegram'
   };
 
+  return (
+    <div className="imp-preview">
+      <h2 className="imp-h2">Превью импорта</h2>
+
+      {/* сводка-полоса */}
+      <div className="imp-stat-row">
+        <div className="imp-stat">
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.total)}</div>
+          <div className="imp-stat-lbl">Всего строк</div>
+        </div>
+        <div className="imp-stat is-new">
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.new)}</div>
+          <div className="imp-stat-lbl">Новых кандидатов</div>
+        </div>
+        <div className="imp-stat is-dup">
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.duplicates)}</div>
+          <div className="imp-stat-lbl">Дублей <span className="imp-stat-cap">уже в базе</span></div>
+        </div>
+        <div className="imp-stat is-err">
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.errors)}</div>
+          <div className="imp-stat-lbl">С ошибками <span className="imp-stat-cap">пропустятся</span></div>
+        </div>
+      </div>
+
+      {/* тумблер дублей */}
+      <div className="imp-preview-controls">
+        <div className="imp-dup-ctrl">
+          <span className="imp-dup-label">Дубли:</span>
+          <div className="imp-seg">
+            <button className={`imp-seg-btn ${dedupMode === 'skip' ? 'active' : ''}`} onClick={() => setDedupMode('skip')}>Пропустить</button>
+            <button className={`imp-seg-btn ${dedupMode === 'update' ? 'active' : ''}`} onClick={() => setDedupMode('update')}>Обновить</button>
+          </div>
+          <span className="imp-dup-hint">
+            {dedupMode === 'skip' ? 'Совпавшие с базой — не тронем' : 'Совпавшим обновим контакты и поля из файла'}
+          </span>
+        </div>
+        <div className="imp-preview-count">
+          Показаны первые <b className="t-mono">{previewData.shown}</b> · и ещё <b className="t-mono">{fmtIM(previewData.remaining)}</b> строк
+        </div>
+      </div>
+
+      <div className="imp-pv-tip">
+        <Icon name="external-link" size={13}/> Нажмите на кандидата, чтобы посмотреть детали
+      </div>
+
+      {/* таблица превью */}
+      <div className="imp-pv-table">
+        <div className="imp-pv-head">
+          <div className="imp-pv-c-name">Кандидат</div>
+          <div className="imp-pv-c-phone">Телефон</div>
+          <div className="imp-pv-c-email">Email</div>
+          <div className="imp-pv-c-city">Город</div>
+          <div className="imp-pv-c-src">Источник</div>
+        </div>
+        <div className="imp-pv-body">
+          {previewData.rows.map((r) => {
+            const skip = r.status === 'error' || (r.status === 'duplicate' && dedupMode === 'skip');
+            const clickable = r.status !== 'error';
+            return (
+              <div key={r.index}
+                   className={`imp-pv-row ${r.status === 'error' ? 'err' : ''} ${r.status === 'duplicate' ? 'dup' : ''} ${skip ? 'skip' : ''} ${clickable ? 'clickable' : ''}`}
+                   onClick={() => clickable && onRowClick(r)}>
+                <div className="imp-pv-c-name">
+                  {r.status === 'error' && !r.name
+                    ? <span className="imp-pv-avatar-x"><Icon name="x" size={13}/></span>
+                    : <Avatar name={r.name || '?'} size="sm"/>}
+                  <div className="imp-pv-name-wrap">
+                    <span className={`imp-pv-name ${!r.name ? 'empty' : ''}`}>{r.name || 'нет имени'}</span>
+                    <div className="imp-pv-badges">
+                      {r.status === 'duplicate' && <span className="imp-badge-dup">дубль</span>}
+                      {r.status === 'error' && <span className="imp-badge-err"><Icon name="alert-triangle" size={10}/> {r.error}</span>}
+                      {r.detail.resume_url && r.status !== 'error' && (
+                        <span className="imp-badge-resume" title="Ссылка на резюме сохранится в карточке">
+                          <Icon name="external-link" size={10}/> резюме-ссылка
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="imp-pv-c-phone t-mono">{r.phone || '—'}</div>
+                <div className="imp-pv-c-email">{r.email || '—'}</div>
+                <div className="imp-pv-c-city">{r.city || '—'}</div>
+                <div className="imp-pv-c-src">
+                  {r.source ? (
+                    <span className={`src-pill src-${r.source}`}>{SRC_LABEL[r.source] || r.source}</span>
+                  ) : '—'}
+                </div>
+                {clickable && <Icon name="chevron-right" size={15} className="imp-pv-open"/>}
+              </div>
+            );
+          })}
+        </div>
+        {previewData.remaining > 0 && (
+          <div className="imp-pv-more">
+            <Icon name="more" size={16}/> и ещё <b className="t-mono">{fmtIM(previewData.remaining)}</b> строк будут обработаны при импорте
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// ШАГ 4 — Импорт и результат
+// =====================================================================
+interface ImpStepResultProps {
+  jobData: any;
+  dedupMode: DedupMode;
+  onDone: () => void;
+  onAgain: () => void;
+}
+
+function ImpStepResult({ jobData, dedupMode, onDone, onAgain }: ImpStepResultProps) {
+  const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
+
+  if (!jobData || jobData.status === 'running') {
+    const pct = jobData ? Math.round((jobData.processed / jobData.total) * 100) : 0;
+    const imported = jobData?.processed || 0;
+    const total = jobData?.total || 0;
+
+    return (
+      <div className="imp-run">
+        <div className="imp-run-dancer">💃</div>
+        <div className="imp-run-phase">Импортируем кандидатов в базу…</div>
+        <div className="imp-run-detail">
+          Импортировано <b className="t-mono">{fmtIM(imported)}</b> из <b className="t-mono">{fmtIM(total)}</b>
+        </div>
+        <div className="imp-run-bar"><span style={{width: `${pct}%`}}/></div>
+        <div className="imp-run-pct t-mono">{pct}%</div>
+      </div>
+    );
+  }
+
+  if (jobData.status === 'error') {
+    return (
+      <div className="imp-result">
+        <div className="imp-result-check" style={{ background: 'var(--error-bg)', color: 'var(--error-fg)' }}>
+          <Icon name="alert-triangle" size={28}/>
+        </div>
+        <h2 className="imp-result-title">Ошибка импорта</h2>
+        <div className="imp-result-sub">{jobData.error || 'Произошла неизвестная ошибка'}</div>
+
+        <div className="imp-result-actions">
+          <button className="btn btn-secondary" onClick={onAgain}>
+            <Icon name="refresh" size={14}/> Попробовать ещё раз
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // result (done)
+  const created = jobData.created || 0;
+  const updated = jobData.updated || 0;
+  const skipped = jobData.skipped || 0;
+  const errors = jobData.errors || 0;
+
+  return (
+    <div className="imp-result">
+      <div className="imp-result-check"><Icon name="check" size={28}/></div>
+      <h2 className="imp-result-title">Импорт завершён</h2>
+      <div className="imp-result-sub">Кандидаты из файла добавлены в общую базу</div>
+
+      <div className="imp-result-stats">
+        <div className="imp-rstat is-new">
+          <div className="num t-mono">{fmtIM(created)}</div>
+          <div className="lbl">Создано кандидатов</div>
+        </div>
+        <div className="imp-rstat is-dup">
+          <div className="num t-mono">{fmtIM(dedupMode === 'update' ? updated : skipped)}</div>
+          <div className="lbl">{dedupMode === 'update' ? 'Дублей обновлено' : 'Пропущено дублей'}</div>
+        </div>
+        <div className="imp-rstat is-err">
+          <div className="num t-mono">{fmtIM(errors)}</div>
+          <div className="lbl">Ошибок (пропущены)</div>
+        </div>
+      </div>
+
+      <div className="imp-result-actions">
+        <button className="btn btn-primary" onClick={onDone}>
+          <Icon name="users" size={15}/> Смотреть в базе
+        </button>
+        <button className="btn btn-secondary" onClick={onAgain}>
+          <Icon name="refresh" size={14}/> Импортировать ещё
+        </button>
+      </div>
+
+      {errors > 0 && (
+        <div className="imp-result-note">
+          <Icon name="alert-triangle" size={13}/>
+          {fmtIM(errors)} строк пропущено из-за отсутствия имени или контакта — их можно поправить в файле и загрузить повторно.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ====== Центральный попап резюме ======
+interface ImpResumeModalProps {
+  candidate: PreviewRow;
+  onClose: () => void;
+}
+
+function ImpResumeModal({ candidate, onClose }: ImpResumeModalProps) {
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -615,89 +840,96 @@ function ResumeModal({ candidate, onClose }: { candidate: PreviewRow; onClose: (
     return () => document.removeEventListener('keydown', handleEsc);
   }, [onClose]);
 
+  const SRC_LABEL: Record<string, string> = {
+    hh: 'hh.ru',
+    avito: 'Авито',
+    telegram: 'Telegram',
+    tg: 'Telegram'
+  };
+
   return (
-    <div className="iw-modal-backdrop" onClick={handleBackdropClick}>
-      <div className="iw-modal-content resume-modal">
-        <div className="iw-modal-header">
-          <div className="iw-modal-title-group">
-            <Avatar name={candidate.name} size="md" />
-            <div>
-              <h2 className="iw-modal-title">{candidate.name}</h2>
-            </div>
+    <div className="imp-modal-overlay" onClick={onClose}>
+      <div className="imp-modal" role="dialog" aria-label="Резюме кандидата" onClick={e => e.stopPropagation()}>
+        <button className="icon-btn imp-modal-close" onClick={onClose} title="Закрыть"><Icon name="x" size={18}/></button>
+
+        <div className="imp-modal-head">
+          <div className="imp-modal-id">
+            <Avatar name={candidate.name} size="md"/>
+            <h2 className="imp-modal-name">{candidate.name}</h2>
           </div>
-          <button className="iw-modal-close" onClick={onClose}>
-            <Icon name="x" size={20} />
-          </button>
+          <div className="imp-modal-chips">
+            <span className="imp-resume-from"><span className="imp-resume-from-dot"/> Резюме из файла</span>
+            {candidate.source && (
+              <span className={`src-pill src-${candidate.source}`}>{SRC_LABEL[candidate.source] || candidate.source}</span>
+            )}
+            {candidate.detail.position && (
+              <span className="imp-modal-role">{candidate.detail.position}</span>
+            )}
+          </div>
         </div>
 
-        <div className="iw-modal-body">
-          <div className="resume-chips">
-            <span className="resume-chip">Резюме из Потока</span>
-            {candidate.source && (
-              <span
-                className="resume-chip source"
-                style={{ backgroundColor: SOURCE_CONFIG[candidate.source]?.color || 'var(--fg-3)' }}
-              >
-                {SOURCE_CONFIG[candidate.source]?.label || candidate.source}
-              </span>
-            )}
-            {candidate.detail.position && (
-              <span className="resume-chip">{candidate.detail.position}</span>
-            )}
+        <div className="imp-modal-body">
+          <div className="imp-modal-seclabel">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>
+            </svg>
+            Резюме
           </div>
 
-          <div className="resume-card">
+          <div className="imp-resume-card">
             {candidate.detail.position && (
-              <div className="resume-section">
-                <h4>Желаемая позиция</h4>
-                <p>{candidate.detail.position}</p>
-              </div>
+              <div className="imp-rcard-title">{candidate.detail.position}</div>
             )}
-
-            <div className="resume-meta">
-              {candidate.detail.experience && <span>{candidate.detail.experience}</span>}
-              {candidate.detail.experience && candidate.detail.city && <span>·</span>}
-              {candidate.detail.city && <span>{candidate.detail.city}</span>}
-              {(candidate.detail.experience || candidate.detail.city) && candidate.detail.company && <span>·</span>}
-              {candidate.detail.company && <span>{candidate.detail.company}</span>}
+            <div className="imp-rcard-meta">
+              {candidate.detail.experience && <span>Опыт: <b>{candidate.detail.experience}</b></span>}
+              {candidate.detail.experience && candidate.city && <span className="imp-rcard-sep">·</span>}
+              {candidate.city && <span>Город: <b>{candidate.city}</b></span>}
+              {(candidate.detail.experience || candidate.city) && candidate.detail.company && <span className="imp-rcard-sep">·</span>}
+              {candidate.detail.company && <span>Компания: <b>{candidate.detail.company}</b></span>}
             </div>
 
-            <div className="resume-contacts">
-              {candidate.detail.phone && (
-                <div className="resume-contact">
-                  <Icon name="user" size={14} />
-                  <span>{candidate.detail.phone}</span>
-                </div>
+            <div className="imp-resume-contacts">
+              {candidate.phone && (
+                <div className="imp-rc-row"><Icon name="user" size={14}/><span className="t-mono">{candidate.phone}</span></div>
               )}
-              {candidate.detail.email && (
-                <div className="resume-contact">
-                  <Icon name="mail" size={14} />
-                  <span>{candidate.detail.email}</span>
-                </div>
+              {candidate.email && (
+                <div className="imp-rc-row"><Icon name="mail" size={14}/><span>{candidate.email}</span></div>
               )}
+            </div>
+
+            <div className="imp-resume-note">
+              <Icon name="alert-triangle" size={13}/>
+              Резюме забрано из исходного файла. Ссылка сохранится в карточке, но детальные данные ограничены файлом импорта.
             </div>
 
             {candidate.detail.comment && (
-              <div className="resume-section">
-                <h4>О кандидате</h4>
-                <p>{candidate.detail.comment}</p>
-              </div>
+              <>
+                <h3 className="imp-resume-sec">О кандидате</h3>
+                <p className="imp-resume-bio">{candidate.detail.comment}</p>
+              </>
             )}
 
             {candidate.detail.resume_url && (
-              <div className="resume-section">
-                <h4>Ссылка на резюме</h4>
-                <a href={candidate.detail.resume_url} target="_blank" rel="noopener noreferrer">
-                  {candidate.detail.resume_url}
-                  <Icon name="external-link" size={14} />
-                </a>
-              </div>
+              <>
+                <h3 className="imp-resume-sec">Ссылка на резюме</h3>
+                <div className="imp-resume-extra">
+                  <div><span className="imp-re-k">Ссылка:</span> <a href={candidate.detail.resume_url} target="_blank" rel="noopener">{candidate.detail.resume_url}</a></div>
+                </div>
+              </>
             )}
-          </div>
 
-          <div className="resume-honesty">
-            Резюме и биография забраны из исходной системы. Ссылка сохранится в карточке,
-            но сам файл резюме недоступен вне неё.
+            <h3 className="imp-resume-sec">Дополнительно</h3>
+            <div className="imp-resume-extra">
+              {candidate.source && (
+                <div><span className="imp-re-k">Источник:</span> {SRC_LABEL[candidate.source] || candidate.source}</div>
+              )}
+              {candidate.detail.age && (
+                <div><span className="imp-re-k">Возраст:</span> {candidate.detail.age}</div>
+              )}
+              {candidate.detail.salary && (
+                <div><span className="imp-re-k">Зарплата:</span> {candidate.detail.salary}</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
