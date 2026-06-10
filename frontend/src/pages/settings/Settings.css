@@ -947,3 +947,98 @@
   pointer-events: none;
   cursor: not-allowed;
 }
+
+/* ---------------- AI Settings ---------------- */
+.ai-index-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-index-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-index-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-index-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+
+.ai-index-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
+.ai-index-progress svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ai-index-note {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.ai-index-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ai-index-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width var(--dur-normal) var(--ease-out);
+}
+
+.ai-index-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-model-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-model-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-panel-2);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.ai-model-label {
+  color: var(--fg-2);
+  font-weight: 500;
+}
+
+.ai-model-value {
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+}

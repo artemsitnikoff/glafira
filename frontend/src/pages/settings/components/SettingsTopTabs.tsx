@@ -1,4 +1,4 @@
-type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations' | 'ai';
 
 type Section = {
   id: SettingsTab;

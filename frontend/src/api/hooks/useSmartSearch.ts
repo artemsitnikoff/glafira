@@ -365,6 +365,9 @@ export function useMarkBaseRunAdded() {
 export interface SmartBaseIndexStatusResponse {
   total_candidates: number;
   indexed_candidates: number;
+  indexing: boolean;
+  model: string;
+  embed_model: string;
 }
 
 // Статус индексации семантического поиска
@@ -376,8 +379,8 @@ export function useSmartBaseIndexStatus() {
       return response.data as SmartBaseIndexStatusResponse;
     },
     refetchInterval: (data) => {
-      // Поллинг каждые 5000мс пока indexed < total
-      return data?.state?.data && data.state.data.indexed_candidates < data.state.data.total_candidates ? 5000 : false;
+      // Поллинг каждые 3000мс ТОЛЬКО пока indexing === true
+      return data?.state?.data && data.state.data.indexing === true ? 3000 : false;
     },
   });
 }

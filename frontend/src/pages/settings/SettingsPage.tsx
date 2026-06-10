@@ -10,9 +10,10 @@ import { SettingsFunnel } from './tabs/SettingsFunnel';
 import { SettingsAccess } from './tabs/SettingsAccess';
 import { SettingsTags } from './tabs/SettingsTags';
 import { SettingsIntegrations } from './tabs/SettingsIntegrations';
+import { SettingsAI } from './tabs/SettingsAI';
 import './Settings.css';
 
-type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations' | 'ai';
 
 const SET_SECTIONS = [
   { id: 'profile', label: 'Профиль', adminOnly: false },
@@ -21,6 +22,7 @@ const SET_SECTIONS = [
   { id: 'access', label: 'Права доступа', adminOnly: true },
   { id: 'tags', label: 'Теги', adminOnly: false },
   { id: 'integrations', label: 'Интеграции', adminOnly: true },
+  { id: 'ai', label: 'AI', adminOnly: true },
 ] as const;
 
 export default function SettingsPage() {
@@ -81,6 +83,8 @@ export default function SettingsPage() {
         return <SettingsTags readOnly={readOnly} />;
       case 'integrations':
         return <SettingsIntegrations readOnly={readOnly} />;
+      case 'ai':
+        return <SettingsAI readOnly={readOnly} />;
       default:
         return <SettingsProfile readOnly={readOnly} />;
     }

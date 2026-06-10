@@ -963,6 +963,12 @@ async def reindex_candidate(
         logger.error(f"Ошибка переиндексации кандидата {candidate_id}: {e}")
 
 
+# company_id'ы, для которых СЕЙЧАС идёт полная переиндексация. Нужен, чтобы index-status
+# отдавал indexing=true/false, а фронт останавливал поллинг по ФЛАГУ, а НЕ по indexed==total:
+# часть кандидатов без текста резюме никогда не индексируется → indexed<total это норма.
+_reindex_in_progress: set = set()
+
+
 async def reindex_all_embeddings(company_id: Optional[UUID] = None) -> None:
     """
     Фоновая задача полной переиндексации эмбеддингов
@@ -1039,9 +1045,12 @@ async def reindex_all_embeddings(company_id: Optional[UUID] = None) -> None:
             logger.error(f"Критическая ошибка переиндексации: {e}")
 
         finally:
-            # Удаляем задачу из активных (GC-защита)
+            # Снимаем флаг «идёт индексация» + задачу из активных (GC-защита)
+            _reindex_in_progress.discard(company_id)
             _active_tasks.discard(asyncio.current_task())
 
+    # Помечаем «идёт индексация» ДО старта задачи (status сразу отдаст indexing=true)
+    _reindex_in_progress.add(company_id)
     # Создаём фоновую задачу
     task = asyncio.create_task(_run_reindex())
     _active_tasks.add(task)
@@ -1083,5 +1092,10 @@ async def get_embeddings_index_status(
 
     return {
         "total_candidates": total_candidates,
-        "indexed_candidates": indexed_candidates
+        "indexed_candidates": indexed_candidates,
+        # idle/indexing для остановки поллинга на фронте (не по indexed==total)
+        "indexing": company_id in _reindex_in_progress,
+        # для (пока disabled) селектора модели в админ-вкладке AI
+        "model": settings.GLAFIRA_MODEL,
+        "embed_model": settings.GLAFIRA_EMBED_MODEL,
     }
