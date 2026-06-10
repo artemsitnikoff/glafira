@@ -8,12 +8,14 @@ from .api.v1.router import api_router
 from .config import settings
 from .core.errors import AppError, app_error_handler, validation_error_handler, http_exception_handler, generic_exception_handler
 from .services.smart_search import sweep_orphaned_runs
+from .services.base_search import sweep_orphaned_base_search_runs
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await sweep_orphaned_runs()
+    await sweep_orphaned_base_search_runs()
     yield
     # Shutdown - можно добавить cleanup если понадобится
 

@@ -30,6 +30,7 @@ from ...schemas.base_search import (
     BaseSearchRequest,
     BaseSearchResponse,
     BaseSearchRunResponse,
+    BaseSearchRunStatus,
     BaseSearchCountResponse,
     MarkAddedRequest,
     BaseSearchCriteria,
@@ -47,16 +48,13 @@ from ...services.smart_search import (
     invite_selected
 )
 from ...services.base_search import (
-    parse_query_to_criteria,
-    search_base,
-    search_base_semantic,
-    search_by_vacancy,
-    create_search_run,
     increment_added_to_funnel,
     get_search_runs,
     get_candidates_count,
     reindex_all_embeddings,
-    get_embeddings_index_status
+    get_embeddings_index_status,
+    start_base_search,
+    get_base_search_run_status
 )
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError
 
@@ -227,7 +225,7 @@ async def base_search_candidates(
     company_id: UUID = Depends(get_current_company_id),
     current_user: User = Depends(get_current_user),
 ):
-    """Поиск кандидатов в собственной базе (с семантическим поиском)"""
+    """Поиск кандидатов в собственной базе (асинхронно)"""
     # RBAC: manager запрещён
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
@@ -239,112 +237,67 @@ async def base_search_candidates(
     if request.search_type == "vacancy" and not request.vacancy_id:
         raise ValidationError("Для поиска по вакансии нужно указать vacancy_id")
 
-    # Получаем вакансию для семантического поиска (если нужно)
-    vacancy = None
-    if request.search_type == "vacancy":
-        from ...models import Vacancy
-        vacancy_stmt = select(Vacancy).where(
-            Vacancy.id == request.vacancy_id,
-            Vacancy.company_id == company_id,
-            Vacancy.deleted_at.is_(None)
-        )
-        vacancy_result = await session.execute(vacancy_stmt)
-        vacancy = vacancy_result.scalar_one_or_none()
+    # Определяем override критерии (если фронт прислал отредактированные автофильтры)
+    override = None
+    if request.search_type == "vacancy" and request.role is not None:
+        override = {
+            "role": request.role,
+            "skills": request.skills or [],
+            "city": request.city or "",
+            "salary_from": request.salary_from,
+            "salary_to": request.salary_to,
+        }
 
-    if request.search_type == "prompt":
-        # Парсим запрос через LLM
-        criteria = await parse_query_to_criteria(request.query)
-
-        # Выполняем семантический поиск
-        try:
-            search_result = await search_base_semantic(
-                session, company_id,
-                role=criteria.get("role", ""),
-                skills=criteria.get("skills", []),
-                city=criteria.get("city", ""),
-                salary_from=criteria.get("salary_from"),
-                salary_to=criteria.get("salary_to"),
-                query_text=request.query
-            )
-        except Exception as e:
-            logger.error(f"Ошибка семантического поиска, fallback на SQL: {e}")
-            # Graceful деградация на заход A
-            search_result = await search_base(
-                session, company_id,
-                role=criteria.get("role", ""),
-                skills=criteria.get("skills", []),
-                city=criteria.get("city", ""),
-                salary_from=criteria.get("salary_from"),
-                salary_to=criteria.get("salary_to")
-            )
-
-        query_echo = request.query
-        vacancy_title = None
-
-    elif request.search_type == "vacancy":
-        # Если фронт прислал (отредактированные) автофильтры — ищем по ним; иначе derive.
-        override = None
-        if request.role is not None:
-            override = {
-                "role": request.role,
-                "skills": request.skills or [],
-                "city": request.city or "",
-                "salary_from": request.salary_from,
-                "salary_to": request.salary_to,
-            }
-
-        if override:
-            # Семантический поиск с переопределёнными критериями
-            try:
-                search_result = await search_base_semantic(
-                    session, company_id,
-                    role=override["role"],
-                    skills=override["skills"],
-                    city=override["city"],
-                    salary_from=override["salary_from"],
-                    salary_to=override["salary_to"],
-                    vacancy=vacancy
-                )
-                # Для совместимости добавляем поля как в search_by_vacancy
-                criteria = override
-                query_echo = vacancy.name if vacancy else "Вакансия"
-                vacancy_title = query_echo
-            except Exception as e:
-                logger.error(f"Ошибка семантического поиска по вакансии, fallback на search_by_vacancy: {e}")
-                # Fallback на оригинальный search_by_vacancy
-                search_result = await search_by_vacancy(session, company_id, request.vacancy_id, override)
-                criteria = search_result.pop("criteria")
-                query_echo = search_result.pop("vacancy_title")
-                vacancy_title = query_echo
-        else:
-            # Оригинальный поиск по автофильтрам
-            search_result = await search_by_vacancy(session, company_id, request.vacancy_id, None)
-            criteria = search_result.pop("criteria")
-            query_echo = search_result.pop("vacancy_title")
-            vacancy_title = query_echo
-
-    else:
-        raise ValidationError("Неверный тип поиска")
-
-    # Создаём запись истории
-    search_run = await create_search_run(
+    # Запускаем асинхронный поиск
+    run_id = await start_base_search(
         session,
         company_id,
         request.search_type,
-        query_echo,
+        request.query or "",
         request.vacancy_id,
-        search_result["total"]
+        override
     )
-    await session.commit()
 
-    return BaseSearchResponse(
-        found=len(search_result["results"]),
-        total=search_result["total"],
-        results=[BaseSearchCandidate(**candidate) for candidate in search_result["results"]],
-        criteria=BaseSearchCriteria(**criteria),
-        query_echo=query_echo,
-        vacancy_title=vacancy_title,
-        run_id=search_run.id
+    return BaseSearchResponse(run_id=run_id)
+
+
+@router.get("/base/runs/{run_id}", response_model=BaseSearchRunStatus)
+async def get_base_search_run_status_endpoint(
+    run_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить статус выполнения поиска по базе"""
+    # RBAC: manager запрещён
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    run = await get_base_search_run_status(session, run_id, company_id)
+    if not run:
+        raise NotFoundError("Поиск")
+
+    # Формируем результаты
+    results = []
+    for result_data in (run.results or []):
+        results.append(BaseSearchCandidate(**result_data))
+
+    criteria = None
+    if run.criteria:
+        criteria = BaseSearchCriteria(**run.criteria)
+
+    return BaseSearchRunStatus(
+        id=run.id,
+        status=run.status,
+        stage=run.stage,
+        found=run.found,
+        to_evaluate=run.to_evaluate,
+        evaluated=run.evaluated,
+        results=results,
+        criteria=criteria,
+        query_echo=run.query_echo,
+        vacancy_title=run.vacancy_title,
+        error=run.error
     )
 
 

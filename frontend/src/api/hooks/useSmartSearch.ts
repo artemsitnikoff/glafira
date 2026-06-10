@@ -290,8 +290,16 @@ export interface BaseSearchRequest {
 }
 
 export interface BaseSearchResponse {
+  run_id: string;
+}
+
+export interface BaseSearchRunStatus {
+  id: string;
+  status: 'running' | 'done' | 'error';
+  stage: 'retrieve' | 'rerank' | 'done' | null;
   found: number;
-  total: number;
+  to_evaluate: number;
+  evaluated: number;
   results: BaseSearchCandidate[];
   criteria: {
     role: string;
@@ -299,10 +307,10 @@ export interface BaseSearchResponse {
     city: string;
     salary_from: number | null;
     salary_to: number | null;
-  };
-  query_echo: string;
+  } | null;
+  query_echo: string | null;
   vacancy_title: string | null;
-  run_id: string;
+  error: string | null;
 }
 
 export interface BaseSearchRunItem {
@@ -356,6 +364,20 @@ export function useMarkBaseRunAdded() {
   return useMutation<void, Error, string>({
     mutationFn: async (runId): Promise<void> => {
       await api.post(`/smart/base/runs/${runId}/mark-added`, {});
+    },
+  });
+}
+
+export function useSmartBaseRun(runId: string | null, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['smart', 'base', 'run', runId],
+    queryFn: async (): Promise<BaseSearchRunStatus> => {
+      const response = await api.get(`/smart/base/runs/${runId}`);
+      return response.data as BaseSearchRunStatus;
+    },
+    enabled: enabled && runId !== null,
+    refetchInterval: (data) => {
+      return data?.state?.data && data.state.data.status === 'running' ? 1500 : false;
     },
   });
 }

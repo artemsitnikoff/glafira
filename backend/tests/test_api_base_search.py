@@ -58,25 +58,18 @@ class TestBaseSearchAPI:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["found"] == 1
-        assert data["total"] == 1
-        assert len(data["results"]) == 1
-        assert data["query_echo"] == "Python разработчик в Москве"
-        assert data["vacancy_title"] is None
-
-        candidate_data = data["results"][0]
-        assert candidate_data["full_name"] == "Разработчиков Андрей"
-        assert candidate_data["last_position"] == "Python Developer"
-        assert candidate_data["city"] == "Москва"
-        assert "Python" in candidate_data["matched_skills"]
-
-        # Проверяем критерии
-        criteria = data["criteria"]
-        assert criteria["role"] == "Python Developer"
-        assert criteria["skills"] == ["Python"]
-
-        # Проверяем, что создалась запись истории
+        # Новый API возвращает только run_id
         assert "run_id" in data
+        run_id = data["run_id"]
+
+        # Проверяем, что запись создалась в БД
+        from app.services.base_search import get_base_search_run_status
+        run = await get_base_search_run_status(db_session, run_id, test_company.id)
+        assert run is not None
+        assert run.search_type == "prompt"
+        assert run.query_text == "Python разработчик в Москве"
+        assert run.status == "running"
+        assert run.stage == "retrieve"
 
     async def test_base_search_vacancy_success(self, async_client, auth_headers, test_company, test_vacancy, db_session):
         """Тест поиска по критериям вакансии"""
@@ -123,12 +116,17 @@ class TestBaseSearchAPI:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["found"] == 1
-        assert data["query_echo"] == test_vacancy.name
-        assert data["vacancy_title"] == test_vacancy.name
+        # Новый API возвращает только run_id
+        assert "run_id" in data
+        run_id = data["run_id"]
 
-        criteria = data["criteria"]
-        assert criteria["skills"] == ["Python", "Django"]
+        # Проверяем, что запись создалась в БД
+        from app.services.base_search import get_base_search_run_status
+        run = await get_base_search_run_status(db_session, run_id, test_company.id)
+        assert run is not None
+        assert run.search_type == "vacancy"
+        assert run.vacancy_id == test_vacancy.id
+        assert run.status == "running"
 
     async def test_base_search_prompt_validation_error(self, async_client, auth_headers):
         """Тест валидации запроса - prompt без query"""
@@ -356,9 +354,135 @@ class TestBaseSearchAPI:
         assert response.status_code == 200
         data = response.json()
 
-        # Fallback должен найти кандидата по должности
-        assert data["found"] >= 1
+        # Новый API возвращает run_id даже при fallback
+        assert "run_id" in data
 
-        # Критерии должны содержать оригинальный запрос
+    async def test_get_base_search_run_status_success(self, async_client, auth_headers, test_company, db_session):
+        """Тест получения статуса выполнения поиска"""
+        # Создаём run с результатами
+        run = BaseSearchRun(
+            company_id=test_company.id,
+            search_type="prompt",
+            query_text="Python разработчик",
+            status="done",
+            stage="done",
+            found=5,
+            to_evaluate=3,
+            evaluated=3,
+            results=[{
+                "id": str(uuid4()),
+                "full_name": "Тестовый Кандидат",
+                "age": 30,
+                "last_position": "Python Developer",
+                "last_company": "Tech Corp",
+                "last_period": "2023-2024",
+                "city": "Москва",
+                "ai_score": 85,
+                "source": "hh",
+                "salary_expectation": 150000,
+                "matched_skills": ["Python", "Django"],
+                "all_skills": ["Python", "Django", "PostgreSQL"],
+                "match_percent": 90,
+                "has_pdn": True
+            }],
+            criteria={
+                "role": "Python разработчик",
+                "skills": ["Python", "Django"],
+                "city": "Москва",
+                "salary_from": None,
+                "salary_to": None
+            },
+            query_echo="Python разработчик в Москве"
+        )
+        db_session.add(run)
+        await db_session.commit()
+
+        response = await async_client.get(
+            f"/api/v1/smart/base/runs/{run.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["id"] == str(run.id)
+        assert data["status"] == "done"
+        assert data["stage"] == "done"
+        assert data["found"] == 5
+        assert data["to_evaluate"] == 3
+        assert data["evaluated"] == 3
+        assert data["query_echo"] == "Python разработчик в Москве"
+        assert len(data["results"]) == 1
+
+        # Проверяем результат
+        result = data["results"][0]
+        assert result["full_name"] == "Тестовый Кандидат"
+        assert result["match_percent"] == 90
+        assert result["has_pdn"] is True
+
+        # Проверяем критерии
         criteria = data["criteria"]
-        assert criteria["role"] == "Python Django разработчик"
+        assert criteria["role"] == "Python разработчик"
+        assert criteria["skills"] == ["Python", "Django"]
+
+    async def test_get_base_search_run_status_not_found(self, async_client, auth_headers):
+        """Тест получения статуса несуществующего поиска"""
+        fake_run_id = uuid4()
+
+        response = await async_client.get(
+            f"/api/v1/smart/base/runs/{fake_run_id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+
+    async def test_get_base_search_run_status_company_isolation(self, async_client, auth_headers, test_company, db_session):
+        """Тест изоляции по company_id при получении статуса"""
+        # Создаём другую компанию
+        from app.models import Company
+        other_company = Company(name="Другая компания")
+        db_session.add(other_company)
+        await db_session.flush()
+
+        # Создаём run в другой компании
+        other_run = BaseSearchRun(
+            company_id=other_company.id,
+            search_type="prompt",
+            query_text="Java разработчик",
+            status="done"
+        )
+        db_session.add(other_run)
+        await db_session.commit()
+
+        # Пытаемся получить чужой run
+        response = await async_client.get(
+            f"/api/v1/smart/base/runs/{other_run.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+
+    async def test_get_base_search_run_status_manager_forbidden(self, async_client, test_company, manager_user, db_session):
+        """Тест запрета доступа для менеджера к статусу поиска"""
+        from app.core.security import create_access_token
+
+        # Создаём run
+        run = BaseSearchRun(
+            company_id=test_company.id,
+            search_type="prompt",
+            query_text="Python разработчик",
+            status="done"
+        )
+        db_session.add(run)
+        await db_session.commit()
+
+        # Авторизация под менеджером
+        token = create_access_token({"sub": str(manager_user.id)})
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = await async_client.get(
+            f"/api/v1/smart/base/runs/{run.id}",
+            headers=headers
+        )
+
+        assert response.status_code == 403

@@ -10,7 +10,9 @@ from app.services.base_search import (
     search_by_vacancy,
     create_search_run,
     increment_added_to_funnel,
-    get_candidates_count
+    get_candidates_count,
+    start_base_search,
+    get_base_search_run_status
 )
 from app.models import Candidate, CandidateSkill, BaseSearchRun, Vacancy
 from app.core.errors import GlafiraParseError, NotFoundError
@@ -395,3 +397,119 @@ class TestBaseSearch:
                 test_company.id,
                 fake_run_id
             )
+
+    async def test_start_base_search_prompt(self, db_session, test_company):
+        """Тест запуска асинхронного поиска по запросу"""
+        mock_criteria = {
+            "role": "Python разработчик",
+            "skills": ["Python", "Django"],
+            "experience": "",
+            "city": "Москва",
+            "salary_from": None,
+            "salary_to": None
+        }
+
+        with patch('app.services.base_search.parse_query_to_criteria', new_callable=AsyncMock) as mock_parse:
+            mock_parse.return_value = mock_criteria
+
+            # Запускаем поиск
+            run_id = await start_base_search(
+                db_session,
+                test_company.id,
+                "prompt",
+                "Python разработчик в Москве",
+                None
+            )
+
+            # Проверяем, что run создался
+            run = await get_base_search_run_status(db_session, run_id, test_company.id)
+            assert run is not None
+            assert run.search_type == "prompt"
+            assert run.status == "running"
+            assert run.stage == "retrieve"
+            assert run.query_text == "Python разработчик в Москве"
+            assert run.criteria == mock_criteria
+
+    async def test_start_base_search_vacancy(self, db_session, test_company, test_vacancy):
+        """Тест запуска асинхронного поиска по вакансии"""
+        mock_filters = {
+            "professional_role": "Программист",
+            "skills": ["Python"],
+            "city": "",
+            "salary_from": 100000,
+            "salary_to": 150000
+        }
+
+        with patch('app.services.base_search.derive_vacancy_filters', new_callable=AsyncMock) as mock_derive:
+            mock_derive.return_value = mock_filters
+
+            # Запускаем поиск
+            run_id = await start_base_search(
+                db_session,
+                test_company.id,
+                "vacancy",
+                "",
+                test_vacancy.id
+            )
+
+            # Проверяем, что run создался
+            run = await get_base_search_run_status(db_session, run_id, test_company.id)
+            assert run is not None
+            assert run.search_type == "vacancy"
+            assert run.status == "running"
+            assert run.vacancy_id == test_vacancy.id
+            assert run.vacancy_title == test_vacancy.name
+
+    async def test_start_base_search_vacancy_with_override(self, db_session, test_company, test_vacancy):
+        """Тест запуска поиска по вакансии с переопределёнными критериями"""
+        override_criteria = {
+            "role": "Senior Python Developer",
+            "skills": ["Python", "Django", "PostgreSQL"],
+            "city": "СПб",
+            "salary_from": 200000,
+            "salary_to": 300000
+        }
+
+        # Запускаем поиск с override
+        run_id = await start_base_search(
+            db_session,
+            test_company.id,
+            "vacancy",
+            "",
+            test_vacancy.id,
+            override_criteria
+        )
+
+        # Проверяем, что criteria из override
+        run = await get_base_search_run_status(db_session, run_id, test_vacancy.company_id)
+        assert run is not None
+        assert run.criteria == override_criteria
+
+    async def test_get_base_search_run_status_not_found(self, db_session, test_company):
+        """Тест получения статуса несуществующего поиска"""
+        fake_run_id = uuid4()
+
+        run = await get_base_search_run_status(db_session, fake_run_id, test_company.id)
+        assert run is None
+
+    async def test_company_isolation_base_search(self, db_session, test_company):
+        """Тест изоляции по company_id в асинхронном поиске"""
+        # Создаём другую компанию
+        from app.models import Company
+        other_company = Company(name="Другая компания")
+        db_session.add(other_company)
+        await db_session.flush()
+
+        # Создаём run в другой компании
+        other_run = BaseSearchRun(
+            company_id=other_company.id,
+            search_type="prompt",
+            query_text="test",
+            status="done"
+        )
+        db_session.add(other_run)
+        await db_session.commit()
+
+        # Пытаемся получить чужой run от нашей компании
+        run = await get_base_search_run_status(db_session, other_run.id, test_company.id)
+        assert run is None  # Должны получить None из-за изоляции

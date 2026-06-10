@@ -1,10 +1,11 @@
 """Модель поиска по собственной базе кандидатов"""
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Text, ForeignKey, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Integer, Text, ForeignKey, text, DateTime
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, CompanyMixin
@@ -56,6 +57,70 @@ class BaseSearchRun(Base, TimestampMixin, CompanyMixin):
         Integer,
         nullable=False,
         server_default=text("0")
+    )
+
+    # Статус выполнения
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default=text("'running'")
+    )
+
+    # Текущая стадия
+    stage: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    # Количество кандидатов для оценки
+    to_evaluate: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0")
+    )
+
+    # Количество оценённых кандидатов
+    evaluated: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0")
+    )
+
+    # Финальные результаты поиска
+    results: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb")
+    )
+
+    # Критерии поиска
+    criteria: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True
+    )
+
+    # Эхо запроса
+    query_echo: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    # Название вакансии
+    vacancy_title: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    # Ошибка (если есть)
+    error: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    # Время завершения (naive UTC как в SmartSearchRun)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True
     )
 
     # Relationships

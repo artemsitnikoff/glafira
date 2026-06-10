@@ -59,13 +59,7 @@ class BaseSearchCandidate(BaseModel):
 
 
 class BaseSearchResponse(BaseModel):
-    """Ответ поиска по базе"""
-    found: int
-    total: int
-    results: list[BaseSearchCandidate]
-    criteria: BaseSearchCriteria
-    query_echo: str
-    vacancy_title: Optional[str] = None
+    """Ответ поиска по базе (теперь возвращает только run_id)"""
     run_id: UUID
 
 
@@ -85,6 +79,23 @@ class BaseSearchRunResponse(BaseModel):
 class BaseSearchCountResponse(BaseModel):
     """Количество кандидатов в базе"""
     count: int
+
+
+class BaseSearchRunStatus(BaseModel):
+    """Статус выполнения поиска по базе"""
+    id: UUID
+    status: str  # 'running', 'done', 'error'
+    stage: Optional[str] = None  # 'retrieve', 'rerank', 'done'
+    found: int
+    to_evaluate: int
+    evaluated: int
+    results: list[BaseSearchCandidate]
+    criteria: Optional[BaseSearchCriteria] = None
+    query_echo: Optional[str] = None
+    vacancy_title: Optional[str] = None
+    error: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MarkAddedRequest(BaseModel):

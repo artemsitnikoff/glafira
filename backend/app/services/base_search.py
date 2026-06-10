@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -1099,3 +1100,474 @@ async def get_embeddings_index_status(
         "model": settings.GLAFIRA_MODEL,
         "embed_model": settings.GLAFIRA_EMBED_MODEL,
     }
+
+
+# === АСИНХРОННЫЙ ПОИСК (паттерн как smart_search) ===
+
+async def start_base_search(
+    session: AsyncSession,
+    company_id: UUID,
+    search_type: str,
+    query: str,
+    vacancy_id: Optional[UUID],
+    override: Optional[dict] = None
+) -> UUID:
+    """
+    Запускает асинхронный поиск по собственной базе
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        search_type: 'prompt' или 'vacancy'
+        query: Текст запроса
+        vacancy_id: ID вакансии (для search_type='vacancy')
+        override: Критерии поиска (отредактированные автофильтры)
+
+    Returns:
+        UUID: ID созданного run'а
+    """
+    # Получаем название вакансии и критерии для промпта
+    vacancy_title = None
+    query_echo = query
+    criteria = None
+
+    if search_type == "vacancy":
+        # Проверяем вакансию
+        vacancy_stmt = select(Vacancy.name).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id,
+            Vacancy.deleted_at.is_(None)
+        )
+        vacancy_result = await session.execute(vacancy_stmt)
+        vacancy_name = vacancy_result.scalar_one_or_none()
+        if not vacancy_name:
+            raise NotFoundError("Вакансия")
+
+        vacancy_title = vacancy_name
+        query_echo = vacancy_name
+
+        # Критерии: либо переданные (override), либо derive из вакансии
+        if override:
+            criteria = {
+                "role": override.get("role", ""),
+                "skills": override.get("skills", []),
+                "city": override.get("city", ""),
+                "salary_from": override.get("salary_from"),
+                "salary_to": override.get("salary_to"),
+            }
+        else:
+            filters = await derive_vacancy_filters(session, company_id, vacancy_id)
+            criteria = {
+                "role": filters.get("professional_role", ""),
+                "skills": filters.get("skills", []),
+                "city": filters.get("city", ""),
+                "salary_from": filters.get("salary_from"),
+                "salary_to": filters.get("salary_to"),
+            }
+
+    elif search_type == "prompt":
+        # Парсим запрос через LLM
+        criteria = await parse_query_to_criteria(query)
+
+    # Создаём run
+    search_run = BaseSearchRun(
+        company_id=company_id,
+        search_type=search_type,
+        query_text=query,
+        vacancy_id=vacancy_id,
+        status="running",
+        stage="retrieve",
+        query_echo=query_echo,
+        vacancy_title=vacancy_title,
+        criteria=criteria
+    )
+    session.add(search_run)
+    await session.commit()
+    await session.refresh(search_run)
+
+    # Запускаем фоновую задачу
+    task = asyncio.create_task(_run_base_search(search_run.id, company_id, search_type, query, vacancy_id, override))
+    _active_tasks.add(task)
+
+    # Автоудаление при завершении
+    task.add_done_callback(lambda t: _active_tasks.discard(t))
+
+    return search_run.id
+
+
+async def _run_base_search(
+    run_id: UUID,
+    company_id: UUID,
+    search_type: str,
+    query: str,
+    vacancy_id: Optional[UUID],
+    override: Optional[dict]
+):
+    """
+    Фоновая задача выполнения поиска по базе
+    """
+    try:
+        # Загружаем run и критерии
+        async with AsyncSessionLocal() as session:
+            run = await session.get(BaseSearchRun, run_id)
+            if not run:
+                logger.error(f"BaseSearchRun {run_id} не найден")
+                return
+
+            criteria = run.criteria or {}
+
+        # Этап retrieve: SQL + векторный поиск + шорт-лист
+        try:
+            async with AsyncSessionLocal() as session:
+                # SQL-канал
+                sql_search_result = await search_base(
+                    session, company_id,
+                    role=criteria.get("role", ""),
+                    skills=criteria.get("skills", []),
+                    city=criteria.get("city", ""),
+                    salary_from=criteria.get("salary_from"),
+                    salary_to=criteria.get("salary_to")
+                )
+                sql_candidate_ids = [candidate["id"] for candidate in sql_search_result["results"]]
+                logger.info(f"SQL-канал нашёл {len(sql_candidate_ids)} кандидатов")
+
+                # Векторный канал (если есть query для семантического поиска)
+                vector_candidate_ids = []
+                if search_type == "prompt" or (search_type == "vacancy" and query):
+                    try:
+                        vector_candidate_ids = await vector_retrieve(session, company_id, query, GLAFIRA_RETRIEVE_CAP)
+                        logger.info(f"Векторный канал нашёл {len(vector_candidate_ids)} кандидатов")
+                    except Exception as e:
+                        logger.error(f"Ошибка векторного канала: {e}")
+
+                # Объединение каналов
+                all_candidate_ids = list(dict.fromkeys(sql_candidate_ids + vector_candidate_ids))
+                shortlist_candidate_ids = all_candidate_ids[:GLAFIRA_RETRIEVE_CAP]
+
+                if not shortlist_candidate_ids:
+                    # Graceful: возвращаем SQL результаты без rerank
+                    await _finalize_base_search(
+                        run_id, "done", "done",
+                        results=sql_search_result["results"],
+                        found=len(sql_search_result["results"]),
+                        to_evaluate=0, evaluated=0
+                    )
+                    return
+
+                # Обновляем прогресс
+                await _update_base_search_progress(
+                    run_id,
+                    found=len(shortlist_candidate_ids),
+                    to_evaluate=min(len(shortlist_candidate_ids), GLAFIRA_RERANK_CAP),
+                    stage="rerank"
+                )
+
+        except Exception as e:
+            logger.error(f"Ошибка на этапе retrieve: {e}")
+            await _finalize_base_search(run_id, "error", "retrieve", error=str(e)[:500])
+            return
+
+        # Этап rerank: загружаем кандидатов и оцениваем через LLM
+        try:
+            async with AsyncSessionLocal() as session:
+                # Загружаем полные данные кандидатов
+                candidates_data = await _load_candidates_for_rerank(session, company_id, shortlist_candidate_ids)
+
+                # Получаем вакансию для скоринга (если нужно)
+                vacancy = None
+                if vacancy_id:
+                    vacancy_stmt = select(Vacancy).where(
+                        Vacancy.id == vacancy_id,
+                        Vacancy.company_id == company_id,
+                        Vacancy.deleted_at.is_(None)
+                    )
+                    vacancy_result = await session.execute(vacancy_stmt)
+                    vacancy = vacancy_result.scalar_one_or_none()
+
+                # Rerank с прогрессом
+                ranked_candidates = await _rerank_candidates_with_progress(
+                    candidates_data, vacancy, query if search_type == "prompt" else None,
+                    company_id, run_id
+                )
+
+                # Формируем результат в том же формате, что и search_base_semantic
+                results = []
+                for candidate_data in ranked_candidates:
+                    candidate = candidate_data["candidate"]
+                    candidate_skills = candidate_data["skills"]
+
+                    # Подсчёт совпадающих навыков
+                    matched_skills = []
+                    skills = criteria.get("skills", [])
+                    if skills:
+                        for req_skill in skills:
+                            for cand_skill in candidate_skills:
+                                if req_skill.lower() in cand_skill.skill.lower():
+                                    matched_skills.append(cand_skill.skill)
+                                    break
+
+                    # Процент совпадения
+                    match_percent = candidate_data.get("llm_score")
+                    if match_percent is None and skills:
+                        match_percent = round(len(matched_skills) / len(skills) * 100)
+
+                    results.append({
+                        "id": candidate.id,
+                        "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
+                        "age": _compute_age(candidate.birth_date),
+                        "last_position": candidate.last_position,
+                        "last_company": candidate.last_company,
+                        "last_period": candidate.last_period,
+                        "city": candidate.city,
+                        "ai_score": candidate.ai_score,
+                        "source": candidate.source,
+                        "salary_expectation": candidate.salary_expectation,
+                        "matched_skills": matched_skills,
+                        "all_skills": [skill.skill for skill in candidate_skills],
+                        "match_percent": match_percent,
+                        "has_pdn": candidate_data.get("has_pdn", False),
+                    })
+
+                # Финализируем
+                await _finalize_base_search(
+                    run_id, "done", "done",
+                    results=results,
+                    found=len(shortlist_candidate_ids),
+                    to_evaluate=len(candidates_data[:GLAFIRA_RERANK_CAP]),
+                    evaluated=len(ranked_candidates)
+                )
+
+        except Exception as e:
+            logger.error(f"Ошибка на этапе rerank: {e}")
+            # Graceful: возвращаем результаты без LLM-скоринга
+            try:
+                async with AsyncSessionLocal() as session:
+                    candidates_data = await _load_candidates_for_rerank(session, company_id, shortlist_candidate_ids)
+
+                    # Формируем результат без rerank
+                    results = []
+                    for candidate_data in candidates_data:
+                        candidate = candidate_data["candidate"]
+                        candidate_skills = candidate_data["skills"]
+
+                        matched_skills = []
+                        skills = criteria.get("skills", [])
+                        if skills:
+                            for req_skill in skills:
+                                for cand_skill in candidate_skills:
+                                    if req_skill.lower() in cand_skill.skill.lower():
+                                        matched_skills.append(cand_skill.skill)
+                                        break
+
+                        match_percent = None
+                        if skills:
+                            match_percent = round(len(matched_skills) / len(skills) * 100)
+
+                        results.append({
+                            "id": candidate.id,
+                            "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
+                            "age": _compute_age(candidate.birth_date),
+                            "last_position": candidate.last_position,
+                            "last_company": candidate.last_company,
+                            "last_period": candidate.last_period,
+                            "city": candidate.city,
+                            "ai_score": candidate.ai_score,
+                            "source": candidate.source,
+                            "salary_expectation": candidate.salary_expectation,
+                            "matched_skills": matched_skills,
+                            "all_skills": [skill.skill for skill in candidate_skills],
+                            "match_percent": match_percent,
+                            "has_pdn": candidate_data.get("has_pdn", False),
+                        })
+
+                    await _finalize_base_search(
+                        run_id, "done", "done",
+                        results=results,
+                        found=len(shortlist_candidate_ids),
+                        to_evaluate=len(candidates_data[:GLAFIRA_RERANK_CAP]),
+                        evaluated=0  # Без rerank
+                    )
+            except Exception as fallback_error:
+                logger.error(f"Ошибка graceful fallback: {fallback_error}")
+                await _finalize_base_search(run_id, "error", "rerank", error=str(e)[:500])
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка базового поиска {run_id}: {e}")
+        await _finalize_base_search(run_id, "error", None, error=str(e)[:500])
+    finally:
+        # Убираем задачу из активных
+        _active_tasks.discard(asyncio.current_task())
+
+
+async def _rerank_candidates_with_progress(
+    candidates_data: list[dict],
+    vacancy: Optional["Vacancy"],
+    query_text: Optional[str],
+    company_id: UUID,
+    run_id: UUID
+) -> list[dict]:
+    """
+    Ранжирует кандидатов с помощью LLM с обновлением прогресса
+    """
+    if not candidates_data:
+        return candidates_data
+
+    # Ограничиваем для rerank
+    rerank_candidates = candidates_data[:GLAFIRA_RERANK_CAP]
+    remaining_candidates = candidates_data[GLAFIRA_RERANK_CAP:]
+
+    if not rerank_candidates:
+        return candidates_data
+
+    logger.info(f"Rerank для {len(rerank_candidates)} кандидатов")
+
+    # Семафор для ограничения конкурентных LLM запросов
+    semaphore = asyncio.Semaphore(6)
+    evaluated_count = 0
+
+    async def score_candidate(candidate_data):
+        nonlocal evaluated_count
+        async with semaphore:
+            try:
+                candidate = candidate_data["candidate"]
+                resume_dict = _candidate_to_resume_dict(candidate_data)
+
+                if vacancy:
+                    score_data = await score_resume_dict(resume_dict, vacancy, company_id)
+                else:
+                    # Скоринг против query как синтетической вакансии
+                    synthetic_vacancy = _create_synthetic_vacancy_for_scoring(query_text or "")
+                    score_data = await score_resume_dict(resume_dict, synthetic_vacancy, company_id)
+
+                candidate_data["llm_score"] = score_data.get("score", 0)
+                candidate_data["llm_verdict"] = score_data.get("verdict", "unknown")
+                candidate_data["requirements_match"] = score_data.get("requirements_match", [])
+
+                # Обновляем прогресс
+                evaluated_count += 1
+                if evaluated_count % 3 == 0:  # Каждые 3 кандидата
+                    await _update_base_search_progress(run_id, evaluated=evaluated_count)
+
+                return candidate_data
+
+            except Exception as e:
+                logger.error(f"Ошибка скоринга кандидата {candidate_data['candidate'].id}: {e}")
+                candidate_data["llm_score"] = None
+                return candidate_data
+
+    # Выполняем скоринг конкурентно
+    scored_candidates = await asyncio.gather(*[score_candidate(data) for data in rerank_candidates])
+
+    # Финальное обновление прогресса
+    await _update_base_search_progress(run_id, evaluated=evaluated_count)
+
+    # Фильтруем успешные оценки
+    valid_scored = [data for data in scored_candidates if data["llm_score"] is not None]
+
+    # Если все провалились - graceful fallback
+    if not valid_scored:
+        logger.warning("Rerank: ВСЕ LLM-оценки провалились — fallback без балла")
+        return candidates_data
+
+    # Сортируем по LLM score
+    valid_scored.sort(key=lambda x: x["llm_score"], reverse=True)
+
+    return valid_scored + remaining_candidates
+
+
+async def _update_base_search_progress(run_id: UUID, **updates):
+    """Обновляет прогресс выполнения поиска короткой сессией"""
+    try:
+        async with AsyncSessionLocal() as session:
+            run = await session.get(BaseSearchRun, run_id)
+            if not run:
+                return
+
+            for key, value in updates.items():
+                setattr(run, key, value)
+
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Ошибка обновления прогресса base search run {run_id}: {e}")
+
+
+async def _finalize_base_search(
+    run_id: UUID,
+    status: str,
+    stage: Optional[str],
+    error: Optional[str] = None,
+    results: Optional[list] = None,
+    **extra_fields
+):
+    """Финализирует поиск короткой сессией"""
+    try:
+        async with AsyncSessionLocal() as session:
+            run = await session.get(BaseSearchRun, run_id)
+            if not run:
+                logger.error(f"BaseSearchRun {run_id} не найден при финализации")
+                return
+
+            run.status = status
+            if stage:
+                run.stage = stage
+            if error:
+                run.error = error[:500]
+            if results is not None:
+                run.results = results
+
+            # Время завершения (naive UTC как в SmartSearchRun)
+            run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+            # Применяем дополнительные поля
+            for key, value in extra_fields.items():
+                setattr(run, key, value)
+
+            await session.commit()
+    except Exception as e:
+        logger.error(f"Ошибка финализации base search run {run_id}: {e}")
+
+
+async def get_base_search_run_status(
+    session: AsyncSession,
+    run_id: UUID,
+    company_id: UUID
+) -> Optional[BaseSearchRun]:
+    """Получает статус выполнения поиска по базе"""
+    stmt = select(BaseSearchRun).where(
+        BaseSearchRun.id == run_id,
+        BaseSearchRun.company_id == company_id
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def sweep_orphaned_base_search_runs():
+    """Очистка осиротевших поисков по базе при старте сервера"""
+    try:
+        async with AsyncSessionLocal() as session:
+            # Находим running поиски старше 60 минут
+            cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=60)
+
+            result = await session.execute(
+                update(BaseSearchRun)
+                .where(
+                    and_(
+                        BaseSearchRun.status == "running",
+                        BaseSearchRun.updated_at < cutoff_time
+                    )
+                )
+                .values(
+                    status="error",
+                    error="Прервано (зависание/перезапуск)",
+                    finished_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                )
+                .returning(BaseSearchRun.id)
+            )
+
+            orphaned_ids = result.scalars().all()
+            if orphaned_ids:
+                await session.commit()
+                logger.info(f"Очищено {len(orphaned_ids)} осиротевших поисков базы")
+
+    except Exception as e:
+        logger.warning(f"Ошибка очистки осиротевших поисков базы: {e}")
