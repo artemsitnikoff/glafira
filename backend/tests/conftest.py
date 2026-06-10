@@ -44,6 +44,9 @@ async def test_engine():
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+        # pgvector нужен для модели candidate_embeddings (Vector(384)) — иначе create_all
+        # упадёт на DDL `vector(384)`. Требует образ pgvector/pgvector:pg16 (как на проде).
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield engine

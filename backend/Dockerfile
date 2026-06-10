@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Предзагружаем эмбеддинг-модель для семантического поиска (в кэш fastembed)
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
+
 # Копируем код приложения
 COPY . .
 

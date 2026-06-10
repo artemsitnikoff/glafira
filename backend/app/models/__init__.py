@@ -35,6 +35,7 @@ from .hh_integration import HhIntegration, HhOauthState
 from .smart_search import SmartSearchRun
 from .candidate_import import CandidateImportJob
 from .base_search import BaseSearchRun
+from .candidate_embedding import CandidateEmbedding
 
 __all__ = [
     "Base",
@@ -77,4 +78,5 @@ __all__ = [
     "SmartSearchRun",
     "CandidateImportJob",
     "BaseSearchRun",
+    "CandidateEmbedding",
 ]

@@ -1,8 +1,12 @@
 """API умного подбора кандидатов"""
 
+import logging
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
@@ -45,11 +49,14 @@ from ...services.smart_search import (
 from ...services.base_search import (
     parse_query_to_criteria,
     search_base,
+    search_base_semantic,
     search_by_vacancy,
     create_search_run,
     increment_added_to_funnel,
     get_search_runs,
-    get_candidates_count
+    get_candidates_count,
+    reindex_all_embeddings,
+    get_embeddings_index_status
 )
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError
 
@@ -220,7 +227,7 @@ async def base_search_candidates(
     company_id: UUID = Depends(get_current_company_id),
     current_user: User = Depends(get_current_user),
 ):
-    """Поиск кандидатов в собственной базе"""
+    """Поиск кандидатов в собственной базе (с семантическим поиском)"""
     # RBAC: manager запрещён
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
@@ -232,20 +239,44 @@ async def base_search_candidates(
     if request.search_type == "vacancy" and not request.vacancy_id:
         raise ValidationError("Для поиска по вакансии нужно указать vacancy_id")
 
+    # Получаем вакансию для семантического поиска (если нужно)
+    vacancy = None
+    if request.search_type == "vacancy":
+        from ...models import Vacancy
+        vacancy_stmt = select(Vacancy).where(
+            Vacancy.id == request.vacancy_id,
+            Vacancy.company_id == company_id,
+            Vacancy.deleted_at.is_(None)
+        )
+        vacancy_result = await session.execute(vacancy_stmt)
+        vacancy = vacancy_result.scalar_one_or_none()
+
     if request.search_type == "prompt":
         # Парсим запрос через LLM
         criteria = await parse_query_to_criteria(request.query)
 
-        # Выполняем поиск
-        search_result = await search_base(
-            session,
-            company_id,
-            role=criteria.get("role", ""),
-            skills=criteria.get("skills", []),
-            city=criteria.get("city", ""),
-            salary_from=criteria.get("salary_from"),
-            salary_to=criteria.get("salary_to")
-        )
+        # Выполняем семантический поиск
+        try:
+            search_result = await search_base_semantic(
+                session, company_id,
+                role=criteria.get("role", ""),
+                skills=criteria.get("skills", []),
+                city=criteria.get("city", ""),
+                salary_from=criteria.get("salary_from"),
+                salary_to=criteria.get("salary_to"),
+                query_text=request.query
+            )
+        except Exception as e:
+            logger.error(f"Ошибка семантического поиска, fallback на SQL: {e}")
+            # Graceful деградация на заход A
+            search_result = await search_base(
+                session, company_id,
+                role=criteria.get("role", ""),
+                skills=criteria.get("skills", []),
+                city=criteria.get("city", ""),
+                salary_from=criteria.get("salary_from"),
+                salary_to=criteria.get("salary_to")
+            )
 
         query_echo = request.query
         vacancy_title = None
@@ -261,10 +292,36 @@ async def base_search_candidates(
                 "salary_from": request.salary_from,
                 "salary_to": request.salary_to,
             }
-        search_result = await search_by_vacancy(session, company_id, request.vacancy_id, override)
-        criteria = search_result.pop("criteria")
-        query_echo = search_result.pop("vacancy_title")
-        vacancy_title = query_echo
+
+        if override:
+            # Семантический поиск с переопределёнными критериями
+            try:
+                search_result = await search_base_semantic(
+                    session, company_id,
+                    role=override["role"],
+                    skills=override["skills"],
+                    city=override["city"],
+                    salary_from=override["salary_from"],
+                    salary_to=override["salary_to"],
+                    vacancy=vacancy
+                )
+                # Для совместимости добавляем поля как в search_by_vacancy
+                criteria = override
+                query_echo = vacancy.name if vacancy else "Вакансия"
+                vacancy_title = query_echo
+            except Exception as e:
+                logger.error(f"Ошибка семантического поиска по вакансии, fallback на search_by_vacancy: {e}")
+                # Fallback на оригинальный search_by_vacancy
+                search_result = await search_by_vacancy(session, company_id, request.vacancy_id, override)
+                criteria = search_result.pop("criteria")
+                query_echo = search_result.pop("vacancy_title")
+                vacancy_title = query_echo
+        else:
+            # Оригинальный поиск по автофильтрам
+            search_result = await search_by_vacancy(session, company_id, request.vacancy_id, None)
+            criteria = search_result.pop("criteria")
+            query_echo = search_result.pop("vacancy_title")
+            vacancy_title = query_echo
 
     else:
         raise ValidationError("Неверный тип поиска")
@@ -336,3 +393,44 @@ async def mark_candidate_added_to_funnel(
 
     await increment_added_to_funnel(session, company_id, run_id)
     await session.commit()
+
+
+@router.post("/base/reindex", status_code=202)
+async def start_embeddings_reindex(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Запустить переиндексацию эмбеддингов для семантического поиска"""
+    # RBAC: только admin
+    if current_user.role != "admin":
+        raise ForbiddenError("Доступ запрещён")
+
+    # Запускаем фоновую задачу переиндексации
+    await reindex_all_embeddings(company_id)
+
+    return {"message": "Переиндексация запущена"}
+
+
+@router.get("/base/index-status")
+async def get_embeddings_index_status_endpoint(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить статус индексации эмбеддингов"""
+    # RBAC: admin/recruiter (как основной поиск)
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    status = await get_embeddings_index_status(session, company_id)
+
+    # Добавляем процент готовности
+    if status["total_candidates"] > 0:
+        status["progress_percent"] = round(
+            (status["indexed_candidates"] / status["total_candidates"]) * 100
+        )
+    else:
+        status["progress_percent"] = 100
+
+    return status

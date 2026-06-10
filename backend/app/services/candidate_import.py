@@ -21,6 +21,7 @@ from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
 from ..services.integrations.potok.client import list_applicants
 from ..services.integrations.potok.mapper import map_potok_applicant
+from .base_search import reindex_all_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -762,6 +763,13 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
         # Финализируем
         await _finalize_job(job_id, "done")
 
+        # Запускаем переиндексацию эмбеддингов для всей компании
+        try:
+            await reindex_all_embeddings(company_id)
+            logger.info(f"Запущена переиндексация эмбеддингов после импорта для компании {company_id}")
+        except Exception as e:
+            logger.error(f"Ошибка запуска переиндексации после импорта: {e}")
+
     except Exception as e:
         logger.error(f"Ошибка выполнения импорта {job_id}: {e}")
         await _finalize_job(job_id, "error", str(e)[:500])
@@ -1207,6 +1215,13 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
 
         # Финализируем
         await _finalize_job(job_id, "done")
+
+        # Запускаем переиндексацию эмбеддингов для всей компании
+        try:
+            await reindex_all_embeddings(company_id)
+            logger.info(f"Запущена переиндексация эмбеддингов после Potok импорта для компании {company_id}")
+        except Exception as e:
+            logger.error(f"Ошибка запуска переиндексации после Potok импорта: {e}")
 
     except Exception as e:
         logger.error(f"Ошибка выполнения импорта Potok {job_id}: {e}")

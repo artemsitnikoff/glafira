@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # Текстовый журнал умного подбора (полный лог каждого прогона). Тот же том.
     SMART_SEARCH_LOG_PATH: str = "/app/storage/smart_search.log"
 
+    # Семантический поиск по собственной базе
+    GLAFIRA_EMBED_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    # ⚠️ ЗАРЕЗЕРВИРОВАНО: rerank сейчас идёт через общий score_resume_dict (модель GLAFIRA_MODEL).
+    # Подключение отдельной bulk-модели требует параметра model в общем (платном hh-) скорере —
+    # отложено, чтобы не рисковать hh-скорингом. Переменная оставлена под будущую проводку.
+    GLAFIRA_MODEL_BULK: str = ""  # bulk rerank (план: fallback на GLAFIRA_MODEL)
+    GLAFIRA_RETRIEVE_CAP: int = 150  # Максимум кандидатов в шорт-листе retrieve
+    GLAFIRA_RERANK_CAP: int = 24  # Максимум кандидатов для LLM rerank (синхронный HTTP-таймаут)
+
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 

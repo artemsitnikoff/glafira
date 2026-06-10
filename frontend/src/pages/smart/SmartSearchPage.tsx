@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
@@ -18,6 +19,8 @@ import {
   useSmartBaseHistory,
   useSmartBaseCount,
   useMarkBaseRunAdded,
+  useSmartBaseIndexStatus,
+  useReindexBase,
   type SmartVacancy,
   type SmartCandidate,
   type SmartScoredResume,
@@ -30,6 +33,7 @@ import {
   type BaseSearchRunItem,
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
+import { useAuthStore } from '@/store/authStore';
 import './smart-search.css';
 
 // Форматирование чисел с разделителями
@@ -2281,6 +2285,9 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
         )}
       </div>
 
+      {/* Индикатор индексации семантического поиска */}
+      <SSIndexingIndicator />
+
       {/* кнопка поиска */}
       <div className="ssb-actions">
         <button className="ssb-search-btn" disabled={!canSearch} onClick={runSearch}>
@@ -2420,6 +2427,66 @@ function SSBaseHistory({ history, onPick }: { history: BaseSearchRunItem[]; onPi
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Компактный индикатор индексации семантического поиска
+function SSIndexingIndicator() {
+  const { data: indexStatus } = useSmartBaseIndexStatus();
+  const reindexMutation = useReindexBase();
+  const user = useAuthStore(state => state.user);
+  const queryClient = useQueryClient();
+
+  // Не показывать если нет данных о статусе или нет кандидатов
+  if (!indexStatus || indexStatus.total_candidates === 0) return null;
+
+  const { total_candidates: total, indexed_candidates: indexed } = indexStatus;
+  const isComplete = indexed === total && total > 0;
+  const isIndexing = indexed < total;
+  const isAdmin = user?.role === 'admin';
+
+  const handleReindex = async () => {
+    try {
+      await reindexMutation.mutateAsync();
+      // После успешного запуска переиндексации инвалидируем статус для обновления
+      queryClient.invalidateQueries({ queryKey: ['smart', 'base', 'index-status'] });
+    } catch (error) {
+      // Ошибка отображается через reindexMutation.error в UI
+    }
+  };
+
+  return (
+    <div className="ss-indexing-indicator">
+      <div className="ss-indexing-text">
+        <span className="ss-indexing-title">
+          Семантический поиск: проиндексировано {indexed}/{total}
+        </span>
+        {isIndexing && (
+          <span className="ss-indexing-hint">
+            — поиск может быть неполным, пока идёт индексация
+          </span>
+        )}
+        {isComplete && (
+          <span className="ss-indexing-complete">
+            ✓ база проиндексирована
+          </span>
+        )}
+      </div>
+      {isAdmin && (
+        <button
+          className="ss-indexing-btn"
+          onClick={handleReindex}
+          disabled={reindexMutation.isPending}
+        >
+          {reindexMutation.isPending ? 'Запускаю…' : 'Проиндексировать базу'}
+        </button>
+      )}
+      {reindexMutation.error && (
+        <div className="ss-indexing-error">
+          {(reindexMutation.error as any)?.response?.data?.error?.message || 'Ошибка запуска индексации'}
+        </div>
+      )}
     </div>
   );
 }

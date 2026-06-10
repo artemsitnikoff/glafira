@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import math
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
@@ -59,22 +61,41 @@ from ..schemas.candidate import (
 )
 from ..schemas.base import Paginated
 from ..services.audit import audit
+from ..services.candidate_format import _compute_age, _compute_full_name
+from ..services.base_search import reindex_candidate
+from ..database import AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
+
+# Удерживаем ссылки на фоновые задачи переиндексации — иначе GC может убить задачу
+# (паттерн проекта, как _active_tasks в импорте/индексации).
+_reindex_tasks: set = set()
+
+
+def _schedule_reindex(company_id: UUID, candidate_id: UUID):
+    """Best-effort фоновая переиндексация эмбеддинга кандидата (не ломает основную логику).
+    Импорты top-level: цикл candidate↔base_search разорван через candidate_format."""
+    async def _reindex_task():
+        try:
+            # Небольшая задержка: дать вызывающему запросу закоммитить транзакцию,
+            # иначе фоновая (отдельная) сессия не увидит свежесозданного/обновлённого
+            # кандидата (read-before-commit) и пропустит индексацию (best-effort фон).
+            await asyncio.sleep(2)
+            async with AsyncSessionLocal() as session:
+                await reindex_candidate(session, company_id, candidate_id)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Ошибка переиндексации кандидата {candidate_id}: {e}")
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # нет running loop (например, в тестах) — пропускаем
+    task = loop.create_task(_reindex_task())
+    _reindex_tasks.add(task)
+    task.add_done_callback(_reindex_tasks.discard)
 
 _STAGE_COLORS = {key: stage.color for key, stage in STAGES.items()}
-
-
-def _compute_age(birth_date: date | None) -> int | None:
-    if birth_date is None:
-        return None
-    today = date.today()
-    years = today.year - birth_date.year
-    if (today.month, today.day) < (birth_date.month, birth_date.day):
-        years -= 1
-    return years
-
-
-def _compute_full_name(last_name: str, first_name: str, middle_name: str | None) -> str:
-    return " ".join(part for part in (last_name, first_name, middle_name) if part)
 
 
 import re as _re
@@ -635,6 +656,10 @@ async def create_candidate(
     )
 
     await session.flush()
+
+    # Планируем переиндексацию эмбеддингов
+    _schedule_reindex(company_id, candidate.id)
+
     return await get_candidate_detail(session, candidate.id, company_id)
 
 
@@ -727,6 +752,10 @@ async def update_candidate(
     )
 
     await session.flush()
+
+    # Планируем переиндексацию эмбеддингов
+    _schedule_reindex(company_id, candidate_id)
+
     return await get_candidate_detail(session, candidate_id, company_id)
 
 

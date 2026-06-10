@@ -359,3 +359,34 @@ export function useMarkBaseRunAdded() {
     },
   });
 }
+
+// === ИНДЕКСАЦИЯ СЕМАНТИЧЕСКОГО ПОИСКА ===
+
+export interface SmartBaseIndexStatusResponse {
+  total_candidates: number;
+  indexed_candidates: number;
+}
+
+// Статус индексации семантического поиска
+export function useSmartBaseIndexStatus() {
+  return useQuery({
+    queryKey: ['smart', 'base', 'index-status'],
+    queryFn: async (): Promise<SmartBaseIndexStatusResponse> => {
+      const response = await api.get('/smart/base/index-status');
+      return response.data as SmartBaseIndexStatusResponse;
+    },
+    refetchInterval: (data) => {
+      // Поллинг каждые 5000мс пока indexed < total
+      return data?.state?.data && data.state.data.indexed_candidates < data.state.data.total_candidates ? 5000 : false;
+    },
+  });
+}
+
+// Запуск переиндексации базы
+export function useReindexBase() {
+  return useMutation<void, Error, void>({
+    mutationFn: async (): Promise<void> => {
+      await api.post('/smart/base/reindex', {});
+    },
+  });
+}

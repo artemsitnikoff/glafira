@@ -1,19 +1,28 @@
 """Сервис поиска по собственной базе кандидатов"""
 
+import asyncio
+import logging
 import re
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, exists, and_, or_, func
+from sqlalchemy import select, exists, and_, or_, func, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from ..config import settings
 from ..core.errors import NotFoundError, GlafiraParseError
+from ..database import AsyncSessionLocal
 from ..models import (
-    Candidate, CandidateSkill, Consent, Vacancy, BaseSearchRun
+    Candidate, CandidateSkill, CandidateExperience, Consent, Vacancy, BaseSearchRun, CandidateEmbedding
 )
+from ..services.embeddings import build_candidate_text, source_hash, embed_query, embed_texts
 from ..services.glafira.client import call_json
+from ..services.glafira.scoring import score_resume_dict
 from ..services.smart_search import derive_vacancy_filters
-from ..services.candidate import _compute_age, _compute_full_name
+from ..services.candidate_format import _compute_age, _compute_full_name
+
+logger = logging.getLogger(__name__)
 
 
 async def parse_query_to_criteria(query: str) -> dict:
@@ -471,3 +480,608 @@ async def get_candidates_count(
     )
     result = await session.execute(stmt)
     return result.scalar_one()
+
+
+# === СЕМАНТИЧЕСКИЙ ПОИСК (Retrieve→Rerank) ===
+
+# Глобальные фоновые задачи для GC-защиты
+_active_tasks = set()
+
+# Константы
+GLAFIRA_RETRIEVE_CAP = int(getattr(settings, 'GLAFIRA_RETRIEVE_CAP', 150))
+GLAFIRA_RERANK_CAP = int(getattr(settings, 'GLAFIRA_RERANK_CAP', 24))
+
+
+async def vector_retrieve(
+    session: AsyncSession,
+    company_id: UUID,
+    query_text: str,
+    k: int = GLAFIRA_RETRIEVE_CAP
+) -> list[UUID]:
+    """
+    Векторный поиск кандидатов по семантической близости
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        query_text: Текст запроса
+        k: Количество ближайших кандидатов
+
+    Returns:
+        list[UUID]: Список ID кандидатов, отсортированных по релевантности
+    """
+    try:
+        # Создаём эмбеддинг для запроса
+        query_embedding = await embed_query(query_text)
+        if not query_embedding:
+            logger.warning("Не удалось создать эмбеддинг для запроса, возвращаем пустой список")
+            return []
+
+        # Проверяем наличие эмбеддингов в базе
+        count_stmt = select(func.count(CandidateEmbedding.id)).where(
+            CandidateEmbedding.company_id == company_id
+        )
+        count_result = await session.execute(count_stmt)
+        embeddings_count = count_result.scalar_one()
+
+        if embeddings_count == 0:
+            logger.info(f"Нет эмбеддингов для компании {company_id}, возвращаем пустой список")
+            return []
+
+        # Выполняем векторный поиск (cosine distance). JOIN на Candidate с deleted_at IS NULL,
+        # чтобы удалённые кандидаты (их эмбеддинги ещё могут висеть) не занимали слоты шорт-листа.
+        stmt = (
+            select(CandidateEmbedding.candidate_id)
+            .join(Candidate, Candidate.id == CandidateEmbedding.candidate_id)
+            .where(
+                CandidateEmbedding.company_id == company_id,
+                Candidate.deleted_at.is_(None),
+            )
+            .order_by(CandidateEmbedding.embedding.cosine_distance(query_embedding))
+            .limit(k)
+        )
+
+        result = await session.execute(stmt)
+        candidate_ids = [row[0] for row in result.fetchall()]
+
+        logger.info(f"Векторный поиск нашёл {len(candidate_ids)} кандидатов для компании {company_id}")
+        return candidate_ids
+
+    except Exception as e:
+        logger.error(f"Ошибка векторного поиска: {e}")
+        return []
+
+
+async def search_base_semantic(
+    session: AsyncSession,
+    company_id: UUID,
+    *,
+    role: str = "",
+    skills: list[str] = None,
+    city: str = "",
+    salary_from: Optional[int] = None,
+    salary_to: Optional[int] = None,
+    query_text: Optional[str] = None,
+    vacancy: Optional["Vacancy"] = None
+) -> dict:
+    """
+    Гибридный поиск кандидатов: SQL-фильтры + векторный поиск + LLM rerank
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        role: Должность для поиска
+        skills: Список навыков
+        city: Город
+        salary_from: Минимальная зарплата
+        salary_to: Максимальная зарплата
+        query_text: Текст для семантического поиска
+        vacancy: Вакансия для скоринга (если есть)
+
+    Returns:
+        dict: {total: int, results: list[dict]}
+    """
+    if skills is None:
+        skills = []
+
+    # 1. SQL-канал (существующий фильтровый поиск)
+    try:
+        sql_search_result = await search_base(
+            session, company_id,
+            role=role, skills=skills, city=city,
+            salary_from=salary_from, salary_to=salary_to
+        )
+        sql_candidate_ids = [candidate["id"] for candidate in sql_search_result["results"]]
+        logger.info(f"SQL-канал нашёл {len(sql_candidate_ids)} кандидатов")
+    except Exception as e:
+        logger.error(f"Ошибка SQL-канала: {e}")
+        sql_candidate_ids = []
+
+    # 2. Векторный канал (если есть query_text)
+    vector_candidate_ids = []
+    if query_text:
+        try:
+            vector_candidate_ids = await vector_retrieve(session, company_id, query_text, GLAFIRA_RETRIEVE_CAP)
+            logger.info(f"Векторный канал нашёл {len(vector_candidate_ids)} кандидатов")
+        except Exception as e:
+            logger.error(f"Ошибка векторного канала: {e}")
+
+    # 3. Объединение каналов (UNION + дедупликация)
+    all_candidate_ids = list(dict.fromkeys(sql_candidate_ids + vector_candidate_ids))
+    shortlist_candidate_ids = all_candidate_ids[:GLAFIRA_RETRIEVE_CAP]
+
+    if not shortlist_candidate_ids:
+        logger.info("Объединённый шорт-лист пуст, возвращаем fallback на SQL")
+        return sql_search_result
+
+    logger.info(f"Шорт-лист после объединения: {len(shortlist_candidate_ids)} кандидатов (лимит {GLAFIRA_RETRIEVE_CAP})")
+
+    # 4. Загружаем полные данные кандидатов для rerank
+    candidates_data = await _load_candidates_for_rerank(session, company_id, shortlist_candidate_ids)
+
+    # 5. LLM Rerank (если есть вакансия или query_text для скоринга)
+    if vacancy or query_text:
+        try:
+            ranked_candidates = await _rerank_candidates(
+                candidates_data, vacancy, query_text, company_id, shortlist_candidate_ids
+            )
+        except Exception as e:
+            logger.error(f"Ошибка rerank: {e}")
+            # Fallback: возвращаем кандидатов без LLM-скоринга
+            ranked_candidates = candidates_data
+
+    else:
+        # Без rerank — просто возвращаем в порядке shortlist
+        ranked_candidates = candidates_data
+
+    # 6. Формируем результат
+    total = len(ranked_candidates)
+    results = []
+
+    for candidate_data in ranked_candidates:
+        candidate = candidate_data["candidate"]
+        candidate_skills = candidate_data["skills"]
+
+        # Подсчёт совпадающих навыков (как в оригинальном search_base)
+        matched_skills = []
+        if skills:
+            for req_skill in skills:
+                for cand_skill in candidate_skills:
+                    if req_skill.lower() in cand_skill.skill.lower():
+                        matched_skills.append(cand_skill.skill)
+                        break
+
+        # Процент совпадения (LLM score если есть, иначе overlap как в SQL)
+        match_percent = candidate_data.get("llm_score")
+        if match_percent is None and skills:
+            match_percent = round(len(matched_skills) / len(skills) * 100)
+
+        results.append({
+            "id": candidate.id,
+            "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
+            "age": _compute_age(candidate.birth_date),
+            "last_position": candidate.last_position,
+            "last_company": candidate.last_company,
+            "last_period": candidate.last_period,
+            "city": candidate.city,
+            "ai_score": candidate.ai_score,
+            "source": candidate.source,
+            "salary_expectation": candidate.salary_expectation,
+            "matched_skills": matched_skills,
+            "all_skills": [skill.skill for skill in candidate_skills],
+            "match_percent": match_percent,
+            "has_pdn": candidate_data.get("has_pdn", False),
+        })
+
+    return {
+        "total": total,
+        "results": results
+    }
+
+
+async def _load_candidates_for_rerank(
+    session: AsyncSession,
+    company_id: UUID,
+    candidate_ids: list[UUID]
+) -> list[dict]:
+    """Загружает полные данные кандидатов для rerank"""
+    if not candidate_ids:
+        return []
+
+    # has_pdn subquery
+    has_pdn_subq = (
+        select(Consent.id)
+        .where(Consent.candidate_id == Candidate.id, Consent.status == "signed")
+        .exists()
+    )
+
+    # Загружаем кандидатов
+    stmt = (
+        select(
+            Candidate,
+            has_pdn_subq.label("has_pdn")
+        )
+        .where(
+            Candidate.id.in_(candidate_ids),
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
+        )
+        .options(
+            selectinload(Candidate.skills),
+            selectinload(Candidate.experience)
+        )
+    )
+
+    result = await session.execute(stmt)
+    rows = result.fetchall()
+
+    candidates_data = []
+    for row in rows:
+        candidate = row.Candidate
+        candidates_data.append({
+            "candidate": candidate,
+            "skills": candidate.skills,
+            "experience": candidate.experience,
+            "has_pdn": row.has_pdn
+        })
+
+    # Сортируем в том же порядке, что и в candidate_ids
+    id_to_data = {data["candidate"].id: data for data in candidates_data}
+    ordered_data = []
+    for cand_id in candidate_ids:
+        if cand_id in id_to_data:
+            ordered_data.append(id_to_data[cand_id])
+
+    return ordered_data
+
+
+async def _rerank_candidates(
+    candidates_data: list[dict],
+    vacancy: Optional["Vacancy"],
+    query_text: Optional[str],
+    company_id: UUID,
+    original_order: list[UUID]
+) -> list[dict]:
+    """
+    Ранжирует кандидатов с помощью LLM (конкурентно с семафором)
+
+    Обрезает до GLAFIRA_RERANK_CAP для синхронного выполнения в HTTP-таймауте
+    """
+    if not candidates_data:
+        return candidates_data
+
+    # Ограничиваем количество для rerank (синхронный запрос, не async job)
+    rerank_candidates = candidates_data[:GLAFIRA_RERANK_CAP]
+    remaining_candidates = candidates_data[GLAFIRA_RERANK_CAP:]
+
+    if not rerank_candidates:
+        return candidates_data
+
+    logger.info(f"Rerank для {len(rerank_candidates)} кандидатов (лимит {GLAFIRA_RERANK_CAP})")
+
+    # Семафор для ограничения конкурентных LLM запросов
+    semaphore = asyncio.Semaphore(6)
+
+    async def score_candidate(candidate_data):
+        async with semaphore:
+            try:
+                # Собираем candidate → hh_resume_dict для score_resume_dict
+                candidate = candidate_data["candidate"]
+                resume_dict = _candidate_to_resume_dict(candidate_data)
+
+                if vacancy:
+                    # Скоринг против вакансии
+                    score_data = await score_resume_dict(resume_dict, vacancy, company_id)
+                else:
+                    # Скоринг против query_text как синтетической вакансии
+                    synthetic_vacancy = _create_synthetic_vacancy_for_scoring(query_text)
+                    score_data = await score_resume_dict(resume_dict, synthetic_vacancy, company_id)
+
+                candidate_data["llm_score"] = score_data.get("score", 0)
+                candidate_data["llm_verdict"] = score_data.get("verdict", "unknown")
+                candidate_data["requirements_match"] = score_data.get("requirements_match", [])
+
+                return candidate_data
+
+            except Exception as e:
+                logger.error(f"Ошибка скоринга кандидата {candidate_data['candidate'].id}: {e}")
+                # При ошибке одного кандидата — пропускаем его, не ломаем весь rerank
+                candidate_data["llm_score"] = None
+                return candidate_data
+
+    # Выполняем скоринг конкурентно
+    scored_candidates = await asyncio.gather(*[score_candidate(data) for data in rerank_candidates])
+
+    # Фильтруем кандидатов, у которых сломался скоринг
+    valid_scored = [data for data in scored_candidates if data["llm_score"] is not None]
+
+    # C2: если ВСЕ оценки провалились (пустой OPENROUTER_API_KEY / системный отказ OpenRouter) —
+    # НЕ возвращаем пустоту, а деградируем на заход A (overlap%): отдать кандидатов без балла,
+    # result builder посчитает overlap. Иначе промт-поиск молча вернул бы 0 результатов.
+    if not valid_scored:
+        logger.warning("Rerank: ВСЕ LLM-оценки провалились — fallback на overlap (заход A)")
+        return candidates_data
+
+    # Сортируем по LLM score (убывание)
+    valid_scored.sort(key=lambda x: x["llm_score"], reverse=True)
+
+    # Добавляем оставшихся кандидатов (сверх rerank-лимита) в исходном порядке
+    return valid_scored + remaining_candidates
+
+
+def _candidate_to_resume_dict(candidate_data: dict) -> dict:
+    """Конвертирует данные кандидата в формат hh_resume для score_resume_dict"""
+    candidate = candidate_data["candidate"]
+    skills = candidate_data["skills"]
+    experience = candidate_data["experience"]
+
+    # Формат как hh.ru resume
+    resume_dict = {
+        "first_name": candidate.first_name or "",
+        "last_name": candidate.last_name or "",
+        "area": {"name": candidate.city or ""},
+        "skills": [skill.skill for skill in skills if skill.skill],
+        "title": candidate.last_position or "",
+        "description": candidate.resume_summary or candidate.resume_text or "",
+        "experience": []
+    }
+
+    # Добавляем опыт работы
+    for exp in experience:
+        exp_dict = {
+            "position": exp.position or "",
+            "company": exp.company or "",
+            "description": exp.description or ""
+        }
+        resume_dict["experience"].append(exp_dict)
+
+    # Зарплата
+    if candidate.salary_expectation:
+        resume_dict["salary"] = {
+            "from": candidate.salary_expectation,
+            "currency": candidate.currency or "RUB"
+        }
+
+    return resume_dict
+
+
+def _create_synthetic_vacancy_for_scoring(query_text: str):
+    """Создаёт синтетическую вакансию из query_text для скоринга"""
+    # Простая заглушка — в реальности можно сделать LLM-парсинг query → vacancy fields
+    class SyntheticVacancy:
+        def __init__(self, query):
+            self.name = f"Поиск: {query}"
+            self.description = query
+            self.salary_from = None
+            self.salary_to = None
+            self.currency = "RUB"
+            self.city = None
+            # score_resume_dict читает и эти поля — без них AttributeError → весь rerank
+            # промт-метода отсеивался бы в None → пустая выдача.
+            self.recruiter_scoring_instructions = None
+            self.glafira_mode = None
+            self.auto_move = False
+            self.auto_move_threshold = None
+
+    return SyntheticVacancy(query_text)
+
+
+# === ИНДЕКСАЦИЯ ЭМБЕДДИНГОВ ===
+
+async def reindex_candidate(
+    session: AsyncSession,
+    company_id: UUID,
+    candidate_id: UUID
+) -> None:
+    """
+    Инкрементальная переиндексация одного кандидата
+    (вызывается при создании/изменении кандидата)
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        candidate_id: ID кандидата
+    """
+    try:
+        # Загружаем кандидата с навыками и опытом
+        stmt = (
+            select(Candidate)
+            .where(
+                Candidate.id == candidate_id,
+                Candidate.company_id == company_id,
+                Candidate.deleted_at.is_(None)
+            )
+            .options(
+                selectinload(Candidate.skills),
+                selectinload(Candidate.experience)
+            )
+        )
+        result = await session.execute(stmt)
+        candidate = result.scalar_one_or_none()
+
+        if not candidate:
+            logger.warning(f"Кандидат {candidate_id} не найден для переиндексации")
+            return
+
+        # Строим текст кандидата
+        candidate_text = build_candidate_text(candidate, candidate.skills, candidate.experience)
+        if not candidate_text:
+            logger.info(f"Пустой текст для кандидата {candidate_id}, пропускаем индексацию")
+            return
+
+        new_hash = source_hash(candidate_text)
+
+        # Проверяем существующий эмбеддинг
+        existing_stmt = select(CandidateEmbedding).where(
+            CandidateEmbedding.candidate_id == candidate_id,
+            CandidateEmbedding.company_id == company_id
+        )
+        existing_result = await session.execute(existing_stmt)
+        existing_embedding = existing_result.scalar_one_or_none()
+
+        # Если хеш не изменился — пропускаем
+        if existing_embedding and existing_embedding.source_hash == new_hash:
+            logger.debug(f"Хеш кандидата {candidate_id} не изменился, пропускаем переиндексацию")
+            return
+
+        # Создаём новый эмбеддинг
+        embeddings = await embed_texts([candidate_text])
+        if not embeddings or not embeddings[0]:
+            logger.error(f"Не удалось создать эмбеддинг для кандидата {candidate_id}")
+            return
+
+        embedding_vector = embeddings[0]
+
+        # Upsert эмбеддинга
+        if existing_embedding:
+            # Обновляем существующий
+            update_stmt = (
+                update(CandidateEmbedding)
+                .where(CandidateEmbedding.candidate_id == candidate_id)
+                .values(
+                    embedding=embedding_vector,
+                    source_hash=new_hash,
+                    updated_at=func.now()
+                )
+            )
+            await session.execute(update_stmt)
+            logger.info(f"Обновлён эмбеддинг для кандидата {candidate_id}")
+        else:
+            # Создаём новый
+            new_embedding = CandidateEmbedding(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                embedding=embedding_vector,
+                source_hash=new_hash
+            )
+            session.add(new_embedding)
+            logger.info(f"Создан эмбеддинг для кандидата {candidate_id}")
+
+        await session.flush()
+
+    except Exception as e:
+        logger.error(f"Ошибка переиндексации кандидата {candidate_id}: {e}")
+
+
+async def reindex_all_embeddings(company_id: Optional[UUID] = None) -> None:
+    """
+    Фоновая задача полной переиндексации эмбеддингов
+    (паттерн как в candidate_import)
+
+    Args:
+        company_id: ID компании (если None — все компании)
+    """
+
+    async def _run_reindex():
+        try:
+            logger.info(f"Начинаем полную переиндексацию эмбеддингов для компании {company_id}")
+
+            # Короткие сессии для батчей
+            async with AsyncSessionLocal() as session:
+                # Определяем общее количество кандидатов
+                count_filter = [Candidate.deleted_at.is_(None)]
+                if company_id:
+                    count_filter.append(Candidate.company_id == company_id)
+
+                count_stmt = select(func.count(Candidate.id)).where(and_(*count_filter))
+                count_result = await session.execute(count_stmt)
+                total_candidates = count_result.scalar_one()
+
+                logger.info(f"Найдено {total_candidates} кандидатов для индексации")
+
+                if total_candidates == 0:
+                    logger.info("Нет кандидатов для индексации")
+                    return
+
+            # Батчевая обработка
+            batch_size = 200
+            processed = 0
+
+            for offset in range(0, total_candidates, batch_size):
+                try:
+                    async with AsyncSessionLocal() as session:
+                        # Загружаем батч кандидатов
+                        stmt = (
+                            select(Candidate)
+                            .where(and_(*count_filter))
+                            .options(
+                                selectinload(Candidate.skills),
+                                selectinload(Candidate.experience)
+                            )
+                            .offset(offset)
+                            .limit(batch_size)
+                        )
+                        result = await session.execute(stmt)
+                        candidates = result.scalars().all()
+
+                        # Обрабатываем каждого кандидата в батче
+                        for candidate in candidates:
+                            try:
+                                await reindex_candidate(session, candidate.company_id, candidate.id)
+                                processed += 1
+
+                                if processed % 50 == 0:
+                                    logger.info(f"Проиндексировано {processed}/{total_candidates} кандидатов")
+
+                            except Exception as e:
+                                logger.error(f"Ошибка индексации кандидата {candidate.id}: {e}")
+                                continue
+
+                        await session.commit()
+
+                except Exception as e:
+                    logger.error(f"Ошибка обработки батча offset={offset}: {e}")
+                    continue
+
+            logger.info(f"Завершена переиндексация: {processed}/{total_candidates} кандидатов")
+
+        except Exception as e:
+            logger.error(f"Критическая ошибка переиндексации: {e}")
+
+        finally:
+            # Удаляем задачу из активных (GC-защита)
+            _active_tasks.discard(asyncio.current_task())
+
+    # Создаём фоновую задачу
+    task = asyncio.create_task(_run_reindex())
+    _active_tasks.add(task)
+
+    # Автоудаление при завершении
+    task.add_done_callback(lambda t: _active_tasks.discard(t))
+
+    return task
+
+
+async def get_embeddings_index_status(
+    session: AsyncSession,
+    company_id: UUID
+) -> dict:
+    """
+    Получает статус индексации эмбеддингов для компании
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+
+    Returns:
+        dict: {"total_candidates": int, "indexed_candidates": int}
+    """
+    # Общее количество кандидатов
+    total_stmt = select(func.count(Candidate.id)).where(
+        Candidate.company_id == company_id,
+        Candidate.deleted_at.is_(None)
+    )
+    total_result = await session.execute(total_stmt)
+    total_candidates = total_result.scalar_one()
+
+    # Количество проиндексированных
+    indexed_stmt = select(func.count(CandidateEmbedding.id)).where(
+        CandidateEmbedding.company_id == company_id
+    )
+    indexed_result = await session.execute(indexed_stmt)
+    indexed_candidates = indexed_result.scalar_one()
+
+    return {
+        "total_candidates": total_candidates,
+        "indexed_candidates": indexed_candidates
+    }
