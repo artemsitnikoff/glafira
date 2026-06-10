@@ -22,11 +22,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Добавляем новые колонки с server_default для совместимости со старыми записями
-    op.add_column('base_search_runs', sa.Column('status', sa.String(20), nullable=False, server_default="'running'"))
+    op.add_column('base_search_runs', sa.Column('status', sa.String(20), nullable=False, server_default=sa.text("'running'")))
     op.add_column('base_search_runs', sa.Column('stage', sa.String(20), nullable=True))
-    op.add_column('base_search_runs', sa.Column('to_evaluate', sa.Integer(), nullable=False, server_default='0'))
-    op.add_column('base_search_runs', sa.Column('evaluated', sa.Integer(), nullable=False, server_default='0'))
-    op.add_column('base_search_runs', sa.Column('results', postgresql.JSONB(), nullable=False, server_default="'[]'::jsonb"))
+    op.add_column('base_search_runs', sa.Column('to_evaluate', sa.Integer(), nullable=False, server_default=sa.text("0")))
+    op.add_column('base_search_runs', sa.Column('evaluated', sa.Integer(), nullable=False, server_default=sa.text("0")))
+    op.add_column('base_search_runs', sa.Column('results', postgresql.JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")))
     op.add_column('base_search_runs', sa.Column('criteria', postgresql.JSONB(), nullable=True))
     op.add_column('base_search_runs', sa.Column('query_echo', sa.Text(), nullable=True))
     op.add_column('base_search_runs', sa.Column('vacancy_title', sa.Text(), nullable=True))
