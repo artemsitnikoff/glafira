@@ -22,7 +22,7 @@ interface Props {
 
 // Поля для импорта (как в эталоне)
 const IMP_FIELDS = [
-  { id: 'name',       label: 'Имя',            req: true },
+  { id: 'name',       label: 'ФИО',            req: true },
   { id: 'phone',      label: 'Телефон',        contact: true },
   { id: 'email',      label: 'Email',          contact: true },
   { id: 'city',       label: 'Город' },
@@ -289,7 +289,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               ? <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {actionError}</span>
               : requiredOk
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Обязательные поля сопоставлены</span>
-              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Сопоставьте Имя и хотя бы один контакт</span>}
+              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Сопоставьте ФИО и хотя бы один контакт</span>}
           </div>
           <button className="btn btn-primary" disabled={!requiredOk || previewImport.isPending} onClick={handlePreview}>
             {previewImport.isPending ? 'Обработка…' : 'Далее → Превью'}
@@ -501,7 +501,7 @@ function ImpStepColumns({
       <div className="imp-req-row">
         <span className="imp-req-label">Обязательные поля:</span>
         <span className={`imp-req-chip ${hasName ? 'ok' : 'bad'}`}>
-          <Icon name={hasName ? 'check' : 'x'} size={12}/> Имя
+          <Icon name={hasName ? 'check' : 'x'} size={12}/> ФИО
         </span>
         <span className={`imp-req-chip ${hasContact ? 'ok' : 'bad'}`}>
           <Icon name={hasContact ? 'check' : 'x'} size={12}/> Контакт (телефон / email)
