@@ -218,6 +218,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               onDrop={handleDrop}
               fileInputRef={fileInputRef}
               onPick={() => fileInputRef.current?.click()}
+              onFileSelect={handleFileSelect}
               onPickError={() => setUploadState('error')}
               onRetry={() => { setUploadState('idle'); setFileError(null); }}
               file={file}
@@ -284,12 +285,14 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
             <Icon name="chevron-left" size={14}/> Назад
           </button>
           <div className="imp-foot-hint">
-            {requiredOk
+            {actionError
+              ? <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {actionError}</span>
+              : requiredOk
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Обязательные поля сопоставлены</span>
               : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Сопоставьте Имя и хотя бы один контакт</span>}
           </div>
-          <button className="btn btn-primary" disabled={!requiredOk} onClick={() => requiredOk && setCurrentStep(3)}>
-            Далее → Превью
+          <button className="btn btn-primary" disabled={!requiredOk || previewImport.isPending} onClick={handlePreview}>
+            {previewImport.isPending ? 'Обработка…' : 'Далее → Превью'}
           </button>
         </div>
       )}
@@ -350,6 +353,7 @@ interface ImpStepUploadProps {
   onDrop: (e: React.DragEvent) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
   onPick: () => void;
+  onFileSelect: (file: File) => void;
   onPickError: () => void;
   onRetry: () => void;
   file: File | null;
@@ -366,6 +370,7 @@ function ImpStepUpload({
   onDrop,
   fileInputRef,
   onPick,
+  onFileSelect,
   onPickError,
   onRetry,
   file,
@@ -443,7 +448,7 @@ function ImpStepUpload({
         onClick={() => onPick()}
       >
         <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{display:'none'}}
-               onChange={() => onPick()}/>
+               onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelect(f); e.target.value = ''; }}/>
         <div className="imp-drop-ic"><Icon name="download" size={30}/></div>
         <div className="imp-drop-title">Перетащите Excel-файл с кандидатами<br/>или нажмите для выбора</div>
         <div className="imp-drop-sub">Поддерживаются выгрузки из hh, Потока, Хантфлоу и других систем · форматы <b>.xlsx</b>, <b>.xls</b></div>
