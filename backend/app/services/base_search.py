@@ -1269,6 +1269,8 @@ async def _run_base_search(
 
         # Этап rerank: загружаем кандидатов и оцениваем через LLM
         try:
+            # Короткая сессия ТОЛЬКО на загрузку — НЕ держим коннект пула открытым
+            # через все LLM-вызовы rerank (антипаттерн «сессия сквозь долгий LLM»).
             async with AsyncSessionLocal() as session:
                 # Загружаем полные данные кандидатов
                 candidates_data = await _load_candidates_for_rerank(session, company_id, shortlist_candidate_ids)
@@ -1284,58 +1286,59 @@ async def _run_base_search(
                     vacancy_result = await session.execute(vacancy_stmt)
                     vacancy = vacancy_result.scalar_one_or_none()
 
-                # Rerank с прогрессом
-                ranked_candidates = await _rerank_candidates_with_progress(
-                    candidates_data, vacancy, query if search_type == "prompt" else None,
-                    company_id, run_id
-                )
+            # Rerank БЕЗ открытой сессии: объекты уже загружены (selectinload skills/experience,
+            # expire_on_commit=False), прогресс/финал пишутся своими короткими сессиями.
+            ranked_candidates = await _rerank_candidates_with_progress(
+                candidates_data, vacancy, query if search_type == "prompt" else None,
+                company_id, run_id
+            )
 
-                # Формируем результат в том же формате, что и search_base_semantic
-                results = []
-                for candidate_data in ranked_candidates:
-                    candidate = candidate_data["candidate"]
-                    candidate_skills = candidate_data["skills"]
+            # Формируем результат в том же формате, что и search_base_semantic
+            results = []
+            for candidate_data in ranked_candidates:
+                candidate = candidate_data["candidate"]
+                candidate_skills = candidate_data["skills"]
 
-                    # Подсчёт совпадающих навыков
-                    matched_skills = []
-                    skills = criteria.get("skills", [])
-                    if skills:
-                        for req_skill in skills:
-                            for cand_skill in candidate_skills:
-                                if req_skill.lower() in cand_skill.skill.lower():
-                                    matched_skills.append(cand_skill.skill)
-                                    break
+                # Подсчёт совпадающих навыков
+                matched_skills = []
+                skills = criteria.get("skills", [])
+                if skills:
+                    for req_skill in skills:
+                        for cand_skill in candidate_skills:
+                            if req_skill.lower() in cand_skill.skill.lower():
+                                matched_skills.append(cand_skill.skill)
+                                break
 
-                    # Процент совпадения
-                    match_percent = candidate_data.get("llm_score")
-                    if match_percent is None and skills:
-                        match_percent = round(len(matched_skills) / len(skills) * 100)
+                # Процент совпадения
+                match_percent = candidate_data.get("llm_score")
+                if match_percent is None and skills:
+                    match_percent = round(len(matched_skills) / len(skills) * 100)
 
-                    results.append({
-                        "id": candidate.id,
-                        "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
-                        "age": _compute_age(candidate.birth_date),
-                        "last_position": candidate.last_position,
-                        "last_company": candidate.last_company,
-                        "last_period": candidate.last_period,
-                        "city": candidate.city,
-                        "ai_score": candidate.ai_score,
-                        "source": candidate.source,
-                        "salary_expectation": candidate.salary_expectation,
-                        "matched_skills": matched_skills,
-                        "all_skills": [skill.skill for skill in candidate_skills],
-                        "match_percent": match_percent,
-                        "has_pdn": candidate_data.get("has_pdn", False),
-                    })
+                results.append({
+                    "id": str(candidate.id),
+                    "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
+                    "age": _compute_age(candidate.birth_date),
+                    "last_position": candidate.last_position,
+                    "last_company": candidate.last_company,
+                    "last_period": candidate.last_period,
+                    "city": candidate.city,
+                    "ai_score": candidate.ai_score,
+                    "source": candidate.source,
+                    "salary_expectation": candidate.salary_expectation,
+                    "matched_skills": matched_skills,
+                    "all_skills": [skill.skill for skill in candidate_skills],
+                    "match_percent": match_percent,
+                    "has_pdn": candidate_data.get("has_pdn", False),
+                })
 
-                # Финализируем
-                await _finalize_base_search(
-                    run_id, "done", "done",
-                    results=results,
-                    found=len(shortlist_candidate_ids),
-                    to_evaluate=len(candidates_data[:GLAFIRA_RERANK_CAP]),
-                    evaluated=len(ranked_candidates)
-                )
+            # Финализируем
+            await _finalize_base_search(
+                run_id, "done", "done",
+                results=results,
+                found=len(shortlist_candidate_ids),
+                to_evaluate=len(candidates_data[:GLAFIRA_RERANK_CAP]),
+                evaluated=len(ranked_candidates)
+            )
 
         except Exception as e:
             logger.error(f"Ошибка на этапе rerank: {e}")
@@ -1433,11 +1436,15 @@ async def _rerank_candidates_with_progress(
                 resume_dict = _candidate_to_resume_dict(candidate_data)
 
                 if vacancy:
-                    score_data = await score_resume_dict(resume_dict, vacancy, company_id)
+                    score_data = await asyncio.wait_for(
+                        score_resume_dict(resume_dict, vacancy, company_id), timeout=180
+                    )
                 else:
                     # Скоринг против query как синтетической вакансии
                     synthetic_vacancy = _create_synthetic_vacancy_for_scoring(query_text or "")
-                    score_data = await score_resume_dict(resume_dict, synthetic_vacancy, company_id)
+                    score_data = await asyncio.wait_for(
+                        score_resume_dict(resume_dict, synthetic_vacancy, company_id), timeout=180
+                    )
 
                 candidate_data["llm_score"] = score_data.get("score", 0)
                 candidate_data["llm_verdict"] = score_data.get("verdict", "unknown")
@@ -1525,6 +1532,18 @@ async def _finalize_base_search(
             await session.commit()
     except Exception as e:
         logger.error(f"Ошибка финализации base search run {run_id}: {e}")
+        # Гарантия выхода из running: терминальный error БЕЗ results отдельной сессией
+        # (если сами results не записались — иначе прогон навсегда зависнет в running).
+        try:
+            async with AsyncSessionLocal() as session2:
+                run2 = await session2.get(BaseSearchRun, run_id)
+                if run2 and run2.status == "running":
+                    run2.status = "error"
+                    run2.error = f"Сбой финализации: {type(e).__name__}"[:500]
+                    run2.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    await session2.commit()
+        except Exception as e2:
+            logger.error(f"Не удалось записать терминальный error base search {run_id}: {e2}")
 
 
 async def get_base_search_run_status(
