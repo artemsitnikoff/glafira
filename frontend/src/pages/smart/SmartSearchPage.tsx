@@ -1954,7 +1954,7 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 }) {
   const [byVacancy, setByVacancy] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const [phase, setPhase] = useState<'build' | 'ready' | 'evaluating' | 'results'>('build');
+  const [phase, setPhase] = useState<'build' | 'searching' | 'ready' | 'evaluating' | 'results'>('build');
 
   // режим вакансии
   const [vacId, setVacId] = useState<string | null>(null);
@@ -2027,6 +2027,10 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
   const runSearch = async () => {
     if (!canSearch) return;
 
+    // Мгновенный переход на экран подбора — иначе кнопка молча «думает»
+    // (парсинг запроса LLM ~секунды) и кажется, что клик не сработал.
+    setPhase('searching');
+
     const request: BaseSearchRequest = byVacancy && vac
       ? {
           search_type: 'vacancy',
@@ -2047,7 +2051,8 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
       setEvalN(Math.min(response.total || 20, 20) || 1);
       setPhase('ready');
     } catch (error) {
-      // Ошибка остается в build, показывается через searchMutation.error
+      // Ошибка — назад к конструктору (показывается через searchMutation.error)
+      setPhase('build');
     }
   };
 
@@ -2099,6 +2104,18 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
       // не критично
     }
   };
+
+  // Экран подбора (retrieve): мгновенно после клика «Найти в базе»
+  if (phase === 'searching') {
+    return (
+      <div className="ss-run">
+        <div className="ss-run-dancer">💃</div>
+        <div className="ss-run-phase">Глафира подбирает кандидатов…</div>
+        <div className="ss-run-detail">читает запрос и ищет ближайших по смыслу (косинус) во всей базе</div>
+        <div className="ss-run-bar ss-run-bar-indet"><span /></div>
+      </div>
+    );
+  }
 
   // Экран ready (новый — между поиском и оценкой)
   if (phase === 'ready') {
