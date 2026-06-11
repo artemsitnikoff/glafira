@@ -30,7 +30,6 @@ import {
   type BaseSearchCandidate,
   type BaseSearchRequest,
   type BaseSearchRunItem,
-  type BaseSearchRetrieveResponse,
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
 import './smart-search.css';
@@ -1955,7 +1954,7 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 }) {
   const [byVacancy, setByVacancy] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const [phase, setPhase] = useState<'build' | 'results' | 'evaluating'>('build');
+  const [phase, setPhase] = useState<'build' | 'ready' | 'evaluating' | 'results'>('build');
 
   // режим вакансии
   const [vacId, setVacId] = useState<string | null>(null);
@@ -1970,7 +1969,7 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 
   // результаты
   const [runId, setRunId] = useState<string | null>(null);
-  const [retrieved, setRetrieved] = useState<BaseSearchRetrieveResponse | null>(null);
+  const [total, setTotal] = useState(0);
   const [evalN, setEvalN] = useState(20);
   const [added, setAdded] = useState<Set<string>>(new Set());
 
@@ -2044,9 +2043,9 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
     try {
       const response = await searchMutation.mutateAsync(request);
       setRunId(response.run_id);
-      setRetrieved(response);
-      setEvalN(Math.min(response.found || 20, 20) || 1);
-      setPhase('results');
+      setTotal(response.total);
+      setEvalN(Math.min(response.total || 20, 20) || 1);
+      setPhase('ready');
     } catch (error) {
       // Ошибка остается в build, показывается через searchMutation.error
     }
@@ -2058,14 +2057,14 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
     try {
       await evaluateMutation.mutateAsync({ runId, evaluateN: evalN });
     } catch {
-      setPhase('results');
+      setPhase('ready');
     }
   };
 
   const resetSearch = () => {
     setPhase('build');
     setRunId(null);
-    setRetrieved(null);
+    setTotal(0);
     setAdded(new Set());
   };
 
@@ -2101,17 +2100,64 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
     }
   };
 
+  // Экран ready (новый — между поиском и оценкой)
+  if (phase === 'ready') {
+    return (
+      <div>
+        <div className="ss-field" style={{ padding: '20px', textAlign: 'center', background: 'var(--bg-2)', borderRadius: '8px' }}>
+          <div style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600', color: 'var(--fg-1)' }}>
+            В базе доступно для поиска: <span className="t-mono">{ssFmt(total)}</span> резюме
+          </div>
+
+          <div className="ss-field" style={{ maxWidth: '200px', margin: '0 auto 16px' }}>
+            <div className="ss-field-label">Сколько оценить через AI</div>
+            <input
+              className="ss-input"
+              type="number"
+              min={1}
+              max={Math.min(total, 100)}
+              value={evalN}
+              onChange={(e) => setEvalN(Number(e.target.value) || 1)}
+            />
+          </div>
+
+          <button
+            className="btn btn-primary"
+            disabled={evaluateMutation.isPending || total === 0}
+            onClick={startEvaluate}
+            style={{ marginBottom: '12px' }}
+          >
+            <Icon name="sparkles" size={14} />
+            Оценить AI
+          </button>
+
+          <div style={{ fontSize: '13px', color: 'var(--fg-3)', marginBottom: '16px' }}>
+            Глафира найдёт {evalN} самых близких по смыслу во ВСЕЙ базе и оценит их ИИ — это займёт время и расходует токены.
+          </div>
+
+          <button className="btn btn-secondary btn-sm" onClick={resetSearch}>
+            <Icon name="chevron-left" size={14} />
+            Изменить запрос
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Выполнение оценки
   if (phase === 'evaluating') {
     const evald = runData?.evaluated ?? 0;
-    const total = runData?.to_evaluate ?? 0;
-    const pct = total > 0 ? 12 + Math.min(1, evald / total) * 88 : 12;
+    const totalEval = runData?.to_evaluate ?? 0;
+    const pct = totalEval > 0 ? 12 + Math.min(1, evald / totalEval) * 88 : 12;
     return (
       <div className="ss-run">
         <div className="ss-run-dancer">💃</div>
         <div className="ss-run-phase">Глафира оценивает кандидатов…</div>
         <div className="ss-run-detail">
-          AI-матчинг <span className="t-mono">{ssFmt(evald)}</span> из <span className="t-mono">{ssFmt(total)}</span>
+          ищет ближайших по смыслу во всей базе
+        </div>
+        <div className="ss-run-detail">
+          AI-матчинг <span className="t-mono">{ssFmt(evald)}</span> из <span className="t-mono">{ssFmt(totalEval)}</span>
         </div>
         <div className="ss-run-bar"><span style={{ width: `${pct}%` }} /></div>
       </div>
@@ -2144,8 +2190,8 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
       );
     }
 
-    const candidates = (runData?.status === 'done' ? runData.results : retrieved?.candidates) || [];
-    const found = retrieved?.found ?? candidates.length;
+    const candidates = runData?.results || [];
+    const found = (runData?.results || []).length;
     const vacancyTitle = byVacancy ? vac?.title || null : null;
     const queryEcho = byVacancy ? null : prompt.trim();
 
@@ -2163,37 +2209,14 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
           onGoFunnel={onGoFunnel}
         />
 
-        {/* Панель оценки AI */}
-        <div className="ss-field" style={{ marginTop: '24px', padding: '16px', background: 'var(--bg-2)', borderRadius: '8px' }}>
-          <div className="ss-field-label">Оценить через AI топ-N кандидатов</div>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px' }}>
-            <input
-              className="ss-input"
-              type="number"
-              min="1"
-              max={found}
-              value={evalN}
-              onChange={(e) => setEvalN(Number(e.target.value) || 1)}
-              style={{ maxWidth: '100px' }}
-            />
-            <button
-              className="btn btn-primary"
-              disabled={evaluateMutation.isPending || found === 0}
-              onClick={startEvaluate}
-            >
-              <Icon name="sparkles" size={14} />
-              Оценить AI
+        {/* Кнопка повторной оценки с другим N */}
+        {runData?.status === 'done' && (
+          <div style={{ textAlign: 'center', marginTop: '16px' }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setPhase('ready')}>
+              Оценить ещё / другое N
             </button>
           </div>
-          <div style={{ fontSize: '13px', color: 'var(--fg-3)', marginTop: '8px' }}>
-            AI прочитает резюме топ-N и поставит балл — это займёт время и расходует токены.
-          </div>
-          {runData?.status === 'done' && (runData.evaluated || 0) > 0 && (
-            <div style={{ fontSize: '13px', color: 'var(--accent)', marginTop: '4px' }}>
-              Оценено {runData.evaluated} кандидатов
-            </div>
-          )}
-        </div>
+        )}
 
         {assignCandidateId && (
           <AssignToVacancyModal

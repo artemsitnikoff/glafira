@@ -59,7 +59,8 @@ from ...services.base_search import (
     retrieve_base,
     _run_base_evaluate,
     _active_tasks,
-    get_base_search_run_status
+    get_base_search_run_status,
+    GLAFIRA_MAX_EVALUATE
 )
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError
 
@@ -265,8 +266,7 @@ async def base_search_candidates(
 
     return BaseSearchRetrieveResponse(
         run_id=result["run_id"],
-        found=result["found"],
-        candidates=result["candidates"]
+        total=result["total"]
     )
 
 
@@ -328,16 +328,14 @@ async def evaluate_base_search_candidates(
     if not run:
         raise NotFoundError("Поиск")
 
-    results = run.results or []
-    if not results:
-        raise ValidationError("Нечего оценивать")
-
     # Разрешаем при status in ('retrieved','done') (повторная оценка ок)
     if run.status not in ('retrieved', 'done'):
         raise ValidationError("Поиск должен быть в статусе 'retrieved' или 'done'")
 
-    # Определяем количество для оценки
-    n = min(request.evaluate_n, len(results))
+    # Предохранитель расхода: N ≤ максимума (косинус по всей базе вернёт ≤ доступного).
+    n = min(request.evaluate_n, GLAFIRA_MAX_EVALUATE)
+    if request.evaluate_n > GLAFIRA_MAX_EVALUATE:
+        logger.info(f"[base] evaluate_n {request.evaluate_n} урезан до максимума {GLAFIRA_MAX_EVALUATE}")
 
     # Короткой сессией: меняем статус на running
     async with AsyncSessionLocal() as short_session:

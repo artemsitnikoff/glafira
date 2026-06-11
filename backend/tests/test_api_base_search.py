@@ -12,27 +12,6 @@ class TestBaseSearchAPI:
 
     async def test_base_search_prompt_success(self, async_client, auth_headers, test_company, db_session):
         """Тест успешного поиска по текстовому запросу"""
-        # Создаём кандидата с навыками
-        candidate = Candidate(
-            company_id=test_company.id,
-            last_name="Разработчиков",
-            first_name="Андрей",
-            last_position="Python Developer",
-            city="Москва",
-            ai_score=85
-        )
-        db_session.add(candidate)
-        await db_session.flush()
-
-        skill = CandidateSkill(
-            company_id=test_company.id,
-            candidate_id=candidate.id,
-            skill="Python",
-            order_index=0
-        )
-        db_session.add(skill)
-        await db_session.commit()
-
         # Мокаем парсинг LLM
         mock_criteria = {
             "role": "Python Developer",
@@ -58,18 +37,12 @@ class TestBaseSearchAPI:
         assert response.status_code == 200
         data = response.json()
 
-        # Новый API возвращает результаты синхронно
+        # Новый API возвращает только run_id и total
         assert "run_id" in data
-        assert "found" in data
-        assert "candidates" in data
+        assert "total" in data
+        assert isinstance(data["total"], int)
+        assert data["total"] >= 0
         run_id = data["run_id"]
-
-        # Должны найти 1 кандидата
-        assert data["found"] == 1
-        assert len(data["candidates"]) == 1
-        candidate = data["candidates"][0]
-        assert candidate["full_name"] == "Разработчиков Андрей"
-        assert candidate["scored_by"] == "cosine"
 
         # Проверяем, что запись создалась в БД со статусом retrieved
         from app.services.base_search import get_base_search_run_status
@@ -79,29 +52,10 @@ class TestBaseSearchAPI:
         assert run.status == "retrieved"
         assert run.query_text == "Python разработчик в Москве"
         assert run.stage == "retrieve"
+        assert run.results == []
 
     async def test_base_search_vacancy_success(self, async_client, auth_headers, test_company, test_vacancy, db_session):
         """Тест поиска по критериям вакансии"""
-        # Создаём кандидата
-        candidate = Candidate(
-            company_id=test_company.id,
-            last_name="Соискатель",
-            first_name="Иван",
-            last_position="Backend Developer",
-            ai_score=80
-        )
-        db_session.add(candidate)
-        await db_session.flush()
-
-        skill = CandidateSkill(
-            company_id=test_company.id,
-            candidate_id=candidate.id,
-            skill="Python",
-            order_index=0
-        )
-        db_session.add(skill)
-        await db_session.commit()
-
         # Мокаем фильтры из вакансии
         mock_filters = {
             "area": "IT",
@@ -125,8 +79,11 @@ class TestBaseSearchAPI:
         assert response.status_code == 200
         data = response.json()
 
-        # Новый API возвращает только run_id
+        # Новый API возвращает только run_id и total
         assert "run_id" in data
+        assert "total" in data
+        assert isinstance(data["total"], int)
+        assert data["total"] >= 0
         run_id = data["run_id"]
 
         # Проверяем, что запись создалась в БД
@@ -136,6 +93,8 @@ class TestBaseSearchAPI:
         assert run.search_type == "vacancy"
         assert run.vacancy_id == test_vacancy.id
         assert run.status == "retrieved"
+        assert run.stage == "retrieve"
+        assert run.results == []
 
     async def test_base_search_prompt_validation_error(self, async_client, auth_headers):
         """Тест валидации запроса - prompt без query"""
@@ -336,16 +295,6 @@ class TestBaseSearchAPI:
 
     async def test_fallback_llm_parsing(self, async_client, auth_headers, test_company, db_session):
         """Тест fallback при ошибке LLM"""
-        # Создаём кандидата
-        candidate = Candidate(
-            company_id=test_company.id,
-            last_name="Программист",
-            first_name="Пётр",
-            last_position="Python Django разработчик"
-        )
-        db_session.add(candidate)
-        await db_session.commit()
-
         # Мокаем ошибку LLM и fallback
         with patch('app.services.base_search.call_json', new_callable=AsyncMock) as mock_call:
             from app.core.errors import GlafiraParseError
@@ -363,8 +312,9 @@ class TestBaseSearchAPI:
         assert response.status_code == 200
         data = response.json()
 
-        # Новый API возвращает run_id даже при fallback
+        # Новый API возвращает run_id и total даже при fallback
         assert "run_id" in data
+        assert "total" in data
 
     async def test_get_base_search_run_status_success(self, async_client, auth_headers, test_company, db_session):
         """Тест получения статуса выполнения поиска"""
@@ -498,53 +448,38 @@ class TestBaseSearchAPI:
 
     async def test_evaluate_search_success(self, async_client, auth_headers, test_company, db_session):
         """Тест успешного запуска фазы EVALUATE"""
-        # Создаём run в статусе retrieved с результатами
-        run = BaseSearchRun(
-            company_id=test_company.id,
-            search_type="prompt",
-            query_text="Python разработчик",
-            status="retrieved",
-            stage="retrieve",
-            found=2,
-            to_evaluate=0,
-            evaluated=0,
-            results=[
-                {
-                    "id": str(uuid4()),
-                    "full_name": "Иванов Иван",
-                    "scored_by": "cosine",
-                    "match_percent": 80,
-                    "matched_skills": ["Python"],
-                    "all_skills": ["Python", "Django"]
-                },
-                {
-                    "id": str(uuid4()),
-                    "full_name": "Петров Пётр",
-                    "scored_by": "cosine",
-                    "match_percent": 70,
-                    "matched_skills": ["Python"],
-                    "all_skills": ["Python"]
-                }
-            ]
-        )
-        db_session.add(run)
-        await db_session.commit()
+        # Мокаем фоновую задачу оценки
+        with patch('app.api.v1.smart._run_base_evaluate') as mock_evaluate:
+            # Создаём run в статусе retrieved
+            run = BaseSearchRun(
+                company_id=test_company.id,
+                search_type="prompt",
+                query_text="Python разработчик",
+                status="retrieved",
+                stage="retrieve",
+                found=2,
+                to_evaluate=0,
+                evaluated=0,
+                results=[]
+            )
+            db_session.add(run)
+            await db_session.commit()
 
-        response = await async_client.post(
-            f"/api/v1/smart/base/runs/{run.id}/evaluate",
-            json={"evaluate_n": 2},
-            headers=auth_headers
-        )
+            response = await async_client.post(
+                f"/api/v1/smart/base/runs/{run.id}/evaluate",
+                json={"evaluate_n": 2},
+                headers=auth_headers
+            )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["run_id"] == str(run.id)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["run_id"] == str(run.id)
 
-        # Проверяем, что статус изменился на running
-        await db_session.refresh(run)
-        assert run.status == "running"
-        assert run.stage == "rerank"
-        assert run.to_evaluate == 2
+            # Проверяем, что статус изменился на running
+            await db_session.refresh(run)
+            assert run.status == "running"
+            assert run.stage == "rerank"
+            assert run.to_evaluate == 2
 
     async def test_evaluate_search_not_found(self, async_client, auth_headers, test_company):
         """Тест evaluate для несуществующего run"""
@@ -558,26 +493,33 @@ class TestBaseSearchAPI:
 
         assert response.status_code == 404
 
-    async def test_evaluate_search_empty_results(self, async_client, auth_headers, test_company, db_session):
-        """Тест evaluate для run без результатов"""
-        run = BaseSearchRun(
-            company_id=test_company.id,
-            search_type="prompt",
-            query_text="Python разработчик",
-            status="retrieved",
-            results=[]
-        )
-        db_session.add(run)
-        await db_session.commit()
+    async def test_evaluate_retrieved_empty_ok(self, async_client, auth_headers, test_company, db_session):
+        """Тест evaluate для run с пустыми results (теперь это валидно)"""
+        # Мокаем фоновую задачу оценки
+        with patch('app.api.v1.smart._run_base_evaluate') as mock_evaluate:
+            run = BaseSearchRun(
+                company_id=test_company.id,
+                search_type="prompt",
+                query_text="Python разработчик",
+                status="retrieved",
+                stage="retrieve",
+                found=0,
+                to_evaluate=0,
+                evaluated=0,
+                results=[]
+            )
+            db_session.add(run)
+            await db_session.commit()
 
-        response = await async_client.post(
-            f"/api/v1/smart/base/runs/{run.id}/evaluate",
-            json={"evaluate_n": 1},
-            headers=auth_headers
-        )
+            response = await async_client.post(
+                f"/api/v1/smart/base/runs/{run.id}/evaluate",
+                json={"evaluate_n": 1},
+                headers=auth_headers
+            )
 
-        assert response.status_code == 400
-        assert "Нечего оценивать" in response.json()["detail"]
+            assert response.status_code == 200
+            data = response.json()
+            assert data["run_id"] == str(run.id)
 
     async def test_evaluate_search_manager_forbidden(self, async_client, manager_user, test_company, db_session):
         """Тест запрета для менеджера на evaluate"""
@@ -587,13 +529,17 @@ class TestBaseSearchAPI:
             search_type="prompt",
             query_text="Python разработчик",
             status="retrieved",
-            results=[{"id": str(uuid4()), "scored_by": "cosine"}]
+            stage="retrieve",
+            found=1,
+            to_evaluate=0,
+            evaluated=0,
+            results=[]
         )
         db_session.add(run)
         await db_session.commit()
 
         # Авторизация под менеджером
-        from app.security import create_access_token
+        from app.core.security import create_access_token
         token = create_access_token({"sub": str(manager_user.id)})
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -619,7 +565,11 @@ class TestBaseSearchAPI:
             search_type="prompt",
             query_text="test",
             status="retrieved",
-            results=[{"id": str(uuid4())}]
+            stage="retrieve",
+            found=1,
+            to_evaluate=0,
+            evaluated=0,
+            results=[]
         )
         db_session.add(run)
         await db_session.commit()

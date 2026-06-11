@@ -292,8 +292,7 @@ export interface BaseSearchRequest {
 
 export interface BaseSearchRetrieveResponse {
   run_id: string;
-  found: number;
-  candidates: BaseSearchCandidate[];
+  total: number;
 }
 
 export interface BaseSearchResponse {

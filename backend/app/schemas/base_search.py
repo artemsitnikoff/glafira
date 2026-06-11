@@ -65,10 +65,10 @@ class BaseSearchResponse(BaseModel):
 
 
 class BaseSearchRetrieveResponse(BaseModel):
-    """Ответ фазы RETRIEVE (синхронной)"""
+    """Ответ фазы RETRIEVE (лёгкой): прогон создан, фронт спрашивает N для AI-оценки.
+    total — размер базы, доступной для семантического поиска (проиндексированные резюме)."""
     run_id: UUID
-    found: int
-    candidates: list[BaseSearchCandidate]
+    total: int
 
 
 class BaseEvaluateRequest(BaseModel):
