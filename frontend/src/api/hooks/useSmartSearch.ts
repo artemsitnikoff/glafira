@@ -275,6 +275,7 @@ export interface BaseSearchCandidate {
   all_skills: string[];
   match_percent: number | null;
   has_pdn: boolean;
+  scored_by: 'cosine' | 'ai';
 }
 
 export interface BaseSearchRequest {
@@ -289,13 +290,19 @@ export interface BaseSearchRequest {
   salary_to?: number;
 }
 
+export interface BaseSearchRetrieveResponse {
+  run_id: string;
+  found: number;
+  candidates: BaseSearchCandidate[];
+}
+
 export interface BaseSearchResponse {
   run_id: string;
 }
 
 export interface BaseSearchRunStatus {
   id: string;
-  status: 'running' | 'done' | 'error';
+  status: 'retrieved' | 'running' | 'done' | 'error';
   stage: 'retrieve' | 'rerank' | 'done' | null;
   found: number;
   to_evaluate: number;
@@ -327,12 +334,22 @@ export interface BaseCountResponse {
   count: number;
 }
 
-// Поиск по своей базе
+// Поиск по своей базе (фаза 1 - retrieve)
 export function useSmartBaseSearch() {
-  return useMutation<BaseSearchResponse, Error, BaseSearchRequest>({
-    mutationFn: async (request): Promise<BaseSearchResponse> => {
+  return useMutation<BaseSearchRetrieveResponse, Error, BaseSearchRequest>({
+    mutationFn: async (request): Promise<BaseSearchRetrieveResponse> => {
       const response = await api.post('/smart/base/search', request);
-      return response.data as BaseSearchResponse;
+      return response.data as BaseSearchRetrieveResponse;
+    },
+  });
+}
+
+// Оценка AI (фаза 2 - evaluate)
+export function useSmartBaseEvaluate() {
+  return useMutation<{ run_id: string }, Error, { runId: string; evaluateN: number }>({
+    mutationFn: async ({ runId, evaluateN }) => {
+      const response = await api.post(`/smart/base/runs/${runId}/evaluate`, { evaluate_n: evaluateN });
+      return response.data as { run_id: string };
     },
   });
 }

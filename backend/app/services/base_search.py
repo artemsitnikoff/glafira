@@ -26,6 +26,19 @@ from ..services.candidate_format import _compute_age, _compute_full_name
 logger = logging.getLogger(__name__)
 
 
+def cosine_to_percent(distance: float) -> int:
+    """
+    Конвертирует косинусную дистанцию в процент совпадения
+
+    Args:
+        distance: Косинусная дистанция (0.0 - идеальное совпадение, 1.0 - полная противоположность)
+
+    Returns:
+        int: Процент совпадения (0-100)
+    """
+    return max(0, min(100, round((1.0 - distance) * 100)))
+
+
 async def parse_query_to_criteria(query: str) -> dict:
     """
     Парсит текстовый запрос в критерии поиска через LLM
@@ -550,6 +563,68 @@ async def vector_retrieve(
 
     except Exception as e:
         logger.error(f"Ошибка векторного поиска: {e}")
+        return []
+
+
+async def vector_retrieve_scored(
+    session: AsyncSession,
+    company_id: UUID,
+    query_text: str,
+    k: int = GLAFIRA_RETRIEVE_CAP
+) -> list[tuple[UUID, float]]:
+    """
+    Векторный поиск кандидатов с возвратом дистанций
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        query_text: Текст запроса
+        k: Количество ближайших кандидатов
+
+    Returns:
+        list[tuple[UUID, float]]: Список пар (candidate_id, distance), отсортированных по возрастанию дистанции
+    """
+    try:
+        # Создаём эмбеддинг для запроса
+        query_embedding = await embed_query(query_text)
+        if not query_embedding:
+            logger.warning("Не удалось создать эмбеддинг для запроса, возвращаем пустой список")
+            return []
+
+        # Проверяем наличие эмбеддингов в базе
+        count_stmt = select(func.count(CandidateEmbedding.id)).where(
+            CandidateEmbedding.company_id == company_id
+        )
+        count_result = await session.execute(count_stmt)
+        embeddings_count = count_result.scalar_one()
+
+        if embeddings_count == 0:
+            logger.info(f"Нет эмбеддингов для компании {company_id}, возвращаем пустой список")
+            return []
+
+        # Выполняем векторный поиск с возвратом дистанций
+        stmt = (
+            select(
+                CandidateEmbedding.candidate_id,
+                CandidateEmbedding.embedding.cosine_distance(query_embedding).label('distance')
+            )
+            .join(Candidate, Candidate.id == CandidateEmbedding.candidate_id)
+            .where(
+                CandidateEmbedding.company_id == company_id,
+                Candidate.deleted_at.is_(None),
+            )
+            .order_by(CandidateEmbedding.embedding.cosine_distance(query_embedding))
+            .limit(k)
+        )
+
+        result = await session.execute(stmt)
+        candidates_with_distances = [(row.candidate_id, row.distance) for row in result.fetchall()]
+
+        logger.info(f"Векторный поиск нашёл {len(candidates_with_distances)} кандидатов с дистанциями для компании {company_id}")
+        return candidates_with_distances
+
+    except Exception as e:
+        logger.error(f"Ошибка векторного поиска с дистанциями: {e}")
         return []
 
 
@@ -1102,7 +1177,218 @@ async def get_embeddings_index_status(
     }
 
 
-# === АСИНХРОННЫЙ ПОИСК (паттерн как smart_search) ===
+# === ДВУХФАЗНЫЙ ПОИСК (новая версия) ===
+
+async def retrieve_base(
+    session: AsyncSession,
+    company_id: UUID,
+    search_type: str,
+    query: str,
+    vacancy_id: Optional[UUID],
+    override: Optional[dict] = None
+) -> dict:
+    """
+    Фаза RETRIEVE: синхронный поиск кандидатов (SQL + векторы)
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании
+        search_type: 'prompt' или 'vacancy'
+        query: Текст запроса
+        vacancy_id: ID вакансии (для search_type='vacancy')
+        override: Критерии поиска (отредактированные автофильтры)
+
+    Returns:
+        dict: {run_id, found, candidates}
+    """
+    # Получаем название вакансии и критерии для промпта
+    vacancy_title = None
+    query_echo = query
+    criteria = None
+
+    if search_type == "vacancy":
+        # Проверяем вакансию
+        vacancy_stmt = select(Vacancy.name).where(
+            Vacancy.id == vacancy_id,
+            Vacancy.company_id == company_id,
+            Vacancy.deleted_at.is_(None)
+        )
+        vacancy_result = await session.execute(vacancy_stmt)
+        vacancy_name = vacancy_result.scalar_one_or_none()
+        if not vacancy_name:
+            raise NotFoundError("Вакансия")
+
+        vacancy_title = vacancy_name
+        query_echo = vacancy_name
+
+        # Критерии: либо переданные (override), либо derive из вакансии
+        if override:
+            criteria = {
+                "role": override.get("role", ""),
+                "skills": override.get("skills", []),
+                "city": override.get("city", ""),
+                "salary_from": override.get("salary_from"),
+                "salary_to": override.get("salary_to"),
+            }
+        else:
+            filters = await derive_vacancy_filters(session, company_id, vacancy_id)
+            criteria = {
+                "role": filters.get("professional_role", ""),
+                "skills": filters.get("skills", []),
+                "city": filters.get("city", ""),
+                "salary_from": filters.get("salary_from"),
+                "salary_to": filters.get("salary_to"),
+            }
+
+    elif search_type == "prompt":
+        # Парсим запрос через LLM
+        criteria = await parse_query_to_criteria(query)
+
+    # Формируем query_for_vector
+    if search_type == "prompt":
+        query_for_vector = query
+    else:  # vacancy
+        query_for_vector = f"{criteria.get('role', '')} {' '.join(criteria.get('skills', []))} {criteria.get('city', '')}".strip()
+
+    # SQL-канал
+    sql_search_result = await search_base(
+        session, company_id,
+        role=criteria.get("role", ""),
+        skills=criteria.get("skills", []),
+        city=criteria.get("city", ""),
+        salary_from=criteria.get("salary_from"),
+        salary_to=criteria.get("salary_to")
+    )
+    # search_base отдаёт "id" уже как UUID-объект (НЕ строку) — оборачивать в UUID() нельзя (TypeError).
+    sql_candidate_ids = [candidate["id"] for candidate in sql_search_result["results"]]
+    logger.info(f"SQL-канал нашёл {len(sql_candidate_ids)} кандидатов")
+
+    # Вектор-канал
+    vector_candidates_with_distances = []
+    distance_map = {}
+    if query_for_vector:
+        try:
+            vector_candidates_with_distances = await vector_retrieve_scored(
+                session, company_id, query_for_vector, GLAFIRA_RETRIEVE_CAP
+            )
+            distance_map = {cand_id: distance for cand_id, distance in vector_candidates_with_distances}
+            logger.info(f"Векторный канал нашёл {len(vector_candidates_with_distances)} кандидатов")
+        except Exception as e:
+            logger.error(f"Ошибка векторного канала: {e}")
+
+    # Объединение: сначала вектор-кандидаты по возрастанию дистанции, затем SQL-only
+    vector_ids = [cand_id for cand_id, _ in vector_candidates_with_distances]
+    sql_only_ids = [cand_id for cand_id in sql_candidate_ids if cand_id not in distance_map]
+    shortlist_ids = vector_ids + sql_only_ids
+    shortlist_ids = shortlist_ids[:GLAFIRA_RETRIEVE_CAP]
+
+    if not shortlist_ids:
+        # Нет кандидатов - создаём пустой run
+        search_run = BaseSearchRun(
+            company_id=company_id,
+            search_type=search_type,
+            query_text=query,
+            vacancy_id=vacancy_id,
+            status="retrieved",
+            stage="retrieve",
+            query_echo=query_echo,
+            vacancy_title=vacancy_title,
+            criteria=criteria,
+            found=0,
+            to_evaluate=0,
+            evaluated=0,
+            results=[]
+        )
+        session.add(search_run)
+        await session.commit()
+        await session.refresh(search_run)
+
+        return {
+            "run_id": search_run.id,
+            "found": 0,
+            "candidates": []
+        }
+
+    # Загружаем полные данные кандидатов
+    candidates_data = await _load_candidates_for_rerank(session, company_id, shortlist_ids)
+
+    # Формируем результат-словари
+    results = []
+    for candidate_data in candidates_data:
+        candidate = candidate_data["candidate"]
+        candidate_skills = candidate_data["skills"]
+
+        # Подсчёт совпадающих навыков
+        matched_skills = []
+        skills = criteria.get("skills", [])
+        if skills:
+            for req_skill in skills:
+                for cand_skill in candidate_skills:
+                    if req_skill.lower() in cand_skill.skill.lower():
+                        matched_skills.append(cand_skill.skill)
+                        break
+
+        # Процент совпадения: косинус или overlap
+        if candidate.id in distance_map:
+            match_percent = cosine_to_percent(distance_map[candidate.id])
+        else:
+            # SQL-only кандидат
+            if skills:
+                match_percent = round(len(matched_skills) / len(skills) * 100)
+            else:
+                match_percent = None
+
+        results.append({
+            "id": str(candidate.id),
+            "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
+            "age": _compute_age(candidate.birth_date),
+            "last_position": candidate.last_position,
+            "last_company": candidate.last_company,
+            "last_period": candidate.last_period,
+            "city": candidate.city,
+            "ai_score": candidate.ai_score,
+            "source": candidate.source,
+            "salary_expectation": candidate.salary_expectation,
+            "matched_skills": matched_skills,
+            "all_skills": [skill.skill for skill in candidate_skills],
+            "match_percent": match_percent,
+            "has_pdn": candidate_data.get("has_pdn", False),
+            "scored_by": "cosine"
+        })
+
+    # Восстанавливаем порядок шорт-листа (косинус-ранжирование): _load_candidates_for_rerank
+    # делает WHERE id IN (...) и возвращает в произвольном порядке — иначе ранжирование теряется.
+    order = {str(cid): i for i, cid in enumerate(shortlist_ids)}
+    results.sort(key=lambda r: order.get(r["id"], len(order)))
+
+    # Создаём BaseSearchRun
+    search_run = BaseSearchRun(
+        company_id=company_id,
+        search_type=search_type,
+        query_text=query,
+        vacancy_id=vacancy_id,
+        status="retrieved",
+        stage="retrieve",
+        query_echo=query_echo,
+        vacancy_title=vacancy_title,
+        criteria=criteria,
+        found=len(shortlist_ids),
+        to_evaluate=0,
+        evaluated=0,
+        results=results
+    )
+    session.add(search_run)
+    await session.commit()
+    await session.refresh(search_run)
+
+    return {
+        "run_id": search_run.id,
+        "found": len(shortlist_ids),
+        "candidates": results
+    }
+
+
+# === СТАРЫЕ ФУНКЦИИ (одношаговый поиск) ===
 
 async def start_base_search(
     session: AsyncSession,
@@ -1407,17 +1693,21 @@ async def _rerank_candidates_with_progress(
     vacancy: Optional["Vacancy"],
     query_text: Optional[str],
     company_id: UUID,
-    run_id: UUID
+    run_id: UUID,
+    rerank_cap: Optional[int] = None
 ) -> list[dict]:
     """
-    Ранжирует кандидатов с помощью LLM с обновлением прогресса
+    Ранжирует кандидатов с помощью LLM с обновлением прогресса.
+    rerank_cap — сколько кандидатов реально оценить LLM (по умолчанию GLAFIRA_RERANK_CAP).
+    Фаза EVALUATE передаёт ВЫБРАННОЕ ПОЛЬЗОВАТЕЛЕМ N — иначе оценка молча резалась бы до 24.
     """
     if not candidates_data:
         return candidates_data
 
-    # Ограничиваем для rerank
-    rerank_candidates = candidates_data[:GLAFIRA_RERANK_CAP]
-    remaining_candidates = candidates_data[GLAFIRA_RERANK_CAP:]
+    # Ограничиваем для rerank (N задаётся вызовом; фаза EVALUATE передаёт выбор пользователя)
+    cap = rerank_cap if rerank_cap is not None else GLAFIRA_RERANK_CAP
+    rerank_candidates = candidates_data[:cap]
+    remaining_candidates = candidates_data[cap:]
 
     if not rerank_candidates:
         return candidates_data
@@ -1590,3 +1880,129 @@ async def sweep_orphaned_base_search_runs():
 
     except Exception as e:
         logger.warning(f"Ошибка очистки осиротевших поисков базы: {e}")
+
+
+async def _run_base_evaluate(run_id: UUID, company_id: UUID, n: int):
+    """
+    Фоновая задача фазы EVALUATE: LLM-оценка топ-N кандидатов
+    """
+    try:
+        # Загружаем run короткой сессией
+        async with AsyncSessionLocal() as session:
+            run = await session.get(BaseSearchRun, run_id)
+            if not run:
+                logger.error(f"BaseSearchRun {run_id} не найден")
+                return
+
+            current_results = run.results or []
+            criteria = run.criteria or {}
+            vacancy_id = run.vacancy_id
+            query_echo = run.query_echo
+
+            if not current_results:
+                logger.warning(f"BaseSearchRun {run_id} не имеет результатов для оценки")
+                # Гарантия выхода из running (эндпоинт уже выставил running): финал done без оценки
+                await _finalize_base_search(run_id, "done", "done", results=[], evaluated=0)
+                return
+
+            # Берём топ-N и хвост
+            top_results = current_results[:n]
+            rest_results = current_results[n:]
+            top_ids = [UUID(r['id']) for r in top_results]
+
+        # Короткой сессией: загружаем данные кандидатов и вакансию
+        async with AsyncSessionLocal() as session:
+            candidates_data = await _load_candidates_for_rerank(session, company_id, top_ids)
+
+            vacancy = None
+            if vacancy_id:
+                vacancy_stmt = select(Vacancy).where(
+                    Vacancy.id == vacancy_id,
+                    Vacancy.company_id == company_id,
+                    Vacancy.deleted_at.is_(None)
+                )
+                vacancy_result = await session.execute(vacancy_stmt)
+                vacancy = vacancy_result.scalar_one_or_none()
+
+        # LLM-оценка БЕЗ открытой сессии. rerank_cap=len(candidates_data) — оцениваем
+        # ВСЕХ загруженных (= выбранное пользователем N), а не дефолтные 24.
+        query_for_llm = query_echo if not vacancy else None
+        ranked_candidates = await _rerank_candidates_with_progress(
+            candidates_data, vacancy, query_for_llm, company_id, run_id,
+            rerank_cap=len(candidates_data)
+        )
+
+        # Собираем AI-словари из ranked
+        ai_results = []
+        evaluated_count = 0
+        for candidate_data in ranked_candidates:
+            candidate = candidate_data["candidate"]
+            candidate_skills = candidate_data["skills"]
+
+            # Подсчёт совпадающих навыков
+            matched_skills = []
+            skills = criteria.get("skills", [])
+            if skills:
+                for req_skill in skills:
+                    for cand_skill in candidate_skills:
+                        if req_skill.lower() in cand_skill.skill.lower():
+                            matched_skills.append(cand_skill.skill)
+                            break
+
+            # Процент совпадения и scored_by
+            llm_score = candidate_data.get("llm_score")
+            if llm_score is not None:
+                match_percent = llm_score
+                scored_by = "ai"
+                evaluated_count += 1
+            else:
+                # Fallback к оригинальному проценту из результата
+                original_result = next((r for r in top_results if r['id'] == str(candidate.id)), None)
+                if original_result:
+                    match_percent = original_result.get('match_percent')
+                else:
+                    # Если нет оригинального - вычисляем overlap
+                    if skills:
+                        match_percent = round(len(matched_skills) / len(skills) * 100)
+                    else:
+                        match_percent = None
+                scored_by = "cosine"
+
+            ai_results.append({
+                "id": str(candidate.id),
+                "full_name": _compute_full_name(candidate.last_name, candidate.first_name, candidate.middle_name),
+                "age": _compute_age(candidate.birth_date),
+                "last_position": candidate.last_position,
+                "last_company": candidate.last_company,
+                "last_period": candidate.last_period,
+                "city": candidate.city,
+                "ai_score": candidate.ai_score,
+                "source": candidate.source,
+                "salary_expectation": candidate.salary_expectation,
+                "matched_skills": matched_skills,
+                "all_skills": [skill.skill for skill in candidate_skills],
+                "match_percent": match_percent,
+                "has_pdn": candidate_data.get("has_pdn", False),
+                "scored_by": scored_by
+            })
+
+        # Сортируем AI-оценённых по убыванию match_percent, затем добавляем хвост
+        ai_scored = [r for r in ai_results if r["scored_by"] == "ai"]
+        ai_scored.sort(key=lambda x: x["match_percent"] or 0, reverse=True)
+
+        cosine_scored = [r for r in ai_results if r["scored_by"] == "cosine"]
+
+        final_results = ai_scored + cosine_scored + rest_results
+
+        # Финализируем
+        await _finalize_base_search(
+            run_id, "done", "done",
+            results=final_results,
+            evaluated=evaluated_count
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка на этапе evaluate: {e}")
+        await _finalize_base_search(run_id, "error", "evaluate", error=str(e)[:500])
+    finally:
+        _active_tasks.discard(asyncio.current_task())

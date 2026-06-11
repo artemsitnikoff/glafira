@@ -11,7 +11,9 @@ from app.services.base_search import (
     create_search_run,
     increment_added_to_funnel,
     get_candidates_count,
-    start_base_search,
+    retrieve_base,
+    cosine_to_percent,
+    vector_retrieve_scored,
     get_base_search_run_status
 )
 from app.models import Candidate, CandidateSkill, BaseSearchRun, Vacancy
@@ -513,3 +515,128 @@ class TestBaseSearch:
         # Пытаемся получить чужой run от нашей компании
         run = await get_base_search_run_status(db_session, other_run.id, test_company.id)
         assert run is None  # Должны получить None из-за изоляции
+
+
+class TestNewFunctions:
+    """Тесты новых функций двухфазного поиска"""
+
+    def test_cosine_to_percent(self):
+        """Тест конвертации косинуса в процент"""
+        assert cosine_to_percent(0.0) == 100  # Идеальное совпадение
+        assert cosine_to_percent(1.0) == 0    # Полная противоположность
+        assert cosine_to_percent(0.5) == 50   # 50% совпадения
+        assert cosine_to_percent(0.2) == 80   # 80% совпадения
+        assert cosine_to_percent(-0.1) == 100 # Обрезка снизу
+        assert cosine_to_percent(1.1) == 0    # Обрезка сверху
+
+    @pytest.mark.asyncio
+    async def test_retrieve_base_prompt(self, db_session, test_company, admin_user):
+        """Тест фазы RETRIEVE для поиска по промпту"""
+        # Мокаем LLM
+        with patch('app.services.base_search.parse_query_to_criteria') as mock_parse, \
+             patch('app.services.base_search.search_base') as mock_search, \
+             patch('app.services.base_search.vector_retrieve_scored') as mock_vector, \
+             patch('app.services.base_search._load_candidates_for_rerank') as mock_load:
+
+            # Настройка моков
+            mock_parse.return_value = {
+                "role": "разработчик",
+                "skills": ["Python", "FastAPI"],
+                "city": "Москва",
+                "salary_from": 100000,
+                "salary_to": None
+            }
+
+            mock_search.return_value = {
+                "total": 2,
+                "results": [
+                    {"id": "550e8400-e29b-41d4-a716-446655440001"},
+                    {"id": "550e8400-e29b-41d4-a716-446655440002"}
+                ]
+            }
+
+            mock_vector.return_value = [
+                (uuid4(), 0.2),  # 80% cosine
+                (uuid4(), 0.4),  # 60% cosine
+            ]
+
+            # Мок данных кандидатов
+            mock_candidate = AsyncMock()
+            mock_candidate.id = uuid4()
+            mock_candidate.last_name = "Иванов"
+            mock_candidate.first_name = "Иван"
+            mock_candidate.middle_name = "Иванович"
+            mock_candidate.birth_date = None
+            mock_candidate.last_position = "Python Developer"
+            mock_candidate.last_company = "Tech Corp"
+            mock_candidate.last_period = "2023-2024"
+            mock_candidate.city = "Москва"
+            mock_candidate.ai_score = 85
+            mock_candidate.source = "hh"
+            mock_candidate.salary_expectation = 120000
+
+            mock_load.return_value = [{
+                "candidate": mock_candidate,
+                "skills": [AsyncMock(skill="Python"), AsyncMock(skill="FastAPI")],
+                "has_pdn": True
+            }]
+
+            result = await retrieve_base(
+                db_session,
+                test_company.id,
+                "prompt",
+                "Python разработчик в Москве",
+                None,
+                None
+            )
+
+            # Проверки
+            assert "run_id" in result
+            assert "found" in result
+            assert "candidates" in result
+            assert len(result["candidates"]) > 0
+
+            # Проверяем что кандидат имеет scored_by = "cosine"
+            candidate = result["candidates"][0]
+            assert candidate["scored_by"] == "cosine"
+            assert "match_percent" in candidate
+
+    @pytest.mark.asyncio
+    async def test_retrieve_base_vacancy(self, db_session, test_company, admin_user):
+        """Тест фазы RETRIEVE для поиска по вакансии"""
+        # Создаём тестовую вакансию
+        vacancy = Vacancy(
+            company_id=test_company.id,
+            name="Python Developer",
+            description="Требуется Python разработчик",
+            status="published"
+        )
+        db_session.add(vacancy)
+        await db_session.flush()
+
+        with patch('app.services.base_search.derive_vacancy_filters') as mock_derive, \
+             patch('app.services.base_search.search_base') as mock_search, \
+             patch('app.services.base_search._load_candidates_for_rerank') as mock_load:
+
+            mock_derive.return_value = {
+                "professional_role": "разработчик",
+                "skills": ["Python"],
+                "city": "",
+                "salary_from": None,
+                "salary_to": None
+            }
+
+            mock_search.return_value = {"total": 0, "results": []}
+            mock_load.return_value = []
+
+            result = await retrieve_base(
+                db_session,
+                test_company.id,
+                "vacancy",
+                "Python Developer",
+                vacancy.id,
+                None
+            )
+
+            assert result["found"] == 0
+            assert result["candidates"] == []

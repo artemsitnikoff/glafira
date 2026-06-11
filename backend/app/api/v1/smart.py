@@ -1,5 +1,6 @@
 """API умного подбора кандидатов"""
 
+import asyncio
 import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -8,9 +9,9 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-from ...database import get_db
+from ...database import get_db, AsyncSessionLocal
 from ...deps import get_current_user, get_current_company_id
-from ...models import User
+from ...models import User, BaseSearchRun
 from ...schemas.smart import (
     SmartAccessResponse,
     SmartVacancyItem,
@@ -29,6 +30,8 @@ from ...schemas.smart import (
 from ...schemas.base_search import (
     BaseSearchRequest,
     BaseSearchResponse,
+    BaseSearchRetrieveResponse,
+    BaseEvaluateRequest,
     BaseSearchRunResponse,
     BaseSearchRunStatus,
     BaseSearchCountResponse,
@@ -53,7 +56,9 @@ from ...services.base_search import (
     get_candidates_count,
     reindex_all_embeddings,
     get_embeddings_index_status,
-    start_base_search,
+    retrieve_base,
+    _run_base_evaluate,
+    _active_tasks,
     get_base_search_run_status
 )
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError
@@ -218,14 +223,14 @@ async def smart_invite(
 
 # === ПОИСК ПО СОБСТВЕННОЙ БАЗЕ ===
 
-@router.post("/base/search", response_model=BaseSearchResponse)
+@router.post("/base/search", response_model=BaseSearchRetrieveResponse)
 async def base_search_candidates(
     request: BaseSearchRequest,
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
     current_user: User = Depends(get_current_user),
 ):
-    """Поиск кандидатов в собственной базе (асинхронно)"""
+    """Поиск кандидатов в собственной базе (фаза RETRIEVE - синхронно)"""
     # RBAC: manager запрещён
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
@@ -248,8 +253,8 @@ async def base_search_candidates(
             "salary_to": request.salary_to,
         }
 
-    # Запускаем асинхронный поиск
-    run_id = await start_base_search(
+    # Запускаем синхронный retrieve
+    result = await retrieve_base(
         session,
         company_id,
         request.search_type,
@@ -258,7 +263,11 @@ async def base_search_candidates(
         override
     )
 
-    return BaseSearchResponse(run_id=run_id)
+    return BaseSearchRetrieveResponse(
+        run_id=result["run_id"],
+        found=result["found"],
+        candidates=result["candidates"]
+    )
 
 
 @router.get("/base/runs/{run_id}", response_model=BaseSearchRunStatus)
@@ -299,6 +308,53 @@ async def get_base_search_run_status_endpoint(
         vacancy_title=run.vacancy_title,
         error=run.error
     )
+
+
+@router.post("/base/runs/{run_id}/evaluate", response_model=BaseSearchResponse)
+async def evaluate_base_search_candidates(
+    run_id: UUID,
+    request: BaseEvaluateRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Запуск фазы EVALUATE: AI-оценка топ-N кандидатов (асинхронно)"""
+    # RBAC: manager запрещён
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    # Загружаем run (company-scoped)
+    run = await get_base_search_run_status(session, run_id, company_id)
+    if not run:
+        raise NotFoundError("Поиск")
+
+    results = run.results or []
+    if not results:
+        raise ValidationError("Нечего оценивать")
+
+    # Разрешаем при status in ('retrieved','done') (повторная оценка ок)
+    if run.status not in ('retrieved', 'done'):
+        raise ValidationError("Поиск должен быть в статусе 'retrieved' или 'done'")
+
+    # Определяем количество для оценки
+    n = min(request.evaluate_n, len(results))
+
+    # Короткой сессией: меняем статус на running
+    async with AsyncSessionLocal() as short_session:
+        db_run = await short_session.get(BaseSearchRun, run_id)
+        if db_run and db_run.company_id == company_id:
+            db_run.status = "running"
+            db_run.stage = "rerank"
+            db_run.to_evaluate = n
+            db_run.evaluated = 0
+            await short_session.commit()
+
+    # Спавн async-задачи
+    task = asyncio.create_task(_run_base_evaluate(run_id, company_id, n))
+    _active_tasks.add(task)
+    task.add_done_callback(lambda t: _active_tasks.discard(t))
+
+    return BaseSearchResponse(run_id=run_id)
 
 
 @router.get("/base/runs", response_model=list[BaseSearchRunResponse])

@@ -54,6 +54,7 @@ class BaseSearchCandidate(BaseModel):
     all_skills: list[str]
     match_percent: Optional[int]
     has_pdn: bool
+    scored_by: str = 'cosine'
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,6 +62,18 @@ class BaseSearchCandidate(BaseModel):
 class BaseSearchResponse(BaseModel):
     """Ответ поиска по базе (теперь возвращает только run_id)"""
     run_id: UUID
+
+
+class BaseSearchRetrieveResponse(BaseModel):
+    """Ответ фазы RETRIEVE (синхронной)"""
+    run_id: UUID
+    found: int
+    candidates: list[BaseSearchCandidate]
+
+
+class BaseEvaluateRequest(BaseModel):
+    """Запрос фазы EVALUATE (асинхронной)"""
+    evaluate_n: int = Field(..., ge=1)
 
 
 class BaseSearchRunResponse(BaseModel):

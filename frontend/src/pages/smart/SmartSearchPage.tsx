@@ -15,6 +15,7 @@ import {
   useSmartAreaSuggest,
   useSmartInvite,
   useSmartBaseSearch,
+  useSmartBaseEvaluate,
   useSmartBaseHistory,
   useSmartBaseCount,
   useMarkBaseRunAdded,
@@ -28,8 +29,8 @@ import {
   type SmartAreaSuggestItem,
   type BaseSearchCandidate,
   type BaseSearchRequest,
-  type BaseSearchRunStatus,
   type BaseSearchRunItem,
+  type BaseSearchRetrieveResponse,
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
 import './smart-search.css';
@@ -1954,7 +1955,7 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 }) {
   const [byVacancy, setByVacancy] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const [phase, setPhase] = useState<'build' | 'running' | 'done'>('build');
+  const [phase, setPhase] = useState<'build' | 'results' | 'evaluating'>('build');
 
   // режим вакансии
   const [vacId, setVacId] = useState<string | null>(null);
@@ -1969,25 +1970,28 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 
   // результаты
   const [runId, setRunId] = useState<string | null>(null);
+  const [retrieved, setRetrieved] = useState<BaseSearchRetrieveResponse | null>(null);
+  const [evalN, setEvalN] = useState(20);
   const [added, setAdded] = useState<Set<string>>(new Set());
 
   // хуки
   const searchMutation = useSmartBaseSearch();
+  const evaluateMutation = useSmartBaseEvaluate();
   const { data: baseHistory = [] } = useSmartBaseHistory();
   const markAdded = useMarkBaseRunAdded();
   const deriveFilters = useDeriveVacancyFilters();
-  const { data: runData } = useSmartBaseRun(runId, phase === 'running' || phase === 'done');
+  const { data: runData } = useSmartBaseRun(runId, phase === 'evaluating');
 
   // модал назначения
   const [assignCandidateId, setAssignCandidateId] = useState<string | null>(null);
 
   const vac = useMemo(() => vacancies.find(v => v.id === vacId) || null, [vacancies, vacId]);
 
-  // Обработчик завершения запуска
+  // Обработчик завершения оценки
   useEffect(() => {
-    if (runData && phase === 'running') {
+    if (runData && phase === 'evaluating') {
       if (runData.status === 'done' || runData.status === 'error') {
-        setPhase('done');
+        setPhase('results');
       }
     }
   }, [runData, phase]);
@@ -2037,19 +2041,31 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
         }
       : { search_type: 'prompt', query: prompt.trim() };
 
-    setPhase('running');
-
     try {
       const response = await searchMutation.mutateAsync(request);
       setRunId(response.run_id);
+      setRetrieved(response);
+      setEvalN(Math.min(response.found || 20, 20) || 1);
+      setPhase('results');
     } catch (error) {
-      setPhase('build');
+      // Ошибка остается в build, показывается через searchMutation.error
+    }
+  };
+
+  const startEvaluate = async () => {
+    if (!runId) return;
+    setPhase('evaluating');
+    try {
+      await evaluateMutation.mutateAsync({ runId, evaluateN: evalN });
+    } catch {
+      setPhase('results');
     }
   };
 
   const resetSearch = () => {
     setPhase('build');
     setRunId(null);
+    setRetrieved(null);
     setAdded(new Set());
   };
 
@@ -2085,23 +2101,17 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
     }
   };
 
-  // Выполнение
-  if (phase === 'running') {
-    const st = runData;
-    const isRerank = st?.stage === 'rerank';
-    const evald = st?.evaluated ?? 0;
-    const total = st?.to_evaluate ?? 0;
-    const pct = isRerank && total > 0 ? 12 + Math.min(1, evald / total) * 88 : 12;
+  // Выполнение оценки
+  if (phase === 'evaluating') {
+    const evald = runData?.evaluated ?? 0;
+    const total = runData?.to_evaluate ?? 0;
+    const pct = total > 0 ? 12 + Math.min(1, evald / total) * 88 : 12;
     return (
       <div className="ss-run">
         <div className="ss-run-dancer">💃</div>
-        <div className="ss-run-phase">
-          {isRerank ? 'Глафира оценивает кандидатов…' : 'Глафира читает вашу базу…'}
-        </div>
+        <div className="ss-run-phase">Глафира оценивает кандидатов…</div>
         <div className="ss-run-detail">
-          {isRerank && total > 0
-            ? <>AI-матчинг <span className="t-mono">{ssFmt(evald)}</span> из <span className="t-mono">{ssFmt(total)}</span></>
-            : 'сопоставляет кандидатов по критериям'}
+          AI-матчинг <span className="t-mono">{ssFmt(evald)}</span> из <span className="t-mono">{ssFmt(total)}</span>
         </div>
         <div className="ss-run-bar"><span style={{ width: `${pct}%` }} /></div>
       </div>
@@ -2109,22 +2119,43 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
   }
 
   // Результаты
-  if (phase === 'done' && runData?.status === 'error') {
-    return (
-      <div className="ssb-res-head">
-        <div className="error-banner" role="alert">{runData.error || 'Ошибка поиска'}</div>
-        <button className="btn btn-secondary btn-sm" onClick={resetSearch}>
-          <Icon name="refresh-cw" size={14}/> Новый поиск
-        </button>
-      </div>
-    );
-  }
+  if (phase === 'results') {
+    // Ошибка поиска
+    if (searchMutation.error) {
+      return (
+        <div className="ssb-res-head">
+          <div className="error-banner" role="alert">{searchMutation.error.message || 'Ошибка поиска'}</div>
+          <button className="btn btn-secondary btn-sm" onClick={resetSearch}>
+            <Icon name="refresh-cw" size={14}/> Новый поиск
+          </button>
+        </div>
+      );
+    }
 
-  if (phase === 'done' && runData?.status === 'done') {
+    // Ошибка оценки
+    if (runData?.status === 'error') {
+      return (
+        <div className="ssb-res-head">
+          <div className="error-banner" role="alert">{runData.error || 'Ошибка оценки'}</div>
+          <button className="btn btn-secondary btn-sm" onClick={resetSearch}>
+            <Icon name="refresh-cw" size={14}/> Новый поиск
+          </button>
+        </div>
+      );
+    }
+
+    const candidates = (runData?.status === 'done' ? runData.results : retrieved?.candidates) || [];
+    const found = retrieved?.found ?? candidates.length;
+    const vacancyTitle = byVacancy ? vac?.title || null : null;
+    const queryEcho = byVacancy ? null : prompt.trim();
+
     return (
       <div>
         <SSBaseResults
-          run={runData}
+          candidates={candidates}
+          found={found}
+          vacancyTitle={vacancyTitle}
+          queryEcho={queryEcho}
           added={added}
           onToggleAdd={handleAddToVacancy}
           onOpen={onOpenCandidate}
@@ -2132,10 +2163,42 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
           onGoFunnel={onGoFunnel}
         />
 
+        {/* Панель оценки AI */}
+        <div className="ss-field" style={{ marginTop: '24px', padding: '16px', background: 'var(--bg-2)', borderRadius: '8px' }}>
+          <div className="ss-field-label">Оценить через AI топ-N кандидатов</div>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px' }}>
+            <input
+              className="ss-input"
+              type="number"
+              min="1"
+              max={found}
+              value={evalN}
+              onChange={(e) => setEvalN(Number(e.target.value) || 1)}
+              style={{ maxWidth: '100px' }}
+            />
+            <button
+              className="btn btn-primary"
+              disabled={evaluateMutation.isPending || found === 0}
+              onClick={startEvaluate}
+            >
+              <Icon name="sparkles" size={14} />
+              Оценить AI
+            </button>
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--fg-3)', marginTop: '8px' }}>
+            AI прочитает резюме топ-N и поставит балл — это займёт время и расходует токены.
+          </div>
+          {runData?.status === 'done' && (runData.evaluated || 0) > 0 && (
+            <div style={{ fontSize: '13px', color: 'var(--accent)', marginTop: '4px' }}>
+              Оценено {runData.evaluated} кандидатов
+            </div>
+          )}
+        </div>
+
         {assignCandidateId && (
           <AssignToVacancyModal
             candidateId={assignCandidateId}
-            candidateName={runData.results.find(r => r.id === assignCandidateId)?.full_name || 'Кандидат'}
+            candidateName={candidates.find(r => r.id === assignCandidateId)?.full_name || 'Кандидат'}
             isOpen={true}
             onClose={() => setAssignCandidateId(null)}
             onSuccess={handleAssignSuccess}
@@ -2331,29 +2394,30 @@ function SSBaseFlow({ vacancies, onOpenCandidate, onGoFunnel }: {
 }
 
 // Результаты по базе
-function SSBaseResults({ run, added, onToggleAdd, onOpen, onReset, onGoFunnel }: {
-  run: BaseSearchRunStatus;
+function SSBaseResults({ candidates, found, vacancyTitle, queryEcho, added, onToggleAdd, onOpen, onReset, onGoFunnel }: {
+  candidates: BaseSearchCandidate[];
+  found: number;
+  vacancyTitle: string | null;
+  queryEcho: string | null;
   added: Set<string>;
   onToggleAdd: (candidate: BaseSearchCandidate) => void;
   onOpen: (candidateId: string) => void;
   onReset: () => void;
   onGoFunnel: () => void;
 }) {
-  const results = run.results;
-  const hasSkillCrit = (run.criteria?.skills?.length ?? 0) > 0;
-  const exact = !hasSkillCrit || results.some(r => r.matched_skills.length > 0);
+  const hasSkillResults = candidates.some(r => r.matched_skills.length > 0);
 
   return (
     <div>
       <div className="ssb-res-head">
         <div className="ssb-res-check"><Icon name="check" size={22} /></div>
         <div className="ssb-res-head-text">
-          <h2>Нашлось {results.length} {results.length === 1 ? 'кандидат' : results.length <= 4 ? 'кандидата' : 'кандидатов'} в базе</h2>
+          <h2>Нашли {found} {found === 1 ? 'кандидата' : found <= 4 ? 'кандидата' : 'кандидатов'} в базе</h2>
           <div className="ssb-res-sub">
-            {run.vacancy_title
-              ? <>под вакансию «{run.vacancy_title}»</>
-              : <>по запросу «{run.query_echo}»</>}
-            {!exact && <span className="ssb-res-flag"> · точных совпадений нет — показаны ближайшие по AI-баллу</span>}
+            {vacancyTitle
+              ? <>под вакансию «{vacancyTitle}»</>
+              : <>по запросу «{queryEcho}»</>}
+            {!hasSkillResults && <span className="ssb-res-flag"> · точных совпадений нет — показаны ближайшие</span>}
           </div>
         </div>
         <button className="btn btn-secondary btn-sm" onClick={onReset}>
@@ -2362,10 +2426,11 @@ function SSBaseResults({ run, added, onToggleAdd, onOpen, onReset, onGoFunnel }:
       </div>
 
       <div className="ssb-res-list">
-        {results.map(c => {
+        {candidates.map(c => {
           const isAdded = added.has(c.id);
           const relColor = c.match_percent != null && c.match_percent >= 80 ? 'green' :
                           c.match_percent != null && c.match_percent >= 60 ? 'blue' : 'gray';
+
           return (
             <div key={c.id} className="ssb-row">
               <Avatar name={c.full_name} size="md" />
@@ -2373,7 +2438,9 @@ function SSBaseResults({ run, added, onToggleAdd, onOpen, onReset, onGoFunnel }:
                 <div className="ssb-row-name-line">
                   <span className="ssb-row-name">{c.full_name}</span>
                   {c.match_percent != null && (
-                    <span className={`ssb-rel ssb-rel-${relColor}`}>{c.match_percent}% совпадение</span>
+                    <span className={`ssb-rel ssb-rel-${relColor}`}>
+                      {c.match_percent}% {c.scored_by === 'ai' ? 'AI-оценка' : 'близость'}
+                    </span>
                   )}
                 </div>
                 <div className="ssb-row-meta">
