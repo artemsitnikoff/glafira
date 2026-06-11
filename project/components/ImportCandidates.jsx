@@ -396,61 +396,117 @@ function ImpStepper({ source, phase }) {
 }
 
 // =====================================================================
-// ШАГ «Источник» — развилка: Файл или Поток
+// ШАГ «Источник» — ХАБ ИСТОЧНИКОВ: импортируйте кандидатов отовсюду
+// 4 секции, ~15 источников. Работают: Файл, Поток. Остальные — «Скоро».
 // =====================================================================
+// status: 'live' (работает) | 'soon' (заглушка)
+// api:    'live' (канал работает сейчас) | 'info' (канал подтверждён, готовится) | null
+const IMP_SOURCES = [
+  {
+    id:'file', label:'Файл', sub:null,
+    items:[
+      { key:'file', icon:'download', avBg:'#1F8A5B', name:'Excel-файл',
+        desc:'Загрузите выгрузку из любой системы', status:'live', api:null, action:'file' },
+    ],
+  },
+  {
+    id:'ats', label:'Из другой ATS', sub:'Переезжайте — перенесём кандидатов',
+    items:[
+      { key:'potok',    av:'П',  avBg:'#E8543C', name:'Поток',      desc:'Импорт по API-токену',        status:'live', api:'live', action:'potok' },
+      { key:'huntflow', av:'Х',  avBg:'#1FA07A', name:'Хантфлоу',   desc:'Перенос кандидатов и резюме', status:'soon', api:null },
+      { key:'talantix', av:'T',  avBg:'#2F5FD0', name:'Talantix',   desc:'Перенос кандидатов и резюме', status:'soon', api:null },
+      { key:'sber',     av:'С',  avBg:'#21A038', name:'СберПодбор', desc:'Перенос кандидатов и резюме', status:'soon', api:null, cap:'есть экспорт CSV' },
+    ],
+  },
+  {
+    id:'boards', label:'С джоб-бордов', sub:'Отклики и резюме с площадок',
+    items:[
+      { key:'superjob', av:'SJ', avBg:'#E63329', name:'SuperJob',     desc:'Отклики и база резюме', status:'soon', api:'info' },
+      { key:'avito',    av:'А',  avBg:'#0AA3F5', name:'Авито Работа', desc:'Отклики с площадки',    status:'soon', api:'info' },
+      { key:'rabota',   av:'Р',  avBg:'#E2231A', name:'Работа.ру',    desc:'Отклики и резюме',      status:'soon', api:'info' },
+      { key:'zarplata', av:'З',  avBg:'#F26A21', name:'Зарплата.ру',  desc:'Отклики и резюме',      status:'soon', api:'info' },
+      { key:'habr',     av:'ХК', avBg:'#5F8FA8', name:'Хабр Карьера', desc:'Отклики и резюме',      status:'soon', api:'info', cap:'IT-специалисты' },
+    ],
+  },
+  {
+    id:'niche', label:'Нишевые источники', sub:'Специалисты по отраслям',
+    items:[
+      { key:'profi',       av:'П',  avBg:'#E3A008', name:'Профи.ру',     desc:'Специалисты услуг',    status:'soon', api:'info', cap:'3 млн+ специалистов услуг' },
+      { key:'prodoctorov', av:'ПД', avBg:'#2BAE9D', name:'ПроДокторов',  desc:'Врачи и медперсонал',  status:'soon', api:null,   cap:'медицина · в проработке' },
+      { key:'geekjob',     av:'G',  avBg:'#5B6AD0', name:'Geekjob',      desc:'IT-специалисты',       status:'soon', api:null,   cap:'IT' },
+      { key:'getmatch',    av:'gm', avBg:'#00B894', name:'getmatch',     desc:'IT-разработчики',      status:'soon', api:null,   cap:'IT middle+' },
+      { key:'pomogatel',   av:'П',  avBg:'#F08C2E', name:'Помогатель.ру', desc:'Бытовой персонал',    status:'soon', api:null,   cap:'домашний персонал' },
+    ],
+  },
+];
+
+function ImpSourceCard({ item, onPick }) {
+  const live = item.status === 'live';
+  const handle = live ? () => onPick(item.action) : undefined;
+  return (
+    <div className={`src-card ${live ? 'is-live' : 'is-soon'}`}
+         onClick={handle}
+         role={live ? 'button' : undefined}
+         tabIndex={live ? 0 : undefined}
+         onKeyDown={live ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handle(); } }) : undefined}
+         aria-disabled={live ? undefined : 'true'}>
+      <div className="src-card-top">
+        <div className="src-card-av" style={{ background:item.avBg }}>
+          {item.icon ? <Icon name={item.icon} size={20}/> : item.av}
+        </div>
+        <div className="src-card-badges">
+          {item.api === 'info' && <span className="src-bdg api">API</span>}
+          {item.api === 'live' && <span className="src-bdg live">API</span>}
+          {item.status === 'live' && !item.api && (
+            <span className="src-bdg live"><span className="src-bdg-dot"/>Доступно</span>
+          )}
+          {item.status === 'soon' && <span className="src-bdg soon">Скоро</span>}
+        </div>
+      </div>
+      <div className="src-card-name">{item.name}</div>
+      <div className="src-card-desc">{item.desc}</div>
+      {item.cap && <div className="src-card-cap">{item.cap}</div>}
+      {live
+        ? <span className="src-card-go">{item.action === 'file' ? 'Выбрать файл' : 'Подключить'} <Icon name="chevR" size={13}/></span>
+        : <span className="src-tip">Интеграция готовится. Хотите раньше — <b>напишите нам</b></span>}
+    </div>
+  );
+}
+
 function ImpStepSource({ onPick }) {
   return (
-    <div className="imp-source">
-      <h2 className="imp-h2">Откуда импортировать кандидатов?</h2>
+    <div className="imp-hub">
+      <h2 className="imp-h2">Откуда импортируем?</h2>
       <div className="imp-glafira-note">
         <span className="imp-em">💃</span>
-        Выберите источник — Глафира заберёт кандидатов в общую базу.
+        Глафира умеет забирать кандидатов отовсюду — из файлов, других ATS и с площадок.
       </div>
-      <div className="imp-source-grid">
-        <button className="imp-source-card" onClick={() => onPick('file')}>
-          <div className="imp-source-ic file"><Icon name="download" size={26}/></div>
-          <div className="imp-source-name">Импорт из файла</div>
-          <div className="imp-source-desc">Excel-выгрузка из любой системы — hh, Хантфлоу, таблица. Сопоставите колонки вручную.</div>
-          <div className="imp-source-tags">
-            <span className="imp-source-tag">.xlsx</span>
-            <span className="imp-source-tag">.xls</span>
-            <span className="imp-source-tag">маппинг</span>
+
+      {/* легенда бейджей */}
+      <div className="src-legend">
+        <span className="src-legend-item"><span className="src-bdg live"><span className="src-bdg-dot"/>Доступно</span> работает сейчас</span>
+        <span className="src-legend-item"><span className="src-bdg api">API</span> канал данных подтверждён, интеграция готовится</span>
+        <span className="src-legend-item"><span className="src-bdg soon">Скоро</span> в плане</span>
+      </div>
+
+      {IMP_SOURCES.map(sec => (
+        <section className="src-sec" key={sec.id}>
+          <div className="src-sec-head">
+            <span className="src-sec-label">{sec.label}</span>
+            {sec.sub && <span className="src-sec-sub">{sec.sub}</span>}
           </div>
-          <span className="imp-source-go">Выбрать файл <Icon name="chevR" size={14}/></span>
+          <div className="src-grid">
+            {sec.items.map(it => <ImpSourceCard key={it.key} item={it} onPick={onPick}/>)}
+          </div>
+        </section>
+      ))}
+
+      {/* CTA — нет своей системы */}
+      <div className="src-cta">
+        <span className="src-cta-q">Не нашли свою систему?</span>
+        <button className="src-cta-link" type="button">
+          <Icon name="message" size={14}/> Напишите нам — добавим источник
         </button>
-        <button className="imp-source-card" onClick={() => onPick('potok')}>
-          <div className="imp-source-ic potok"><span className="imp-source-em">💃</span></div>
-          <div className="imp-source-name">Импорт из Потока</div>
-          <div className="imp-source-desc">Подключение по API-токену. Глафира сама заберёт кандидатов и резюме — без файла и маппинга.</div>
-          <div className="imp-source-tags">
-            <span className="imp-source-tag">API-токен</span>
-            <span className="imp-source-tag">резюме</span>
-            <span className="imp-source-tag">без маппинга</span>
-          </div>
-          <span className="imp-source-go">Подключить Поток <Icon name="chevR" size={14}/></span>
-        </button>
-        <div className="imp-source-card soon" aria-disabled="true">
-          <span className="imp-source-soon">Скоро</span>
-          <div className="imp-source-ic talantix">T</div>
-          <div className="imp-source-name">Импорт из Talantix</div>
-          <div className="imp-source-desc">Подключение по API-токену — как Поток. Глафира заберёт кандидатов и резюме без файла.</div>
-          <div className="imp-source-tags">
-            <span className="imp-source-tag">API-токен</span>
-            <span className="imp-source-tag">резюме</span>
-          </div>
-          <span className="imp-source-go muted">В разработке</span>
-        </div>
-        <div className="imp-source-card soon" aria-disabled="true">
-          <span className="imp-source-soon">Скоро</span>
-          <div className="imp-source-ic huntflow"><Icon name="briefcase" size={24}/></div>
-          <div className="imp-source-name">Импорт из Хантфлоу</div>
-          <div className="imp-source-desc">Подключение по API-токену — как Поток. Глафира заберёт кандидатов и резюме без файла.</div>
-          <div className="imp-source-tags">
-            <span className="imp-source-tag">API-токен</span>
-            <span className="imp-source-tag">резюме</span>
-          </div>
-          <span className="imp-source-go muted">В разработке</span>
-        </div>
       </div>
     </div>
   );

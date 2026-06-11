@@ -191,58 +191,121 @@
 }
 
 /* ============================================================
-   ШАГ «Источник» — развилка Файл / Поток
+   ШАГ «Источник» — ХАБ ИСТОЧНИКОВ (4 секции, компактные карточки)
    ============================================================ */
-.imp-source-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px;
+/* хаб шире обычного тела визарда — помещается 3–4 карточки в ряд */
+.imp-inner:has(.imp-hub) { max-width: 1080px; }
+
+/* легенда бейджей */
+.src-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px;
+  margin-top: 14px; padding: 11px 16px;
+  background: var(--bg-panel-2); border: 1px solid var(--border-2);
+  border-radius: var(--rad-lg);
 }
-.imp-source-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 0;
-  text-align: left; cursor: pointer; position: relative;
-  border: 1px solid var(--border-1); border-radius: var(--rad-xl);
-  background: #fff; box-shadow: var(--shadow-1);
-  padding: 24px 24px 20px; font-family: var(--font-sans);
-  transition: border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+.src-legend-item {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--fg-2);
 }
-.imp-source-card:not(.soon):hover {
-  border-color: var(--accent); box-shadow: var(--shadow-2); transform: translateY(-2px);
+
+/* секции */
+.src-sec { margin-top: 26px; }
+.src-sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 11px; flex-wrap: wrap; }
+.src-sec-label {
+  font-size: 11px; font-weight: 600; letter-spacing: var(--ls-wide);
+  text-transform: uppercase; color: var(--fg-3);
 }
-/* «Скоро» — заглушка, не нажимается */
-.imp-source-card.soon {
+.src-sec-sub { font-size: 12.5px; color: var(--fg-3); }
+
+.src-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+/* карточка источника */
+.src-card {
+  position: relative;
+  display: flex; flex-direction: column;
+  min-height: 138px;
+  border: 1px solid var(--border-1); border-radius: var(--rad-lg);
+  background: #fff; padding: 15px 16px 14px;
+  transition: border-color var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out),
+              transform var(--dur-base) var(--ease-out),
+              opacity var(--dur-base) var(--ease-out);
+}
+.src-card.is-live { cursor: pointer; box-shadow: var(--shadow-1); }
+.src-card.is-live:hover { border-color: var(--accent); box-shadow: var(--shadow-2); transform: translateY(-2px); }
+.src-card.is-live:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }
+.src-card.is-soon {
   cursor: default; background: var(--bg-panel-2);
   border-style: dashed; box-shadow: none; opacity: .72;
 }
-.imp-source-card.soon .imp-source-ic { filter: grayscale(0.5); }
-.imp-source-soon {
-  position: absolute; top: 14px; right: 14px;
-  font-size: 10.5px; font-weight: 700; letter-spacing: var(--ls-wide); text-transform: uppercase;
-  color: var(--fg-3); background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 2px 9px; border-radius: var(--rad-pill);
+.src-card.is-soon:hover { opacity: .95; border-color: var(--border-strong); }
+.src-card.is-soon .src-card-av { filter: grayscale(.4); }
+.src-card.is-soon:hover .src-card-av { filter: grayscale(0); }
+
+.src-card-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 8px; margin-bottom: 12px;
 }
-.imp-source-ic {
-  width: 56px; height: 56px; border-radius: var(--rad-lg);
+.src-card-av {
+  width: 42px; height: 42px; border-radius: 50%; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
-  margin-bottom: 16px; flex: none;
+  color: #fff; font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
+  font-family: var(--font-sans);
 }
-.imp-source-ic.file  { background: var(--accent-soft); color: var(--accent); }
-.imp-source-ic.potok { background: #FFF1EA; }
-.imp-source-ic.talantix { background: #EAF1FF; color: #2F5FD0; font-size: 26px; font-weight: 800; font-family: var(--font-mono); }
-.imp-source-ic.huntflow { background: #E9F6EF; color: #1F8A5B; }
-.imp-source-em { font-size: 30px; line-height: 1; }
-.imp-source-name { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg-1); }
-.imp-source-desc { margin-top: 6px; font-size: 13px; color: var(--fg-2); line-height: 1.5; }
-.imp-source-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-.imp-source-tag {
-  font-size: 11px; font-weight: 500; color: var(--fg-3);
-  background: var(--bg-panel); border: 1px solid var(--border-2);
-  padding: 2px 9px; border-radius: var(--rad-pill);
+
+.src-card-badges {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px;
 }
-.imp-source-go {
-  display: inline-flex; align-items: center; gap: 5px;
-  margin-top: 18px; font-size: 13px; font-weight: 600; color: var(--accent);
+.src-bdg {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: var(--rad-pill); white-space: nowrap;
 }
-.imp-source-go.muted { color: var(--fg-3); font-weight: 500; }
-.imp-source-card:not(.soon):hover .imp-source-go { gap: 8px; }
+.src-bdg.live { color: var(--ark-green-600); background: var(--ark-green-100); }
+.src-bdg.api  { color: var(--ark-blue-700);  background: var(--ark-blue-50); border: 1px solid var(--ark-blue-100); }
+.src-bdg.soon { color: var(--fg-3); background: var(--bg-panel); border: 1px solid var(--border-2); }
+.src-bdg-dot  { width: 6px; height: 6px; border-radius: 50%; background: var(--ark-green-500); }
+
+.src-card-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg-1); }
+.src-card-desc { margin-top: 3px; font-size: 12px; color: var(--fg-2); line-height: 1.4; }
+.src-card-cap { margin-top: 7px; font-size: 11px; color: var(--fg-3); }
+.src-card-go {
+  margin-top: auto; padding-top: 12px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12.5px; font-weight: 600; color: var(--accent);
+  transition: gap var(--dur-fast) var(--ease-out);
+}
+.src-card.is-live:hover .src-card-go { gap: 7px; }
+
+/* тултип «Скоро» */
+.src-tip {
+  position: absolute; left: 14px; right: 14px; top: calc(100% + 6px); z-index: 20;
+  background: var(--ark-gray-900); color: #fff;
+  font-size: 11.5px; font-weight: 400; line-height: 1.4;
+  padding: 8px 11px; border-radius: var(--rad-md); box-shadow: var(--shadow-2);
+  opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.src-tip b { font-weight: 600; color: #fff; }
+.src-card.is-soon:hover .src-tip { opacity: 1; transform: translateY(0); }
+
+/* CTA — нет своей системы */
+.src-cta {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  margin-top: 28px; padding-top: 18px;
+  border-top: 1px dashed var(--border-1);
+  font-size: 13px; color: var(--fg-2);
+}
+.src-cta-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--accent);
+}
+.src-cta-link:hover { text-decoration: underline; }
 
 /* ============================================================
    ШАГ «Токен» — подключение к Потоку
