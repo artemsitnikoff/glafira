@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
@@ -62,7 +62,7 @@ from ...services.base_search import (
     get_base_search_run_status,
     GLAFIRA_MAX_EVALUATE
 )
-from ...core.errors import NotFoundError, ForbiddenError, ValidationError
+from ...core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
 
 router = APIRouter()
 
@@ -337,15 +337,23 @@ async def evaluate_base_search_candidates(
     if request.evaluate_n > GLAFIRA_MAX_EVALUATE:
         logger.info(f"[base] evaluate_n {request.evaluate_n} урезан до максимума {GLAFIRA_MAX_EVALUATE}")
 
-    # Короткой сессией: меняем статус на running
+    # ФИКС TOCTOU: атомарный conditional UPDATE вместо проверки+флипа
     async with AsyncSessionLocal() as short_session:
-        db_run = await short_session.get(BaseSearchRun, run_id)
-        if db_run and db_run.company_id == company_id:
-            db_run.status = "running"
-            db_run.stage = "rerank"
-            db_run.to_evaluate = n
-            db_run.evaluated = 0
-            await short_session.commit()
+        result = await short_session.execute(
+            update(BaseSearchRun)
+            .where(
+                BaseSearchRun.id == run_id,
+                BaseSearchRun.company_id == company_id,
+                BaseSearchRun.status.in_(['retrieved', 'done']),
+            )
+            .values(status='running', stage='rerank', to_evaluate=n, evaluated=0)
+            .returning(BaseSearchRun.id)
+        )
+        flipped = result.first()
+        await short_session.commit()
+
+    if flipped is None:
+        raise ConflictError("Оценка по этому прогону уже выполняется")
 
     # Спавн async-задачи
     task = asyncio.create_task(_run_base_evaluate(run_id, company_id, n))

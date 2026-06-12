@@ -1151,6 +1151,10 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     vacancy_id = vacancy.id
     hh_vacancy_id = vacancy.hh_vacancy_id
 
+    # ФИКС: освобождаем request-сессию перед входом в сетевой цикл
+    # (коммит завершает транзакцию и возвращает коннект в пул)
+    await session.commit()
+
     results = []
     invited_count = 0
 

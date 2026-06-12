@@ -8,7 +8,6 @@ from app.services.base_search import (
     parse_query_to_criteria,
     search_base,
     search_by_vacancy,
-    create_search_run,
     increment_added_to_funnel,
     get_candidates_count,
     retrieve_base,
@@ -323,31 +322,6 @@ class TestBaseSearch:
             assert result["vacancy_title"] == test_vacancy.name
             assert result["criteria"]["skills"] == ["Python", "Django"]
 
-    async def test_search_run_crud(self, db_session, test_company):
-        """Тест CRUD истории поиска"""
-        # Создание записи
-        run = await create_search_run(
-            db_session,
-            test_company.id,
-            "prompt",
-            "Python разработчик",
-            None,
-            5
-        )
-        await db_session.commit()
-
-        assert run.search_type == "prompt"
-        assert run.query_text == "Python разработчик"
-        assert run.found == 5
-        assert run.added_to_funnel == 0
-
-        # Инкремент счётчика
-        await increment_added_to_funnel(db_session, test_company.id, run.id)
-        await db_session.commit()
-
-        # Обновляем объект из БД
-        await db_session.refresh(run)
-        assert run.added_to_funnel == 1
 
     async def test_get_candidates_count(self, db_session, test_company):
         """Тест подсчёта кандидатов в базе"""
@@ -400,98 +374,6 @@ class TestBaseSearch:
                 fake_run_id
             )
 
-    async def test_start_base_search_prompt(self, db_session, test_company):
-        """Тест запуска асинхронного поиска по запросу"""
-        from app.services.base_search import start_base_search
-
-        mock_criteria = {
-            "role": "Python разработчик",
-            "skills": ["Python", "Django"],
-            "experience": "",
-            "city": "Москва",
-            "salary_from": None,
-            "salary_to": None
-        }
-
-        with patch('app.services.base_search.parse_query_to_criteria', new_callable=AsyncMock) as mock_parse:
-            mock_parse.return_value = mock_criteria
-
-            # Запускаем поиск
-            run_id = await start_base_search(
-                db_session,
-                test_company.id,
-                "prompt",
-                "Python разработчик в Москве",
-                None
-            )
-
-            # Проверяем, что run создался
-            run = await get_base_search_run_status(db_session, run_id, test_company.id)
-            assert run is not None
-            assert run.search_type == "prompt"
-            assert run.status == "running"
-            assert run.stage == "retrieve"
-            assert run.query_text == "Python разработчик в Москве"
-            assert run.criteria == mock_criteria
-
-    async def test_start_base_search_vacancy(self, db_session, test_company, test_vacancy):
-        """Тест запуска асинхронного поиска по вакансии"""
-        from app.services.base_search import start_base_search
-
-        mock_filters = {
-            "professional_role": "Программист",
-            "skills": ["Python"],
-            "city": "",
-            "salary_from": 100000,
-            "salary_to": 150000
-        }
-
-        with patch('app.services.base_search.derive_vacancy_filters', new_callable=AsyncMock) as mock_derive:
-            mock_derive.return_value = mock_filters
-
-            # Запускаем поиск
-            run_id = await start_base_search(
-                db_session,
-                test_company.id,
-                "vacancy",
-                "",
-                test_vacancy.id
-            )
-
-            # Проверяем, что run создался
-            run = await get_base_search_run_status(db_session, run_id, test_company.id)
-            assert run is not None
-            assert run.search_type == "vacancy"
-            assert run.status == "running"
-            assert run.vacancy_id == test_vacancy.id
-            assert run.vacancy_title == test_vacancy.name
-
-    async def test_start_base_search_vacancy_with_override(self, db_session, test_company, test_vacancy):
-        """Тест запуска поиска по вакансии с переопределёнными критериями"""
-        from app.services.base_search import start_base_search
-
-        override_criteria = {
-            "role": "Senior Python Developer",
-            "skills": ["Python", "Django", "PostgreSQL"],
-            "city": "СПб",
-            "salary_from": 200000,
-            "salary_to": 300000
-        }
-
-        # Запускаем поиск с override
-        run_id = await start_base_search(
-            db_session,
-            test_company.id,
-            "vacancy",
-            "",
-            test_vacancy.id,
-            override_criteria
-        )
-
-        # Проверяем, что criteria из override
-        run = await get_base_search_run_status(db_session, run_id, test_vacancy.company_id)
-        assert run is not None
-        assert run.criteria == override_criteria
 
     async def test_get_base_search_run_status_not_found(self, db_session, test_company):
         """Тест получения статуса несуществующего поиска"""
@@ -725,3 +607,67 @@ class TestNewFunctions:
             assert run.stage == "retrieve"
             assert run.vacancy_id == vacancy.id
             assert run.results == []
+
+    @pytest.mark.asyncio
+    async def test_reindex_batch_embedding(self, db_session, test_company):
+        """Тест батчевого эмбеддинга при reindex_all_embeddings"""
+        from app.services.base_search import reindex_all_embeddings
+        from unittest.mock import AsyncMock, patch
+
+        # Создаём несколько кандидатов
+        candidates = []
+        for i in range(3):
+            candidate = Candidate(
+                company_id=test_company.id,
+                last_name=f"TestLast{i}",
+                first_name=f"TestFirst{i}",
+                resume_text=f"Test resume text {i}"
+            )
+            db_session.add(candidate)
+            candidates.append(candidate)
+
+        await db_session.commit()
+
+        # Мокаем embed_texts для проверки батчевого вызова
+        fake_embeddings = [[0.1] * 384, [0.2] * 384, [0.3] * 384]
+
+        def _session_local_returning(db_session):
+            """Паттерн патча сессии как в tests/test_smart_search.py"""
+            async_session_mock = AsyncMock()
+            async_session_mock.return_value.__aenter__.return_value = db_session
+            return async_session_mock
+
+        with patch('app.services.base_search.embed_texts') as mock_embed_texts, \
+             patch('app.services.base_search.AsyncSessionLocal', _session_local_returning(db_session)):
+
+            mock_embed_texts.return_value = fake_embeddings
+
+            # Запускаем переиндексацию
+            await reindex_all_embeddings(test_company.id)
+
+            # Проверяем, что embed_texts был вызван ОДИН раз с батчем текстов
+            assert mock_embed_texts.call_count == 1
+            call_args = mock_embed_texts.call_args[0]
+            batch_texts = call_args[0]
+            assert len(batch_texts) == 3  # Батч из 3 текстов
+            assert all("Test resume text" in text for text in batch_texts)
+
+    @pytest.mark.asyncio
+    async def test_vector_retrieve_exists_optimization(self, db_session, test_company):
+        """Тест оптимизации COUNT → EXISTS в vector_retrieve"""
+        # Мокаем запросы к БД чтобы проверить что используется EXISTS вместо COUNT
+        with patch.object(db_session, 'execute') as mock_execute:
+            # Настраиваем мок для возврата "есть записи"
+            mock_execute.return_value.first.return_value = "exists"
+
+            # Мокаем embed_query
+            with patch('app.services.base_search.embed_query') as mock_embed:
+                mock_embed.return_value = [0.1] * 384
+
+                await vector_retrieve(db_session, test_company.id, "test query", 10)
+
+                # Проверяем, что выполнился SELECT с LIMIT 1 (EXISTS паттерн), а не COUNT
+                executed_statements = [call.args[0] for call in mock_execute.call_args_list]
+                exists_statements = [stmt for stmt in executed_statements
+                                   if hasattr(stmt, '_limit_clause') and stmt._limit_clause is not None]
+                assert len(exists_statements) > 0, "Должен быть запрос с LIMIT (EXISTS паттерн)"

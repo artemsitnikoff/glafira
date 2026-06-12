@@ -1939,3 +1939,152 @@ async def test_start_search_happy_path_creates_run(
     assert run.status == "running"
     assert run.company_id == test_company.id
     assert run.vacancy_id == test_vacancy.id
+
+
+# === НОВЫЕ ТЕСТЫ для фиксов TOCTOU и idle-in-transaction ===
+
+@pytest.mark.asyncio
+@patch('app.services.base_search._run_base_evaluate', new_callable=AsyncMock)
+async def test_evaluate_toctou_prevention(mock_evaluate, db_session, test_company):
+    """Тест предотвращения TOCTOU в evaluate_base_search_candidates"""
+    from app.models.base_search import BaseSearchRun
+    from app.api.v1.smart import evaluate_base_search_candidates
+    from app.schemas.base_search import BaseEvaluateRequest
+    from app.core.errors import ConflictError
+    from uuid import uuid4
+
+    # Создаём BaseSearchRun в статусе 'retrieved'
+    run_id = uuid4()
+    run = BaseSearchRun(
+        id=run_id,
+        company_id=test_company.id,
+        search_type="prompt",
+        query_text="test query",
+        status="retrieved",
+        found=10
+    )
+    db_session.add(run)
+    await db_session.commit()
+
+    # Подготавливаем request
+    request = BaseEvaluateRequest(evaluate_n=5)
+
+    # Создаём мок текущего пользователя (admin)
+    class MockUser:
+        role = "admin"
+        id = uuid4()
+
+    current_user = MockUser()
+
+    # Мокаем AsyncSessionLocal для фоновых функций
+    with patch('app.services.base_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        # Первый вызов должен успешно флипнуть статус
+        result1 = await evaluate_base_search_candidates(
+            run_id=run_id,
+            request=request,
+            session=db_session,
+            company_id=test_company.id,
+            current_user=current_user
+        )
+
+        assert result1.run_id == run_id
+
+        # Проверяем что статус изменился на 'running'
+        await db_session.refresh(run)
+        assert run.status == "running"
+        assert run.stage == "rerank"
+        assert run.to_evaluate == 5
+
+        # Второй вызов должен получить ConflictError
+        with pytest.raises(ConflictError) as exc_info:
+            await evaluate_base_search_candidates(
+                run_id=run_id,
+                request=request,
+                session=db_session,
+                company_id=test_company.id,
+                current_user=current_user
+            )
+
+        assert "уже выполняется" in str(exc_info.value)
+
+        # Проверяем что mock_evaluate был вызван только один раз
+        assert mock_evaluate.call_count == 1
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.smart_search.hh_client.invite_to_vacancy')
+@patch('app.services.smart_search.audit')
+async def test_invite_selected_session_commit_before_loop(
+    mock_audit,
+    mock_invite,
+    mock_get_resume,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """Тест что invite_selected коммитит request-сессию перед сетевым циклом"""
+
+    # Подготавливаем данные
+    run_id = uuid4()
+    user_id = uuid4()
+    resume_id = "test_resume_123"
+
+    # Создаём SmartSearchRun с scored_candidates
+    from app.models import SmartSearchRun
+
+    run = SmartSearchRun(
+        id=run_id,
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="done",
+        stage="done",
+        scored_candidates=[
+            {
+                "hh_resume_id": resume_id,
+                "passed": True,
+                "invited": False,
+                "name": "Тест Кандидат",
+                "score": 85,
+                "verdict": "Подходит"
+            }
+        ]
+    )
+    db_session.add(run)
+
+    # Устанавливаем hh_vacancy_id
+    test_vacancy.hh_vacancy_id = "hh_vac_123"
+    await db_session.commit()
+
+    # Мокаем внешние вызовы
+    mock_token.return_value = "test_token"
+    mock_get_resume.return_value = {
+        "id": resume_id,
+        "first_name": "Тест",
+        "last_name": "Кандидат",
+        "contact": [{"type": {"id": "email"}, "value": "test@example.com"}],
+        "title": "Тестовая позиция"
+    }
+    mock_invite.return_value = {"url": "/negotiations/456"}
+
+    # Мокаем check_access и AsyncSessionLocal
+    with patch('app.services.smart_search.check_access', return_value=(True, True, None)), \
+         patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+
+        # Вызываем функцию
+        from app.services.smart_search import invite_selected
+        result = await invite_selected(
+            db_session, test_company.id, user_id, run_id, [resume_id]
+        )
+
+    # Проверяем что функционал НЕ сломался после добавления commit()
+    assert result["invited_count"] == 1
+    assert len(result["results"]) == 1
+
+    result_item = result["results"][0]
+    assert result_item["resume_id"] == resume_id
+    assert result_item["status"] == "invited"
+    assert result_item["candidate_id"] is not None
+    assert result_item["name"] == "Тест Кандидат"

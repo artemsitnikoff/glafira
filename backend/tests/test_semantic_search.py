@@ -8,7 +8,6 @@ import threading
 
 from app.services.base_search import (
     vector_retrieve,
-    search_base_semantic,
     reindex_candidate,
     get_embeddings_index_status
 )
@@ -322,74 +321,6 @@ async def test_reindex_candidate_skip_unchanged(mock_embed_texts, db_session, te
 
 # === Тесты graceful деградации ===
 
-@pytest.mark.asyncio
-@patch('app.services.base_search.vector_retrieve')
-@patch('app.services.base_search.search_base')
-async def test_search_base_semantic_fallback_no_vector(mock_search_base, mock_vector_retrieve,
-                                                       db_session, test_company):
-    """Тест деградации на SQL при недоступности векторного канала"""
-    # Векторный поиск возвращает пустой список
-    mock_vector_retrieve.return_value = []
-
-    # SQL поиск возвращает результаты
-    mock_search_base.return_value = {
-        "total": 1,
-        "results": [{
-            "id": uuid4(),
-            "full_name": "Test User",
-            "age": 30,
-            "last_position": "Developer",
-            "last_company": "Company",
-            "last_period": "2020-2023",
-            "city": "Moscow",
-            "ai_score": 80,
-            "source": "manual",
-            "salary_expectation": 100000,
-            "matched_skills": ["Python"],
-            "all_skills": ["Python", "FastAPI"],
-            "match_percent": 100,
-            "has_pdn": False
-        }]
-    }
-
-    result = await search_base_semantic(
-        db_session, test_company.id,
-        query_text="test query"
-    )
-
-    # Должен вернуть результаты SQL поиска
-    assert result["total"] == 1
-    assert len(result["results"]) == 1
-
-
-# Патчим score_resume_dict ИМЕННО в неймспейсе base_search (он импортит его к себе),
-# иначе мок не перехватывает реальный вызов.
-@pytest.mark.asyncio
-@patch('app.services.base_search.score_resume_dict')
-async def test_rerank_fallback_on_llm_error(mock_score_resume, db_session, test_company):
-    """Тест fallback при полном отказе LLM rerank: все оценки падают → кандидаты возвращаются
-    без балла (overlap-режим, заход A), а НЕ пустой список (C2)."""
-    candidate_data = {
-        "candidate": MagicMock(id=uuid4(), first_name="Test", last_name="User"),
-        "skills": [],
-        "experience": [],
-        "has_pdn": False
-    }
-
-    # LLM скоринг падает с ошибкой для КАЖДОГО кандидата
-    mock_score_resume.side_effect = Exception("LLM error")
-
-    from app.services.base_search import _rerank_candidates
-    from app.models import Vacancy
-    vacancy = MagicMock(spec=Vacancy)
-
-    result = await _rerank_candidates(
-        [candidate_data], vacancy, None, test_company.id, [candidate_data["candidate"].id]
-    )
-
-    # C2: все оценки провалились → fallback (кандидаты возвращены без llm_score)
-    assert len(result) == 1
-    assert result[0]["llm_score"] is None
 
 
 # === Тест статуса индексации ===
