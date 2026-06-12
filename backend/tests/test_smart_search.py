@@ -32,6 +32,17 @@ from app.schemas.smart import SmartSearchRequest, SmartCountRequest
 from app.models import SmartSearchRun, Candidate, Application
 from app.core.errors import ValidationError
 
+from contextlib import asynccontextmanager
+
+
+def _session_local_returning(db_session):
+    """Фабрика-заглушка вместо AsyncSessionLocal(): отдаёт тестовый db_session и НЕ закрывает его
+    (cleanup — внешний rollback фикстуры). Коммиты идут в savepoint тестовой транзакции."""
+    @asynccontextmanager
+    async def _factory():
+        yield db_session
+    return _factory
+
 
 @pytest.mark.asyncio
 async def test_check_access_no_hh_integration(db_session, test_company):
@@ -148,7 +159,15 @@ async def test_start_search_without_paid_access(
 
 @pytest.mark.asyncio
 @patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+@patch('app.services.smart_search._run_search_background', new_callable=AsyncMock)
 async def test_start_search_with_paid_access(
+    mock_run_background,
+    mock_quota,
+    mock_get_me,
+    mock_token,
     mock_access,
     db_session,
     test_company,
@@ -162,6 +181,13 @@ async def test_start_search_with_paid_access(
 
     # Мокаем доступ: hh подключён И есть платная услуга
     mock_access.return_value = (True, True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
 
     request = SmartSearchRequest(
         vacancy_id=test_vacancy.id,
@@ -417,19 +443,20 @@ async def test_update_run_progress(db_session, test_company, test_vacancy):
     await db_session.commit()
     run_id = run.id
 
-    # Обновляем прогресс
-    await _update_run_progress(
-        run_id,
-        scanned=5,
-        evaluated=3,
-        log_append="Обработано 5 резюме"
-    )
+    # Обновляем прогресс через патч сессии
+    with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        await _update_run_progress(
+            run_id,
+            scanned=5,
+            evaluated=3,
+            log_append="Обработано 5 резюме"
+        )
 
     # Проверяем что изменения сохранились
-    updated_run = await db_session.get(SmartSearchRun, run_id)
-    assert updated_run.scanned == 5
-    assert updated_run.evaluated == 3
-    assert updated_run.log[-1] == "Обработано 5 резюме"
+    await db_session.refresh(run)
+    assert run.scanned == 5
+    assert run.evaluated == 3
+    assert run.log[-1] == "Обработано 5 резюме"
 
 
 @pytest.mark.asyncio
@@ -447,26 +474,27 @@ async def test_finalize_run_success(db_session, test_company, test_vacancy):
     await db_session.commit()
     run_id = run.id
 
-    # Финализируем
-    success = await _finalize_run(
-        run_id,
-        status="done",
-        stage="done",
-        note="Поиск завершен успешно",
-        passed_threshold=5,
-        invited=0
-    )
+    # Финализируем через патч сессии
+    with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        success = await _finalize_run(
+            run_id,
+            status="done",
+            stage="done",
+            note="Поиск завершен успешно",
+            passed_threshold=5,
+            invited=0
+        )
 
     assert success is True
 
     # Проверяем что run финализирован
-    finalized_run = await db_session.get(SmartSearchRun, run_id)
-    assert finalized_run.status == "done"
-    assert finalized_run.stage == "done"
-    assert finalized_run.note == "Поиск завершен успешно"
-    assert finalized_run.passed_threshold == 5
-    assert finalized_run.finished_at is not None
-    assert "Финализация: done" in finalized_run.log[-1]
+    await db_session.refresh(run)
+    assert run.status == "done"
+    assert run.stage == "done"
+    assert run.note == "Поиск завершен успешно"
+    assert run.passed_threshold == 5
+    assert run.finished_at is not None
+    assert "Финализация: done" in run.log[-1]
 
 
 @pytest.mark.asyncio
@@ -576,18 +604,19 @@ async def test_run_search_inner_short_sessions(
     await db_session.commit()
     run_id = run.id
 
-    # Запускаем внутреннюю логику поиска
-    await _run_search_inner(run_id, test_company.id, admin_user.id)
+    # Запускаем внутреннюю логику поиска через патч сессии
+    with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        await _run_search_inner(run_id, test_company.id, admin_user.id)
 
     # Проверяем что поиск завершился успешно
-    completed_run = await db_session.get(SmartSearchRun, run_id)
-    assert completed_run.status == "done"
-    assert completed_run.stage == "done"
-    assert completed_run.found == 1
-    assert completed_run.scanned == 1
-    assert completed_run.evaluated == 1
-    assert completed_run.passed_threshold == 1  # score 85 >= threshold 70
-    assert len(completed_run.scored_candidates) == 1
+    await db_session.refresh(run)
+    assert run.status == "done"
+    assert run.stage == "done"
+    assert run.found == 1
+    assert run.scanned == 1
+    assert run.evaluated == 1
+    assert run.passed_threshold == 1  # score 85 >= threshold 70
+    assert len(run.scored_candidates) == 1
 
     # Проверяем что внешние вызовы были сделаны
     mock_search.assert_called_once()
@@ -724,10 +753,11 @@ async def test_pagination_logic_collects_multiple_pages(mock_search_resumes):
     assert mock_search_resumes.call_count == 3  # Вызвали 3 страницы
 
     # Проверяем что параметры страниц передавались корректно
+    # hh_client.search_resumes вызывается позиционно: (access_token, search_params)
     calls = mock_search_resumes.call_args_list
-    assert calls[0][1]["page"] == 0
-    assert calls[1][1]["page"] == 1
-    assert calls[2][1]["page"] == 2
+    assert calls[0][0][1]["page"] == 0  # search_params - второй позиционный аргумент
+    assert calls[1][0][1]["page"] == 1
+    assert calls[2][0][1]["page"] == 2
 
 
 @pytest.mark.asyncio
@@ -784,7 +814,8 @@ async def test_preview_found_count_success(
 
     assert found == 269
     mock_search_resumes.assert_called_once()
-    call_args = mock_search_resumes.call_args[1]
+    # hh_client.search_resumes вызывается позиционно: (access_token, search_params)
+    call_args = mock_search_resumes.call_args[0][1]  # search_params - второй позиционный аргумент
     assert call_args["per_page"] == 1
     assert call_args["page"] == 0
 
@@ -839,7 +870,7 @@ async def test_build_search_params_creates_expected_dict():
     vacancy.name = "Python Developer"
 
     params = {
-        "area": "113",  # Числовое значение - включается
+        "area_id": "113",  # Числовое значение - включается как area
         "professional_role": "Программист",  # Текстовое - НЕ включается как id, но входит в text
         "experience": "between1And3",  # Валидный enum - включается
         "skills": ["Python", "Django"],  # Текстовые - НЕ включаются как id, но входят в text
@@ -974,7 +1005,7 @@ async def test_suggest_areas_hh_error_graceful(
 
 
 @pytest.mark.asyncio
-@patch('app.services.smart_search.call_json')
+@patch('app.services.glafira.scoring.call_json')
 async def test_score_resume_dict_returns_full_breakdown(mock_call_json):
     """Тест что score_resume_dict теперь возвращает полный разбор"""
     from app.services.glafira.scoring import score_resume_dict
@@ -1088,9 +1119,10 @@ async def test_compact_resume_for_display():
     assert result["experience"][1]["period"] == "2019-01 - по наст.вр."
 
     # Проверяем навыки (из обоих источников)
-    assert "Python" in result["skills"]
-    assert "Git" in result["skills"]
-    assert "Docker" in result["skills"]
+    # skills как строка добавляется целиком, key_skills по имени
+    assert any("Python" in skill for skill in result["skills"])  # "Python, Django, PostgreSQL"
+    assert "Git" in result["skills"]  # из key_skills
+    assert "Docker" in result["skills"]  # из key_skills
 
     # Пустое резюме не должно падать
     empty_result = _compact_resume_for_display({})
@@ -1264,14 +1296,19 @@ async def test_invite_timeout_handling():
     from unittest.mock import patch
 
     with patch('app.services.smart_search.hh_client.invite_to_vacancy') as mock_invite:
-        # Мокаем долгий вызов
-        mock_invite.side_effect = asyncio.sleep(30)  # 30 секунд
+        # Мокаем долгий вызов - функция, которая возвращает корутину.
+        # Спим заметно дольше таймаута, но оба малы — тест быстрый (суть: ловим TimeoutError).
+        async def long_invite(*args, **kwargs):
+            await asyncio.sleep(1)
+            return {}
+
+        mock_invite.side_effect = long_invite
 
         # Эмулируем логику с таймаутом
         try:
             await asyncio.wait_for(
                 mock_invite("token", "resume_id", "vacancy_id", "message"),
-                timeout=25
+                timeout=0.1
             )
             assert False, "Должен был быть таймаут"
         except asyncio.TimeoutError:
@@ -1389,8 +1426,9 @@ async def test_invite_selected_success(
     }
     mock_invite.return_value = {"url": "/negotiations/456"}
 
-    # Мокаем check_access
-    with patch('app.services.smart_search.check_access', return_value=(True, True, None)):
+    # Мокаем check_access и AsyncSessionLocal
+    with patch('app.services.smart_search.check_access', return_value=(True, True, None)), \
+         patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
         # Вызываем функцию
         from app.services.smart_search import invite_selected
         result = await invite_selected(
@@ -1538,30 +1576,72 @@ async def test_invite_selected_candidate_already_exists(
 
 
 @pytest.mark.asyncio
-async def test_run_search_inner_no_auto_invites():
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.smart_search.score_resume_dict')
+async def test_run_search_inner_no_auto_invites(
+    mock_score,
+    mock_get_resume,
+    mock_search,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
     """Тест что _run_search_inner больше не отправляет авто-приглашения"""
+    from app.services.smart_search import _run_search_inner, SmartSearchRun
 
-    # Проверяем что в коде нет блоков авто-приглашений
-    import inspect
-    from app.services.smart_search import _run_search_inner
+    # Подготовка моков
+    mock_token.return_value = "test_token"
+    mock_search.return_value = {
+        "found": 1,
+        "items": [{"id": "resume_1"}]
+    }
+    mock_get_resume.return_value = {
+        "id": "resume_1",
+        "first_name": "Иван",
+        "last_name": "Тестов",
+        "title": "Python Developer",
+        "area": {"name": "Москва"}
+    }
+    mock_score.return_value = {
+        "score": 85,
+        "verdict": "good",
+        "summary": "Хороший кандидат"
+    }
 
-    source = inspect.getsource(_run_search_inner)
+    # Создаем run для тестирования
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"scan_n": 1, "threshold": 70}
+    )
+    db_session.add(run)
+    await db_session.commit()
+    run_id = run.id
 
-    # Проверяем что нет кода создания кандидатов в фоне
-    assert "создаём кандидатов и заявки в воронку" not in source
-    assert "Отправляю приглашение" not in source
-    assert "invite_to_vacancy" not in source
+    # Запускаем _run_search_inner через патч сессии
+    with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        await _run_search_inner(run_id, test_company.id, admin_user.id)
 
-    # Проверяем что есть новая логика финализации
-    assert "Оценка завершена, готово к выбору приглашений" in source
-    assert "invites_skipped = True" in source
+    # Проверяем что run финализирован БЕЗ приглашений
+    await db_session.refresh(run)
+    assert run.status == "done"
+    assert run.stage == "done"
+    assert run.invites_skipped is True
+    assert run.invited == 0
+    assert run.passed_threshold == 1  # score 85 >= threshold 70
 
 
 @pytest.mark.asyncio
 @patch('app.services.smart_search.hh_service.get_valid_access_token')
 @patch('app.services.smart_search.hh_client.search_resumes')
 @patch('app.services.smart_search.hh_client.get_resume_by_id')
-@patch('app.services.glafira.scoring.score_resume_dict')
+@patch('app.services.smart_search.score_resume_dict')
 async def test_run_search_inner_fresh_session_finalization(
     mock_score,
     mock_get_resume,
@@ -1638,9 +1718,10 @@ async def test_run_search_inner_fresh_session_finalization(
     await db_session.commit()
     await db_session.refresh(run)
 
-    # Запускаем внутреннюю логику поиска
+    # Запускаем внутреннюю логику поиска через патч сессии
     from app.services.smart_search import _run_search_inner
-    await _run_search_inner(run.id, test_company.id, admin_user.id)
+    with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        await _run_search_inner(run.id, test_company.id, admin_user.id)
 
     # Проверяем финализацию через свежую сессию
     await db_session.refresh(run)
@@ -1682,9 +1763,10 @@ async def test_run_search_inner_error_handler_fresh_session(
     await db_session.commit()
     await db_session.refresh(run)
 
-    # Запускаем внутреннюю логику поиска - должна упасть с ошибкой
+    # Запускаем внутреннюю логику поиска - должна упасть с ошибкой (через патч сессии)
     from app.services.smart_search import _run_search_inner
-    await _run_search_inner(run.id, test_company.id, admin_user.id)
+    with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
+        await _run_search_inner(run.id, test_company.id, admin_user.id)
 
     # Проверяем что ошибка записана через свежую сессию
     await db_session.refresh(run)

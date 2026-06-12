@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError
 
+from ..database import AsyncSessionLocal
 from ..models import (
     SmartSearchRun, Vacancy, Candidate, Application, AuditLog, Company
 )
@@ -71,8 +72,6 @@ def _is_ai_credits_error(reason: str | None, raw: str | None) -> bool:
 
 async def _calculate_search_timeout(run_id: UUID, company_id: UUID) -> int:
     """Вычисляет таймаут поиска на основе параметров"""
-    from ..database import AsyncSessionLocal
-
     try:
         async with AsyncSessionLocal() as session:
             run = await session.get(SmartSearchRun, run_id)
@@ -94,7 +93,6 @@ async def sweep_orphaned_runs(max_age_minutes: int = 60):
     Args:
         max_age_minutes: максимальный возраст running поиска без обновлений (по умолчанию 60 мин)
     """
-    from ..database import AsyncSessionLocal
     from sqlalchemy import update, and_
 
     try:
@@ -298,6 +296,8 @@ async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, b
             # hh подключён, но квоты неясны - базовый доступ есть, платный неизвестен
             return True, False, "Не удалось проверить квоту hh"
 
+    except NotFoundError:
+        return False, False, "hh.ru не подключён"
     except ValidationError as e:
         if "не подключён" in str(e):
             return False, False, "hh.ru не подключён"
@@ -589,8 +589,6 @@ async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
 
 async def _update_run_progress(run_id: UUID, **updates):
     """Обновляет прогресс выполнения поиска короткой сессией"""
-    from ..database import AsyncSessionLocal
-
     try:
         async with AsyncSessionLocal() as session:
             run = await session.get(SmartSearchRun, run_id)
@@ -614,8 +612,6 @@ async def _update_run_progress(run_id: UUID, **updates):
 
 async def _finalize_run(run_id: UUID, status: str, stage: str = None, error: str = None, note: str = None, **extra_fields):
     """Финализирует поиск короткой сессией с гарантией записи"""
-    from ..database import AsyncSessionLocal
-
     try:
         async with AsyncSessionLocal() as session:
             run = await session.get(SmartSearchRun, run_id)
@@ -652,8 +648,6 @@ async def _finalize_run(run_id: UUID, status: str, stage: str = None, error: str
 
 async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
     """Внутренняя логика выполнения поиска с короткоживущими сессиями"""
-    from ..database import AsyncSessionLocal
-
     try:
         # Инициализация: загружаем run и базовые данные
         async with AsyncSessionLocal() as init_session:
@@ -1125,8 +1119,6 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     Returns:
         dict с results и invited_count
     """
-    from ..database import AsyncSessionLocal
-
     # Загружаем базовые данные и проверяем доступ
     run = await session.get(SmartSearchRun, run_id)
     if not run or run.company_id != company_id:
