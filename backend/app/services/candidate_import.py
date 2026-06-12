@@ -571,7 +571,10 @@ def _apply_update(candidate: Candidate, detail: dict) -> None:
     if detail.get("city"):
         candidate.city = _fit(detail["city"], 120)
     if detail.get("salary"):
-        candidate.salary_expectation = detail["salary"]
+        salary_value = detail["salary"]
+        candidate.salary_expectation = salary_value
+        candidate.salary_from = salary_value
+        candidate.salary_to = salary_value
     if detail.get("position"):
         candidate.last_position = _fit(detail["position"], 255)
     if detail.get("company"):
@@ -713,6 +716,8 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                                 email=_fit(detail.get("email"), 255),
                                 city=_fit(detail.get("city"), 120),
                                 salary_expectation=detail.get("salary"),
+                                salary_from=detail.get("salary"),
+                                salary_to=detail.get("salary"),
                                 last_position=_fit(detail.get("position"), 255),
                                 last_company=_fit(detail.get("company"), 255),
                                 last_period=_fit(detail.get("experience"), 120),
@@ -992,7 +997,10 @@ def _apply_potok_update(candidate: Candidate, detail: dict) -> None:
     if detail.get("gender"):
         candidate.gender = detail["gender"]
     if detail.get("salary_expectation"):
-        candidate.salary_expectation = detail["salary_expectation"]
+        salary_value = detail["salary_expectation"]
+        candidate.salary_expectation = salary_value
+        candidate.salary_from = salary_value
+        candidate.salary_to = salary_value
     if detail.get("last_position"):
         candidate.last_position = _fit(detail["last_position"], 255)
     if detail.get("resume_text"):
@@ -1158,6 +1166,8 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
                                     birth_date=detail.get("birth_date"),
                                     gender=detail.get("gender"),
                                     salary_expectation=detail.get("salary_expectation"),
+                                    salary_from=detail.get("salary_expectation"),
+                                    salary_to=detail.get("salary_expectation"),
                                     last_position=_fit(detail.get("last_position"), 255) if detail.get("last_position") else None,
                                     resume_text=detail.get("resume_text"),
                                     resume_summary=detail.get("resume_summary"),

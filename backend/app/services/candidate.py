@@ -195,6 +195,39 @@ def total_experience(experiences) -> str | None:
     return format_duration(total)
 
 
+def _normalize_salary(salary_from: int | None, salary_to: int | None) -> tuple[int | None, int | None]:
+    """Нормализация зарплатной вилки по HR-правилу.
+
+    Args:
+        salary_from: нижняя граница зарплаты
+        salary_to: верхняя граница зарплаты
+
+    Returns:
+        tuple (salary_from, salary_to)
+
+    Raises:
+        ValidationError: если salary_from > salary_to
+
+    HR-правило:
+    - оба None → (None, None)
+    - одно задано, другое None → дублировать (from=to=заданное)
+    - оба заданы и from > to → ValidationError
+    """
+    if salary_from is None and salary_to is None:
+        return (None, None)
+
+    if salary_from is None:
+        return (salary_to, salary_to)
+
+    if salary_to is None:
+        return (salary_from, salary_from)
+
+    if salary_from > salary_to:
+        raise ValidationError("Зарплата «от» не может быть больше «до»")
+
+    return (salary_from, salary_to)
+
+
 async def compute_has_pdn(session: AsyncSession, candidate_id: UUID) -> bool:
     """True если у кандидата есть Consent со status='signed'."""
     result = await session.execute(
@@ -546,6 +579,8 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         email=candidate.email,
         messengers=candidate.messengers or [],
         salary_expectation=candidate.salary_expectation,
+        salary_from=candidate.salary_from,
+        salary_to=candidate.salary_to,
         currency=candidate.currency,
         last_position=last_position,
         last_company=last_company,
@@ -597,6 +632,17 @@ async def create_candidate(
     if candidate_data.messengers:
         messengers_data = [msg.model_dump() for msg in candidate_data.messengers]
 
+    # Нормализация зарплатной вилки с фолбэком на старое поле
+    salary_from_input = candidate_data.salary_from
+    salary_to_input = candidate_data.salary_to
+
+    # Фолбэк: если новые поля не заданы, используем старое salary_expectation
+    if salary_from_input is None and salary_to_input is None and candidate_data.salary_expectation is not None:
+        salary_from_input = candidate_data.salary_expectation
+        salary_to_input = candidate_data.salary_expectation
+
+    salary_from, salary_to = _normalize_salary(salary_from_input, salary_to_input)
+
     candidate = Candidate(
         company_id=company_id,
         last_name=candidate_data.last_name,
@@ -609,7 +655,9 @@ async def create_candidate(
         birth_date=candidate_data.birth_date,
         city=candidate_data.city,
         region=candidate_data.region,
-        salary_expectation=candidate_data.salary_expectation,
+        salary_expectation=salary_from,  # синхронизация: salary_expectation = salary_from
+        salary_from=salary_from,
+        salary_to=salary_to,
         currency=candidate_data.currency,
         last_position=candidate_data.last_position,
         last_company=candidate_data.last_company,
@@ -743,6 +791,9 @@ async def update_candidate(
         "source": candidate.source,
         "source_url": candidate.source_url,
         "messengers": candidate.messengers,
+        "salary_expectation": candidate.salary_expectation,
+        "salary_from": candidate.salary_from,
+        "salary_to": candidate.salary_to,
     }
 
     # Update fields
@@ -764,8 +815,30 @@ async def update_candidate(
         candidate.city = candidate_data.city
     if candidate_data.region is not None:
         candidate.region = candidate_data.region
-    if candidate_data.salary_expectation is not None:
-        candidate.salary_expectation = candidate_data.salary_expectation
+    # Обновление зарплатных полей - партиальное через model_fields_set
+    salary_fields_updated = False
+    current_salary_from = candidate.salary_from
+    current_salary_to = candidate.salary_to
+
+    if candidate_data.model_fields_set:
+        if 'salary_from' in candidate_data.model_fields_set:
+            current_salary_from = candidate_data.salary_from
+            salary_fields_updated = True
+        if 'salary_to' in candidate_data.model_fields_set:
+            current_salary_to = candidate_data.salary_to
+            salary_fields_updated = True
+        # Поддержка старого поля для совместимости
+        if 'salary_expectation' in candidate_data.model_fields_set and not salary_fields_updated:
+            current_salary_from = candidate_data.salary_expectation
+            current_salary_to = candidate_data.salary_expectation
+            salary_fields_updated = True
+
+    if salary_fields_updated:
+        salary_from, salary_to = _normalize_salary(current_salary_from, current_salary_to)
+        candidate.salary_from = salary_from
+        candidate.salary_to = salary_to
+        candidate.salary_expectation = salary_from  # синхронизация
+
     if candidate_data.currency is not None:
         candidate.currency = candidate_data.currency
     if candidate_data.source is not None:
@@ -808,6 +881,9 @@ async def update_candidate(
             "source": candidate.source,
             "source_url": candidate.source_url,
             "messengers": candidate.messengers,
+            "salary_expectation": candidate.salary_expectation,
+            "salary_from": candidate.salary_from,
+            "salary_to": candidate.salary_to,
         },
         actor_user_id=actor_user_id,
         company_id=company_id,
@@ -1112,6 +1188,8 @@ async def assign_candidate_to_vacancy(
         phone=candidate.phone,
         messengers=candidate.messengers or [],
         salary_expectation=candidate.salary_expectation,
+        salary_from=candidate.salary_from,
+        salary_to=candidate.salary_to,
         currency=candidate.currency,
         city=candidate.city,
         stage=stage,

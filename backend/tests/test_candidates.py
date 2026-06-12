@@ -555,3 +555,231 @@ async def test_assign_resolves_to_custom_first_stage_no_500(
     assert resp.status_code == 201, resp.text  # НЕ 500
     assert resp.json()["stage"] == "phone_screen"
     assert resp.json()["stage_color"]  # есть цвет (fallback), не упало
+
+
+# ===== Тесты зарплатной вилки salary_from/salary_to =====
+
+async def test_create_candidate_salary_from_to_both(
+    async_client: AsyncClient, auth_headers: dict
+):
+    """Создание кандидата с salary_from и salary_to сохраняет оба значения"""
+    response = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={
+            "last_name": "Зарплатин",
+            "first_name": "Вилочный",
+            "source": "manual",
+            "salary_from": 120000,
+            "salary_to": 150000,
+        }
+    )
+
+    assert response.status_code == 201
+    candidate = response.json()
+    assert candidate["salary_from"] == 120000
+    assert candidate["salary_to"] == 150000
+    assert candidate["salary_expectation"] == 120000  # синхронизация = salary_from
+
+
+async def test_create_candidate_salary_from_only(
+    async_client: AsyncClient, auth_headers: dict
+):
+    """Создание кандидата только с salary_from дублирует в salary_to (HR-правило)"""
+    response = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={
+            "last_name": "Простой",
+            "first_name": "От",
+            "source": "manual",
+            "salary_from": 100000,
+        }
+    )
+
+    assert response.status_code == 201
+    candidate = response.json()
+    assert candidate["salary_from"] == 100000
+    assert candidate["salary_to"] == 100000  # дубль
+    assert candidate["salary_expectation"] == 100000
+
+
+async def test_create_candidate_salary_to_only(
+    async_client: AsyncClient, auth_headers: dict
+):
+    """Создание кандидата только с salary_to дублирует в salary_from"""
+    response = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={
+            "last_name": "До",
+            "first_name": "Максимум",
+            "source": "manual",
+            "salary_to": 200000,
+        }
+    )
+
+    assert response.status_code == 201
+    candidate = response.json()
+    assert candidate["salary_from"] == 200000  # дубль
+    assert candidate["salary_to"] == 200000
+    assert candidate["salary_expectation"] == 200000
+
+
+async def test_create_candidate_salary_from_greater_than_to_400(
+    async_client: AsyncClient, auth_headers: dict
+):
+    """salary_from > salary_to должно вызывать 400 ValidationError, не 422"""
+    response = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={
+            "last_name": "Неправильный",
+            "first_name": "Диапазон",
+            "source": "manual",
+            "salary_from": 200000,
+            "salary_to": 100000,  # меньше from
+        }
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert "больше" in data["error"]["message"].lower()
+
+
+async def test_create_candidate_old_salary_expectation_fallback(
+    async_client: AsyncClient, auth_headers: dict
+):
+    """Фолбэк: старое поле salary_expectation без новых полей работает как раньше"""
+    response = await async_client.post(
+        "/api/v1/candidates",
+        headers=auth_headers,
+        json={
+            "last_name": "Обратный",
+            "first_name": "Совместимый",
+            "source": "manual",
+            "salary_expectation": 180000,
+        }
+    )
+
+    assert response.status_code == 201
+    candidate = response.json()
+    assert candidate["salary_from"] == 180000
+    assert candidate["salary_to"] == 180000
+    assert candidate["salary_expectation"] == 180000
+
+
+async def test_update_candidate_salary_from_partial(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session
+):
+    """PATCH только salary_from не затирает salary_to"""
+    # Сначала установим вилку
+    await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_from": 100000,
+            "salary_to": 150000,
+        }
+    )
+
+    # Теперь изменим только from
+    response = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_from": 120000,
+        }
+    )
+
+    assert response.status_code == 200
+    candidate = response.json()
+    assert candidate["salary_from"] == 120000
+    assert candidate["salary_to"] == 150000  # не затёрто
+    assert candidate["salary_expectation"] == 120000  # синхронизировано
+
+
+async def test_update_candidate_salary_to_partial(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session
+):
+    """PATCH только salary_to не затирает salary_from"""
+    # Сначала установим вилку
+    await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_from": 100000,
+            "salary_to": 150000,
+        }
+    )
+
+    # Теперь изменим только to
+    response = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_to": 180000,
+        }
+    )
+
+    assert response.status_code == 200
+    candidate = response.json()
+    assert candidate["salary_from"] == 100000  # не затёрто
+    assert candidate["salary_to"] == 180000
+    assert candidate["salary_expectation"] == 100000  # не изменилось
+
+
+async def test_update_candidate_salary_from_greater_than_to_400(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session
+):
+    """PATCH с from > to должен дать 400"""
+    # Сначала установим вилку
+    await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_from": 100000,
+            "salary_to": 150000,
+        }
+    )
+
+    # Попытаемся поставить from больше to
+    response = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_from": 200000,  # больше текущего to=150000
+        }
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+
+
+async def test_get_candidate_detail_returns_salary_from_to(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session
+):
+    """GET кандидата отдаёт salary_from/salary_to"""
+    # Установим вилку
+    await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={
+            "salary_from": 110000,
+            "salary_to": 140000,
+        }
+    )
+
+    # Получим кандидата
+    response = await async_client.get(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    candidate = response.json()
+    assert candidate["salary_from"] == 110000
+    assert candidate["salary_to"] == 140000
+    assert candidate["salary_expectation"] == 110000

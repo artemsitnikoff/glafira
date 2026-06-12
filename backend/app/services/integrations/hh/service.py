@@ -773,6 +773,8 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         candidate.email = email[:255]
     if isinstance(salary_amount, int):
         candidate.salary_expectation = salary_amount
+        candidate.salary_from = salary_amount
+        candidate.salary_to = salary_amount
     if salary_currency:
         candidate.currency = str(salary_currency)[:3]
     if last_position:

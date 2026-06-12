@@ -16,7 +16,10 @@ import { AllActionsTab } from './tabs/AllActionsTab';
 import NewCandidateForm from '@/pages/funnel/NewCandidateForm';
 import './CandidateDetail.css';
 
-type ApplicationRow = components['schemas']['ApplicationRow'];
+type ApplicationRow = components['schemas']['ApplicationRow'] & {
+  salary_from?: number | null;
+  salary_to?: number | null;
+};
 
 type Props = {
   application: ApplicationRow | null;

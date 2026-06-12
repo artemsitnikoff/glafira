@@ -50,6 +50,8 @@ class BaseSearchCandidate(BaseModel):
     ai_score: Optional[int]
     source: str
     salary_expectation: Optional[int]
+    salary_from: Optional[int]
+    salary_to: Optional[int]
     matched_skills: list[str]
     all_skills: list[str]
     match_percent: Optional[int]

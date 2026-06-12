@@ -34,6 +34,8 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     salary_expectation: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    salary_from: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    salary_to: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default=text("'RUB'"))
     last_position: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     last_company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

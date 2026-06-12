@@ -397,7 +397,14 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
         ]
         messengers = messenger_variants[i % len(messenger_variants)]
         # Зарплатные ожидания — для наполнения колонки ЗП в воронке
-        salary_expectation = 150000 + (i * 13000) % 250000
+        # Генерируем или одиночное значение, или вилку
+        base_salary = 150000 + (i * 13000) % 250000
+        if i % 3 == 0:  # треть кандидатов — с вилкой
+            salary_from = base_salary
+            salary_to = base_salary + 30000
+        else:  # остальные — одиночное значение
+            salary_from = salary_to = base_salary
+        salary_expectation = salary_from  # синхронизация
 
         # Генерируем резюме на основе типа вакансии (только в не-REAL режиме)
         vacancy_idx = vacancy_assignments[i]
@@ -416,6 +423,8 @@ async def seed_candidates(session: AsyncSession) -> list[Candidate]:
             city=candidate_data["city"],
             phone=phone,
             salary_expectation=salary_expectation,
+            salary_from=salary_from,
+            salary_to=salary_to,
             last_position=candidate_data["position"],
             last_company=candidate_data["company"],
             resume_text=resume_text,

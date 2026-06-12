@@ -21,6 +21,8 @@ class ApplicationRow(ORMBase):
     # новые из формы добавления — объекты {type, url}. Фронт рендерит обе.
     messengers: list[dict | str]
     salary_expectation: int | None
+    salary_from: int | None
+    salary_to: int | None
     currency: str
     city: str | None
     stage: str

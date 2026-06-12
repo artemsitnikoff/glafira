@@ -165,6 +165,8 @@ async def parse_resume_to_dict(content: bytes, filename: str) -> dict | None:
             "email": _to_str(parsed_data.get("email"), 255),
             "city": _to_str(parsed_data.get("city"), 120),
             "salary_expectation": _to_int(parsed_data.get("salary_expectation")),
+            "salary_from": _to_int(parsed_data.get("salary_expectation")),
+            "salary_to": _to_int(parsed_data.get("salary_expectation")),
             "last_position": _to_str(parsed_data.get("last_position"), 255),
             "last_company": _to_str(parsed_data.get("last_company"), 255),
             "last_period": _to_str(parsed_data.get("last_period"), 120),
@@ -283,7 +285,10 @@ async def parse_and_apply_resume(
             candidate.last_period = parsed_data["last_period"]
 
         if candidate.salary_expectation is None and parsed_data.get("salary_expectation") is not None:
-            candidate.salary_expectation = parsed_data["salary_expectation"]
+            salary_value = parsed_data["salary_expectation"]
+            candidate.salary_expectation = salary_value
+            candidate.salary_from = salary_value
+            candidate.salary_to = salary_value
 
         if candidate.city is None and parsed_data.get("city"):
             candidate.city = parsed_data["city"]

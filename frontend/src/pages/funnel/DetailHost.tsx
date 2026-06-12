@@ -1,7 +1,10 @@
 import { CandidateDetail } from './candidate-detail/CandidateDetail';
 import type { components } from '@/api/types';
 
-type ApplicationRow = components['schemas']['ApplicationRow'];
+type ApplicationRow = components['schemas']['ApplicationRow'] & {
+  salary_from?: number | null;
+  salary_to?: number | null;
+};
 
 type Props = {
   application: ApplicationRow | null;

@@ -1,5 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
-import { formatSalary } from '@/lib/format';
+import { formatSalaryRange } from '@/lib/format';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
 import { MessIconRound } from '@/components/ui/MessIconRound';
@@ -115,7 +115,11 @@ export function CandidateHeader({ candidateId, application }: Props) {
           </div>
           <div className="cd-salary-line">
             <span className="cd-salary t-mono">
-              {candidate.salary_expectation ? formatSalary(candidate.salary_expectation, candidate.currency) : '—'}
+              {formatSalaryRange(
+                (candidate as any).salary_from ?? candidate.salary_expectation,
+                (candidate as any).salary_to ?? candidate.salary_expectation,
+                candidate.currency
+              ) || '—'}
             </span>
             <span className="cd-salary-label">ожидания</span>
           </div>

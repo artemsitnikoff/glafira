@@ -6,7 +6,7 @@ import { StageChip } from '@/components/ui/StageChip';
 import { MessIconRound } from '@/components/ui/MessIconRound';
 import { messengerChannel } from '@/lib/messengers';
 import { Icon } from '@/components/ui/Icon';
-import { formatSalary } from '@/lib/format';
+import { formatSalaryRange } from '@/lib/format';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
 // Единый бейдж скоринга — общий ScoreLabel (светлый пастель, 1:1 эталон) на всех экранах.
 
@@ -339,10 +339,17 @@ const FunnelRow = React.memo(function FunnelRow({
             </div>
           </div>
 
-          <div className="ct-col t-mono" style={{ width: 120 }}>
-            {candidate.salary_expectation
-              ? formatSalary(candidate.salary_expectation, candidate.currency)
-              : '—'}
+          <div className="ct-col t-mono" style={{ width: 120 }}
+               title={formatSalaryRange(
+                 (candidate as any).salary_from ?? candidate.salary_expectation,
+                 (candidate as any).salary_to ?? candidate.salary_expectation,
+                 candidate.currency
+               ) || '—'}>
+            {formatSalaryRange(
+              (candidate as any).salary_from ?? candidate.salary_expectation,
+              (candidate as any).salary_to ?? candidate.salary_expectation,
+              candidate.currency
+            ) || '—'}
           </div>
 
           <div className="ct-col" style={{ width: 140 }}>

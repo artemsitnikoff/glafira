@@ -26,14 +26,21 @@ type CandidateCreateLocal = components['schemas']['CandidateCreate'] & {
   last_company?: string;
   last_period?: string;
   region?: string;
+  salary_from?: number | null;
+  salary_to?: number | null;
 };
 // CandidateUpdate в types.ts отстаёт (нет source/messengers/source_url) — локальное расширение.
 type CandidateUpdateLocal = components['schemas']['CandidateUpdate'] & {
   source?: string | null;
   messengers?: { type: string; url: string }[];
   source_url?: string | null;
+  salary_from?: number | null;
+  salary_to?: number | null;
 };
-type CandidateDetailT = components['schemas']['CandidateDetail'];
+type CandidateDetailT = components['schemas']['CandidateDetail'] & {
+  salary_from?: number | null;
+  salary_to?: number | null;
+};
 
 type Props = {
   // Создание: vacancyId — целевая вакансия. Правка: передаётся candidate (vacancyId не нужен).
@@ -251,7 +258,12 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
       : 'unset') as 'female' | 'male' | 'unset',
     birth_date: isoToDisplayDate(candidate?.birth_date),
     city: candidate?.city ?? '',
-    salary_expectation: candidate?.salary_expectation != null ? String(candidate.salary_expectation) : '',
+    salary_from: candidate?.salary_from != null
+      ? String(candidate.salary_from)
+      : (candidate?.salary_expectation != null ? String(candidate.salary_expectation) : ''),
+    salary_to: candidate?.salary_to != null
+      ? String(candidate.salary_to)
+      : (candidate?.salary_expectation != null ? String(candidate.salary_expectation) : ''),
     currency: candidate?.currency ?? 'RUB',
     source: candidate?.source ?? '',
     source_url: (candidate as { source_url?: string | null } | undefined)?.source_url ?? '',
@@ -319,8 +331,12 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         if (!formData.phone.trim() && fields.phone) updates.phone = fields.phone;
         if (!formData.email.trim() && fields.email) updates.email = fields.email;
         if (!formData.city.trim() && fields.city) updates.city = fields.city;
-        if (!formData.salary_expectation.trim() && fields.salary_expectation != null) {
-          updates.salary_expectation = String(fields.salary_expectation);
+        // Автозаполнение зарплатной вилки
+        if (!formData.salary_from.trim() && ((fields as any).salary_from != null || fields.salary_expectation != null)) {
+          updates.salary_from = String((fields as any).salary_from ?? fields.salary_expectation);
+        }
+        if (!formData.salary_to.trim() && ((fields as any).salary_to != null || fields.salary_expectation != null)) {
+          updates.salary_to = String((fields as any).salary_to ?? fields.salary_expectation);
         }
         if (!formData.source_url.trim() && fields.last_position && fields.last_company) {
           // Auto-populate source URL placeholder if we have position/company info
@@ -462,6 +478,15 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
     setIsSubmitting(true);
     setErrors({});
 
+    // Валидация зарплатной вилки
+    const salaryFromNum = formData.salary_from ? parseInt(formData.salary_from) : null;
+    const salaryToNum = formData.salary_to ? parseInt(formData.salary_to) : null;
+    if (salaryFromNum != null && salaryToNum != null && salaryFromNum > salaryToNum) {
+      setErrors({ salary_from: 'Зарплата "от" не может быть больше "до"' });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       // ===== Режим правки: PATCH /candidates/{id}, без вакансии/типа/резюме =====
       if (isEdit && candidate) {
@@ -478,7 +503,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           gender: formData.gender === 'unset' ? null : formData.gender,
           birth_date: parseDate(formData.birth_date),
           city: formData.city.trim() || null,
-          salary_expectation: formData.salary_expectation ? parseInt(formData.salary_expectation) : null,
+          salary_from: formData.salary_from ? parseInt(formData.salary_from) : null,
+          salary_to: formData.salary_to ? parseInt(formData.salary_to) : null,
           currency: formData.currency,
           source_url: formData.source_url.trim() || null,
           // messengers шлём ТОЛЬКО если поле меняли — иначе не трогаем (сохраняем как есть,
@@ -531,7 +557,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         gender: formData.gender === 'unset' ? null : formData.gender,
         birth_date: parseDate(formData.birth_date),
         city: formData.city.trim() || null,
-        salary_expectation: formData.salary_expectation ? parseInt(formData.salary_expectation) : null,
+        salary_from: formData.salary_from ? parseInt(formData.salary_from) : null,
+        salary_to: formData.salary_to ? parseInt(formData.salary_to) : null,
         currency: formData.currency,
         add_type: formData.add_type,
         // Пусто → null (НЕ '': '' не пройдёт UUID-валидацию → 422). Кандидат уйдёт «в базу».
@@ -895,13 +922,22 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
               <div className="nv-field">
                 <label className="nv-label">Ожидаемая ЗП</label>
                 <div className="nc-salary">
-                  <input
-                    className="nv-input"
-                    type="number"
-                    placeholder="0"
-                    value={formData.salary_expectation}
-                    onChange={e => updateFormData({ salary_expectation: e.target.value })}
-                  />
+                  <div className="nv-grid-2-tight">
+                    <input
+                      className={`nv-input ${errors.salary_from ? 'error' : ''}`}
+                      type="number"
+                      placeholder="от"
+                      value={formData.salary_from}
+                      onChange={e => updateFormData({ salary_from: e.target.value })}
+                    />
+                    <input
+                      className="nv-input"
+                      type="number"
+                      placeholder="до"
+                      value={formData.salary_to}
+                      onChange={e => updateFormData({ salary_to: e.target.value })}
+                    />
+                  </div>
                   <NCDropdown
                     id="cur"
                     value={formData.currency}
@@ -911,6 +947,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                     setOpenId={setOpenDD}
                   />
                 </div>
+                {errors.salary_from && <div className="field-error">{errors.salary_from}</div>}
               </div>
               {!isEdit && (
               <div className="nv-field">

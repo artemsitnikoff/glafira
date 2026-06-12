@@ -94,6 +94,8 @@ class CandidateDetail(ORMBase):
     # новые из формы добавления — объекты {type, url}. Фронт рендерит обе.
     messengers: list[dict | str] = []
     salary_expectation: int | None = None
+    salary_from: int | None = None
+    salary_to: int | None = None
     currency: str = "RUB"
     last_position: str | None = None
     last_company: str | None = None
@@ -165,6 +167,8 @@ class CandidateCreate(BaseModel):
     city: str | None = None
     region: str | None = None
     salary_expectation: int | None = None
+    salary_from: int | None = None
+    salary_to: int | None = None
     currency: str = "RUB"
     add_type: str = "manual"
     vacancy_id: UUID | None = None
@@ -192,6 +196,8 @@ class CandidateUpdate(BaseModel):
     city: str | None = None
     region: str | None = None
     salary_expectation: int | None = None
+    salary_from: int | None = None
+    salary_to: int | None = None
     currency: str | None = None
     source: CandidateSource | None = None
     source_url: str | None = Field(default=None, max_length=500)
