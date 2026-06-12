@@ -22,6 +22,7 @@ from ..services.audit import audit
 from ..services.integrations.potok.client import list_applicants
 from ..services.integrations.potok.mapper import map_potok_applicant
 from .base_search import reindex_all_embeddings
+from .candidate_dedup import _clean_phone, _normalize_contact, _phone_query_variants, _get_existing_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -177,24 +178,6 @@ def _clean_name(value: str) -> tuple[str, str, str]:
         return parts[0], parts[1], " ".join(parts[2:])
 
 
-def _clean_phone(value: str) -> str:
-    """Очистка и нормализация телефона"""
-    if not value:
-        return ""
-
-    # Только цифры
-    digits = re.sub(r'\D', '', str(value))
-
-    if not digits:
-        return str(value)[:20]  # Возвращаем как есть, обрезанное
-
-    # Нормализация
-    if len(digits) == 11 and digits.startswith('8'):
-        digits = '7' + digits[1:]
-    elif len(digits) == 10:
-        digits = '7' + digits
-
-    return '+' + digits
 
 
 def _parse_company_position(value: str, field_type: str) -> tuple[str, str]:
@@ -254,58 +237,6 @@ def _clean_source(value: str) -> str:
         return "other"
 
 
-def _normalize_contact(value: str) -> str:
-    """Нормализация контакта для дедупликации"""
-    if not value:
-        return ""
-
-    if '@' in value:  # email
-        return value.lower().strip()
-    else:  # phone
-        return _clean_phone(value).replace('+', '').replace(' ', '')
-
-
-def _phone_query_variants(norm_digits: str) -> list[str]:
-    """Возможные форматы хранения телефона в БД для нормализованных цифр (телефоны в базе
-    приходят в разном виде: '+7…' из импорта/формы, '8…'/'7…' из других источников).
-    Нужно для дедуп-матча: ключ дедупа нормализуется через _normalize_contact одинаково
-    с обеих сторон, но SQL-запрос должен ВЕРНУТЬ кандидата по любому из форматов."""
-    if not norm_digits:
-        return []
-    out = {norm_digits, "+" + norm_digits}
-    if len(norm_digits) == 11 and norm_digits.startswith("7"):
-        rest = norm_digits[1:]
-        out.update({"8" + rest, "+7" + rest, "7" + rest})
-    return list(out)
-
-
-async def _get_existing_candidates(session: AsyncSession, company_id: UUID,
-                                 phones: list[str], emails: list[str]) -> list[Candidate]:
-    """Получение существующих кандидатов для дедупликации (СТРОГО в рамках company)."""
-    if not phones and not emails:
-        return []
-
-    conditions = []
-    if phones:
-        variants = set()
-        for p in phones:
-            variants.update(_phone_query_variants(p))
-        if variants:
-            conditions.append(Candidate.phone.in_(list(variants)))
-    if emails:
-        conditions.append(func.lower(Candidate.email).in_([e.lower() for e in emails]))
-
-    if not conditions:
-        return []
-
-    result = await session.execute(
-        select(Candidate).where(
-            Candidate.company_id == company_id,
-            Candidate.deleted_at.is_(None),
-            or_(*conditions)
-        )
-    )
-    return result.scalars().all()
 
 
 def _classify_rows(rows: list[dict], existing_candidates: list[Candidate],

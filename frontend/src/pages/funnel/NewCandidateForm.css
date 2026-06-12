@@ -267,6 +267,158 @@
   font-weight: 500;
 }
 
+/* Duplicate detection notice */
+.nv-wrap .nc-dup-notice {
+  padding: 16px;
+  background: var(--ark-yellow-100);
+  border: 1px solid var(--ark-yellow-500);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.nv-wrap .nc-dup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.nv-wrap .nc-dup-icon {
+  color: var(--ark-yellow-600);
+}
+
+.nv-wrap .nc-dup-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ark-yellow-600);
+}
+
+.nv-wrap .nc-dup-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.nv-wrap .nc-dup-match {
+  padding: 12px;
+  background: white;
+  border: 1px solid var(--ark-yellow-500);
+  border-radius: var(--radius-md);
+}
+
+.nv-wrap .nc-dup-match-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.nv-wrap .nc-dup-match-info {
+  flex: 1;
+}
+
+.nv-wrap .nc-dup-match-name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.nv-wrap .nc-dup-match-contact {
+  font-size: 12px;
+  color: var(--fg-2);
+  margin-bottom: 2px;
+}
+
+.nv-wrap .nc-dup-match-contact span:not(:last-child)::after {
+  content: ' • ';
+}
+
+.nv-wrap .nc-dup-match-date {
+  font-size: 12px;
+  color: var(--fg-2);
+  margin-bottom: 4px;
+}
+
+.nv-wrap .nc-dup-match-level {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ark-yellow-600);
+  margin-bottom: 4px;
+}
+
+.nv-wrap .nc-dup-match-vacancies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.nv-wrap .nc-dup-vacancy {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--fg-2);
+  background: var(--bg-2);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+}
+
+.nv-wrap .nc-dup-match-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nv-wrap .nc-dup-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all var(--dur-normal);
+}
+
+.nv-wrap .nc-dup-btn-open {
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+
+.nv-wrap .nc-dup-btn-open:hover {
+  background: var(--bg-3);
+}
+
+.nv-wrap .nc-dup-btn-create {
+  background: var(--ark-yellow-500);
+  color: white;
+}
+
+.nv-wrap .nc-dup-btn-create:hover {
+  background: var(--ark-yellow-600);
+}
+
+.nv-wrap .nc-dup-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.nv-wrap .nc-dup-more {
+  font-size: 12px;
+  color: var(--fg-2);
+  font-style: italic;
+  text-align: center;
+  padding: 8px;
+}
+
+/* Acknowledged duplicate badge */
+.nv-wrap .nc-dup-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ark-yellow-600);
+  background: var(--ark-yellow-100);
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  margin-bottom: 16px;
+  display: inline-block;
+}
+
 /* Experience section */
 .nv-wrap .nc-experience {
   display: flex;

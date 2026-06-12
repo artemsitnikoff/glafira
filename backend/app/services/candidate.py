@@ -58,12 +58,16 @@ from ..schemas.candidate import (
     ApplicationHistoryItem,
     TagOut,
     CandidateExperienceOut,
-    CandidateEducationOut
+    CandidateEducationOut,
+    DuplicateCheckResponse,
+    DuplicateMatch,
+    DuplicateVacancy
 )
 from ..schemas.base import Paginated
 from ..services.audit import audit
 from ..services.candidate_format import _compute_age, _compute_full_name
 from ..services.base_search import reindex_candidate
+from ..services.candidate_dedup import find_duplicate_candidates, _fio_match_level, _normalize_contact
 from ..database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
@@ -606,6 +610,103 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
     )
 
 
+async def _build_duplicate_match(
+    session: AsyncSession,
+    company_id: UUID,
+    candidate: Candidate,
+    input_phone: str | None,
+    input_last_name: str | None,
+    input_first_name: str | None,
+    input_middle_name: str | None,
+) -> DuplicateMatch:
+    """Собирает DuplicateMatch для найденного дубля.
+
+    Единый источник логики для check_candidate_duplicates (выдаёт Pydantic) и
+    create_candidate (сериализует в dict для details 409) — чтобы не было двух
+    расходящихся реализаций.
+    - matched_by: 'phone', если нормализованный входной телефон совпал с телефоном
+      кандидата; иначе совпадение по email.
+    - match_level: по входному ФИО (см. _fio_match_level).
+    - vacancies: до 3 участий, СТРОГО company-scoped.
+    """
+    matched_by = 'email'
+    if input_phone:
+        normalized_phone = _normalize_contact(input_phone)
+        candidate_phone = _normalize_contact(candidate.phone or "")
+        if normalized_phone and candidate_phone and normalized_phone == candidate_phone:
+            matched_by = 'phone'
+
+    match_level = _fio_match_level(input_last_name, input_first_name, input_middle_name, candidate)
+
+    vacancies_result = await session.execute(
+        select(Vacancy.name.label('vacancy_name'), Application.stage)
+        .join(Vacancy, Application.vacancy_id == Vacancy.id)
+        .where(
+            Application.candidate_id == candidate.id,
+            Application.company_id == company_id,
+            Vacancy.deleted_at.is_(None)
+        )
+        .order_by(Application.created_at.desc())
+        .limit(3)
+    )
+    vacancies = [
+        DuplicateVacancy(
+            vacancy_name=row.vacancy_name,
+            stage_label=STAGES[row.stage].label if row.stage in STAGES else row.stage,
+        )
+        for row in vacancies_result.fetchall()
+    ]
+
+    return DuplicateMatch(
+        id=candidate.id,
+        full_name=candidate.full_name,
+        phone=candidate.phone,
+        email=candidate.email,
+        created_at=candidate.created_at,
+        match_level=match_level,
+        matched_by=matched_by,
+        vacancies=vacancies,
+    )
+
+
+async def check_candidate_duplicates(
+    session: AsyncSession,
+    company_id: UUID,
+    phone: str | None = None,
+    email: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    middle_name: str | None = None
+) -> DuplicateCheckResponse:
+    """Проверка дубликатов кандидата по телефону и/или email.
+
+    Args:
+        session: Сессия БД
+        company_id: ID компании (строгая изоляция)
+        phone: Телефон для проверки
+        email: Email для проверки
+        first_name: Имя (для уточнения match_level)
+        last_name: Фамилия (для уточнения match_level)
+        middle_name: Отчество (для уточнения match_level)
+
+    Returns:
+        Результат проверки с найденными дубликатами (до 3)
+    """
+    candidates = await find_duplicate_candidates(session, company_id, phone, email)
+
+    if not candidates:
+        return DuplicateCheckResponse(found=False, match_count=0, matches=[])
+
+    matches = [
+        await _build_duplicate_match(
+            session, company_id, candidate, phone, last_name, first_name, middle_name
+        )
+        for candidate in candidates[:3]
+    ]
+
+    return DuplicateCheckResponse(found=True, match_count=len(candidates), matches=matches)
+
+
 async def create_candidate(
     session: AsyncSession,
     candidate_data: CandidateCreate,
@@ -616,6 +717,36 @@ async def create_candidate(
     # Validate required fields
     if not candidate_data.last_name or not candidate_data.first_name or not candidate_data.source:
         raise ValidationError("Обязательные поля: last_name, first_name, source")
+
+    # Проверка дубликатов (если не принудительное создание)
+    duplicate_ids = []
+    if not candidate_data.force_duplicate:
+        duplicates = await find_duplicate_candidates(
+            session, company_id, candidate_data.phone, candidate_data.email
+        )
+        if duplicates:
+            # Детали для 409 — через тот же билдер, что и check (mode="json" сериализует
+            # UUID→str и datetime→ISO, чтобы тело ошибки прошло в JSONResponse).
+            matches_details = [
+                (await _build_duplicate_match(
+                    session, company_id, candidate, candidate_data.phone,
+                    candidate_data.last_name, candidate_data.first_name, candidate_data.middle_name
+                )).model_dump(mode="json")
+                for candidate in duplicates[:3]
+            ]
+
+            raise ConflictError(
+                message="Кандидат с такими контактными данными уже существует",
+                details={"match_count": len(duplicates), "matches": matches_details},
+                code="DUPLICATE_CANDIDATE"
+            )
+
+    # Если force_duplicate=True и есть дубли - запомним их ID для audit
+    elif candidate_data.force_duplicate:
+        duplicates = await find_duplicate_candidates(
+            session, company_id, candidate_data.phone, candidate_data.email
+        )
+        duplicate_ids = [str(dup.id) for dup in duplicates[:3]]
 
     # Create candidate
     full_name = _compute_full_name(candidate_data.last_name, candidate_data.first_name, candidate_data.middle_name)
@@ -751,16 +882,21 @@ async def create_candidate(
         session.add(application)
 
     # Audit
+    audit_after = {
+        "full_name": full_name,
+        "source": candidate_data.source,
+        "vacancy_id": str(candidate_data.vacancy_id) if candidate_data.vacancy_id else None
+    }
+    # Если создан как дубль - указываем ID существующих кандидатов
+    if duplicate_ids:
+        audit_after["duplicate_of"] = duplicate_ids
+
     await audit(
         session,
         action="create",
         entity_type="candidate",
         entity_id=candidate.id,
-        after={
-            "full_name": full_name,
-            "source": candidate_data.source,
-            "vacancy_id": str(candidate_data.vacancy_id) if candidate_data.vacancy_id else None
-        },
+        after=audit_after,
         actor_user_id=actor_user_id,
         company_id=company_id,
     )

@@ -183,6 +183,8 @@ class CandidateCreate(BaseModel):
     experience: list[ExperienceCreate] = []
     skills: list[str] = []
     education: list[EducationCreate] = []
+    # Флаг принудительного создания дубля
+    force_duplicate: bool = False
 
 
 class CandidateUpdate(BaseModel):
@@ -225,4 +227,26 @@ class ParseResumeResponse(BaseModel):
 
 class AssignToVacancyRequest(BaseModel):
     vacancy_id: UUID
-    stage: str = "response"
+
+
+# Схемы для дедупликации кандидатов
+class DuplicateVacancy(BaseModel):
+    vacancy_name: str
+    stage_label: str
+
+
+class DuplicateMatch(BaseModel):
+    id: UUID
+    full_name: str
+    phone: str | None = None
+    email: str | None = None
+    created_at: datetime
+    match_level: Literal['exact', 'possible']
+    matched_by: Literal['phone', 'email']
+    vacancies: list[DuplicateVacancy] = []  # До 3 вакансий
+
+
+class DuplicateCheckResponse(BaseModel):
+    found: bool
+    match_count: int
+    matches: list[DuplicateMatch] = []  # До 3 совпадений

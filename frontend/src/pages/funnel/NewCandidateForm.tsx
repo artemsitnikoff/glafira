@@ -2,14 +2,26 @@
 // из «Кандидаты» (CandidatesPoolPage, без смены URL) lazy-чанки с этими стилями ещё не
 // загружены → форма «голая». Базовые .nv-* — из VacancyForm.css, .nc-*/.nv-dd — из своего.
 // Порядок: база (VacancyForm) → специфика (NewCandidateForm), чтобы переопределения работали.
+
+// DUPLICATE DETECTION FEATURE:
+// - On blur phone/email: debounced check via GET /candidates/check-duplicate
+// - Shows warning notice with matches info (name, contacts, vacancies)
+// - "Open existing" button navigates to candidate
+// - "Create anyway" acknowledges duplicate, enables force_duplicate in payload
+// - Submit with unacknowledged duplicate: scrolls to notice, changes button text
+// - Backend 409 DUPLICATE_CANDIDATE: parse details, show notice, don't crash form
+// - Only active in create mode (!isEdit), not in edit mode
 import '@/pages/vacancies/VacancyForm.css';
 import './NewCandidateForm.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
+import { Avatar } from '@/components/ui/Avatar';
 import { useCreateCandidate } from '@/api/mutations/candidates';
 import { useEvaluate, useUpdateCandidate } from '@/api/mutations/candidateDetail';
 import { useVacancies } from '@/api/hooks/useVacancies';
 import { useParseResume } from '@/api/hooks/useParseResume';
+import { checkDuplicate, type DuplicateCheckResult } from '@/api/hooks/useCheckDuplicate';
 import { api } from '@/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import type { components } from '@/api/types';
@@ -28,6 +40,7 @@ type CandidateCreateLocal = components['schemas']['CandidateCreate'] & {
   region?: string;
   salary_from?: number | null;
   salary_to?: number | null;
+  force_duplicate?: boolean;
 };
 // CandidateUpdate в types.ts отстаёт (нет source/messengers/source_url) — локальное расширение.
 type CandidateUpdateLocal = components['schemas']['CandidateUpdate'] & {
@@ -209,11 +222,17 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
   const queryClient = useQueryClient();
   const parseMutation = useParseResume();
 
+  const navigate = useNavigate();
   const [openDD, setOpenDD] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDragging, setIsDragging] = useState(false);
+
+  // Duplicate detection state
+  const [duplicate, setDuplicate] = useState<DuplicateCheckResult | null>(null);
+  const [dupAcknowledged, setDupAcknowledged] = useState(false);
+  const checkTimeoutRef = useRef<number | null>(null);
 
   // State for new sections (only used in create mode)
   const [experience, setExperience] = useState<Array<{
@@ -289,6 +308,53 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
     if (Object.keys(clearErrors).length > 0) {
       setErrors(prev => ({ ...prev, ...clearErrors }));
     }
+
+    // Reset duplicate state if phone/email changed
+    if (updates.phone !== undefined || updates.email !== undefined) {
+      setDuplicate(null);
+      setDupAcknowledged(false);
+    }
+  };
+
+  // Debounced duplicate check
+  const checkForDuplicates = async (field: 'phone' | 'email', value: string) => {
+    if (!value.trim() || isEdit) return;
+
+    if (checkTimeoutRef.current) {
+      clearTimeout(checkTimeoutRef.current);
+    }
+
+    checkTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        const result = await checkDuplicate({
+          phone: field === 'phone' ? value : formData.phone,
+          email: field === 'email' ? value : formData.email,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          middle_name: formData.middle_name,
+        });
+
+        if (result.found) {
+          setDuplicate(result);
+          setDupAcknowledged(false);
+        } else {
+          setDuplicate(null);
+          setDupAcknowledged(false);
+        }
+      } catch {
+        // Тихий фейл: проверка дубля опциональна. Двойная сетка — бек проверит на
+        // сабмите и вернёт 409. force_duplicate при этом НЕ ставится молча.
+      }
+    }, 300);
+  };
+
+  // Handle duplicate acknowledgment
+  const handleDuplicateAction = (action: 'acknowledge' | 'navigate', candidateId?: string) => {
+    if (action === 'acknowledge') {
+      setDupAcknowledged(true);
+    } else if (action === 'navigate' && candidateId) {
+      navigate(`/candidates/${candidateId}`);
+    }
   };
 
   const vacancies = vacanciesData?.items || [];
@@ -297,6 +363,15 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
   const targetName = formData.target_vacancy ? (targetVacancy?.name || '—') : 'в базу (без вакансии)';
 
   const isValid = formData.last_name.trim() && formData.first_name.trim() && formData.source;
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (checkTimeoutRef.current) {
+        clearTimeout(checkTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Parse period string into start/end components for experience
   const parsePeriod = (period: string): { start: string; end: string } => {
@@ -475,6 +550,16 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
   const handleSubmit = async () => {
     if (!isValid || isSubmitting) return;
 
+    // Check for unacknowledged duplicates (only in create mode)
+    if (!isEdit && duplicate?.found && !dupAcknowledged) {
+      // Scroll to duplicate notice and return without submitting
+      const duplicateElement = document.querySelector('.nc-dup-notice');
+      if (duplicateElement) {
+        duplicateElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
     setIsSubmitting(true);
     setErrors({});
 
@@ -575,6 +660,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         last_position: lastPosition || undefined,
         last_company: lastCompany || undefined,
         last_period: lastPeriod || undefined,
+        force_duplicate: dupAcknowledged,
       };
 
       // Create candidate
@@ -640,6 +726,24 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           }
         });
         setErrors(fieldErrors);
+      } else if (e.error?.code === 'DUPLICATE_CANDIDATE' && !dupAcknowledged) {
+        // Handle duplicate from backend - set duplicate state from response
+        const details = e.error.details as any; // Backend details don't match Pydantic validation format
+        const backendDuplicate = {
+          found: true,
+          match_count: details?.match_count || 1,
+          matches: details?.matches || [],
+        };
+        setDuplicate(backendDuplicate);
+        setDupAcknowledged(false);
+
+        // Scroll to duplicate notice
+        setTimeout(() => {
+          const duplicateElement = document.querySelector('.nc-dup-notice');
+          if (duplicateElement) {
+            duplicateElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
       } else {
         setErrors({ general: e.error?.message || (isEdit ? 'Произошла ошибка при сохранении кандидата' : 'Произошла ошибка при создании кандидата') });
       }
@@ -854,6 +958,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                     placeholder="+7 (___) ___-__-__"
                     value={formData.phone}
                     onChange={e => updateFormData({ phone: e.target.value })}
+                    onBlur={e => checkForDuplicates('phone', e.target.value)}
                   />
                 </div>
               </div>
@@ -865,9 +970,96 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                   placeholder="name@example.com"
                   value={formData.email}
                   onChange={e => updateFormData({ email: e.target.value })}
+                  onBlur={e => checkForDuplicates('email', e.target.value)}
                 />
               </div>
             </div>
+
+            {/* Duplicate detection notice */}
+            {!isEdit && duplicate?.found && (
+              <div className="nc-dup-notice">
+                <div className="nc-dup-header">
+                  <Icon name="alert-triangle" size={16} className="nc-dup-icon" />
+                  <span className="nc-dup-title">
+                    {duplicate.match_count > 1
+                      ? `Найдено возможных дублей: ${duplicate.match_count}`
+                      : 'Похоже, этот кандидат уже есть в базе'}
+                  </span>
+                </div>
+
+                <div className="nc-dup-matches">
+                  {duplicate.matches.map((match) => (
+                    <div key={match.id} className="nc-dup-match">
+                      <div className="nc-dup-match-header">
+                        <Avatar name={match.full_name} size="sm" />
+                        <div className="nc-dup-match-info">
+                          <div className="nc-dup-match-name">{match.full_name}</div>
+                          <div className="nc-dup-match-contact">
+                            {match.phone && <span>{match.phone}</span>}
+                            {match.email && <span>{match.email}</span>}
+                          </div>
+                          <div className="nc-dup-match-date">
+                            добавлен {new Date(match.created_at).toLocaleDateString('ru-RU', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric'
+                            })}
+                          </div>
+                          <div className="nc-dup-match-level">
+                            {match.match_level === 'exact'
+                              ? `${match.matched_by === 'phone' ? 'Телефон' : 'E-mail'} и ФИО совпадают`
+                              : `${match.matched_by === 'phone' ? 'Телефон' : 'E-mail'} совпадает, имя отличается`}
+                          </div>
+                          {match.vacancies.length > 0 && (
+                            <div className="nc-dup-match-vacancies">
+                              {match.vacancies.slice(0, 3).map((vac, i) => (
+                                <span key={i} className="nc-dup-vacancy">
+                                  {vac.vacancy_name} · {vac.stage_label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="nc-dup-match-actions">
+                        <button
+                          type="button"
+                          className="nc-dup-btn nc-dup-btn-open"
+                          onClick={() => handleDuplicateAction('navigate', match.id)}
+                        >
+                          Открыть существующего
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {duplicate.match_count > duplicate.matches.length && (
+                    <div className="nc-dup-more">
+                      и ещё {duplicate.match_count - duplicate.matches.length}
+                    </div>
+                  )}
+                </div>
+
+                {!dupAcknowledged && (
+                  <div className="nc-dup-actions">
+                    <button
+                      type="button"
+                      className="nc-dup-btn nc-dup-btn-create"
+                      onClick={() => handleDuplicateAction('acknowledge')}
+                    >
+                      Всё равно создать
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Acknowledged duplicate badge */}
+            {!isEdit && dupAcknowledged && (
+              <div className="nc-dup-badge">
+                Создаётся как дубль
+              </div>
+            )}
 
             {/* Gender / Birthday / City */}
             <div className="nv-grid-3">
@@ -1186,7 +1378,11 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
               <Icon name={isEdit ? 'check' : 'plus'} size={14} />
               {isEdit
                 ? (isSubmitting ? ' Сохранение...' : ' Сохранить')
-                : (isSubmitting ? ' Добавление...' : ' Добавить кандидата')}
+                : isSubmitting
+                  ? ' Добавление...'
+                  : (duplicate?.found && !dupAcknowledged)
+                    ? ' Всё равно создать'
+                    : ' Добавить кандидата'}
             </button>
           </div>
         </div>

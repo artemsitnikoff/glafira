@@ -17,7 +17,8 @@ from ...schemas.candidate import (
     ApplicationHistoryItem,
     AddTagRequest,
     AssignToVacancyRequest,
-    ParseResumeResponse
+    ParseResumeResponse,
+    DuplicateCheckResponse
 )
 from ...schemas.base import Paginated, StatusResult
 from ...schemas.application import ApplicationRow
@@ -30,7 +31,8 @@ from ...services.candidate import (
     get_candidate_applications,
     add_candidate_tag,
     remove_candidate_tag,
-    assign_candidate_to_vacancy
+    assign_candidate_to_vacancy,
+    check_candidate_duplicates
 )
 from ...services.resume_export import (
     load_candidate_for_export,
@@ -82,6 +84,34 @@ async def get_candidates(
         added_period=added_period,
         sort=page_params.sort,
         order=page_params.order
+    )
+
+
+# ВАЖНО: статический роут /check-duplicate ОБЯЗАН быть объявлен ДО динамического
+# /{candidate_id} — иначе FastAPI матчит "check-duplicate" как candidate_id (UUID) → 422,
+# и эндпоинт недостижим. Порядок объявления = порядок матчинга.
+@router.get("/check-duplicate", response_model=DuplicateCheckResponse)
+async def check_candidate_duplicate(
+    phone: str | None = Query(None),
+    email: str | None = Query(None),
+    first_name: str | None = Query(None),
+    last_name: str | None = Query(None),
+    middle_name: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+) -> DuplicateCheckResponse:
+    """Проверка дубликатов кандидата по контактным данным"""
+    # Managers cannot create candidates, so they can't check duplicates
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут создавать кандидатов")
+
+    # Если нет ни телефона, ни email - возвращаем пустой результат
+    if not phone and not email:
+        return DuplicateCheckResponse(found=False, match_count=0, matches=[])
+
+    return await check_candidate_duplicates(
+        session, company_id, phone, email, first_name, last_name, middle_name
     )
 
 

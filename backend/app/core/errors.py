@@ -70,11 +70,12 @@ class ValidationError(AppError):
 
 
 class ConflictError(AppError):
-    def __init__(self, message: str = "Конфликт данных"):
+    def __init__(self, message: str = "Конфликт данных", details: dict | None = None, code: str = "CONFLICT"):
         super().__init__(
-            code="CONFLICT",
+            code=code,
             message=message,
-            status_code=409
+            status_code=409,
+            details=details
         )
 
 
