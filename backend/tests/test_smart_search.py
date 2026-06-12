@@ -547,7 +547,9 @@ async def test_sweep_orphaned_runs(db_session, test_company, test_vacancy):
     with patch('app.services.smart_search.AsyncSessionLocal', _session_local_returning(db_session)):
         await sweep_orphaned_runs(max_age_minutes=60)
 
-    # Проверяем результаты
+    # Проверяем результаты. sweep делает bulk UPDATE (Core) в обход ORM identity-map —
+    # сбрасываем кэш сессии, чтобы get() перечитал свежие значения из БД (status/error).
+    db_session.expire_all()
     old_run_after = await db_session.get(SmartSearchRun, old_run_id)
     fresh_run_after = await db_session.get(SmartSearchRun, fresh_run_id)
 
