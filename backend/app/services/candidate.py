@@ -27,7 +27,7 @@ def _parse_comma_separated_strings(value: str | None) -> list[str]:
 
     return [item.strip() for item in value.split(',') if item.strip()]
 
-from sqlalchemy import and_, asc, case, desc, exists, func, or_, select, text
+from sqlalchemy import and_, asc, case, delete, desc, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -831,6 +831,16 @@ async def delete_candidate(
     candidate = await get_candidate(session, candidate_id, company_id)
 
     candidate.deleted_at = datetime.now(timezone.utc)
+
+    # Отвязка из воронки: удаляем заявки кандидата (bulk DELETE → срабатывают БД-каскады
+    # FK ondelete=CASCADE: stage_history/comments/evaluations/messages; pulse-employee → SET NULL).
+    # Сам кандидат остаётся soft-deleted (deleted_at) для аудита/152-ФЗ.
+    await session.execute(
+        delete(Application).where(
+            Application.candidate_id == candidate_id,
+            Application.company_id == company_id,
+        )
+    )
 
     # Audit
     await audit(

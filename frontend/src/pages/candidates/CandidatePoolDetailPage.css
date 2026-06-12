@@ -393,6 +393,18 @@
   background: var(--bg-3-hover);
 }
 
+/* Деструктивная кнопка (Удалить кандидата) — на этой странице .btn-danger не был
+   определён (он scoped в Settings/UserActionMenu), потому добавляем тут. */
+.cfp-page .btn-danger {
+  background: var(--ark-red-500);
+  color: var(--ark-white);
+  border-color: var(--ark-red-500);
+}
+.cfp-page .btn-danger:hover:not(:disabled) {
+  background: var(--ark-red-600);
+  border-color: var(--ark-red-600);
+}
+
 .cfp-page .btn-sm {
   padding: 4px 12px;
   font-size: 12px;

@@ -228,6 +228,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
             title="Сохранить резюме"
           >
             <Icon name="save" size={14} />
+            Резюме
             <Icon name="chevron-down" size={12} />
           </button>
 

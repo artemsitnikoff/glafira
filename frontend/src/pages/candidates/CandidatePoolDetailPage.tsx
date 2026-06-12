@@ -5,6 +5,9 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCandidate, useCandidateApplications } from '../../api/hooks/useCandidates'
 import { useRequestConsent } from '@/api/mutations/candidateDetail'
 import { useResumeDownload } from '@/api/hooks/useResumeDownload'
+import { useDeleteCandidate } from '@/api/mutations/candidates'
+import { useAuthStore } from '@/store/authStore'
+import { useQueryClient } from '@tanstack/react-query'
 import { AssignToVacancyModal } from './components/AssignToVacancyModal'
 import { Icon } from '@/components/ui/Icon'
 import { ScoreLabel } from '@/components/ui/ScoreLabel'
@@ -38,9 +41,11 @@ export function CandidatePoolDetailPage() {
   const { id: candidateId } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [downloadPopoverOpen, setDownloadPopoverOpen] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const activeTab = (searchParams.get('tab') as TabKey) || 'resume'
 
@@ -57,6 +62,11 @@ export function CandidatePoolDetailPage() {
 
   const consentMutation = useRequestConsent(candidateId || '')
   const downloadMutation = useResumeDownload()
+  const deleteMutation = useDeleteCandidate()
+
+  // RBAC: удаление запрещено менеджеру
+  const userRole = useAuthStore((s) => s.user?.role)
+  const canDelete = userRole !== 'manager'
 
   const handleBackToPool = () => {
     // К СПИСКУ кандидатов (не navigate(-1) — иначе ходит по истории смены табов),
@@ -89,6 +99,21 @@ export function CandidatePoolDetailPage() {
       fileName
     });
     setDownloadPopoverOpen(false);
+  }
+
+  async function handleDeleteCandidate() {
+    if (!candidate) return;
+
+    try {
+      await deleteMutation.mutateAsync(candidate.id);
+      // Инвалидируем кэш списка кандидатов
+      queryClient.invalidateQueries({ queryKey: ['candidates'] });
+      // Возвращаемся в пул
+      handleBackToPool();
+    } catch (error) {
+      // Ошибка обработается в UI
+    }
+    setShowDeleteConfirm(false);
   }
 
   const renderTabContent = () => {
@@ -242,11 +267,12 @@ export function CandidatePoolDetailPage() {
               {/* Скачать резюме */}
               <div className="cd-move-wrap">
                 <button
-                  className="icon-btn"
+                  className="btn btn-secondary btn-sm"
                   onClick={() => setDownloadPopoverOpen(o => !o)}
                   title="Сохранить резюме"
                 >
-                  <Icon name="save" size={16} />
+                  <Icon name="save" size={14} />
+                  Резюме
                   <Icon name="chevron-down" size={12} />
                 </button>
 
@@ -275,6 +301,18 @@ export function CandidatePoolDetailPage() {
                   </>
                 )}
               </div>
+
+              {/* Удалить кандидата */}
+              {canDelete && (
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  title="Удалить кандидата"
+                >
+                  <Icon name="trash" size={14} />
+                  Удалить
+                </button>
+              )}
 
               <div style={{ flex: 1 }} />
               <button className="icon-btn" onClick={handleBackToPool} title="Закрыть">
@@ -305,6 +343,50 @@ export function CandidatePoolDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Модалка подтверждения удаления */}
+      {showDeleteConfirm && (
+        <div className="avm-backdrop" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="avm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="avm-head">
+              <div>
+                <h3>Удалить кандидата?</h3>
+                <div className="avm-sub">
+                  Кандидат будет удалён из базы и отвязан от всех вакансий (воронок). Действие необратимо.
+                </div>
+              </div>
+              <button className="avm-close" onClick={() => setShowDeleteConfirm(false)} aria-label="Закрыть">
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            {deleteMutation.error && (
+              <div className="avm-error">
+                {(deleteMutation.error as any)?.error?.message || 'Не удалось удалить кандидата'}
+              </div>
+            )}
+
+            <div className="avm-list">
+              <div style={{ display: 'flex', gap: '12px', padding: '20px', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleteMutation.isPending}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={handleDeleteCandidate}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? 'Удаляю...' : 'Удалить'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Перевод/назначение на вакансию (поиск + список) */}
       {showAssignModal && (
