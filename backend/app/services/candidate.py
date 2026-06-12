@@ -39,6 +39,7 @@ from ..models import (
     CandidateTag,
     CandidateExperience,
     CandidateSkill,
+    CandidateEducation,
     Client,
     Consent,
     Event,
@@ -607,8 +608,12 @@ async def create_candidate(
         gender=candidate_data.gender,
         birth_date=candidate_data.birth_date,
         city=candidate_data.city,
+        region=candidate_data.region,
         salary_expectation=candidate_data.salary_expectation,
         currency=candidate_data.currency,
+        last_position=candidate_data.last_position,
+        last_company=candidate_data.last_company,
+        last_period=candidate_data.last_period,
         messengers=messengers_data,
         source_url=(candidate_data.source_url or None),
         extra=extra
@@ -616,6 +621,63 @@ async def create_candidate(
 
     session.add(candidate)
     await session.flush()
+
+    # Create related records (experience, skills, education)
+    # Опыт работы - пропускаем записи с пустым position
+    if candidate_data.experience:
+        created_exp = []
+        for idx, exp_data in enumerate(candidate_data.experience):
+            if exp_data.position:  # position required, проверка в схеме
+                experience = CandidateExperience(
+                    candidate_id=candidate.id,
+                    company_id=company_id,
+                    position=exp_data.position,
+                    company=exp_data.company,
+                    period=exp_data.period,
+                    description=exp_data.description,
+                    order_index=idx
+                )
+                session.add(experience)
+                created_exp.append(experience)
+
+        # Синк last_* полей с последней записью опыта, если они не были заданы
+        if created_exp and (not candidate_data.last_position or not candidate_data.last_company or not candidate_data.last_period):
+            latest = pick_latest_experience(created_exp)
+            if latest:
+                if not candidate.last_position:
+                    candidate.last_position = latest.position
+                if not candidate.last_company:
+                    candidate.last_company = latest.company
+                if not candidate.last_period:
+                    candidate.last_period = latest.period
+
+    # Навыки
+    if candidate_data.skills:
+        for idx, skill in enumerate(candidate_data.skills):
+            if skill:  # Пропустить пустые
+                candidate_skill = CandidateSkill(
+                    candidate_id=candidate.id,
+                    company_id=company_id,
+                    skill=skill,
+                    order_index=idx
+                )
+                session.add(candidate_skill)
+
+    # Образование
+    if candidate_data.education:
+        for idx, edu_data in enumerate(candidate_data.education):
+            # Пропускаем полностью пустые записи (консистентно с фронт-фильтром и skip опыта)
+            if not (edu_data.institution or edu_data.specialty or edu_data.years):
+                continue
+            education = CandidateEducation(
+                candidate_id=candidate.id,
+                company_id=company_id,
+                institution=edu_data.institution,
+                specialty=edu_data.specialty,
+                years=edu_data.years,
+                order_index=idx
+            )
+            session.add(education)
 
     # If vacancy_id provided, create application
     if candidate_data.vacancy_id:

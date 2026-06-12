@@ -139,6 +139,20 @@ class MessengerEntry(BaseModel):
     url: str
 
 
+# Вложенные схемы для создания кандидата с опытом/навыками/образованием
+class ExperienceCreate(BaseModel):
+    position: str = Field(min_length=1)
+    company: str | None = None
+    period: str | None = None
+    description: str | None = None
+
+
+class EducationCreate(BaseModel):
+    institution: str | None = None
+    specialty: str | None = None
+    years: str | None = None
+
+
 class CandidateCreate(BaseModel):
     last_name: str
     first_name: str
@@ -149,6 +163,7 @@ class CandidateCreate(BaseModel):
     gender: str | None = None
     birth_date: date | None = None
     city: str | None = None
+    region: str | None = None
     salary_expectation: int | None = None
     currency: str = "RUB"
     add_type: str = "manual"
@@ -156,6 +171,14 @@ class CandidateCreate(BaseModel):
     comment: str | None = None
     messengers: list[MessengerEntry] | None = None
     source_url: str | None = Field(default=None, max_length=500)
+    # Поля для автозаполнения из парсинга
+    last_position: str | None = None
+    last_company: str | None = None
+    last_period: str | None = None
+    # Структурированные данные
+    experience: list[ExperienceCreate] = []
+    skills: list[str] = []
+    education: list[EducationCreate] = []
 
 
 class CandidateUpdate(BaseModel):
@@ -185,6 +208,13 @@ class CandidateUpdate(BaseModel):
 
 class AddTagRequest(BaseModel):
     tag_id: UUID
+
+
+# Схемы для парсинга резюме
+class ParseResumeResponse(BaseModel):
+    parsed: bool
+    reason: str | None = None
+    fields: dict | None = None
 
 
 class AssignToVacancyRequest(BaseModel):

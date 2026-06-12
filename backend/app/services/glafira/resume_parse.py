@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
+from docx import Document
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +65,30 @@ def _extract_pdf_text(content: bytes) -> str | None:
     return "\n".join(text_parts) if text_parts else None
 
 
+def _extract_docx_text(content: bytes) -> str | None:
+    """Синхронный парсинг .docx через python-docx (также выносится в to_thread)."""
+    try:
+        doc = Document(BytesIO(content))
+        text_parts = []
+
+        # Извлекаем текст из параграфов
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text_parts.append(paragraph.text)
+
+        # Извлекаем текст из таблиц
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    if cell_text:
+                        text_parts.append(cell_text)
+
+        return "\n".join(text_parts) if text_parts else None
+    except Exception:
+        return None
+
+
 async def extract_resume_text(content: bytes, filename: str) -> str | None:
     """Extract text content from resume file"""
     file_ext = Path(filename).suffix.lower()
@@ -88,12 +113,107 @@ async def extract_resume_text(content: bytes, filename: str) -> str | None:
             logger.warning(f"Failed to extract PDF text: {e}")
             return None
 
-    elif file_ext in {'.doc', '.docx'}:
-        # TODO: Future implementation for Word documents
-        logger.info(f"DOC/DOCX format not yet supported: {filename}")
+    elif file_ext == '.docx':
+        try:
+            text = await asyncio.to_thread(_extract_docx_text, content)
+            if text:
+                logger.info(f"Extracted {len(text)} characters from DOCX {filename}")
+            else:
+                logger.warning(f"No text extracted from DOCX {filename}")
+            return text
+        except Exception as e:
+            logger.warning(f"Failed to extract DOCX text: {e}")
+            return None
+
+    elif file_ext == '.doc':
+        # .doc (старый бинарный формат) не поддерживается честно
+        logger.info(f"DOC format not supported: {filename}")
         return None
 
     return None
+
+
+async def parse_resume_to_dict(content: bytes, filename: str) -> dict | None:
+    """Parse resume to structured dict without saving to DB.
+
+    Returns:
+        dict with resume fields or None if format not supported / no text extracted
+    """
+    # Extract text from file
+    text = await extract_resume_text(content, filename)
+    if not text:
+        logger.info(f"No text extracted from {filename} for parse_resume_to_dict")
+        return None
+
+    try:
+        # Call Claude to parse structured data
+        parsed_data = await call_json(
+            system=RESUME_PARSE_PROMPT,
+            user=text,
+            max_tokens=16000
+        )
+
+        # Коэрсинг полей к нужным типам и длинам
+        result = {
+            # ФИО (новые поля)
+            "first_name": _to_str(parsed_data.get("first_name"), 120),
+            "last_name": _to_str(parsed_data.get("last_name"), 120),
+            "middle_name": _to_str(parsed_data.get("middle_name"), 120),
+
+            # Базовые скаляры
+            "phone": _to_str(parsed_data.get("phone"), 20),
+            "email": _to_str(parsed_data.get("email"), 255),
+            "city": _to_str(parsed_data.get("city"), 120),
+            "salary_expectation": _to_int(parsed_data.get("salary_expectation")),
+            "last_position": _to_str(parsed_data.get("last_position"), 255),
+            "last_company": _to_str(parsed_data.get("last_company"), 255),
+            "last_period": _to_str(parsed_data.get("last_period"), 120),
+            "about": _to_str(parsed_data.get("about"), 5000),
+
+            # Структурированные секции
+            "experience": [],
+            "skills": [],
+            "education": [],
+            "languages": []
+        }
+
+        # Опыт работы - только записи с непустым position
+        if parsed_data.get("experience"):
+            for exp_data in parsed_data["experience"]:
+                if position := _to_str(exp_data.get("position"), 255):
+                    result["experience"].append({
+                        "position": position,
+                        "company": _to_str(exp_data.get("company"), 255),
+                        "period": _to_str(exp_data.get("period"), 120),
+                        "description": _to_str(exp_data.get("description"), 10000)
+                    })
+
+        # Навыки - строки
+        if parsed_data.get("skills"):
+            for skill_data in parsed_data["skills"]:
+                if skill := _to_str(skill_data, 120):
+                    result["skills"].append(skill)
+
+        # Образование
+        if parsed_data.get("education"):
+            for edu_data in parsed_data["education"]:
+                result["education"].append({
+                    "institution": _to_str(edu_data.get("institution"), 255),
+                    "specialty": _to_str(edu_data.get("specialty"), 255),
+                    "years": _to_str(edu_data.get("years"), 40)
+                })
+
+        # Языки
+        if parsed_data.get("languages"):
+            for lang_data in parsed_data["languages"]:
+                if lang := _to_str(lang_data, 120):
+                    result["languages"].append(lang)
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"Resume parsing failed for {filename}: {e}")
+        return None
 
 
 async def parse_and_apply_resume(
@@ -105,10 +225,10 @@ async def parse_and_apply_resume(
     company_id: UUID
 ) -> None:
     """Parse resume and update candidate fields"""
-    # Extract text from file
-    text = await extract_resume_text(content, filename)
-    if not text:
-        logger.info(f"No text extracted from {filename}")
+    # Parse resume to structured dict
+    parsed_data = await parse_resume_to_dict(content, filename)
+    if not parsed_data:
+        logger.info(f"No data extracted from {filename}")
         return
 
     # Get candidate с eager-загрузкой связей — иначе доступ к candidate.experience/skills/
@@ -132,61 +252,51 @@ async def parse_and_apply_resume(
         logger.warning(f"Candidate {candidate_id} not found")
         return
 
-    # Update resume_text if it was None
+    # Update resume_text if it was None (извлекаем текст заново для сохранения)
     if candidate.resume_text is None:
-        candidate.resume_text = text
+        text = await extract_resume_text(content, filename)
+        if text:
+            candidate.resume_text = text
 
     try:
-        # Call Claude to parse structured data with increased token limit for full resumes
-        parsed_data = await call_json(
-            system=RESUME_PARSE_PROMPT,
-            user=text,
-            # 16000: полное резюме + дословное «Обо мне» не должны упереться в лимит и обрезать
-            # JSON (обрезка по finish_reason=length роняет весь парс — см. client.py)
-            max_tokens=16000
-        )
+        # Заполняем только пустые поля кандидата скалярными значениями
+        # (данные уже обработаны в parse_resume_to_dict)
 
-        # Заполняем только пустые поля. Значения парсера КОЭРСИМ к типу/длине колонки
-        # (LLM возвращает зарплату строкой → INTEGER; телефон/строки могут превысить лимит
-        # колонки) — иначе flush падает DataError и отравляет сессию, роняя всю загрузку файла.
+        # ФИО - заполняем только пустые поля
+        if candidate.first_name is None and parsed_data.get("first_name"):
+            candidate.first_name = parsed_data["first_name"]
 
-        # Скаляры (как раньше) — только если поле пустое
-        if candidate.last_position is None:
-            if (v := _to_str(parsed_data.get("last_position"), 255)):
-                candidate.last_position = v
+        if candidate.last_name is None and parsed_data.get("last_name"):
+            candidate.last_name = parsed_data["last_name"]
 
-        if candidate.last_company is None:
-            if (v := _to_str(parsed_data.get("last_company"), 255)):
-                candidate.last_company = v
+        if candidate.middle_name is None and parsed_data.get("middle_name"):
+            candidate.middle_name = parsed_data["middle_name"]
 
-        if candidate.last_period is None:
-            if (v := _to_str(parsed_data.get("last_period"), 120)):
-                candidate.last_period = v
+        # Базовые скаляры — только если поле пустое
+        if candidate.last_position is None and parsed_data.get("last_position"):
+            candidate.last_position = parsed_data["last_position"]
 
-        if candidate.salary_expectation is None:
-            if (v := _to_int(parsed_data.get("salary_expectation"))) is not None:
-                candidate.salary_expectation = v
+        if candidate.last_company is None and parsed_data.get("last_company"):
+            candidate.last_company = parsed_data["last_company"]
 
-        if candidate.city is None:
-            if (v := _to_str(parsed_data.get("city"), 120)):
-                candidate.city = v
+        if candidate.last_period is None and parsed_data.get("last_period"):
+            candidate.last_period = parsed_data["last_period"]
 
-        if candidate.phone is None:
-            if (v := _to_str(parsed_data.get("phone"), 20)):
-                candidate.phone = v
+        if candidate.salary_expectation is None and parsed_data.get("salary_expectation") is not None:
+            candidate.salary_expectation = parsed_data["salary_expectation"]
 
-        if candidate.email is None:
-            if (v := _to_str(parsed_data.get("email"), 255)):
-                candidate.email = v
+        if candidate.city is None and parsed_data.get("city"):
+            candidate.city = parsed_data["city"]
 
-        # «Обо мне» — самоописание кандидата (раздел резюме) → resume_summary (свободно под это)
-        if candidate.resume_summary is None:
-            if (v := _to_str(parsed_data.get("about"), 5000)):
-                candidate.resume_summary = v
+        if candidate.phone is None and parsed_data.get("phone"):
+            candidate.phone = parsed_data["phone"]
 
-        if hasattr(candidate, 'experience_years') and candidate.experience_years is None:
-            if (v := _to_int(parsed_data.get("experience_years"))) is not None:
-                candidate.experience_years = v
+        if candidate.email is None and parsed_data.get("email"):
+            candidate.email = parsed_data["email"]
+
+        # «Обо мне» — самоописание кандидата (раздел резюме) → resume_summary
+        if candidate.resume_summary is None and parsed_data.get("about"):
+            candidate.resume_summary = parsed_data["about"]
 
         # Структурные записи — создаём только если у кандидата их ещё НЕТ (не затираем ручные правки)
 
@@ -195,17 +305,14 @@ async def parse_and_apply_resume(
             exp_count = 0
             created_exp = []
             for idx, exp_data in enumerate(parsed_data["experience"]):
-                # position обязателен — пропускаем записи без position
-                if not (position := _to_str(exp_data.get("position"), 255)):
-                    continue
-
+                # position уже проверен в parse_resume_to_dict
                 experience = CandidateExperience(
                     candidate_id=candidate.id,
                     company_id=company_id,
-                    position=position,
-                    company=_to_str(exp_data.get("company"), 255),
-                    period=_to_str(exp_data.get("period"), 120),
-                    description=_to_str(exp_data.get("description"), 10000),  # Text колонка, большой лимит
+                    position=exp_data["position"],
+                    company=exp_data["company"],
+                    period=exp_data["period"],
+                    description=exp_data["description"],
                     order_index=idx
                 )
                 session.add(experience)
@@ -226,10 +333,7 @@ async def parse_and_apply_resume(
         # Навыки
         if not candidate.skills and parsed_data.get("skills"):
             skill_count = 0
-            for idx, skill_data in enumerate(parsed_data["skills"]):
-                if not (skill := _to_str(skill_data, 120)):
-                    continue
-
+            for idx, skill in enumerate(parsed_data["skills"]):
                 candidate_skill = CandidateSkill(
                     candidate_id=candidate.id,
                     company_id=company_id,
@@ -248,9 +352,9 @@ async def parse_and_apply_resume(
                 education = CandidateEducation(
                     candidate_id=candidate.id,
                     company_id=company_id,
-                    institution=_to_str(edu_data.get("institution"), 255),
-                    specialty=_to_str(edu_data.get("specialty"), 255),
-                    years=_to_str(edu_data.get("years"), 40),
+                    institution=edu_data["institution"],
+                    specialty=edu_data["specialty"],
+                    years=edu_data["years"],
                     order_index=idx
                 )
                 session.add(education)
@@ -263,15 +367,9 @@ async def parse_and_apply_resume(
         # не заметит мутацию dict). Не затираем уже заполненные ключи.
         existing_extra = dict(candidate.extra or {})
         extra_changed = False
-        if "languages" not in existing_extra and isinstance(parsed_data.get("languages"), list):
-            langs = [s for x in parsed_data["languages"] if (s := _to_str(x, 120))]
-            if langs:
-                existing_extra["languages"] = langs
-                extra_changed = True
-        for key in ("relocation", "business_trips", "remote"):
-            if not existing_extra.get(key) and (v := _to_str(parsed_data.get(key), 200)):
-                existing_extra[key] = v
-                extra_changed = True
+        if "languages" not in existing_extra and parsed_data.get("languages"):
+            existing_extra["languages"] = parsed_data["languages"]
+            extra_changed = True
         if extra_changed:
             candidate.extra = existing_extra
 

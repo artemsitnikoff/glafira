@@ -4,11 +4,12 @@
 // Порядок: база (VacancyForm) → специфика (NewCandidateForm), чтобы переопределения работали.
 import '@/pages/vacancies/VacancyForm.css';
 import './NewCandidateForm.css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useCreateCandidate } from '@/api/mutations/candidates';
 import { useEvaluate, useUpdateCandidate } from '@/api/mutations/candidateDetail';
 import { useVacancies } from '@/api/hooks/useVacancies';
+import { useParseResume } from '@/api/hooks/useParseResume';
 import { api } from '@/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import type { components } from '@/api/types';
@@ -18,6 +19,13 @@ import type { ApiError } from '@/api/aliases';
 type CandidateCreateLocal = components['schemas']['CandidateCreate'] & {
   messengers?: { type: string; url: string }[];
   source_url?: string | null;
+  experience?: { position: string; company: string; period: string; description?: string }[];
+  skills?: string[];
+  education?: { institution: string; specialty: string; years: string }[];
+  last_position?: string;
+  last_company?: string;
+  last_period?: string;
+  region?: string;
 };
 // CandidateUpdate в types.ts отстаёт (нет source/messengers/source_url) — локальное расширение.
 type CandidateUpdateLocal = components['schemas']['CandidateUpdate'] & {
@@ -192,11 +200,41 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
   const { data: vacanciesData } = useVacancies({ status: 'active' });
   const evaluateMutation = useEvaluate();
   const queryClient = useQueryClient();
+  const parseMutation = useParseResume();
 
   const [openDD, setOpenDD] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isDragging, setIsDragging] = useState(false);
+
+  // State for new sections (only used in create mode)
+  const [experience, setExperience] = useState<Array<{
+    position: string;
+    company: string;
+    start: string;
+    end: string;
+    description: string;
+  }>>([]);
+
+  const [skills, setSkills] = useState<string[]>([]);
+  const [newSkill, setNewSkill] = useState('');
+
+  const [education, setEducation] = useState<Array<{
+    institution: string;
+    specialty: string;
+    years: string;
+  }>>([]);
+
+  // Initialize empty experience and education blocks for create mode
+  useEffect(() => {
+    if (!isEdit && experience.length === 0) {
+      setExperience([{ position: '', company: '', start: '', end: '', description: '' }]);
+    }
+    if (!isEdit && education.length === 0) {
+      setEducation([{ institution: '', specialty: '', years: '' }]);
+    }
+  }, [isEdit, experience.length, education.length]);
 
   // Соц-сеть на момент открытия правки — чтобы НЕ затирать messengers (в т.ч. несколько),
   // если пользователь поле не трогал.
@@ -226,12 +264,19 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
 
   const updateFormData = (updates: Partial<typeof formData>) => {
     setFormData(prev => ({ ...prev, ...updates }));
-    // Clear related errors
+    // Clear related errors and parse error
+    const clearErrors: Record<string, string> = {};
     Object.keys(updates).forEach(key => {
       if (errors[key]) {
-        setErrors(prev => ({ ...prev, [key]: '' }));
+        clearErrors[key] = '';
       }
     });
+    if (errors.parse) {
+      clearErrors.parse = '';
+    }
+    if (Object.keys(clearErrors).length > 0) {
+      setErrors(prev => ({ ...prev, ...clearErrors }));
+    }
   };
 
   const vacancies = vacanciesData?.items || [];
@@ -241,11 +286,171 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
 
   const isValid = formData.last_name.trim() && formData.first_name.trim() && formData.source;
 
+  // Parse period string into start/end components for experience
+  const parsePeriod = (period: string): { start: string; end: string } => {
+    const separators = ['—', '–', ' - ', ' по ', ' до '];
+    for (const sep of separators) {
+      if (period.includes(sep)) {
+        const [start, end] = period.split(sep, 2);
+        return { start: start.trim(), end: end.trim() };
+      }
+    }
+    return { start: period.trim(), end: '' };
+  };
+
+  // Handle file drop/selection and trigger parsing
+  const handleResumeFile = async (file: File) => {
+    setSelectedFile(file);
+
+    // Don't parse in edit mode - just attach the file
+    if (isEdit) return;
+
+    try {
+      const result = await parseMutation.mutateAsync(file);
+
+      if (result.parsed && result.fields) {
+        const fields = result.fields;
+
+        // Auto-fill form data - only empty fields to avoid overwriting user input
+        const updates: Partial<typeof formData> = {};
+        if (!formData.last_name.trim() && fields.last_name) updates.last_name = fields.last_name;
+        if (!formData.first_name.trim() && fields.first_name) updates.first_name = fields.first_name;
+        if (!formData.middle_name.trim() && fields.middle_name) updates.middle_name = fields.middle_name;
+        if (!formData.phone.trim() && fields.phone) updates.phone = fields.phone;
+        if (!formData.email.trim() && fields.email) updates.email = fields.email;
+        if (!formData.city.trim() && fields.city) updates.city = fields.city;
+        if (!formData.salary_expectation.trim() && fields.salary_expectation != null) {
+          updates.salary_expectation = String(fields.salary_expectation);
+        }
+        if (!formData.source_url.trim() && fields.last_position && fields.last_company) {
+          // Auto-populate source URL placeholder if we have position/company info
+        }
+
+        if (Object.keys(updates).length > 0) {
+          updateFormData(updates);
+        }
+
+        // Auto-fill experience if current state is empty
+        if (experience.length === 0 && fields.experience && fields.experience.length > 0) {
+          const parsedExperience = fields.experience.map(exp => ({
+            position: exp.position || '',
+            company: exp.company || '',
+            ...parsePeriod(exp.period || ''),
+            description: exp.description || ''
+          }));
+          setExperience(parsedExperience);
+        }
+
+        // Auto-fill skills if current state is empty
+        if (skills.length === 0 && fields.skills && fields.skills.length > 0) {
+          setSkills(fields.skills.filter(Boolean));
+        }
+
+        // Auto-fill education if current state is empty
+        if (education.length === 0 && fields.education && fields.education.length > 0) {
+          setEducation(fields.education.map(edu => ({
+            institution: edu.institution || '',
+            specialty: edu.specialty || '',
+            years: edu.years || ''
+          })));
+        }
+      } else if (!result.parsed && result.reason) {
+        // Show honest error message without alerting
+        setErrors({ parse: `Не удалось распознать файл (${result.reason}) — заполните поля вручную` });
+      }
+    } catch (error) {
+      // Graceful fallback - file will still be attached on creation
+      setErrors({ parse: 'Ошибка при распознавании файла — заполните поля вручную' });
+    }
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setSelectedFile(file);
+      handleResumeFile(file);
     }
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set false if leaving the drop zone itself, not child elements
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      handleResumeFile(file);
+    }
+  };
+
+  // Experience management
+  const addExperience = () => {
+    setExperience(prev => [...prev, { position: '', company: '', start: '', end: '', description: '' }]);
+  };
+
+  const updateExperience = (index: number, field: keyof typeof experience[0], value: string) => {
+    setExperience(prev => prev.map((exp, i) =>
+      i === index ? { ...exp, [field]: value } : exp
+    ));
+  };
+
+  const removeExperience = (index: number) => {
+    setExperience(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Skills management
+  const addSkill = () => {
+    const skill = newSkill.trim();
+    if (skill && !skills.includes(skill)) {
+      setSkills(prev => [...prev, skill]);
+      setNewSkill('');
+    }
+  };
+
+  const removeSkill = (skillToRemove: string) => {
+    setSkills(prev => prev.filter(skill => skill !== skillToRemove));
+  };
+
+  const handleSkillKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addSkill();
+    }
+  };
+
+  // Education management
+  const addEducation = () => {
+    setEducation(prev => [...prev, { institution: '', specialty: '', years: '' }]);
+  };
+
+  const updateEducation = (index: number, field: keyof typeof education[0], value: string) => {
+    setEducation(prev => prev.map((edu, i) =>
+      i === index ? { ...edu, [field]: value } : edu
+    ));
+  };
+
+  const removeEducation = (index: number) => {
+    setEducation(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async () => {
@@ -289,6 +494,29 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         return;
       }
 
+      // Prepare experience for payload - combine start/end into period, only include non-empty positions
+      const experiencePayload = experience
+        .filter(exp => exp.position.trim())
+        .map(exp => ({
+          position: exp.position.trim(),
+          company: exp.company.trim(),
+          period: [exp.start.trim(), exp.end.trim()].filter(Boolean).join(' — '),
+          description: exp.description.trim() || undefined
+        }));
+
+      // Education payload - only include entries with at least one non-empty field
+      const educationPayload = education.filter(edu =>
+        edu.institution.trim() || edu.specialty.trim() || edu.years.trim()
+      );
+
+      // Skills payload - filter out empty skills
+      const skillsPayload = skills.filter(Boolean);
+
+      // Extract last position info from first experience entry or manual fields
+      const lastPosition = experiencePayload[0]?.position || '';
+      const lastCompany = experiencePayload[0]?.company || '';
+      const lastPeriod = experiencePayload[0]?.period || '';
+
       // Prepare payload
       const payload: CandidateCreateLocal = {
         last_name: formData.last_name.trim(),
@@ -310,6 +538,13 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         messengers: formData.social_url.trim()
           ? [{ type: formData.social_type, url: formData.social_url.trim() }]
           : undefined,
+        // New fields
+        experience: experiencePayload.length > 0 ? experiencePayload : undefined,
+        skills: skillsPayload.length > 0 ? skillsPayload : undefined,
+        education: educationPayload.length > 0 ? educationPayload : undefined,
+        last_position: lastPosition || undefined,
+        last_company: lastCompany || undefined,
+        last_period: lastPeriod || undefined,
       };
 
       // Create candidate
@@ -324,6 +559,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           const formDataUpload = new FormData();
           formDataUpload.append('file', selectedFile);
           formDataUpload.append('kind', 'resume');
+          formDataUpload.append('parse', 'false'); // Don't re-parse since we already parsed on drop
 
           await api.post(`/candidates/${newCandidate.id}/documents`, formDataUpload, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -416,6 +652,13 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
               </div>
             )}
 
+            {/* Parse error */}
+            {errors.parse && (
+              <div className="nc-parse-error" style={{ marginBottom: '20px' }}>
+                {errors.parse}
+              </div>
+            )}
+
             {/* Header: avatar + resume drop zone + Excel import — только при создании */}
             {!isEdit && (
             <div className="nc-head">
@@ -426,26 +669,39 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                 </div>
               </div>
 
-              <label className="nc-drop">
-                <Icon name="open" size={20} className="nc-drop-icon" />
-                <div className="nc-drop-text">
-                  <span className="nc-drop-title">
-                    {selectedFile ? selectedFile.name : (
-                      <>Перетащите резюме или <span className="nc-drop-link">загрузите файл</span></>
-                    )}
-                  </span>
-                  <span className="nc-drop-fmt">
-                    PDF · DOC · DOCX · RTF — до 10 МБ
-                    {!selectedFile?.name.endsWith('.pdf') && selectedFile && (
-                      <span style={{ color: 'var(--ark-yellow-600)', marginLeft: '8px' }}>
-                        · авто-разбор пока только PDF
+              <label
+                className={`nc-drop ${isDragging ? 'is-drag' : ''}`}
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {parseMutation.isPending ? (
+                  <>
+                    <div className="nc-parse-spinner">💃</div>
+                    <div className="nc-drop-text">
+                      <span className="nc-drop-title">Глафира читает резюме…</span>
+                      <span className="nc-drop-fmt">Заполним поля автоматически</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="open" size={20} className="nc-drop-icon" />
+                    <div className="nc-drop-text">
+                      <span className="nc-drop-title">
+                        {selectedFile ? selectedFile.name : (
+                          <>Перетащите резюме или <span className="nc-drop-link">загрузите файл</span></>
+                        )}
                       </span>
-                    )}
-                  </span>
-                </div>
+                      <span className="nc-drop-fmt">
+                        PDF · DOCX · TXT — до 10 МБ
+                      </span>
+                    </div>
+                  </>
+                )}
                 <input
                   type="file"
-                  accept=".pdf,.doc,.docx,.rtf"
+                  accept=".pdf,.docx,.txt"
                   hidden
                   onChange={handleFileChange}
                 />
@@ -688,6 +944,175 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                 />
               </div>
             </div>
+
+            {/* Experience section — только при создании */}
+            {!isEdit && (
+            <div className="nv-field">
+              <label className="nv-label">Опыт работы</label>
+              <div className="nc-experience">
+                {experience.map((exp, index) => (
+                  <div key={index} className="nc-exp-block">
+                    <div className="nc-exp-fields">
+                      <div className="nv-field">
+                        <label className="nv-label">
+                          Должность <span className="nv-req">*</span>
+                        </label>
+                        <input
+                          className="nv-input"
+                          placeholder="Frontend разработчик"
+                          value={exp.position}
+                          onChange={e => updateExperience(index, 'position', e.target.value)}
+                        />
+                      </div>
+                      <div className="nv-field">
+                        <label className="nv-label">Компания</label>
+                        <input
+                          className="nv-input"
+                          placeholder="ООО «Рога и копыта»"
+                          value={exp.company}
+                          onChange={e => updateExperience(index, 'company', e.target.value)}
+                        />
+                      </div>
+                      <div className="nv-grid-2">
+                        <div className="nv-field">
+                          <label className="nv-label">Начало работы</label>
+                          <input
+                            className="nv-input"
+                            placeholder="Январь 2022"
+                            value={exp.start}
+                            onChange={e => updateExperience(index, 'start', e.target.value)}
+                          />
+                        </div>
+                        <div className="nv-field">
+                          <label className="nv-label">Конец работы</label>
+                          <input
+                            className="nv-input"
+                            placeholder="настоящее время"
+                            value={exp.end}
+                            onChange={e => updateExperience(index, 'end', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="nv-field">
+                        <label className="nv-label">Описание</label>
+                        <textarea
+                          className="nv-textarea"
+                          rows={2}
+                          placeholder="Обязанности, достижения, стек технологий…"
+                          value={exp.description}
+                          onChange={e => updateExperience(index, 'description', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {experience.length > 1 && (
+                      <button
+                        type="button"
+                        className="nc-exp-remove"
+                        onClick={() => removeExperience(index)}
+                        title="Удалить место работы"
+                      >
+                        <Icon name="x" size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="fn-add" onClick={addExperience}>
+                  <Icon name="plus" size={14} />
+                  Добавить место работы
+                </button>
+              </div>
+            </div>
+            )}
+
+            {/* Skills section — только при создании */}
+            {!isEdit && (
+            <div className="nv-field">
+              <label className="nv-label">Навыки</label>
+              <div className="nc-skills">
+                <div className="nc-skills-input">
+                  <input
+                    className="nv-input"
+                    placeholder="Введите навык и нажмите Enter"
+                    value={newSkill}
+                    onChange={e => setNewSkill(e.target.value)}
+                    onKeyPress={handleSkillKeyPress}
+                  />
+                </div>
+                {skills.length > 0 && (
+                  <div className="nc-skills-list">
+                    {skills.map((skill, index) => (
+                      <div key={index} className="skill-chip">
+                        <span>{skill}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          className="skill-chip-remove"
+                        >
+                          <Icon name="x" size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            )}
+
+            {/* Education section — только при создании */}
+            {!isEdit && (
+            <div className="nv-field">
+              <label className="nv-label">Образование</label>
+              <div className="nc-education">
+                {education.map((edu, index) => (
+                  <div key={index} className="nc-edu-block">
+                    <div className="nc-edu-fields">
+                      <div className="nv-field">
+                        <label className="nv-label">Учебное заведение</label>
+                        <input
+                          className="nv-input"
+                          placeholder="МГУ им. М.В. Ломоносова"
+                          value={edu.institution}
+                          onChange={e => updateEducation(index, 'institution', e.target.value)}
+                        />
+                      </div>
+                      <div className="nv-field">
+                        <label className="nv-label">Специальность</label>
+                        <input
+                          className="nv-input"
+                          placeholder="Программная инженерия"
+                          value={edu.specialty}
+                          onChange={e => updateEducation(index, 'specialty', e.target.value)}
+                        />
+                      </div>
+                      <div className="nv-field">
+                        <label className="nv-label">Годы</label>
+                        <input
+                          className="nv-input"
+                          placeholder="2018-2022"
+                          value={edu.years}
+                          onChange={e => updateEducation(index, 'years', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {education.length > 1 && (
+                      <button
+                        type="button"
+                        className="nc-edu-remove"
+                        onClick={() => removeEducation(index)}
+                        title="Удалить образование"
+                      >
+                        <Icon name="x" size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="fn-add" onClick={addEducation}>
+                  <Icon name="plus" size={14} />
+                  Добавить образование
+                </button>
+              </div>
+            </div>
+            )}
 
             {/* Comment — только при создании (правка комментарии не трогает) */}
             {!isEdit && (

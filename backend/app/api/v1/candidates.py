@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Response, File, UploadFile
 from uuid import UUID
 from typing import Annotated
 from urllib.parse import quote
@@ -16,7 +16,8 @@ from ...schemas.candidate import (
     CandidateGridItem,
     ApplicationHistoryItem,
     AddTagRequest,
-    AssignToVacancyRequest
+    AssignToVacancyRequest,
+    ParseResumeResponse
 )
 from ...schemas.base import Paginated, StatusResult
 from ...schemas.application import ApplicationRow
@@ -37,6 +38,7 @@ from ...services.resume_export import (
     build_resume_docx,
     _full_name
 )
+from ...services.glafira.resume_parse import parse_resume_to_dict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -96,6 +98,51 @@ async def get_candidate(
             raise ForbiddenError("Нет доступа к данному кандидату")
 
     return await get_candidate_detail(session, candidate_id, company_id)
+
+
+@router.post("/parse-resume", response_model=ParseResumeResponse)
+async def parse_resume_endpoint(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Parse resume file and return structured data for form"""
+    # RBAC: manager forbidden
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут парсить резюме")
+
+    # Validate file size (same as documents)
+    content = await file.read()
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+    if len(content) > MAX_FILE_SIZE:
+        return ParseResumeResponse(
+            parsed=False,
+            reason="Размер файла превышает 10 МБ",
+            fields={}
+        )
+
+    # Parse resume
+    try:
+        parsed_data = await parse_resume_to_dict(content, file.filename or "unknown")
+        if parsed_data is None:
+            return ParseResumeResponse(
+                parsed=False,
+                reason="Формат не поддержан или текст не распознан (поддерживаются PDF, DOCX, TXT)",
+                fields={}
+            )
+
+        return ParseResumeResponse(
+            parsed=True,
+            reason=None,
+            fields=parsed_data
+        )
+    except Exception:
+        return ParseResumeResponse(
+            parsed=False,
+            reason="Ошибка при обработке файла",
+            fields={}
+        )
 
 
 @router.post("", response_model=CandidateDetail, status_code=201)

@@ -90,6 +90,7 @@ async def upload_document(
     candidate_id: UUID,
     file: UploadFile,
     kind: str,
+    parse: bool,
     company_id: UUID,
     actor_user_id: UUID
 ) -> DocumentOut:
@@ -175,8 +176,8 @@ async def upload_document(
 
     await session.flush()
 
-    # Parse resume if it's a resume document
-    if kind == 'resume':
+    # Parse resume if it's a resume document and parse is True
+    if kind == 'resume' and parse:
         try:
             from app.services.glafira.resume_parse import parse_and_apply_resume
             await parse_and_apply_resume(

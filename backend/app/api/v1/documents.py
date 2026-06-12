@@ -32,11 +32,12 @@ async def upload_document_route(
     candidate_id: UUID,
     file: UploadFile = File(...),
     kind: str = Form("other"),
+    parse: bool = Form(True),
     user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
-    result = await upload_document(session, candidate_id, file, kind, company_id, user.id)
+    result = await upload_document(session, candidate_id, file, kind, parse, company_id, user.id)
     await session.commit()
     return result
 
