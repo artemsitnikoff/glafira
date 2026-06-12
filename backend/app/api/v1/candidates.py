@@ -263,6 +263,9 @@ async def remove_candidate_tag_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут удалять теги кандидатов")
+
     await remove_candidate_tag(session, candidate_id, tag_id, company_id, user.id)
     await session.commit()
 

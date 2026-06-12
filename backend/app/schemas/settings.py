@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Optional
+from typing import Optional, Literal
 from uuid import UUID
 from datetime import datetime
 
@@ -41,15 +41,15 @@ class PasswordChange(BaseModel):
 class GlafiraSettingsOut(ORMBase):
     id: UUID
     company_id: UUID
-    tone: str
+    tone: Literal['friendly', 'formal', 'business']
     use_informal: bool
     emoji_level: str
     auto_reject_below: int
     auto_select_above: int
     days_no_response: int
     stop_words: dict
-    default_mode: str
-    turnover_source: str
+    default_mode: Literal['A', 'B', 'C']
+    turnover_source: Literal['none', 'bitrix24']
     default_rejection_text: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -63,15 +63,15 @@ class GlafiraSettingsOut(ORMBase):
 
 
 class GlafiraSettingsUpdate(BaseModel):
-    tone: Optional[str] = None
+    tone: Optional[Literal['friendly', 'formal', 'business']] = None
     use_informal: Optional[bool] = None
     emoji_level: Optional[str] = None
     auto_reject_below: Optional[int] = None
     auto_select_above: Optional[int] = None
     days_no_response: Optional[int] = None
     stop_words: Optional[dict] = None
-    default_mode: Optional[str] = None
-    turnover_source: Optional[str] = None
+    default_mode: Optional[Literal['A', 'B', 'C']] = None
+    turnover_source: Optional[Literal['none', 'bitrix24']] = None
     default_rejection_text: Optional[str] = None
 
 

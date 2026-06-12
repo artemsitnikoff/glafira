@@ -8,8 +8,14 @@ from ...config import settings
 from ...core.errors import GlafiraParseError
 
 
-# Regex to clean markdown fences from JSON response
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+# Functions to clean markdown fences from JSON response
+def _clean_markdown_fences(text: str) -> str:
+    """Remove markdown code fence blocks from beginning and end of text"""
+    # Remove leading ```json or ```
+    cleaned = re.sub(r"^```(?:json)?\s*", "", text.strip())
+    # Remove trailing ```
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    return cleaned
 
 # Retry configuration constants
 RETRYABLE_STATUS_CODES = {403, 429, 500, 502, 503, 504}
@@ -117,7 +123,7 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048, model: st
         })
 
     # Clean markdown fences
-    cleaned = _FENCE_RE.sub("", text).strip()
+    cleaned = _clean_markdown_fences(text)
 
     try:
         return json.loads(cleaned)

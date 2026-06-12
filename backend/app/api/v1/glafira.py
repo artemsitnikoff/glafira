@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...deps import get_current_user, get_db
-from ...core.errors import NotFoundError, ValidationError
+from ...core.errors import NotFoundError, ValidationError, ForbiddenError
 from ...models import User, AiEvaluation, Application
 from ...schemas.glafira import (
     ScoreRequest,
@@ -105,6 +105,9 @@ async def score_candidate_endpoint(
     session: AsyncSession = Depends(get_db)
 ):
     """Score candidate for vacancy using Glafira AI"""
+
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут оценивать кандидатов")
 
     # Determine application_id
     application_id = None
@@ -227,6 +230,9 @@ async def start_screening_endpoint(
 ):
     """Start AI screening conversation"""
 
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут запускать скрининг")
+
     result = await start_screening(
         session,
         candidate_id=data.candidate_id,
@@ -252,6 +258,9 @@ async def reply_screening_endpoint(
     session: AsyncSession = Depends(get_db)
 ):
     """Reply to candidate in AI screening conversation"""
+
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут отвечать в скрининге")
 
     result = await reply_screening(
         session,

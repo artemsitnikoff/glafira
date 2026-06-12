@@ -1,7 +1,9 @@
 import pytest
 import json
+import asyncio
 from io import BytesIO
 from uuid import uuid4
+from unittest.mock import patch, AsyncMock
 
 from openpyxl import Workbook
 
@@ -16,8 +18,12 @@ from app.services.candidate_import import (
     _parse_company_position,
     preview_import,
     create_import_job,
-    get_import_job
+    get_import_job,
+    _run_import,
+    preview_potok_import,
+    _run_potok_import
 )
+from app.core.errors import ValidationError
 
 
 def create_test_excel(headers, rows):
@@ -348,3 +354,112 @@ class TestErrorHandling:
         assert rows_data[1]["status"] == "error"
         assert rows_data[1]["error"] == "нет контакта"
         assert rows_data[2]["status"] == "new"
+
+
+class TestExcelImportSavepoint:
+    """Тесты per-row savepoint для Excel-импорта"""
+
+    @pytest.mark.asyncio
+    async def test_excel_import_per_row_savepoint(self, db_session, admin_user):
+        """
+        Тест того, что сбой констрейнта одной строки не валит весь батч.
+
+        Создаём ситуацию, где одна строка невалидна (например, слишком длинный телефон),
+        а остальные валидны. Проверяем, что валидные строки импортируются,
+        а errors_count растёт для невалидных.
+        """
+        from contextlib import asynccontextmanager
+
+        def _session_local_returning(db_session):
+            @asynccontextmanager
+            async def _factory():
+                yield db_session
+            return _factory
+
+        company_id = admin_user.company_id
+        user_id = admin_user.id
+
+        # Создаём Excel с валидными строками и одной с "плохими" данными
+        headers = ["ФИО", "Телефон", "Email"]
+        rows = [
+            ["Иванов Иван", "+7 915 123-45-67", "ivan@example.com"],  # Валидный
+            ["Петров Петр", "x" * 25, "petr@example.com"],            # Телефон слишком длинный (>20)
+            ["Сидоров Сидор", "+7 917 345-67-89", "sidor@example.com"]  # Валидный
+        ]
+        content = create_test_excel(headers, rows)
+        mapping = {"ФИО": "name", "Телефон": "phone", "Email": "email"}
+
+        # Создаём джоб
+        job = await create_import_job(db_session, company_id, len(rows))
+        await db_session.commit()
+
+        # Патчим AsyncSessionLocal и запускаем импорт
+        with patch('app.services.candidate_import.AsyncSessionLocal', _session_local_returning(db_session)):
+            await _run_import(job.id, company_id, user_id, content, mapping, "skip")
+
+        # Обновляем джоб из БД
+        db_session.expire_all()
+        await db_session.refresh(job)
+
+        # Проверяем: валидные строки должны импортироваться, ошибочные — не валить батч
+        assert job.status == "done"
+        assert job.created >= 1  # Минимум одна валидная строка создалась
+        assert job.errors >= 1   # Минимум одна ошибка зафиксирована
+
+
+class TestPotokImportTimeout:
+    """Тесты таймаутов для Potok-импорта"""
+
+    @pytest.mark.asyncio
+    async def test_potok_preview_timeout(self, db_session, admin_user):
+        """Тест таймаута в preview_potok_import"""
+        company_id = admin_user.company_id
+        token = "fake_token"
+
+        # Мокаем list_applicants с мгновенным TimeoutError
+        async def timeout_list_applicants(*args, **kwargs):
+            raise asyncio.TimeoutError()
+
+        with patch("app.services.candidate_import.list_applicants", side_effect=timeout_list_applicants):
+            with pytest.raises(ValidationError) as exc_info:
+                await preview_potok_import(db_session, company_id, token, "skip")
+
+            assert "Таймаут при обращении к API Potok" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_potok_import_timeout_finalizes_job(self, db_session, admin_user):
+        """Тест того, что таймаут в _run_potok_import корректно финализирует джоб"""
+        from contextlib import asynccontextmanager
+
+        def _session_local_returning(db_session):
+            @asynccontextmanager
+            async def _factory():
+                yield db_session
+            return _factory
+
+        company_id = admin_user.company_id
+        user_id = admin_user.id
+        token = "fake_token"
+
+        # Создаём джоб
+        job = await create_import_job(db_session, company_id, 0)
+        await db_session.commit()
+
+        # Мокаем list_applicants с мгновенным TimeoutError
+        async def timeout_list_applicants(*args, **kwargs):
+            raise asyncio.TimeoutError()
+
+        # Патчим AsyncSessionLocal и list_applicants
+        with patch('app.services.candidate_import.AsyncSessionLocal', _session_local_returning(db_session)), \
+             patch("app.services.candidate_import.list_applicants", side_effect=timeout_list_applicants):
+            # Запускаем импорт — должен завершиться с ошибкой
+            await _run_potok_import(job.id, company_id, user_id, token, "skip")
+
+        # Обновляем джоб из БД
+        db_session.expire_all()
+        retrieved_job = await get_import_job(db_session, job.id, company_id)
+
+        # Проверяем, что джоб корректно финализирован с ошибкой
+        assert retrieved_job.status == "error"
+        assert retrieved_job.finished_at is not None
+        assert "Таймаут при обращении к API Potok" in retrieved_job.error

@@ -623,45 +623,54 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                     try:
                         if row_data["status"] == "error":
                             errors_count += 1
-                        elif row_data["status"] == "duplicate":
-                            match_id = row_data.get("_match_id")
-                            if dedup_mode == "update" and match_id:
-                                # Реальное обновление существующего кандидата полями из файла.
-                                existing = await session.get(Candidate, UUID(match_id))
-                                if existing is not None and existing.company_id == company_id:
-                                    _apply_update(existing, row_data["detail"])
-                                    updated_count += 1
+                            continue
+
+                        # Каждую строку обрабатываем в savepoint: сбой одной записи
+                        # (нарушение CHECK и т.п.) откатывает ТОЛЬКО её, не «отравляет»
+                        # сессию и не валит весь батч (до 500 кандидатов). Счётчики
+                        # инкрементим строго ПОСЛЕ успешного flush.
+                        async with session.begin_nested():
+                            if row_data["status"] == "duplicate":
+                                match_id = row_data.get("_match_id")
+                                if dedup_mode == "update" and match_id:
+                                    # Реальное обновление существующего кандидата полями из файла.
+                                    existing = await session.get(Candidate, UUID(match_id))
+                                    if existing is not None and existing.company_id == company_id:
+                                        _apply_update(existing, row_data["detail"])
+                                        await session.flush()
+                                        updated_count += 1
+                                    else:
+                                        skipped_count += 1
                                 else:
+                                    # skip-режим ИЛИ внутрифайловый дубль (без базового совпадения)
                                     skipped_count += 1
-                            else:
-                                # skip-режим ИЛИ внутрифайловый дубль (без базового совпадения)
-                                skipped_count += 1
-                        elif row_data["status"] == "new":
-                            detail = row_data["detail"]
-                            candidate = Candidate(
-                                company_id=company_id,  # ВСЕГДА из контекста, не из файла
-                                last_name=_fit(detail.get("last_name") or "", 120),
-                                first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
-                                middle_name=_fit(detail.get("middle_name") or None, 120),
-                                phone=_fit(detail.get("phone"), 20),
-                                email=_fit(detail.get("email"), 255),
-                                city=_fit(detail.get("city"), 120),
-                                salary_expectation=detail.get("salary"),
-                                salary_from=detail.get("salary"),
-                                salary_to=detail.get("salary"),
-                                last_position=_fit(detail.get("position"), 255),
-                                last_company=_fit(detail.get("company"), 255),
-                                last_period=_fit(detail.get("experience"), 120),
-                                source=detail.get("source") or "import",
-                                external_source="import",
-                                source_url=_fit(detail.get("resume_url"), 500),
-                                extra={"imported": True}
-                            )
-                            session.add(candidate)
-                            created_count += 1
+                            elif row_data["status"] == "new":
+                                detail = row_data["detail"]
+                                candidate = Candidate(
+                                    company_id=company_id,  # ВСЕГДА из контекста, не из файла
+                                    last_name=_fit(detail.get("last_name") or "", 120),
+                                    first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
+                                    middle_name=_fit(detail.get("middle_name") or None, 120),
+                                    phone=_fit(detail.get("phone"), 20),
+                                    email=_fit(detail.get("email"), 255),
+                                    city=_fit(detail.get("city"), 120),
+                                    salary_expectation=detail.get("salary"),
+                                    salary_from=detail.get("salary"),
+                                    salary_to=detail.get("salary"),
+                                    last_position=_fit(detail.get("position"), 255),
+                                    last_company=_fit(detail.get("company"), 255),
+                                    last_period=_fit(detail.get("experience"), 120),
+                                    source=detail.get("source") or "import",
+                                    external_source="import",
+                                    source_url=_fit(detail.get("resume_url"), 500),
+                                    extra={"imported": True}
+                                )
+                                session.add(candidate)
+                                await session.flush()
+                                created_count += 1
 
                     except Exception as e:
-                        logger.error(f"Ошибка обработки строки импорта: {e}")
+                        logger.error(f"Ошибка обработки строки импорта Excel: {e}")
                         errors_count += 1
 
                 await session.commit()
@@ -761,7 +770,10 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     while page <= max_pages:
         logger.info(f"Загрузка страницы {page} Potok")
         try:
-            response = await list_applicants(token, page, per_page)
+            response = await asyncio.wait_for(list_applicants(token, page, per_page), timeout=30)
+        except asyncio.TimeoutError:
+            logger.error(f"Таймаут загрузки страницы {page} Potok")
+            raise ValidationError("Таймаут при обращении к API Potok. Попробуйте позже.")
         except Exception as e:
             logger.error(f"Ошибка загрузки страницы {page} Potok: {e}")
             raise
@@ -999,7 +1011,11 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
         while page <= max_pages:
             logger.info(f"Импорт Potok: страница {page}")
             try:
-                response = await list_applicants(token, page, per_page)
+                response = await asyncio.wait_for(list_applicants(token, page, per_page), timeout=30)
+            except asyncio.TimeoutError:
+                logger.error(f"Таймаут загрузки страницы {page} Potok в импорте")
+                await _finalize_job(job_id, "error", "Таймаут при обращении к API Potok. Попробуйте позже.")
+                return
             except Exception as e:
                 logger.error(f"Ошибка загрузки страницы {page} Potok в импорте: {e}")
                 raise
