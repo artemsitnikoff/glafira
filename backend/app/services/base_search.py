@@ -549,6 +549,10 @@ async def vector_retrieve(
             logger.info(f"Нет эмбеддингов для компании {company_id}, возвращаем пустой список")
             return []
 
+        # Устанавливаем ef_search для HNSW (должно быть >= k для полного top-k)
+        ef = max(int(getattr(settings, 'GLAFIRA_HNSW_EF_SEARCH', 300)), k)
+        await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
+
         # Выполняем векторный поиск (cosine distance). JOIN на Candidate с deleted_at IS NULL,
         # чтобы удалённые кандидаты (их эмбеддинги ещё могут висеть) не занимали слоты шорт-листа.
         stmt = (
@@ -608,6 +612,10 @@ async def vector_retrieve_scored(
         if embeddings_count == 0:
             logger.info(f"Нет эмбеддингов для компании {company_id}, возвращаем пустой список")
             return []
+
+        # Устанавливаем ef_search для HNSW (должно быть >= k для полного top-k)
+        ef = max(int(getattr(settings, 'GLAFIRA_HNSW_EF_SEARCH', 300)), k)
+        await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
 
         # Выполняем векторный поиск с возвратом дистанций
         stmt = (

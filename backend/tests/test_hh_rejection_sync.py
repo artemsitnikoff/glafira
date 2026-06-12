@@ -14,15 +14,15 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_rejected_hh_candidate_success(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест успешной синхронизации отказа hh-кандидата"""
 
         # Создаём отклонённую заявку с hh_negotiation_id, но без hh_discard_synced_at
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_123",
             hh_chat_id="test_chat_456",
@@ -42,7 +42,7 @@ class TestHhRejectionSync:
             mock_send_msg.return_value = {"id": "msg_789"}
 
             # Вызываем синхронизацию
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # Проверяем статистику
             assert stats["discarded"] == 1
@@ -73,15 +73,15 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_with_lazy_chat_id_resolution(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест ленивого получения chat_id из negotiation"""
 
         # Создаём заявку без chat_id
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_456",
             hh_chat_id=None,  # Отсутствует
@@ -101,7 +101,7 @@ class TestHhRejectionSync:
             mock_discard.return_value = True
             mock_send_msg.return_value = {"id": "msg_555"}
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # Проверяем, что chat_id был получен и сохранён
             mock_get_nego.assert_called_once_with("test_token", "test_nego_456")
@@ -115,14 +115,14 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_discard_failure_no_sync_flag(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест: при сбое discard флаг синхронизации не ставится (ретрай)"""
 
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_fail",
             hh_chat_id="test_chat_fail",
@@ -139,7 +139,7 @@ class TestHhRejectionSync:
             mock_token.return_value = "test_token"
             mock_discard.side_effect = Exception("hh API error")
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # Проверяем статистику
             assert stats["discarded"] == 0
@@ -154,14 +154,14 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_message_failure_keeps_discard(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест: сбой отправки сообщения не откатывает discard"""
 
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_msg_fail",
             hh_chat_id="test_chat_msg_fail",
@@ -179,7 +179,7 @@ class TestHhRejectionSync:
             mock_discard.return_value = True  # Успешно
             mock_send_msg.side_effect = Exception("Chat message failed")
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # discard считается успешным, даже если сообщение не отправилось
             assert stats["discarded"] == 1
@@ -200,16 +200,16 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_idempotency(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест идемпотентности: уже синхронизированные не обрабатываются повторно"""
 
         # Создаём уже синхронизированную заявку
         sync_time = datetime.now(timezone.utc)
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_synced",
             hh_chat_id="test_chat_synced",
@@ -225,7 +225,7 @@ class TestHhRejectionSync:
 
             mock_token.return_value = "test_token"
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # Никакие действия не выполняются
             assert stats["discarded"] == 0
@@ -234,15 +234,15 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_skips_non_hh_rejections(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест: отказы без hh_negotiation_id не обрабатываются"""
 
         # Создаём обычную (не-hh) отклонённую заявку
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id=None,  # Не hh-кандидат
             reject_reason="Обычный отказ",
@@ -256,7 +256,7 @@ class TestHhRejectionSync:
 
             mock_token.return_value = "test_token"
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # Никакие hh-действия не выполняются
             assert stats["discarded"] == 0
@@ -265,14 +265,14 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_no_valid_token(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест обработки отсутствия валидного токена"""
 
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_no_token",
             reject_reason="Не подходит",
@@ -286,7 +286,7 @@ class TestHhRejectionSync:
             from app.core.errors import NotFoundError
             mock_token.side_effect = NotFoundError("Интеграция hh.ru не найдена")
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             # Пропускаем из-за отсутствия токена
             assert stats["discarded"] == 0
@@ -294,15 +294,15 @@ class TestHhRejectionSync:
 
     @pytest.mark.asyncio
     async def test_sync_already_discarded_wrong_state(
-        self, db_session, sample_company, sample_user, sample_vacancy, sample_candidate
+        self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест: отклик уже в отказе на hh (discard→False, wrong_state) → помечаем
         synced, сообщение НЕ шлём, не считаем ошибкой (не ретраим)."""
 
         application = Application(
-            company_id=sample_company.id,
-            candidate_id=sample_candidate.id,
-            vacancy_id=sample_vacancy.id,
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=test_vacancy.id,
             stage="rejected",
             hh_negotiation_id="test_nego_already_discarded",
             hh_chat_id="test_chat_ad",
@@ -319,7 +319,7 @@ class TestHhRejectionSync:
             mock_token.return_value = "test_token"
             mock_discard.return_value = False  # wrong_state — уже в отказе на hh
 
-            stats = await sync_company_rejections(db_session, sample_company.id, limit=10)
+            stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 
             assert stats["discarded"] == 0
             assert stats["already_discarded"] == 1

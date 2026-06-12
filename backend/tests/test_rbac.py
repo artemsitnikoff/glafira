@@ -592,3 +592,81 @@ class TestVacancyTeamAssignment:
         vacancy_ids = [v["id"] for v in data["items"]]
 
         assert str(manager_team_vacancy.id) in vacancy_ids
+
+
+class TestSmartSearchAccess:
+    """Tests for Smart Search RBAC"""
+
+    async def test_manager_cannot_access_smart_search(
+        self,
+        async_client: AsyncClient,
+        manager_user: User,
+    ):
+        """Manager cannot access smart search endpoints"""
+        headers = await get_auth_headers(async_client, manager_user)
+
+        # Test hh-ветка (платный поиск)
+        response = await async_client.get("/api/v1/smart/access", headers=headers)
+        assert response.status_code == 403
+
+        response = await async_client.get("/api/v1/smart/vacancies", headers=headers)
+        assert response.status_code == 403
+
+        search_data = {
+            "vacancy_id": str(uuid.uuid4()),
+            "scan_n": 10,
+            "threshold": 50
+        }
+        response = await async_client.post("/api/v1/smart/search", json=search_data, headers=headers)
+        assert response.status_code == 403
+
+        # Test base-ветка (поиск по своей базе)
+        base_search_data = {
+            "search_type": "prompt",
+            "query": "Python разработчик"
+        }
+        response = await async_client.post("/api/v1/smart/base/search", json=base_search_data, headers=headers)
+        assert response.status_code == 403
+
+        response = await async_client.get("/api/v1/smart/base/count", headers=headers)
+        assert response.status_code == 403
+
+    async def test_recruiter_can_access_smart_search(
+        self,
+        async_client: AsyncClient,
+        recruiter_user: User,
+    ):
+        """Recruiter can access smart search endpoints"""
+        headers = await get_auth_headers(async_client, recruiter_user)
+
+        # Test basic access endpoint (должен возвращать 200, даже если доступа нет)
+        response = await async_client.get("/api/v1/smart/access", headers=headers)
+        assert response.status_code == 200
+
+        response = await async_client.get("/api/v1/smart/vacancies", headers=headers)
+        assert response.status_code == 200
+
+        response = await async_client.get("/api/v1/smart/base/count", headers=headers)
+        assert response.status_code == 200
+
+    async def test_admin_can_access_smart_search(
+        self,
+        async_client: AsyncClient,
+        admin_user: User,
+    ):
+        """Admin can access smart search endpoints"""
+        headers = await get_auth_headers(async_client, admin_user)
+
+        # Test basic access endpoint
+        response = await async_client.get("/api/v1/smart/access", headers=headers)
+        assert response.status_code == 200
+
+        response = await async_client.get("/api/v1/smart/vacancies", headers=headers)
+        assert response.status_code == 200
+
+        response = await async_client.get("/api/v1/smart/base/count", headers=headers)
+        assert response.status_code == 200
+
+        # Admin также может переиндексировать
+        response = await async_client.post("/api/v1/smart/base/reindex", headers=headers)
+        assert response.status_code == 202

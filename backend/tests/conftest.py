@@ -225,3 +225,20 @@ async def signed_consent(db_session: AsyncSession, test_candidate: Candidate) ->
     await db_session.commit()
     await db_session.refresh(consent)
     return consent
+
+
+@pytest_asyncio.fixture
+async def admin_token(async_client: AsyncClient, admin_user: User) -> str:
+    """Токен авторизации админа для тестов"""
+    resp = await async_client.post(
+        "/api/v1/auth/login",
+        json={"email": admin_user.email, "password": "Glafira2026!"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["access_token"]
+
+
+@pytest_asyncio.fixture
+def default_company_id(admin_user: User) -> str:
+    """ID компании тест-админа как строка"""
+    return str(admin_user.company_id)

@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     GLAFIRA_MODEL_BULK: str = ""  # bulk rerank (план: fallback на GLAFIRA_MODEL)
     GLAFIRA_RETRIEVE_CAP: int = 150  # Максимум кандидатов в шорт-листе retrieve
     GLAFIRA_RERANK_CAP: int = 24  # Максимум кандидатов для LLM rerank (синхронный HTTP-таймаут)
+    # HNSW ef_search параметр для pgvector (должно быть >= GLAFIRA_RETRIEVE_CAP для полного top-k)
+    GLAFIRA_HNSW_EF_SEARCH: int = 300
 
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"

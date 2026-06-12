@@ -119,6 +119,12 @@ async def settings_permission_dependency(
             raise ForbiddenError("Только администратор может изменять настройки")
 
 
+async def require_recruiter_or_admin(current_user: User = Depends(get_current_user)) -> None:
+    """Доступ только admin/recruiter (менеджер запрещён)."""
+    if current_user.role not in ("admin", "recruiter"):
+        raise ForbiddenError("Недостаточно прав")
+
+
 async def integrations_permission_dependency(
     request: Request,
     current_user: User = Depends(get_current_user)

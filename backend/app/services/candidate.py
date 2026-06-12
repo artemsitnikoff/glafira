@@ -36,6 +36,7 @@ from ..core.stages import STAGES
 from ..models import (
     Application,
     Candidate,
+    CandidateEmbedding,
     CandidateTag,
     CandidateExperience,
     CandidateSkill,
@@ -1051,6 +1052,14 @@ async def delete_candidate(
         delete(Application).where(
             Application.candidate_id == candidate_id,
             Application.company_id == company_id,
+        )
+    )
+
+    # Физически удаляем эмбеддинг, чтобы удалённый кандидат не занимал слот HNSW top-k
+    await session.execute(
+        delete(CandidateEmbedding).where(
+            CandidateEmbedding.candidate_id == candidate_id,
+            CandidateEmbedding.company_id == company_id,
         )
     )
 

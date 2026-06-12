@@ -22,7 +22,7 @@ from .audit import router as audit_router
 from .integrations import router as integrations_router
 from .suggestions import router as suggestions_router
 from .smart import router as smart_router
-from ...core.permissions import settings_permission_dependency, integrations_permission_dependency
+from ...core.permissions import settings_permission_dependency, integrations_permission_dependency, require_recruiter_or_admin
 
 api_router = APIRouter()
 
@@ -58,4 +58,9 @@ api_router.include_router(
     tags=["integrations"],
 )
 api_router.include_router(suggestions_router, prefix="/suggestions", tags=["suggestions"])
-api_router.include_router(smart_router, prefix="/smart", tags=["smart"])
+api_router.include_router(
+    smart_router,
+    prefix="/smart",
+    tags=["smart"],
+    dependencies=[Depends(require_recruiter_or_admin)]
+)
