@@ -2,8 +2,8 @@ import re
 from datetime import datetime
 from io import BytesIO
 from uuid import UUID
-from typing import Optional
 from urllib.parse import quote
+from xml.sax.saxutils import escape as _xml_escape
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,13 +16,12 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.pdfgen import canvas
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
-from reportlab.pdfbase import pdfutils
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 from docx import Document
-from docx.shared import Inches
 
-from ..models.candidate import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
+from ..models.candidate import Candidate
 from ..core.errors import NotFoundError
 
 
@@ -31,6 +30,8 @@ class PageNumCanvas(canvas.Canvas):
 
     def __init__(self, *args, **kwargs):
         self.candidate_name = kwargs.pop('candidate_name', '')
+        # Имя зарегистрированного шрифта (DejaVu на VPS / Helvetica fallback локально)
+        self.footer_font = kwargs.pop('footer_font', 'Helvetica')
         super().__init__(*args, **kwargs)
 
     def showPage(self):
@@ -40,10 +41,7 @@ class PageNumCanvas(canvas.Canvas):
 
     def _add_page_footer(self):
         self.saveState()
-        try:
-            font_name = 'DejaVu'
-        except:
-            font_name = 'Helvetica'
+        font_name = self.footer_font
 
         self.setFont(font_name, 9)
         self.setFillGray(0.5)
@@ -70,10 +68,10 @@ class PageNumCanvas(canvas.Canvas):
 def _register_fonts():
     """Регистрирует шрифты DejaVu для кириллицы с fallback на Helvetica"""
     try:
-        pdfutils.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-        pdfutils.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
+        pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
+        pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
         return 'DejaVu', 'DejaVu-Bold'
-    except:
+    except Exception:
         # Fallback на системные шрифты для локальной среды/тестов
         return 'Helvetica', 'Helvetica-Bold'
 
@@ -83,6 +81,12 @@ def _strip_html(text: str) -> str:
     if not text:
         return ""
     return re.sub(r'<[^>]+>', '', text)
+
+
+def _safe(text) -> str:
+    """Снимает HTML-теги И экранирует XML-спецсимволы (& < >) — иначе reportlab
+    Paragraph (парсит мини-HTML) падает на реальных данных вроде «R&D», «M&A»."""
+    return _xml_escape(_strip_html(text or ""))
 
 
 def _full_name(candidate: Candidate) -> str:
@@ -107,9 +111,9 @@ async def load_candidate_for_export(
             Candidate.deleted_at.is_(None)
         )
         .options(
-            selectinload(Candidate.experience).selectinload(CandidateExperience),
-            selectinload(Candidate.skills).selectinload(CandidateSkill),
-            selectinload(Candidate.education).selectinload(CandidateEducation)
+            selectinload(Candidate.experience),
+            selectinload(Candidate.skills),
+            selectinload(Candidate.education)
         )
     )
 
@@ -144,7 +148,7 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
         topMargin=2*cm,
         bottomMargin=2.5*cm,
         canvasmaker=lambda *args, **kwargs: PageNumCanvas(
-            *args, candidate_name=_full_name(candidate), **kwargs
+            *args, candidate_name=_full_name(candidate), footer_font=font_normal, **kwargs
         )
     )
 
@@ -212,7 +216,7 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
     # Шапка с ФИО и брендом
     header_table_data = [
         [
-            Paragraph(_full_name(candidate), header_style),
+            Paragraph(_safe(_full_name(candidate)), header_style),
             Paragraph("Глафира", brand_style)
         ]
     ]
@@ -249,7 +253,7 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
         contact_info.append(location)
 
     for info in contact_info:
-        story.append(Paragraph(info, contact_style))
+        story.append(Paragraph(_safe(info), contact_style))
 
     story.append(Spacer(1, 20))
 
@@ -259,11 +263,11 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
         story.append(HRFlowable(width="100%", thickness=0.5, color=grey, spaceAfter=8))
 
         if candidate.last_position:
-            story.append(Paragraph(candidate.last_position, bold_style))
+            story.append(Paragraph(_safe(candidate.last_position), bold_style))
 
         if candidate.salary_expectation:
             salary_text = f"{candidate.salary_expectation:,} {candidate.currency}".replace(',', ' ')
-            story.append(Paragraph(salary_text, normal_style))
+            story.append(Paragraph(_safe(salary_text), normal_style))
 
     # Секция "Опыт работы"
     if candidate.experience:
@@ -279,8 +283,8 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
             # Компания и должность
             company_position = []
             if exp.company:
-                company_position.append(Paragraph(exp.company, bold_style))
-            company_position.append(Paragraph(exp.position, normal_style))
+                company_position.append(Paragraph(_safe(exp.company), bold_style))
+            company_position.append(Paragraph(_safe(exp.position), normal_style))
 
             # Описание
             if exp.description:
@@ -288,10 +292,10 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
                 desc_paragraphs = _strip_html(exp.description).split('\n')
                 for para in desc_paragraphs:
                     if para.strip():
-                        company_position.append(Paragraph(para.strip(), normal_style))
+                        company_position.append(Paragraph(_safe(para.strip()), normal_style))
 
             exp_data.append([
-                Paragraph(period, normal_style),
+                Paragraph(_safe(period), normal_style),
                 company_position
             ])
 
@@ -313,7 +317,7 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
 
         for edu in candidate.education:
             if edu.institution:
-                story.append(Paragraph(edu.institution, bold_style))
+                story.append(Paragraph(_safe(edu.institution), bold_style))
 
             edu_details = []
             if edu.specialty:
@@ -322,7 +326,7 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
                 edu_details.append(edu.years)
 
             if edu_details:
-                story.append(Paragraph(" • ".join(edu_details), normal_style))
+                story.append(Paragraph(_safe(" • ".join(edu_details)), normal_style))
 
             story.append(Spacer(1, 8))
 
@@ -344,13 +348,13 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
     if skills_text:
         story.append(Paragraph("НАВЫКИ", section_header_style))
         story.append(HRFlowable(width="100%", thickness=0.5, color=grey, spaceAfter=8))
-        story.append(Paragraph(", ".join(skills_text), normal_style))
+        story.append(Paragraph(_safe(", ".join(skills_text)), normal_style))
 
     # Секция "Обо мне"
     if candidate.resume_summary:
         story.append(Paragraph("ОБО МНЕ", section_header_style))
         story.append(HRFlowable(width="100%", thickness=0.5, color=grey, spaceAfter=8))
-        story.append(Paragraph(_strip_html(candidate.resume_summary), normal_style))
+        story.append(Paragraph(_safe(candidate.resume_summary), normal_style))
 
     # Генерируем PDF
     doc.build(story)

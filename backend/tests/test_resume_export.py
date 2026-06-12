@@ -309,7 +309,7 @@ class TestResumeExportEndpoint:
 
         # Экспортируем PDF
         response = await async_client.get(
-            f"/candidates/{candidate.id}/resume?format=pdf",
+            f"/api/v1/candidates/{candidate.id}/resume?format=pdf",
             headers=auth_headers
         )
 
@@ -336,7 +336,7 @@ class TestResumeExportEndpoint:
 
         # Экспортируем DOCX
         response = await async_client.get(
-            f"/candidates/{candidate.id}/resume?format=docx",
+            f"/api/v1/candidates/{candidate.id}/resume?format=docx",
             headers=auth_headers
         )
 
@@ -361,7 +361,7 @@ class TestResumeExportEndpoint:
         await db_session.commit()
 
         response = await async_client.get(
-            f"/candidates/{candidate.id}/resume?format=txt",
+            f"/api/v1/candidates/{candidate.id}/resume?format=txt",
             headers=auth_headers
         )
 
@@ -376,7 +376,7 @@ class TestResumeExportEndpoint:
         fake_id = uuid4()
 
         response = await async_client.get(
-            f"/candidates/{fake_id}/resume?format=pdf",
+            f"/api/v1/candidates/{fake_id}/resume?format=pdf",
             headers=auth_headers
         )
 
@@ -399,7 +399,7 @@ class TestResumeExportEndpoint:
         await db_session.commit()
 
         response = await async_client.get(
-            f"/candidates/{candidate.id}/resume?format=pdf",
+            f"/api/v1/candidates/{candidate.id}/resume?format=pdf",
             headers=auth_headers
         )
 
@@ -430,9 +430,9 @@ class TestResumeExportEndpoint:
         # корректный доступ менеджера к кандидату.
         # Пока оставляем базовую проверку
         response = await async_client.get(
-            f"/candidates/{candidate.id}/resume?format=pdf",
+            f"/api/v1/candidates/{candidate.id}/resume?format=pdf",
             headers=manager_headers
         )
 
-        # Может быть 200 (если есть доступ) или 403 (если нет)
-        assert response.status_code in [200, 403]
+        # Кандидат НЕ в вакансии менеджера → can_manager_access_candidate=False → 403
+        assert response.status_code == 403
