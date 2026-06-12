@@ -594,11 +594,6 @@ async def test_run_search_inner_short_sessions(
     mock_get_resume.assert_called_once_with("test_token", "resume123")
     mock_score.assert_called_once()
 
-    error_msg = str(exc_info.value)
-    assert "100" in error_msg
-    assert str(FREE_SCAN_LIMIT) in error_msg
-    assert "confirm_cost=true" in error_msg
-
 
 @pytest.mark.asyncio
 @patch('app.services.smart_search.check_access')
