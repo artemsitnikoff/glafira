@@ -539,6 +539,7 @@ class TestNewFunctions:
     async def test_run_base_evaluate_basic(self, db_session, test_company):
         """Базовый тест функции _run_base_evaluate"""
         from app.services.base_search import _run_base_evaluate
+        from unittest.mock import AsyncMock
 
         # Создаём run в статусе running
         run = BaseSearchRun(
@@ -556,24 +557,91 @@ class TestNewFunctions:
         db_session.add(run)
         await db_session.commit()
 
-        # Мокаем векторный поиск и AI
+        # Мокаем векторный поиск и AI по месту импорта в base_search
         with patch('app.services.base_search.vector_retrieve_scored') as mock_vector, \
              patch('app.services.base_search._load_candidates_for_rerank') as mock_load, \
-             patch('app.services.base_search._rerank_candidates_with_progress') as mock_rerank:
+             patch('app.services.base_search._rerank_candidates_with_progress') as mock_rerank, \
+             patch('app.services.base_search.score_resume_dict') as mock_score, \
+             patch('app.services.base_search.AsyncSessionLocal') as mock_session_class:
 
-            mock_vector.return_value = [(uuid4(), 0.3)]
+            # Мокаем векторный поиск - пустой результат, чтобы сработал SQL fallback
+            mock_vector.return_value = []
+
+            # Мокаем загрузку кандидатов - возвращаем минимальные данные
             mock_load.return_value = []
+
+            # Мокаем rerank - возвращаем пустой список
             mock_rerank.return_value = []
 
-            # Запускаем функцию
-            try:
-                await _run_base_evaluate(run.id, test_company.id, 1)
-            except Exception:
-                pass  # Может упасть на деталях, но основную логику проверили
+            # Мокаем LLM-скоринг для детерминированности (офлайн)
+            mock_score.return_value = {"score": 75}
 
-            # Проверяем, что run обновился
-            await db_session.refresh(run)
-            # Может быть 'done' или 'error' в зависимости от моков
+            # Мокаем сессию для финализации - тот же паттерн что в test_smart_search.py
+            mock_session = AsyncMock()
+            mock_session_class.return_value.__aenter__.return_value = mock_session
+            # Возвращаем тот же объект run, чтобы мутации применились к нему
+            mock_session.get.return_value = run
+
+            # Запускаем функцию - должна завершиться без exception
+            await _run_base_evaluate(run.id, test_company.id, 1)
+
+            # Проверяем, что run был финализирован корректно (ассертим на in-memory run)
+            assert run.status == "done"  # Должен успешно завершиться
+            assert run.stage == "done"   # Фаза завершена
+            assert run.finished_at is not None  # Время финиша проставлено
+            assert isinstance(run.results, list)  # Результаты есть (хотя бы пустой список)
+            mock_session.commit.assert_called()  # Финализация сделала commit
+
+    @pytest.mark.asyncio
+    async def test_run_base_evaluate_timeout(self, db_session, test_company):
+        """Тест что _run_base_evaluate финализирует run при таймауте"""
+        from app.services.base_search import _run_base_evaluate
+        from unittest.mock import AsyncMock
+        import asyncio
+
+        # Создаём run в статусе running
+        run = BaseSearchRun(
+            company_id=test_company.id,
+            search_type="prompt",
+            query_text="Python разработчик",
+            status="running",
+            stage="evaluate",
+            found=1,
+            to_evaluate=1,
+            evaluated=0,
+            criteria={"role": "Python", "skills": ["Python"], "city": "", "salary_from": None, "salary_to": None},
+            results=[]
+        )
+        db_session.add(run)
+        await db_session.commit()
+
+        with patch('app.services.base_search._calculate_evaluate_timeout') as mock_timeout, \
+             patch('app.services.base_search.vector_retrieve_scored') as mock_vector, \
+             patch('app.services.base_search.AsyncSessionLocal') as mock_session_class:
+
+            # Мокаем таймаут на 1 секунду
+            mock_timeout.return_value = 1
+
+            # Мокаем векторный поиск чтобы висел дольше таймаута
+            async def _slow_vector_operation(*args, **kwargs):
+                await asyncio.sleep(2)  # Зависаем на 2 секунды (больше таймаута в 1 сек)
+                return []
+
+            mock_vector.side_effect = _slow_vector_operation
+
+            # Мокаем сессию для финализации
+            mock_session = AsyncMock()
+            mock_session_class.return_value.__aenter__.return_value = mock_session
+            mock_session.get.return_value = run
+
+            # Вызываем функцию - должна поймать TimeoutError и финализировать
+            await _run_base_evaluate(run.id, test_company.id, 1)
+
+            # Проверяем что run был финализирован при таймауте
+            assert run.status == "error"
+            assert "таймаут" in run.error.lower()
+            assert run.finished_at is not None
+            mock_session.commit.assert_called()
 
     @pytest.mark.asyncio
     async def test_retrieve_base_prompt(self, db_session, test_company, admin_user):

@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from sqlalchemy import select
-from app.models import Verification, Consent, Application, Vacancy
+from app.models import Verification, Consent, Application, Vacancy, User
 from app.services.glafira.scoring import score_pending_applications
 
 
@@ -251,3 +251,33 @@ class TestVerificationTrigger:
             # Check that scoring result exists
             await db_session.refresh(test_candidate)
             assert test_candidate.ai_score == 75
+
+
+class TestVerificationRBAC:
+    """Test RBAC for verification endpoints"""
+
+    async def test_manager_cannot_start_verification(
+        self, async_client, manager_user: User, test_candidate
+    ):
+        """Test that managers cannot start verification (платный DaData + OSINT)"""
+        # Get manager token
+        login_response = await async_client.post(
+            "/api/v1/auth/login",
+            json={"email": manager_user.email, "password": "Glafira2026!"},
+        )
+        assert login_response.status_code == 200
+        manager_token = login_response.json()["access_token"]
+        manager_headers = {"Authorization": f"Bearer {manager_token}"}
+
+        candidate_id = str(test_candidate.id)
+
+        # Try to start verification as manager - should fail
+        response = await async_client.post(
+            f"/api/v1/candidates/{candidate_id}/verify",
+            headers=manager_headers
+        )
+
+        assert response.status_code == 403
+        error = response.json()
+        assert "FORBIDDEN" in error["error"]["code"]
+        assert "Менеджеры не могут запускать верификацию" in error["error"]["message"]

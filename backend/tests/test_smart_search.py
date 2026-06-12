@@ -1194,7 +1194,12 @@ async def test_timeout_wrapper_finalizes_on_timeout():
 
         # Мокаем таймаут
         mock_timeout.return_value = 1  # 1 секунда
-        mock_inner.side_effect = asyncio.sleep(2)  # Зависаем на 2 секунды
+
+        # Корректный side_effect - функция, которая возвращает корутину, зависающую дольше таймаута
+        async def _slow_operation(*args, **kwargs):
+            await asyncio.sleep(2)  # Зависаем на 2 секунды (больше таймаута в 1 сек)
+
+        mock_inner.side_effect = _slow_operation
 
         # Мокаем сессию для финализации
         mock_session = AsyncMock()
@@ -1207,12 +1212,12 @@ async def test_timeout_wrapper_finalizes_on_timeout():
         company_id = uuid4()
         user_id = uuid4()
 
-        # Вызываем wrapper
+        # Вызываем wrapper - должен поймать TimeoutError и финализировать
         await _run_search_background(run_id, company_id, user_id)
 
         # Проверяем что run был финализирован при таймауте
         assert run.status == "error"
-        assert "таймаут" in run.note
+        assert "таймаут" in run.note.lower()
         assert run.error == "timeout"
         assert run.finished_at is not None
         mock_session.commit.assert_called()

@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ...deps import get_current_user, get_db
-from ...core.errors import NotFoundError
+from ...core.errors import NotFoundError, ForbiddenError
+from ...core.permissions import can_manager_access_candidate
 from ...models import User, Consent
 from ...schemas.verification import VerificationOut, VerifyBlock
 from ...services.glafira.verify import verify_candidate, get_candidate_verification, fill_candidate_osint
@@ -27,6 +28,10 @@ async def verify_candidate_endpoint(
     session: AsyncSession = Depends(get_db)
 ):
     """Verify candidate using Glafira"""
+
+    # RBAC: менеджеры не могут запускать платную верификацию (DaData + OSINT)
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут запускать верификацию")
 
     verification = await verify_candidate(
         session,
@@ -84,6 +89,11 @@ async def get_candidate_verification_endpoint(
     session: AsyncSession = Depends(get_db)
 ):
     """Get latest verification for candidate"""
+
+    # RBAC: менеджер может читать статус верификации только для своих кандидатов
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, current_user.company_id):
+            raise ForbiddenError("Нет доступа к верификации данного кандидата")
 
     verification = await get_candidate_verification(
         session,

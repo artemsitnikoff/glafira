@@ -96,3 +96,62 @@ class TestConsents:
         assert response.status_code == 200
         candidate = response.json()
         assert candidate["has_pdn"] is True
+
+    async def test_manager_cannot_request_consent(
+        self,
+        async_client: AsyncClient,
+        manager_user: User,
+        test_candidate: Candidate
+    ):
+        """Test that managers cannot request consent"""
+        # Get manager token
+        login_response = await async_client.post(
+            "/api/v1/auth/login",
+            json={"email": manager_user.email, "password": "Glafira2026!"},
+        )
+        assert login_response.status_code == 200
+        manager_token = login_response.json()["access_token"]
+        manager_headers = {"Authorization": f"Bearer {manager_token}"}
+
+        candidate_id = str(test_candidate.id)
+
+        # Try to request consent as manager - should fail
+        response = await async_client.post(
+            f"/api/v1/candidates/{candidate_id}/consent/request",
+            headers=manager_headers,
+            json={"channel": "telegram"}
+        )
+
+        assert response.status_code == 403
+        error = response.json()
+        assert "FORBIDDEN" in error["error"]["code"]
+        assert "Менеджеры не могут запрашивать согласия" in error["error"]["message"]
+
+    async def test_manager_cannot_confirm_signed_consent(
+        self,
+        async_client: AsyncClient,
+        manager_user: User,
+        test_candidate: Candidate
+    ):
+        """Test that managers cannot confirm signed consent"""
+        # Get manager token
+        login_response = await async_client.post(
+            "/api/v1/auth/login",
+            json={"email": manager_user.email, "password": "Glafira2026!"},
+        )
+        assert login_response.status_code == 200
+        manager_token = login_response.json()["access_token"]
+        manager_headers = {"Authorization": f"Bearer {manager_token}"}
+
+        candidate_id = str(test_candidate.id)
+
+        # Try to confirm signed consent as manager - should fail
+        response = await async_client.post(
+            f"/api/v1/candidates/{candidate_id}/consent/confirm-signed",
+            headers=manager_headers
+        )
+
+        assert response.status_code == 403
+        error = response.json()
+        assert "FORBIDDEN" in error["error"]["code"]
+        assert "Менеджеры не могут подтверждать" in error["error"]["message"]

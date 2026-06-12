@@ -39,6 +39,21 @@ def cosine_to_percent(distance: float) -> int:
     return max(0, min(100, round((1.0 - distance) * 100)))
 
 
+async def _calculate_evaluate_timeout(n: int) -> int:
+    """
+    Вычисляет таймаут для фазы EVALUATE на основе числа кандидатов для LLM-оценки
+
+    Args:
+        n: Количество кандидатов для оценки
+
+    Returns:
+        int: Таймаут в секундах
+    """
+    # Реалистичный таймаут: базовые 900с + по 200с на каждого кандидата
+    # (LLM score_resume_dict с ретраями до ~180с + накладные расходы)
+    return max(900, n * 200)
+
+
 async def parse_query_to_criteria(query: str) -> dict:
     """
     Парсит текстовый запрос в критерии поиска через LLM
@@ -1070,6 +1085,10 @@ async def reindex_all_embeddings(company_id: Optional[UUID] = None) -> None:
     Args:
         company_id: ID компании (если None — все компании)
     """
+    # Guard против двойного запуска
+    if company_id in _reindex_in_progress:
+        logger.info(f"Переиндексация для компании {company_id} уже идёт — пропускаем повторный запуск")
+        return None
 
     async def _run_reindex():
         try:
@@ -1799,9 +1818,12 @@ async def sweep_orphaned_base_search_runs():
 
 async def _run_base_evaluate(run_id: UUID, company_id: UUID, n: int):
     """
-    Фоновая задача фазы EVALUATE: LLM-оценка топ-N кандидатов
+    Фоновая задача фазы EVALUATE: LLM-оценка топ-N кандидатов с внешним таймаутом
     """
-    try:
+    timeout_s = await _calculate_evaluate_timeout(n)
+
+    async def _run_base_evaluate_inner():
+        """Внутренняя функция с основной логикой оценки"""
         # Загружаем run короткой сессией: критерии + из чего строить косинус-запрос
         async with AsyncSessionLocal() as session:
             run = await session.get(BaseSearchRun, run_id)
@@ -1940,8 +1962,35 @@ async def _run_base_evaluate(run_id: UUID, company_id: UUID, n: int):
             evaluated=evaluated_count
         )
 
+    try:
+        await asyncio.wait_for(_run_base_evaluate_inner(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        # Финализация по таймауту в отдельной короткой сессии
+        try:
+            await asyncio.wait_for(
+                _finalize_base_search(
+                    run_id,
+                    status="error",
+                    stage="evaluate",
+                    error="Оценка прервана по таймауту (LLM не ответил вовремя). Попробуйте уменьшить количество кандидатов для оценки."
+                ),
+                timeout=15
+            )
+        except Exception as e:
+            logger.error(f"Не удалось финализировать run {run_id} по таймауту: {e}")
     except Exception as e:
-        logger.error(f"Ошибка на этапе evaluate: {e}")
-        await _finalize_base_search(run_id, "error", "evaluate", error=str(e)[:500])
+        # Финализация любых других ошибок в отдельной короткой сессии
+        try:
+            await asyncio.wait_for(
+                _finalize_base_search(
+                    run_id,
+                    status="error",
+                    stage="evaluate",
+                    error=str(e)[:500]
+                ),
+                timeout=15
+            )
+        except Exception as finalize_error:
+            logger.error(f"Не удалось финализировать run {run_id} после ошибки: {finalize_error}")
     finally:
         _active_tasks.discard(asyncio.current_task())
