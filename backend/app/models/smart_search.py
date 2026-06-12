@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Text, ForeignKey, Boolean, text, Index
+from sqlalchemy import String, Integer, Text, ForeignKey, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,19 +14,12 @@ from .base import Base, TimestampMixin, CompanyMixin
 class SmartSearchRun(Base, TimestampMixin, CompanyMixin):
     __tablename__ = "smart_search_runs"
 
-    # Частичный уникальный индекс: не более одного активного (running) поиска на
-    # (company, вакансия) — DB-атомарный guard против двойного запуска платного hh-сорсинга.
-    # Дублирует индекс из миграции p7q8r9s0t1u2 (для prod через alembic), здесь — чтобы он
-    # попадал и в create_all (тесты), и не давал autogenerate-дрейфа (модель↔миграция в синхроне).
-    __table_args__ = (
-        Index(
-            "uq_smart_search_run_active",
-            "company_id",
-            "vacancy_id",
-            unique=True,
-            postgresql_where=text("status = 'running'"),
-        ),
-    )
+    # NB: частичный уникальный индекс uq_smart_search_run_active
+    # (company_id, vacancy_id) WHERE status='running' — DB-атомарный guard двойного
+    # запуска — живёт ТОЛЬКО в миграции p7q8r9s0t1u2 (prod через alembic). В модель
+    # (__table_args__) НЕ вынесен намеренно: иначе он попадает в Base.metadata.create_all
+    # тестовой БД и ломает тесты, которым нужно создать несколько running-прогонов на одну
+    # вакансию (например test_sweep_orphaned_runs — симуляция зависших прогонов).
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
