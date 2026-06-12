@@ -1154,17 +1154,28 @@ async def get_embeddings_index_status(
     Returns:
         dict: {"total_candidates": int, "indexed_candidates": int}
     """
-    # Общее количество кандидатов
+    # Общее количество кандидатов С ТЕКСТОМ РЕЗЮМЕ (индексируемых)
     total_stmt = select(func.count(Candidate.id)).where(
         Candidate.company_id == company_id,
-        Candidate.deleted_at.is_(None)
+        Candidate.deleted_at.is_(None),
+        Candidate.resume_text.is_not(None),
+        Candidate.resume_text != ""
     )
     total_result = await session.execute(total_stmt)
     total_candidates = total_result.scalar_one()
 
-    # Количество проиндексированных
-    indexed_stmt = select(func.count(CandidateEmbedding.id)).where(
-        CandidateEmbedding.company_id == company_id
+    # Проиндексировано — считаем эмбеддинги ТОЙ ЖЕ популяции (живые кандидаты с текстом
+    # резюме), иначе indexed может превысить total (эмбеддинги создаются и по skills/
+    # должности без resume_text) → на фронте >100% / «−N в очереди».
+    indexed_stmt = (
+        select(func.count(CandidateEmbedding.id))
+        .join(Candidate, Candidate.id == CandidateEmbedding.candidate_id)
+        .where(
+            CandidateEmbedding.company_id == company_id,
+            Candidate.deleted_at.is_(None),
+            Candidate.resume_text.is_not(None),
+            Candidate.resume_text != ""
+        )
     )
     indexed_result = await session.execute(indexed_stmt)
     indexed_candidates = indexed_result.scalar_one()

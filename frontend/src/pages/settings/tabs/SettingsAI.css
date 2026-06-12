@@ -1,0 +1,167 @@
+/* ============================================================
+   Settings AI — Стили вкладки "Искусственный интеллект"
+   ============================================================ */
+
+/* .t-mono / .t-caption / .error-banner — глобальные примитивы (Settings.css), НЕ дублируем
+   здесь (переопределение глобально ломало размер на других экранах). */
+
+/* AI индексация */
+.ai-index {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  padding: 18px;
+}
+
+.ai-index-stats {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.ai-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-stat-num {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--fg-1);
+  line-height: 1.1;
+}
+
+.ai-stat-cap {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.ai-stat-arrow {
+  color: var(--fg-3);
+  display: flex;
+}
+
+.ai-index-pillwrap {
+  margin-left: auto;
+}
+
+/* Прогресс-бар */
+.ai-progress {
+  margin-top: 16px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--ark-gray-200);
+  overflow: hidden;
+}
+
+.ai-progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width var(--dur-normal) var(--ease-out);
+}
+
+.ai-progress-fill.busy {
+  background: linear-gradient(90deg, var(--ark-blue-300), var(--accent), var(--ark-blue-300));
+  background-size: 200% 100%;
+  animation: ai-prog-shimmer 1.1s linear infinite;
+}
+
+@keyframes ai-prog-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+
+.ai-progress-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ai-progress-foot .t-mono {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+/* Действия */
+.ai-index-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.ai-index-actions .t-caption {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* Разделитель */
+.ai-divider {
+  height: 1px;
+  background: var(--border-2);
+  margin: 18px 0;
+}
+
+/* Модель эмбеддингов (заблокированная) */
+.ai-model-locked {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+}
+
+.ai-prov-ic {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-model-id {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--fg-1);
+  word-break: break-all;
+}
+
+.ai-soon-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 99px;
+  background: var(--ark-yellow-100);
+  color: var(--ark-yellow-600);
+}
+
+.ai-soon-pill.ai-soon-locked {
+  background: var(--ark-gray-200);
+  color: var(--fg-2);
+}
+
+/* Селектор модели LLM */
+.ai-model-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-model-select .sel {
+  flex: 1;
+}

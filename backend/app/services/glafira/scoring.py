@@ -18,6 +18,7 @@ from .verify import verify_candidate, fill_candidate_osint
 from ...core.errors import ConsentRequiredError
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError
+from ..settings.glafira import get_company_llm_model
 
 
 def _strip_html(s: str | None) -> str:
@@ -376,12 +377,16 @@ Email: {candidate.email or "не указан"}
 Навыки: {skills_text}
 """
 
+    # Get company-specific LLM model
+    company_model = await get_company_llm_model(session, company_id)
+
     # Call Claude API
     response_data = await call_json(
         system=build_scoring_system_prompt(
             vacancy.recruiter_scoring_instructions if vacancy is not None else None
         ),
         user=user_prompt,
+        model=company_model,
         max_tokens=8000  # богатая рубрика (до 14 критериев + комментарии + 5 вопросов) не влезала в 2048 → обрыв JSON
     )
 
@@ -434,7 +439,7 @@ Email: {candidate.email or "не указан"}
         requirements_match=response_data.get('requirements_match') or [],
         forecast=response_data.get('forecast'),
         questions=questions,
-        model=settings.GLAFIRA_MODEL,
+        model=company_model,
         created_at=now
     )
 

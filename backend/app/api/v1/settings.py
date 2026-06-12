@@ -34,6 +34,9 @@ from ...schemas.settings import (
     FunnelTemplateOut,
     FunnelTemplateCreate,
     FunnelTemplateUpdate,
+    AiModelSettingsOut,
+    AiModelUpdate,
+    AiModelOption,
 )
 from ...services.settings import (
     profile,
@@ -47,6 +50,10 @@ from ...services.settings import (
     funnel_templates as funnel_templates_svc,
     tags as tags_svc,
 )
+from ...services.glafira.models import ALLOWED_LLM_MODELS, ALLOWED_MODEL_VALUES
+from ...core.errors import ValidationError, ForbiddenError
+from ...services.audit import audit
+from ...models import GlafiraSettings
 from ...services import candidate as candidate_service
 
 router = APIRouter()
@@ -646,3 +653,78 @@ async def reorder_funnel_template_stages(
     await funnel_templates_svc.reorder_template_stages(session, template_id, company_id, data.order, current_user.id)
     await session.commit()
     return {"message": "Этапы переупорядочены"}
+
+
+# AI Model endpoints
+@router.get("/ai-model", response_model=AiModelSettingsOut)
+async def get_ai_model_settings(
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Get AI model settings.
+
+    RBAC: admin/recruiter могут читать (manager - следует общему паттерну settings)
+    """
+    # Проверяем RBAC - менеджеры к настройкам не имеют доступа
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ к настройкам AI-модели запрещён")
+
+    # Получаем текущую модель для компании
+    current_model = await glafira.get_company_llm_model(session, company_id)
+
+    return AiModelSettingsOut(
+        current=current_model,
+        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS]
+    )
+
+
+@router.patch("/ai-model", response_model=AiModelSettingsOut)
+async def update_ai_model_settings(
+    data: AiModelUpdate,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Update AI model settings.
+
+    RBAC: admin only - только админ может менять модель оценки
+    """
+    # Проверяем RBAC - только админ
+    if current_user.role != "admin":
+        raise ForbiddenError("Только администратор может изменять AI-модель")
+
+    # Валидация: model должна быть в белом списке
+    if data.model not in ALLOWED_MODEL_VALUES:
+        raise ValidationError("Недопустимая модель. Разрешённые: " + ", ".join(ALLOWED_MODEL_VALUES))
+
+    # Получаем текущую настройку для audit
+    settings_obj = await glafira.get_glafira_settings(session, company_id)
+    old_model = settings_obj.llm_model
+
+    # Обновляем модель
+    settings_obj.llm_model = data.model
+    await session.flush()
+
+    # Audit log
+    await audit(
+        session,
+        action="update_ai_model",
+        entity_type="glafira_settings",
+        entity_id=settings_obj.id,
+        before={"llm_model": old_model},
+        after={"llm_model": data.model},
+        actor_user_id=current_user.id,
+        actor_type="human",
+        company_id=company_id,
+    )
+
+    await session.commit()
+
+    # Получаем обновлённую модель
+    current_model = await glafira.get_company_llm_model(session, company_id)
+
+    return AiModelSettingsOut(
+        current=current_model,
+        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS]
+    )

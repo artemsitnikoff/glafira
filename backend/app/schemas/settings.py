@@ -230,3 +230,18 @@ class FunnelTemplateCreate(BaseModel):
 
 class FunnelTemplateUpdate(BaseModel):
     name: str
+
+
+# AI Model schemas
+class AiModelOption(BaseModel):
+    value: str  # slug модели
+    label: str  # человекочитаемое название
+
+
+class AiModelSettingsOut(BaseModel):
+    current: str  # текущая выбранная модель
+    options: list[AiModelOption]  # белый список доступных моделей
+
+
+class AiModelUpdate(BaseModel):
+    model: str  # новая модель из белого списка

@@ -59,6 +59,8 @@ import {
   Key,
   Phone,
   Save,
+  Cpu,
+  Database,
 } from 'lucide-react';
 
 const iconMap = {
@@ -135,6 +137,8 @@ const iconMap = {
   calClock: Calendar,
   heart: Heart, // Пульс-Онбординг → Heart icon
   save: Save,
+  cpu: Cpu,
+  database: Database,
 } as const;
 
 export type IconName = keyof typeof iconMap;

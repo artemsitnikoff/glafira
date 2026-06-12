@@ -5,6 +5,8 @@ from uuid import UUID
 from ...models import GlafiraSettings
 from ...core.errors import ValidationError
 from ...services.audit import audit
+from ...config import settings
+from ..glafira.models import ALLOWED_MODEL_VALUES, DEFAULT_MODEL
 
 
 async def get_glafira_settings(session: AsyncSession, company_id: UUID) -> GlafiraSettings:
@@ -21,6 +23,33 @@ async def get_glafira_settings(session: AsyncSession, company_id: UUID) -> Glafi
         await session.flush()
 
     return settings_obj
+
+
+async def get_company_llm_model(session: AsyncSession, company_id: UUID) -> str:
+    """
+    Получить LLM-модель для оценки резюме конкретной компании.
+
+    Логика fallback:
+    1. Если у компании настроена llm_model И она в белом списке → её
+    2. Иначе → env GLAFIRA_MODEL
+    3. Если и env пуст → дефолт 'anthropic/claude-sonnet-4.6'
+
+    Company-scoped, всегда возвращает валидную модель.
+    """
+    glafira_settings = await get_glafira_settings(session, company_id)
+
+    # Проверяем company-настройку
+    if (glafira_settings.llm_model and
+        glafira_settings.llm_model in ALLOWED_MODEL_VALUES):
+        return glafira_settings.llm_model
+
+    # Fallback на env
+    env_model = settings.GLAFIRA_MODEL
+    if env_model and env_model in ALLOWED_MODEL_VALUES:
+        return env_model
+
+    # Финальный fallback
+    return DEFAULT_MODEL
 
 
 async def update_glafira_settings(

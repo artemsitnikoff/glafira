@@ -9,6 +9,7 @@ const SET_SECTIONS = [
   { id: 'access',       label: 'Права доступа',          icon: 'users',    adminOnly: true  },
   { id: 'tags',         label: 'Теги',                   icon: 'pin',      adminOnly: false },
   { id: 'integrations', label: 'Интеграции',             icon: 'antenna',  adminOnly: true  },
+  { id: 'ai',           label: 'AI',                     icon: 'sparkle',  adminOnly: true  },
 ];
 
 function SettingsTopTabs({ active, onChange, isAdmin }) {
@@ -1062,6 +1063,118 @@ function SettingsIntegrations() {
 }
 
 /* ============================================================
+   7. AI — ИИ
+   ============================================================ */
+function SettingsAI() {
+  const TOTAL = 2847;
+  const [indexed, setIndexed] = useStateSet(2731);
+  const [reindexing, setReindexing] = useStateSet(false);
+  const [llm, setLlm] = useStateSet('claude-sonnet-4-6');
+  const [dirty, setDirty] = useStateSet(false);
+  const pct = Math.round((indexed / TOTAL) * 100);
+  const pending = TOTAL - indexed;
+
+  const reindex = () => {
+    if (reindexing) return;
+    setReindexing(true);
+    setIndexed(0);
+    let cur = 0;
+    const step = Math.ceil(TOTAL / 36);
+    const t = setInterval(() => {
+      cur = Math.min(TOTAL, cur + step);
+      setIndexed(cur);
+      if (cur >= TOTAL) { clearInterval(t); setReindexing(false); }
+    }, 55);
+  };
+
+  const fmt = (n) => n.toLocaleString('ru-RU');
+
+  return (
+    <div className="set-content-inner">
+      <PageHead title="Искусственный интеллект"
+        subtitle="Семантический поиск по базе и модель, которая анализирует резюме"
+        dirty={dirty} onSave={() => setDirty(false)}/>
+
+      {/* --- Semantic search --- */}
+      <Card title="Семантический поиск по базе кандидатов"
+        desc="Индексация резюме для умного поиска по смыслу, а не только по ключевым словам. Векторы резюме хранятся в системе и используются разделом «Умный подбор».">
+
+        <div className="ai-index">
+          <div className="ai-index-stats">
+            <div className="ai-stat">
+              <div className="ai-stat-num t-mono">{fmt(TOTAL)}</div>
+              <div className="ai-stat-cap">Резюме в базе</div>
+            </div>
+            <div className="ai-stat-arrow"><Icon name="arrowRight" size={16}/></div>
+            <div className="ai-stat">
+              <div className="ai-stat-num t-mono">{fmt(indexed)}</div>
+              <div className="ai-stat-cap">Проиндексировано · векторов</div>
+            </div>
+            <div className="ai-index-pillwrap">
+              {pending === 0
+                ? <span className="conn-pill ok"><Icon name="check" size={12}/>Всё проиндексировано</span>
+                : <span className="conn-pill bad">{reindexing ? 'Индексируется…' : `${fmt(pending)} в очереди`}</span>}
+            </div>
+          </div>
+
+          <div className="ai-progress">
+            <div className={`ai-progress-fill ${reindexing ? 'busy' : ''}`} style={{width: pct + '%'}}/>
+          </div>
+          <div className="ai-progress-foot">
+            <span className="t-mono">{pct}%</span>
+            <span className="t-caption">
+              {reindexing
+                ? 'Идёт переиндексация базы…'
+                : `Последняя индексация: 11 июня 2026, 03:14 · хранилище векторов 412 МБ`}
+            </span>
+          </div>
+
+          <div className="ai-index-actions">
+            <button className="btn btn-primary btn-sm" onClick={reindex} disabled={reindexing}>
+              <Icon name="refresh" size={14}/> {reindexing ? 'Переиндексация…' : 'Переиндексировать'}
+            </button>
+            <span className="t-caption">Новые резюме индексируются автоматически. Полная переиндексация нужна после смены настроек.</span>
+          </div>
+        </div>
+
+        <div className="ai-divider"/>
+
+        <div className="form-grid">
+          <FormRow label="Модель эмбеддингов"
+            hint="Преобразует текст резюме в векторы. Многоязычная модель, оптимизированная под русский язык. Зафиксирована.">
+            <div className="ai-model-locked">
+              <span className="ai-prov-ic" style={{background:'var(--ark-blue-50)', color:'var(--ark-blue-700)'}}><Icon name="database" size={16}/></span>
+              <div className="ai-model-id t-mono">sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2</div>
+              <span className="ai-soon-pill ai-soon-locked"><Icon name="lock" size={11}/>Зафиксирована</span>
+            </div>
+          </FormRow>
+        </div>
+      </Card>
+
+      {/* --- LLM model --- */}
+      <Card title="Модель LLM"
+        desc="Настройка модели искусственного интеллекта для анализа резюме: квалификация откликов, оценка соответствия вакансии и саммари кандидата.">
+        <div className="form-grid">
+          <FormRow label="Основная модель"
+            hint="Модель, которая оценивает резюме и квалифицирует отклики. Смена влияет на все новые анализы.">
+            <div className="ai-model-select">
+              <span className="ai-prov-ic" style={{background:'#F3EEE7', color:'#B8551F'}}><Icon name="cpu" size={16}/></span>
+              <Select value={llm} onChange={v => { setLlm(v); setDirty(true); }}
+                options={[
+                  {value:'qwen3-7-max',       label:'Qwen3.7-Max'},
+                  {value:'kimi-k2-6',         label:'Kimi K2.6'},
+                  {value:'deepseek-v4-flash', label:'DeepSeek V4 Flash'},
+                  {value:'claude-sonnet-4-6', label:'Claude Sonnet 4.6'},
+                ]}/>
+            </div>
+          </FormRow>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ============================================================
    Root
    ============================================================ */
 function Settings({ section, onSectionChange, isAdmin = true, hasBitrix = true }) {
@@ -1075,6 +1188,7 @@ function Settings({ section, onSectionChange, isAdmin = true, hasBitrix = true }
   else if (active === 'funnel')       content = <SettingsFunnel/>;
   else if (active === 'access')       content = <SettingsAccess/>;
   else if (active === 'tags')         content = <SettingsTags/>;
+  else if (active === 'ai')           content = <SettingsAI/>;
   else if (active === 'integrations') content = <SettingsIntegrations/>;
 
   return (

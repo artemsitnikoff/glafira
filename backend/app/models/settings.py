@@ -116,6 +116,8 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
     turnover_source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'none'"))
     # Текст отказа по умолчанию для компании
     default_rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # LLM-модель для оценки резюме (NULL = fallback на env GLAFIRA_MODEL)
+    llm_model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
 
     # Constraints
     __table_args__ = (
