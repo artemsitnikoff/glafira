@@ -330,8 +330,10 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           updateFormData(updates);
         }
 
-        // Auto-fill experience if current state is empty
-        if (experience.length === 0 && fields.experience && fields.experience.length > 0) {
+        // Auto-fill experience если текущее состояние без реальных данных
+        // (в т.ч. начальный пустой блок — иначе length===0 никогда не сработает)
+        const expEmpty = experience.every(e => !e.position.trim() && !e.company.trim() && !e.description.trim() && !e.start.trim() && !e.end.trim());
+        if (expEmpty && fields.experience && fields.experience.length > 0) {
           const parsedExperience = fields.experience.map(exp => ({
             position: exp.position || '',
             company: exp.company || '',
@@ -346,8 +348,9 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           setSkills(fields.skills.filter(Boolean));
         }
 
-        // Auto-fill education if current state is empty
-        if (education.length === 0 && fields.education && fields.education.length > 0) {
+        // Auto-fill education если текущее состояние без реальных данных (в т.ч. начальный пустой блок)
+        const eduEmpty = education.every(e => !e.institution.trim() && !e.specialty.trim() && !e.years.trim());
+        if (eduEmpty && fields.education && fields.education.length > 0) {
           setEducation(fields.education.map(edu => ({
             institution: edu.institution || '',
             specialty: edu.specialty || '',
