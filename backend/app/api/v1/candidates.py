@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from uuid import UUID
 from typing import Annotated
+from urllib.parse import quote
 
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...core.pagination import PageParams
-from ...core.errors import ForbiddenError
+from ...core.errors import ForbiddenError, ValidationError
 from ...core.permissions import can_manager_access_candidate
 from ...database import get_db
 from ...schemas.candidate import (
@@ -29,6 +30,12 @@ from ...services.candidate import (
     add_candidate_tag,
     remove_candidate_tag,
     assign_candidate_to_vacancy
+)
+from ...services.resume_export import (
+    load_candidate_for_export,
+    build_resume_pdf,
+    build_resume_docx,
+    _full_name
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -196,3 +203,50 @@ async def assign_to_vacancy_route(
     )
     await session.commit()
     return result
+
+
+@router.get("/{candidate_id}/resume")
+async def export_candidate_resume(
+    candidate_id: UUID,
+    format: str = Query("pdf", description="Формат экспорта: pdf или docx"),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Экспорт резюме кандидата в PDF или DOCX"""
+
+    # Валидация формата
+    if format not in ["pdf", "docx"]:
+        raise ValidationError("Допустимые форматы: pdf, docx")
+
+    # Проверяем доступ к кандидату (аналогично GET /candidates/{candidate_id})
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
+    # Загружаем кандидата
+    candidate = await load_candidate_for_export(session, company_id, candidate_id)
+
+    # Генерируем файл в зависимости от формата
+    if format == "pdf":
+        content = build_resume_pdf(candidate)
+        media_type = "application/pdf"
+        extension = "pdf"
+    else:  # docx
+        content = build_resume_docx(candidate)
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        extension = "docx"
+
+    # Формируем имя файла
+    filename = f"{_full_name(candidate)}.{extension}"
+
+    # Устанавливаем заголовки для скачивания с поддержкой кириллицы
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+    }
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers=headers
+    )

@@ -58,6 +58,7 @@ import {
   Heart,
   Key,
   Phone,
+  Save,
 } from 'lucide-react';
 
 const iconMap = {
@@ -133,6 +134,7 @@ const iconMap = {
   arrowRight: ArrowRight,
   calClock: Calendar,
   heart: Heart, // Пульс-Онбординг → Heart icon
+  save: Save,
 } as const;
 
 export type IconName = keyof typeof iconMap;

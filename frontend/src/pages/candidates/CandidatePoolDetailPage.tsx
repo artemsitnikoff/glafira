@@ -4,6 +4,7 @@ import '../funnel/candidate-detail/CandidateDetail.css'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCandidate, useCandidateApplications } from '../../api/hooks/useCandidates'
 import { useRequestConsent } from '@/api/mutations/candidateDetail'
+import { useResumeDownload } from '@/api/hooks/useResumeDownload'
 import { AssignToVacancyModal } from './components/AssignToVacancyModal'
 import { Icon } from '@/components/ui/Icon'
 import { ScoreLabel } from '@/components/ui/ScoreLabel'
@@ -39,6 +40,7 @@ export function CandidatePoolDetailPage() {
   const navigate = useNavigate()
 
   const [showAssignModal, setShowAssignModal] = useState(false)
+  const [downloadPopoverOpen, setDownloadPopoverOpen] = useState(false)
 
   const activeTab = (searchParams.get('tab') as TabKey) || 'resume'
 
@@ -54,6 +56,7 @@ export function CandidatePoolDetailPage() {
   } = useCandidateApplications(candidateId!)
 
   const consentMutation = useRequestConsent(candidateId || '')
+  const downloadMutation = useResumeDownload()
 
   const handleBackToPool = () => {
     // К СПИСКУ кандидатов (не navigate(-1) — иначе ходит по истории смены табов),
@@ -75,6 +78,18 @@ export function CandidatePoolDetailPage() {
 
   const fmtDate = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
+
+  function handleDownloadResume(format: 'pdf' | 'docx') {
+    if (!candidate) return;
+
+    const fileName = `${candidate.full_name}.${format}`;
+    downloadMutation.mutate({
+      candidateId: candidate.id,
+      format,
+      fileName
+    });
+    setDownloadPopoverOpen(false);
+  }
 
   const renderTabContent = () => {
     if (!candidate) return null
@@ -223,6 +238,44 @@ export function CandidatePoolDetailPage() {
                   <Icon name="shield" size={14} /> ПдН
                 </button>
               )}
+
+              {/* Скачать резюме */}
+              <div className="cd-move-wrap">
+                <button
+                  className="icon-btn"
+                  onClick={() => setDownloadPopoverOpen(o => !o)}
+                  title="Сохранить резюме"
+                >
+                  <Icon name="save" size={16} />
+                  <Icon name="chevron-down" size={12} />
+                </button>
+
+                {downloadPopoverOpen && (
+                  <>
+                    <div className="cd-pop-backdrop" onClick={() => setDownloadPopoverOpen(false)} />
+                    <div className="cd-move-pop cd-download-pop" role="menu">
+                      <div className="cd-pop-head">Формат файла</div>
+                      <button
+                        className="cd-pop-item"
+                        onClick={() => handleDownloadResume('pdf')}
+                        disabled={downloadMutation.isPending}
+                      >
+                        <Icon name="file" size={16} />
+                        <span className="cd-pop-label">Скачать PDF</span>
+                      </button>
+                      <button
+                        className="cd-pop-item"
+                        onClick={() => handleDownloadResume('docx')}
+                        disabled={downloadMutation.isPending}
+                      >
+                        <Icon name="file-text" size={16} />
+                        <span className="cd-pop-label">Скачать DOCX</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div style={{ flex: 1 }} />
               <button className="icon-btn" onClick={handleBackToPool} title="Закрыть">
                 <Icon name="x" size={18} />

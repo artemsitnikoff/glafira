@@ -6,6 +6,7 @@ import { useMoveApplication, useRejectApplication, useRestoreApplication } from 
 import { useRequestConsent } from '@/api/mutations/candidateDetail';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
+import { useResumeDownload } from '@/api/hooks/useResumeDownload';
 import { useAuthStore } from '@/store/authStore';
 
 type Props = {
@@ -32,6 +33,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const canEdit = useAuthStore((s) => s.user?.role) !== 'manager';
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
+  const [downloadPopoverOpen, setDownloadPopoverOpen] = useState(false);
 
   const isHired = application?.stage === 'hired';
   const isRejected = application?.stage === 'rejected';
@@ -44,6 +46,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const rejectMutation = useRejectApplication(vacancyId);
   const restoreMutation = useRestoreApplication(vacancyId);
   const consentMutation = useRequestConsent(candidate?.id || '');
+  const downloadMutation = useResumeDownload();
 
   function handleMoveToStage(stageKey: string) {
     if (!application) return;
@@ -88,6 +91,18 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
     if (candidate) {
       navigate(`/pulse?status=onboarding&q=${encodeURIComponent(candidate.full_name)}`);
     }
+  }
+
+  function handleDownloadResume(format: 'pdf' | 'docx') {
+    if (!candidate) return;
+
+    const fileName = `${candidate.full_name}.${format}`;
+    downloadMutation.mutate({
+      candidateId: candidate.id,
+      format,
+      fileName
+    });
+    setDownloadPopoverOpen(false);
   }
 
   const availableStages = stages?.filter(stage => !stage.is_terminal) || [];
@@ -203,6 +218,45 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
         <Icon name="message-square" size={14} />
         Комментарий
       </button>
+
+      {/* Скачать резюме */}
+      {candidate && (
+        <div className="cd-move-wrap">
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setDownloadPopoverOpen(o => !o)}
+            title="Сохранить резюме"
+          >
+            <Icon name="save" size={14} />
+            <Icon name="chevron-down" size={12} />
+          </button>
+
+          {downloadPopoverOpen && (
+            <>
+              <div className="cd-pop-backdrop" onClick={() => setDownloadPopoverOpen(false)} />
+              <div className="cd-move-pop cd-download-pop" role="menu">
+                <div className="cd-pop-head">Формат файла</div>
+                <button
+                  className="cd-pop-item"
+                  onClick={() => handleDownloadResume('pdf')}
+                  disabled={downloadMutation.isPending}
+                >
+                  <Icon name="file" size={16} />
+                  <span className="cd-pop-label">Скачать PDF</span>
+                </button>
+                <button
+                  className="cd-pop-item"
+                  onClick={() => handleDownloadResume('docx')}
+                  disabled={downloadMutation.isPending}
+                >
+                  <Icon name="file-text" size={16} />
+                  <span className="cd-pop-label">Скачать DOCX</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ПдН */}
       {application && !application.has_pdn ? (
