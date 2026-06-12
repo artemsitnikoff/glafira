@@ -1105,7 +1105,59 @@ async def retrieve_base(
     }
 
 
-# === СТАРЫЕ ФУНКЦИИ (одношаговый поиск) ===
+async def _load_candidates_for_rerank(
+    session: AsyncSession,
+    company_id: UUID,
+    candidate_ids: list[UUID]
+) -> list[dict]:
+    """Загружает полные данные кандидатов для rerank (живой двухфазный путь
+    retrieve_base → _run_base_evaluate → _rerank_candidates_with_progress)."""
+    if not candidate_ids:
+        return []
+
+    has_pdn_subq = (
+        select(Consent.id)
+        .where(Consent.candidate_id == Candidate.id, Consent.status == "signed")
+        .exists()
+    )
+
+    stmt = (
+        select(
+            Candidate,
+            has_pdn_subq.label("has_pdn")
+        )
+        .where(
+            Candidate.id.in_(candidate_ids),
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
+        )
+        .options(
+            selectinload(Candidate.skills),
+            selectinload(Candidate.experience)
+        )
+    )
+
+    result = await session.execute(stmt)
+    rows = result.fetchall()
+
+    candidates_data = []
+    for row in rows:
+        candidate = row.Candidate
+        candidates_data.append({
+            "candidate": candidate,
+            "skills": candidate.skills,
+            "experience": candidate.experience,
+            "has_pdn": row.has_pdn
+        })
+
+    # Сортируем в том же порядке, что и в candidate_ids
+    id_to_data = {data["candidate"].id: data for data in candidates_data}
+    ordered_data = []
+    for cand_id in candidate_ids:
+        if cand_id in id_to_data:
+            ordered_data.append(id_to_data[cand_id])
+
+    return ordered_data
 
 
 
