@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,10 @@ from .config import settings
 from .core.errors import AppError, app_error_handler, validation_error_handler, http_exception_handler, generic_exception_handler
 from .services.smart_search import sweep_orphaned_runs
 from .services.base_search import sweep_orphaned_base_search_runs
+from .services.embeddings import warmup_embedding_model
+
+# Фоновые задачи для защиты от GC
+_bg_tasks: set = set()
 
 
 @asynccontextmanager
@@ -16,6 +21,12 @@ async def lifespan(app: FastAPI):
     # Startup
     await sweep_orphaned_runs()
     await sweep_orphaned_base_search_runs()
+
+    # Прогрев эмбеддинг-модели в фоне (НЕ блокируя старт)
+    _warmup_task = asyncio.create_task(warmup_embedding_model())
+    _bg_tasks.add(_warmup_task)
+    _warmup_task.add_done_callback(_bg_tasks.discard)
+
     yield
     # Shutdown - можно добавить cleanup если понадобится
 

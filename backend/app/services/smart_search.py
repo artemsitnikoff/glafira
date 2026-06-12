@@ -10,6 +10,7 @@ from typing import Optional
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from sqlalchemy.exc import IntegrityError
 
 from ..models import (
     SmartSearchRun, Vacancy, Candidate, Application, AuditLog, Company
@@ -17,12 +18,11 @@ from ..models import (
 from ..schemas.smart import (
     SmartSearchRequest, SmartVacancyItem, InvitedCandidate, SmartCountRequest
 )
-from ..core.errors import ValidationError, NotFoundError
+from ..core.errors import ValidationError, NotFoundError, ConflictError, GlafiraParseError
 from ..services.integrations.hh import service as hh_service
 from ..services.integrations.hh import client as hh_client
 from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
-from ..core.errors import GlafiraParseError
 from ..services.audit import audit
 from .smart_search_log import log_smart_search, log_and_append_to_run
 
@@ -393,6 +393,19 @@ async def start_search(
     if not vacancy:
         raise NotFoundError("Вакансия")
 
+    # Проверяем, нет ли уже запущенного поиска по этой вакансии
+    existing = (await session.execute(
+        select(SmartSearchRun).where(
+            SmartSearchRun.company_id == company_id,
+            SmartSearchRun.vacancy_id == request.vacancy_id,
+            SmartSearchRun.status == "running",
+        ).order_by(SmartSearchRun.created_at.desc())
+    )).scalars().first()
+    if existing is not None:
+        existing = await _reconcile_stuck_run(session, existing)   # переиспользуем существующий reconcile
+        if existing.status == "running":
+            raise ConflictError("По этой вакансии уже выполняется поиск. Дождитесь завершения текущего.")
+
     # Получаем токен и квоты для передачи в фоновую задачу
     try:
         access_token = await hh_service.get_valid_access_token(session, company_id)
@@ -409,7 +422,7 @@ async def start_search(
         # Если не можем получить квоты - считаем что платного доступа нет
         has_paid_access = False
 
-    # Создаем запись поиска
+    # Создаем запись поиска с защитой от гонки
     search_run = SmartSearchRun(
         company_id=company_id,
         vacancy_id=request.vacancy_id,
@@ -432,7 +445,11 @@ async def start_search(
         }
     )
     session.add(search_run)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise ConflictError("По этой вакансии уже выполняется поиск. Дождитесь завершения текущего.")
     await session.refresh(search_run)
 
     # Запускаем фоновую задачу

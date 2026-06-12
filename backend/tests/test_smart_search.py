@@ -1693,3 +1693,160 @@ async def test_run_search_inner_error_handler_fresh_session(
     assert run.error == "Network error"
     assert run.note == "Ошибка выполнения: Network error"
     assert run.finished_at is not None
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+async def test_start_search_double_start_guard(
+    mock_quota,
+    mock_get_me,
+    mock_token,
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест защиты от двойного запуска поиска"""
+    # Настраиваем моки
+    mock_access.return_value = (True, True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
+
+    # Создаём уже запущенный поиск для вакансии
+    existing_run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"threshold": 70}
+    )
+    db_session.add(existing_run)
+    await db_session.commit()
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=50,
+        invite_m=10,
+        threshold=70
+    )
+
+    # Второй запуск должен вернуть ConflictError
+    from app.core.errors import ConflictError
+    with pytest.raises(ConflictError) as exc_info:
+        await start_search(db_session, test_company.id, admin_user.id, request)
+
+    assert "уже выполняется поиск" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+@patch('app.services.smart_search._run_search_background', new_callable=AsyncMock)
+async def test_start_search_stale_running_not_blocking(
+    mock_bg,
+    mock_quota,
+    mock_get_me,
+    mock_token,
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест что застрявший running не блокирует навсегда"""
+    # Настраиваем моки
+    mock_access.return_value = (True, True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
+
+    # Создаём старый застрявший поиск (старше STUCK_RECONCILE_SECONDS)
+    old_time = datetime.now(timezone.utc) - timedelta(seconds=300)  # 5 минут назад
+    stale_run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="running",
+        stage="search",
+        params={"threshold": 70},
+        updated_at=old_time
+    )
+    db_session.add(stale_run)
+    await db_session.commit()
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=50,
+        invite_m=10,
+        threshold=70
+    )
+
+    # Новый запуск должен пройти успешно (застрявший будет финализирован)
+    run_id = await start_search(db_session, test_company.id, admin_user.id, request)
+    assert run_id is not None
+
+    # Проверяем что создался новый run
+    new_run = await db_session.get(SmartSearchRun, run_id)
+    assert new_run is not None
+    assert new_run.status == "running"
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.check_access')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.get_me')
+@patch('app.services.smart_search.hh_client.get_payable_api_actions')
+@patch('app.services.smart_search._run_search_background', new_callable=AsyncMock)
+async def test_start_search_happy_path_creates_run(
+    mock_bg,
+    mock_quota,
+    mock_get_me,
+    mock_token,
+    mock_access,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user
+):
+    """Тест успешного одиночного запуска без блокировок"""
+    # Настраиваем моки
+    mock_access.return_value = (True, True, None)
+    mock_token.return_value = "test_token"
+    mock_get_me.return_value = {"employer": {"id": "123456"}}
+    mock_quota.return_value = {
+        "items": [
+            {"service_type": {"id": "API_LIMITED"}, "balance": {"actual": 100}}
+        ]
+    }
+
+    request = SmartSearchRequest(
+        vacancy_id=test_vacancy.id,
+        scan_n=50,
+        invite_m=10,
+        threshold=70
+    )
+
+    # Первый запуск должен создать run и вернуть UUID
+    run_id = await start_search(db_session, test_company.id, admin_user.id, request)
+    assert run_id is not None
+
+    # Проверяем что run создался корректно
+    run = await db_session.get(SmartSearchRun, run_id)
+    assert run is not None
+    assert run.status == "running"
+    assert run.company_id == test_company.id
+    assert run.vacancy_id == test_vacancy.id

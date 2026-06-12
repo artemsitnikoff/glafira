@@ -3,30 +3,52 @@
 import logging
 import hashlib
 import asyncio
+import threading
 from typing import Optional
-from functools import lru_cache
 
 from ..config import settings
 from ..models import Candidate, CandidateExperience, CandidateSkill
 
 logger = logging.getLogger(__name__)
 
+# Импорт fastembed на уровне модуля (дёшев: тяжёлая ONNX-модель грузится не при импорте,
+# а при вызове TextEmbedding(name)). try/except — graceful-фолбэк, если зависимость
+# не установлена (тогда эмбеддинги деградируют в None, поиск падает на SQL). Module-level
+# атрибут TextEmbedding нужен и для патча в тестах (patch('...embeddings.TextEmbedding')).
+try:
+    from fastembed import TextEmbedding
+except Exception:  # pragma: no cover
+    TextEmbedding = None
+
 # Константы
 EMBED_DIM = 384  # Размерность модели paraphrase-multilingual-MiniLM-L12-v2
 GLAFIRA_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
+# Потокобезопасный single-flight синглтон
+_model = None
+_model_lock = threading.Lock()
 
-@lru_cache(maxsize=1)
+
 def _get_embedding_model():
-    """Ленивый синглтон TextEmbedding модели"""
-    try:
-        from fastembed import TextEmbedding
-        model_name = getattr(settings, 'GLAFIRA_EMBED_MODEL', GLAFIRA_EMBED_MODEL)
-        logger.info(f"Инициализация эмбеддинг-модели: {model_name}")
-        return TextEmbedding(model_name)
-    except Exception as e:
-        logger.error(f"Ошибка инициализации эмбеддинг-модели: {e}")
-        return None
+    """Потокобезопасный ленивый синглтон TextEmbedding модели"""
+    global _model
+    if _model is not None:
+        return _model
+
+    with _model_lock:
+        if _model is not None:
+            return _model
+        if TextEmbedding is None:
+            logger.error("fastembed недоступен — эмбеддинг-модель не инициализируется")
+            return None
+        try:
+            model_name = getattr(settings, 'GLAFIRA_EMBED_MODEL', GLAFIRA_EMBED_MODEL)
+            logger.info(f"Инициализация эмбеддинг-модели: {model_name}")
+            _model = TextEmbedding(model_name)
+        except Exception as e:
+            logger.error(f"Ошибка инициализации эмбеддинг-модели: {e}")
+            _model = None  # позволяем повторную попытку (НЕ кэшируем провал навсегда)
+        return _model
 
 
 def build_candidate_text(
@@ -128,17 +150,18 @@ async def embed_texts(texts: list[str]) -> list[Optional[list[float]]]:
         return [None] * len(texts)
 
     try:
-        model = _get_embedding_model()
-        if model is None:
-            logger.warning("Эмбеддинг-модель недоступна — возвращаем None (деградация, не нули)")
-            return [None] * len(texts)
-
-        # Выполняем в фоновом потоке (ONNX синхронный); сбой → пробрасываем в outer except
+        # Выполняем в фоновом потоке (ONNX синхронный); получение модели тоже off-loop
         def _embed_sync():
+            model = _get_embedding_model()
+            if model is None:
+                return None  # сигнал «модель недоступна»
             embeddings_gen = model.embed(valid_texts)
             return [embedding.tolist() for embedding in embeddings_gen]
 
         embeddings = await asyncio.to_thread(_embed_sync)
+        if embeddings is None:
+            logger.warning("Эмбеддинг-модель недоступна — возвращаем None (деградация, не нули)")
+            return [None] * len(texts)
 
         # Восстанавливаем порядок; пропущенные (пустые) тексты остаются None
         result: list[Optional[list[float]]] = [None] * len(texts)
@@ -170,3 +193,12 @@ async def embed_query(text: str) -> Optional[list[float]]:
     except Exception as e:
         logger.error(f"Ошибка создания эмбеддинга для запроса: {e}")
         return None
+
+
+async def warmup_embedding_model() -> None:
+    """Прогрев модели в фоне (off-loop), чтобы первый запрос не платил cold-start."""
+    try:
+        await asyncio.to_thread(_get_embedding_model)
+        logger.info("Прогрев эмбеддинг-модели завершён")
+    except Exception as e:
+        logger.error(f"Прогрев эмбеддинг-модели не удался: {e}")

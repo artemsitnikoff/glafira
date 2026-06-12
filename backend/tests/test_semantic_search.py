@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 from app.services.base_search import (
     vector_retrieve,
@@ -14,7 +16,9 @@ from app.services.embeddings import (
     build_candidate_text,
     source_hash,
     embed_texts,
-    embed_query
+    embed_query,
+    _get_embedding_model,
+    warmup_embedding_model
 )
 from app.models import Candidate, CandidateSkill, CandidateExperience, CandidateEmbedding
 
@@ -412,3 +416,153 @@ async def test_get_embeddings_index_status(db_session, test_company, test_candid
     status = await get_embeddings_index_status(db_session, test_company.id)
     assert status["total_candidates"] == 1
     assert status["indexed_candidates"] == 1
+
+
+# === Тесты single-flight и singleton модели ===
+
+def test_embedding_model_singleton():
+    """Тест singleton поведения модели: два последовательных вызова → один инстанс"""
+    from app.services.embeddings import _model, _model_lock
+
+    # Очистим глобальное состояние
+    import app.services.embeddings
+    app.services.embeddings._model = None
+
+    call_count = 0
+
+    def mock_text_embedding(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        mock_instance = MagicMock()
+        return mock_instance
+
+    with patch('app.services.embeddings.TextEmbedding', side_effect=mock_text_embedding) as mock_te:
+        # Первый вызов
+        model1 = _get_embedding_model()
+        # Второй вызов
+        model2 = _get_embedding_model()
+
+        # TextEmbedding должен быть создан РОВНО один раз
+        assert call_count == 1
+        assert mock_te.call_count == 1
+        # Оба вызова возвращают одну модель
+        assert model1 is model2
+
+    # Очистим состояние для других тестов
+    app.services.embeddings._model = None
+
+
+def test_embedding_model_single_flight():
+    """Тест single-flight: параллельные потоки грузят модель ОДИН раз"""
+    from app.services.embeddings import _model, _model_lock
+
+    # Очистим глобальное состояние
+    import app.services.embeddings
+    app.services.embeddings._model = None
+
+    call_count = 0
+    load_event = threading.Event()
+
+    def slow_text_embedding(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        # Имитируем медленную загрузку
+        load_event.wait()
+        mock_instance = MagicMock()
+        return mock_instance
+
+    def call_get_model():
+        return _get_embedding_model()
+
+    with patch('app.services.embeddings.TextEmbedding', side_effect=slow_text_embedding):
+        # Запускаем 3 потока параллельно
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(call_get_model) for _ in range(3)]
+
+            # Разблокируем загрузку после того как все потоки запущены
+            load_event.set()
+
+            # Ждем завершения всех потоков
+            models = [future.result() for future in futures]
+
+        # TextEmbedding должен быть создан РОВНО один раз (single-flight)
+        assert call_count == 1
+        # Все потоки получили одну модель
+        assert all(model is models[0] for model in models)
+
+    # Очистим состояние для других тестов
+    app.services.embeddings._model = None
+
+
+@pytest.mark.asyncio
+@patch('app.services.embeddings.TextEmbedding')
+async def test_embed_texts_model_failure(mock_text_embedding):
+    """Тест деградации: модель None (сбой загрузки) → возврат [None]*len"""
+    # Модель бросает исключение при инициализации
+    mock_text_embedding.side_effect = Exception("Model load failed")
+
+    # Очистим глобальное состояние
+    import app.services.embeddings
+    app.services.embeddings._model = None
+
+    texts = ["text1", "text2", "text3"]
+    embeddings = await embed_texts(texts)
+
+    # Должно вернуть [None] * len(texts)
+    assert len(embeddings) == 3
+    assert all(e is None for e in embeddings)
+
+    # Очистим состояние для других тестов
+    app.services.embeddings._model = None
+
+
+@pytest.mark.asyncio
+async def test_warmup_embedding_model():
+    """Тест прогрева модели: не бросает при сбое"""
+    import app.services.embeddings
+    app.services.embeddings._model = None
+
+    with patch('app.services.embeddings._get_embedding_model') as mock_get_model:
+        # Успешный прогрев
+        mock_get_model.return_value = MagicMock()
+        await warmup_embedding_model()
+        mock_get_model.assert_called_once()
+
+        # Прогрев со сбоем - не должен бросать исключение
+        mock_get_model.reset_mock()
+        mock_get_model.side_effect = Exception("Load failed")
+        await warmup_embedding_model()  # Не должно бросить исключение
+        mock_get_model.assert_called_once()
+
+    # Очистим состояние для других тестов
+    app.services.embeddings._model = None
+
+
+def test_embedding_model_retry_after_failure():
+    """Тест повторной попытки после провала загрузки модели"""
+    import app.services.embeddings
+    app.services.embeddings._model = None
+
+    call_count = 0
+
+    def failing_then_success(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception("First load failed")
+        return MagicMock()
+
+    with patch('app.services.embeddings.TextEmbedding', side_effect=failing_then_success):
+        # Первый вызов - провал
+        model1 = _get_embedding_model()
+        assert model1 is None
+
+        # Второй вызов - успех
+        model2 = _get_embedding_model()
+        assert model2 is not None
+
+        # Должно быть 2 попытки загрузки (провал не кэшируется навсегда)
+        assert call_count == 2
+
+    # Очистим состояние для других тестов
+    app.services.embeddings._model = None

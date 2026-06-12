@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Text, ForeignKey, Boolean, text
+from sqlalchemy import String, Integer, Text, ForeignKey, Boolean, text, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,20 @@ from .base import Base, TimestampMixin, CompanyMixin
 
 class SmartSearchRun(Base, TimestampMixin, CompanyMixin):
     __tablename__ = "smart_search_runs"
+
+    # Частичный уникальный индекс: не более одного активного (running) поиска на
+    # (company, вакансия) — DB-атомарный guard против двойного запуска платного hh-сорсинга.
+    # Дублирует индекс из миграции p7q8r9s0t1u2 (для prod через alembic), здесь — чтобы он
+    # попадал и в create_all (тесты), и не давал autogenerate-дрейфа (модель↔миграция в синхроне).
+    __table_args__ = (
+        Index(
+            "uq_smart_search_run_active",
+            "company_id",
+            "vacancy_id",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
