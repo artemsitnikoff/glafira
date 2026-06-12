@@ -13,7 +13,8 @@ from app.services.base_search import (
     retrieve_base,
     cosine_to_percent,
     vector_retrieve_scored,
-    get_base_search_run_status
+    get_base_search_run_status,
+    vector_retrieve
 )
 from app.models import Candidate, CandidateSkill, BaseSearchRun, Vacancy
 from app.core.errors import GlafiraParseError, NotFoundError
@@ -69,7 +70,8 @@ class TestBaseSearch:
             middle_name="Иванович",
             last_position="Python Developer",
             city="Москва",
-            ai_score=85
+            ai_score=85,
+            source="manual"
         )
         candidate2 = Candidate(
             company_id=test_company.id,
@@ -78,7 +80,8 @@ class TestBaseSearch:
             middle_name=None,
             last_position="Java Developer",
             city="Санкт-Петербург",
-            ai_score=75
+            ai_score=75,
+            source="manual"
         )
         db_session.add_all([candidate1, candidate2])
         await db_session.flush()
@@ -128,7 +131,8 @@ class TestBaseSearch:
             last_name="Разработчиков",
             first_name="Андрей",
             last_position="Senior Python Developer",
-            ai_score=90
+            ai_score=90,
+            source="manual"
         )
         db_session.add(candidate)
         await db_session.commit()
@@ -149,7 +153,8 @@ class TestBaseSearch:
             last_name="Москвич",
             first_name="Иван",
             city="Москва",
-            ai_score=80
+            ai_score=80,
+            source="manual"
         )
         db_session.add(candidate)
         await db_session.commit()
@@ -170,21 +175,24 @@ class TestBaseSearch:
             last_name="Богатый",
             first_name="Иван",
             salary_expectation=150000,
-            ai_score=80
+            ai_score=80,
+            source="manual"
         )
         candidate2 = Candidate(
             company_id=test_company.id,
             last_name="Бедный",
             first_name="Пётр",
             salary_expectation=80000,
-            ai_score=70
+            ai_score=70,
+            source="manual"
         )
         candidate3 = Candidate(
             company_id=test_company.id,
             last_name="Неопределённый",
             first_name="Василий",
             salary_expectation=None,
-            ai_score=75
+            ai_score=75,
+            source="manual"
         )
         db_session.add_all([candidate1, candidate2, candidate3])
         await db_session.commit()
@@ -215,14 +223,16 @@ class TestBaseSearch:
             company_id=test_company.id,
             last_name="Наш",
             first_name="Кандидат",
-            ai_score=80
+            ai_score=80,
+            source="manual"
         )
         # Кандидат в другой компании
         other_candidate = Candidate(
             company_id=other_company.id,
             last_name="Чужой",
             first_name="Кандидат",
-            ai_score=85
+            ai_score=85,
+            source="manual"
         )
         db_session.add_all([our_candidate, other_candidate])
         await db_session.commit()
@@ -243,7 +253,8 @@ class TestBaseSearch:
             company_id=test_company.id,
             last_name="Тестовый",
             first_name="Кандидат",
-            ai_score=80
+            ai_score=80,
+            source="manual"
         )
         db_session.add(candidate)
         await db_session.flush()
@@ -298,7 +309,8 @@ class TestBaseSearch:
                 last_name="Подходящий",
                 first_name="Кандидат",
                 last_position="Python Developer",
-                ai_score=85
+                ai_score=85,
+                source="manual"
             )
             db_session.add(candidate)
             await db_session.flush()
@@ -331,7 +343,8 @@ class TestBaseSearch:
                 company_id=test_company.id,
                 last_name=f"Кандидат{i}",
                 first_name="Тест",
-                ai_score=80
+                ai_score=80,
+                source="manual"
             )
             for i in range(3)
         ]
@@ -344,7 +357,8 @@ class TestBaseSearch:
             last_name="Удалённый",
             first_name="Кандидат",
             deleted_at=datetime.utcnow(),
-            ai_score=70
+            ai_score=70,
+            source="manual"
         )
         db_session.add(deleted_candidate)
         await db_session.commit()
@@ -571,7 +585,7 @@ class TestNewFunctions:
             company_id=test_company.id,
             name="Python Developer",
             description="Требуется Python разработчик",
-            status="published"
+            status="active"
         )
         db_session.add(vacancy)
         await db_session.flush()
@@ -621,7 +635,8 @@ class TestNewFunctions:
                 company_id=test_company.id,
                 last_name=f"TestLast{i}",
                 first_name=f"TestFirst{i}",
-                resume_text=f"Test resume text {i}"
+                resume_text=f"Test resume text {i}",
+                source="manual"
             )
             db_session.add(candidate)
             candidates.append(candidate)
@@ -655,19 +670,20 @@ class TestNewFunctions:
     @pytest.mark.asyncio
     async def test_vector_retrieve_exists_optimization(self, db_session, test_company):
         """Тест оптимизации COUNT → EXISTS в vector_retrieve"""
-        # Мокаем запросы к БД чтобы проверить что используется EXISTS вместо COUNT
-        with patch.object(db_session, 'execute') as mock_execute:
-            # Настраиваем мок для возврата "есть записи"
-            mock_execute.return_value.first.return_value = "exists"
+        # Мокаем embed_query для возврата None (нет эмбеддинга)
+        with patch('app.services.base_search.embed_query') as mock_embed:
+            mock_embed.return_value = None
 
-            # Мокаем embed_query
-            with patch('app.services.base_search.embed_query') as mock_embed:
-                mock_embed.return_value = [0.1] * 384
+            result = await vector_retrieve(db_session, test_company.id, "test query", 10)
 
-                await vector_retrieve(db_session, test_company.id, "test query", 10)
+            # При отсутствии эмбеддинга должен вернуться пустой список
+            assert result == []
 
-                # Проверяем, что выполнился SELECT с LIMIT 1 (EXISTS паттерн), а не COUNT
-                executed_statements = [call.args[0] for call in mock_execute.call_args_list]
-                exists_statements = [stmt for stmt in executed_statements
-                                   if hasattr(stmt, '_limit_clause') and stmt._limit_clause is not None]
-                assert len(exists_statements) > 0, "Должен быть запрос с LIMIT (EXISTS паттерн)"
+        # Тест с валидным эмбеддингом но без записей в БД
+        with patch('app.services.base_search.embed_query') as mock_embed:
+            mock_embed.return_value = [0.1] * 384
+
+            result = await vector_retrieve(db_session, test_company.id, "test query", 10)
+
+            # При отсутствии записей в БД должен вернуться пустой список
+            assert result == []

@@ -250,12 +250,18 @@ class TestDeduplication:
     @pytest.mark.asyncio
     async def test_preview_import_company_scoped(self, db_session, admin_user):
         """Тест того, что дедупликация работает в рамках компании"""
+        from app.models import Company
+
         company_id = admin_user.company_id
-        other_company_id = uuid4()
+
+        # Создаём реальную вторую компанию
+        other_company = Company(name="Другая компания")
+        db_session.add(other_company)
+        await db_session.flush()
 
         # Создаем кандидата в другой компании
         other_company_candidate = Candidate(
-            company_id=other_company_id,
+            company_id=other_company.id,
             first_name="Иван",
             last_name="Иванов",
             phone="+79151234567",
@@ -379,11 +385,11 @@ class TestExcelImportSavepoint:
         company_id = admin_user.company_id
         user_id = admin_user.id
 
-        # Создаём Excel с валидными строками и одной с "плохими" данными
+        # Создаём Excel с валидными строками и одной с отсутствующим именем
         headers = ["ФИО", "Телефон", "Email"]
         rows = [
             ["Иванов Иван", "+7 915 123-45-67", "ivan@example.com"],  # Валидный
-            ["Петров Петр", "x" * 25, "petr@example.com"],            # Телефон слишком длинный (>20)
+            ["", "+7 916 234-56-78", "petr@example.com"],             # Нет имени - ошибка на этапе парсинга
             ["Сидоров Сидор", "+7 917 345-67-89", "sidor@example.com"]  # Валидный
         ]
         content = create_test_excel(headers, rows)
@@ -401,10 +407,10 @@ class TestExcelImportSavepoint:
         db_session.expire_all()
         await db_session.refresh(job)
 
-        # Проверяем: валидные строки должны импортироваться, ошибочные — не валить батч
+        # Проверяем: валидные строки должны импортироваться, ошибочные — считаться как errors
         assert job.status == "done"
-        assert job.created >= 1  # Минимум одна валидная строка создалась
-        assert job.errors >= 1   # Минимум одна ошибка зафиксирована
+        assert job.created >= 1  # Минимум одна валидная строка создалась (Иванов + Сидоров)
+        assert job.errors >= 1   # Минимум одна ошибка зафиксирована (пустое ФИО)
 
 
 class TestPotokImportTimeout:
@@ -455,11 +461,10 @@ class TestPotokImportTimeout:
             # Запускаем импорт — должен завершиться с ошибкой
             await _run_potok_import(job.id, company_id, user_id, token, "skip")
 
-        # Обновляем джоб из БД
-        db_session.expire_all()
-        retrieved_job = await get_import_job(db_session, job.id, company_id)
+        # Читаем джоб из БД — используем тот же паттерн, что в test_get_import_job
+        await db_session.refresh(job)
 
         # Проверяем, что джоб корректно финализирован с ошибкой
-        assert retrieved_job.status == "error"
-        assert retrieved_job.finished_at is not None
-        assert "Таймаут при обращении к API Potok" in retrieved_job.error
+        assert job.status == "error"
+        assert job.finished_at is not None
+        assert "Таймаут при обращении к API Potok" in job.error

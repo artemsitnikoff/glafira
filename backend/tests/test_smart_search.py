@@ -1976,8 +1976,9 @@ async def test_evaluate_toctou_prevention(mock_evaluate, db_session, test_compan
 
     current_user = MockUser()
 
-    # Мокаем AsyncSessionLocal для фоновых функций
-    with patch('app.services.base_search.AsyncSessionLocal', _session_local_returning(db_session)):
+    # Мокаем AsyncSessionLocal для фоновых функций И эндпоинта
+    with patch('app.services.base_search.AsyncSessionLocal', _session_local_returning(db_session)), \
+         patch('app.api.v1.smart.AsyncSessionLocal', _session_local_returning(db_session)):
         # Первый вызов должен успешно флипнуть статус
         result1 = await evaluate_base_search_candidates(
             run_id=run_id,
