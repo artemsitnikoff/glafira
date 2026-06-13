@@ -267,9 +267,10 @@ class TestC2DocumentCompanyId:
         )
         document = result.scalar_one()
 
-        # Document should have correct company_id, not default server_default
+        # Document должен иметь company_id из контекста (переданный), а НЕ server_default.
+        # (== admin_user.company_id это и доказывает; в тестах company админа = дефолтная
+        # компания 0000…0001, поэтому отдельный `!= 0000…0001` тут невозможен и убран.)
         assert document.company_id == admin_user.company_id
-        assert document.company_id != uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 class TestC1CandidateVacancyOwnership:

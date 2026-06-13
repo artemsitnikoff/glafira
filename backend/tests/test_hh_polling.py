@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+from sqlalchemy import text
 from app.services.integrations.hh import service as hh_service, client as hh_client
 from app.models import Vacancy, Application, Candidate
 
@@ -125,7 +126,7 @@ class TestHhService:
 
         # Проверяем, что создались кандидат и Application
         candidates = await db_session.execute(
-            "SELECT * FROM candidates WHERE company_id = :company_id AND source = 'hh'",
+            text("SELECT * FROM candidates WHERE company_id = :company_id AND source = 'hh'"),
             {"company_id": str(test_company.id)}
         )
         candidate = candidates.fetchone()
@@ -135,7 +136,7 @@ class TestHhService:
         assert candidate.city == "Екатеринбург"
 
         applications = await db_session.execute(
-            "SELECT * FROM applications WHERE hh_negotiation_id = 'neg123'",
+            text("SELECT * FROM applications WHERE hh_negotiation_id = 'neg123'"),
         )
         application = applications.fetchone()
         assert application is not None
@@ -184,7 +185,7 @@ class TestHhService:
 
         # Проверяем, что кандидат создался с дефолтными значениями
         candidates = await db_session.execute(
-            "SELECT * FROM candidates WHERE company_id = :company_id AND source = 'hh' ORDER BY created_at DESC LIMIT 1",
+            text("SELECT * FROM candidates WHERE company_id = :company_id AND source = 'hh' ORDER BY created_at DESC LIMIT 1"),
             {"company_id": str(test_company.id)}
         )
         candidate = candidates.fetchone()
