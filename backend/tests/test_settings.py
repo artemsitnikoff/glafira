@@ -77,11 +77,12 @@ async def test_glafira_turnover_source_saves(async_client: AsyncClient, auth_hea
     assert row.turnover_source == "bitrix24"
 
 
-async def test_glafira_turnover_source_invalid_returns_400(async_client: AsyncClient, auth_headers: dict):
-    """Недопустимое значение turnover_source → 400 ValidationError."""
+async def test_glafira_turnover_source_invalid_returns_422(async_client: AsyncClient, auth_headers: dict):
+    """Недопустимое turnover_source → 422 (теперь Literal в схеме → Pydantic-валидация).
+    Единый формат ошибки сохранён: error.code == VALIDATION_ERROR."""
     r = await async_client.patch("/api/v1/settings/glafira", headers=auth_headers,
         json={"turnover_source": "sap"})
-    assert r.status_code == 400
+    assert r.status_code == 422
     assert r.json()["error"]["code"] == "VALIDATION_ERROR"
 
 

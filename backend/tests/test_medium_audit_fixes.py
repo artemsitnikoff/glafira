@@ -32,20 +32,19 @@ class TestRegexFenceFix:
 
     def test_clean_markdown_fences_multiline_json_with_backticks(self):
         """Многострочный JSON с ``` внутри значений"""
+        # JSON в одну строку (literal-переносы внутри значения сделали бы JSON невалидным);
+        # внутри значений — маркеры ``` , которые НЕ должны быть съедены чисткой внешних fence.
         text = '''```json
-{
-  "description": "Code block example:\n```python\nprint('hello')\n```",
-  "notes": "Another ``` marker here"
-}
+{"description": "Code: ```python``` inline", "notes": "Another ``` marker"}
 ```'''
         result = _clean_markdown_fences(text)
-        # Проверяем, что внутренние ``` сохранились, а внешние убрались
-        assert result.startswith('{\n  "description"')
-        assert '```python' in result
-        assert result.endswith('"}')
-        # Проверим, что JSON валиден
+        # Внешние ```json...``` убраны, внутренние ``` сохранены
+        assert result.startswith('{')
+        assert result.endswith('}')
+        assert '```python```' in result
+        # JSON валиден, внутренние ``` на месте в значении
         parsed = json.loads(result)
-        assert "```python\nprint('hello')\n```" in parsed["description"]
+        assert '```python```' in parsed["description"]
 
     def test_clean_markdown_fences_no_fences(self):
         """Текст без fence блоков остается неизменным"""

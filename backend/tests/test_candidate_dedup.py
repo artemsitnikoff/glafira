@@ -252,9 +252,10 @@ async def test_create_with_force_duplicate_true_succeeds(db_session, test_compan
     )
     audit_record = audit_result.scalar_one()
 
-    assert audit_record.after is not None
-    assert "duplicate_of" in audit_record.after
-    assert str(original.id) in audit_record.after["duplicate_of"]
+    # AuditLog хранит до/после в JSONB-колонке `changes` (changes["after"]), нет атрибута .after
+    assert audit_record.changes is not None
+    assert "duplicate_of" in audit_record.changes["after"]
+    assert str(original.id) in audit_record.changes["after"]["duplicate_of"]
 
 
 @pytest.mark.asyncio
@@ -284,8 +285,8 @@ async def test_create_with_force_when_no_duplicate_normal_creation(db_session, t
     )
     audit_record = audit_result.scalar_one()
 
-    assert audit_record.after is not None
-    assert "duplicate_of" not in audit_record.after
+    assert audit_record.changes is not None
+    assert "duplicate_of" not in audit_record.changes["after"]
 
 
 @pytest.mark.asyncio

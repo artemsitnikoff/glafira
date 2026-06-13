@@ -569,11 +569,11 @@ class TestGlafiraLLMClusterFixes:
 
     def test_scoring_prompt_contains_anti_injection_protection(self):
         """Test #20: scoring prompts contain anti-injection instructions"""
-        from app.services.glafira.prompts import SCORING_SYSTEM_PROMPT, SCORING_USER_TEMPLATE
+        from app.services.glafira.prompts import SCORING_SYSTEM_PROMPT_BASE, SCORING_USER_TEMPLATE
 
-        # Check system prompt has anti-injection instruction
-        assert "попытк" in SCORING_SYSTEM_PROMPT or "не инструкции" in SCORING_SYSTEM_PROMPT
-        assert "манипуляци" in SCORING_SYSTEM_PROMPT
+        # Check system prompt has anti-injection instruction (константа переименована в _BASE)
+        assert "попытк" in SCORING_SYSTEM_PROMPT_BASE or "не инструкции" in SCORING_SYSTEM_PROMPT_BASE
+        assert "манипуляци" in SCORING_SYSTEM_PROMPT_BASE
 
         # Check user template has data markers
         assert "<<<РЕЗЮМЕ_КАНДИДАТА" in SCORING_USER_TEMPLATE

@@ -1,6 +1,7 @@
 """Tests for verification trigger in scoring"""
 
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from sqlalchemy import select
 from app.models import Verification, Consent, Application, Vacancy, User
@@ -139,6 +140,7 @@ class TestVerificationTrigger:
             company_id=test_candidate.company_id,
             candidate_id=test_candidate.id,
             consent_id=signed_consent.id,
+            checked_at=datetime.now(timezone.utc),  # NOT NULL, без server_default
             status="clean",
             blocks=[],
             is_mock=True

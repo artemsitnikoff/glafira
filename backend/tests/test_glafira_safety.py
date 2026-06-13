@@ -200,14 +200,11 @@ class TestGlafiraSafety:
         )
         assert message_count.scalar_one() == 0
 
-    async def test_verify_real_mode_returns_501(
+    async def test_verify_legacy_mode_ignored_runs_real(
         self, async_client, auth_headers, test_candidate, signed_consent, db_session, monkeypatch
     ):
-        """Test that real verification mode returns 501 feature not implemented"""
-
-        # Set real verification mode
-        monkeypatch.setenv('GLAFIRA_VERIFY_MODE', 'real')
-        # Also patch the settings directly since env might not reload
+        """GLAFIRA_VERIFY_MODE — legacy: verify_candidate его НЕ смотрит. Проверка реальная
+        (is_mock=False), запись создаётся. (Старый стаб возвращал 501 — этого больше нет.)"""
         from app.config import settings
         monkeypatch.setattr(settings, 'GLAFIRA_VERIFY_MODE', 'real')
 
@@ -216,25 +213,22 @@ class TestGlafiraSafety:
             headers=auth_headers
         )
 
-        assert response.status_code == 501
-        assert response.json()["error"]["code"] == "FEATURE_NOT_IMPLEMENTED"
-        assert "real_verification" in response.json()["error"]["details"]["feature"]
+        # Реальная (частичная) верификация выполняется независимо от legacy-флага
+        assert response.status_code == 201
+        assert response.json()["is_mock"] is False
 
-        # Verify NO verification records were created
         verification_count = await db_session.execute(
             select(func.count(Verification.id)).where(
                 Verification.candidate_id == test_candidate.id
             )
         )
-        count = verification_count.scalar_one()
-        assert count == 0  # No verification record created
+        assert verification_count.scalar_one() == 1
 
-    async def test_verification_response_has_is_mock_true(
+    async def test_verification_response_has_is_mock_false(
         self, async_client, auth_headers, test_candidate, signed_consent, db_session
     ):
-        """Test that verification response includes is_mock field set to True in mock mode"""
+        """Верификация частично РЕАЛЬНАЯ (DaData/OSINT) → is_mock=False везде (ответ/GET/БД)."""
 
-        # GLAFIRA_VERIFY_MODE should be 'mock' by default
         response = await async_client.post(
             f'/api/v1/candidates/{test_candidate.id}/verify',
             headers=auth_headers
@@ -243,7 +237,7 @@ class TestGlafiraSafety:
         assert response.status_code == 201
         body = response.json()
         assert "is_mock" in body
-        assert body["is_mock"] is True
+        assert body["is_mock"] is False
 
         # Test GET endpoint also returns is_mock
         verification_id = body["id"]
@@ -255,7 +249,7 @@ class TestGlafiraSafety:
         assert get_response.status_code == 200
         get_body = get_response.json()
         assert "is_mock" in get_body
-        assert get_body["is_mock"] is True
+        assert get_body["is_mock"] is False
 
         # Verify database record has is_mock set correctly
         verification_result = await db_session.execute(
@@ -264,7 +258,7 @@ class TestGlafiraSafety:
             )
         )
         verification = verification_result.scalar_one()
-        assert verification.is_mock is True
+        assert verification.is_mock is False
 
     async def test_screening_reply_missing_message_field_returns_502(
         self, async_client, auth_headers, test_candidate, db_session

@@ -128,7 +128,7 @@ async def test_create_invalid_stage_key(
         }
     )
 
-    assert response.status_code == 422  # ValidationError
+    assert response.status_code == 400  # бизнес-ValidationError → 400 (инвариант 7), не 422
 
 
 @pytest.mark.asyncio
@@ -229,7 +229,7 @@ async def test_delete_protected_stage(
         headers={"Authorization": f"Bearer {admin_token}"}
     )
 
-    assert response.status_code == 422  # ValidationError
+    assert response.status_code == 400  # бизнес-ValidationError (защищённый этап) → 400
 
 
 @pytest.mark.asyncio
