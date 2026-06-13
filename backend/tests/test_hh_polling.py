@@ -140,7 +140,9 @@ class TestHhService:
         )
         application = applications.fetchone()
         assert application is not None
-        assert application.stage == "added"
+        # hh-отклик попадает в этап «Отклик» (response), не «added» (тот — для ручного
+        # добавления). import_response: stage = 'rejected' если discard, иначе 'response'.
+        assert application.stage == "response"
 
     async def test_import_response_skips_duplicate(self, db_session, test_company, test_vacancy, test_candidate):
         """Тест дедупликации при повторном импорте"""
