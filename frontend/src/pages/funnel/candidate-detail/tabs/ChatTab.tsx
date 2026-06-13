@@ -3,6 +3,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { useMessages } from '@/api/hooks/useMessages';
 import { useSendMessage } from '@/api/mutations/candidateDetail';
+import { useMessageTemplates } from '@/api/hooks/useMessageTemplates';
 
 type Props = {
   candidateId?: string;
@@ -28,11 +29,17 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   );
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
   const { data: messages, isLoading } = useMessages(actualCandidateId);
+  const { data: templates } = useMessageTemplates();
   const sendMutation = useSendMessage(actualCandidateId);
 
   const channelMeta = (id: string) => CHANNELS.find(x => x.id === id) || CHANNELS[0];
   const active = channelMeta(activeChannel);
+
+  const applyTemplate = (text: string) => {
+    setDraft(prev => prev.trim() ? `${prev.trimEnd()}\n${text}` : text);
+  };
 
   // Фильтр каналов для селектора: hh только для hh-кандидатов
   const isHhCandidate = candidate?.source === 'hh';
@@ -191,6 +198,35 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
                     <span className="chat-ch-dot" style={{background: ch.color}} />
                     <span className="chat-ch-opt-label">{ch.label}</span>
                     {ch.id === activeChannel && <Icon name="check" size={14} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className={`chat-ch-select ${tplOpen ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="chat-ch-trigger"
+              onClick={() => setTplOpen(!tplOpen)}
+              disabled={!templates || templates.length === 0}
+            >
+              <Icon name="file-text" size={14} />
+              <span className="chat-ch-trigger-label">Шаблон</span>
+              <Icon name="chevD" size={14} />
+            </button>
+            {tplOpen && templates && templates.length > 0 && (
+              <div className="chat-ch-menu">
+                {templates.map(tpl => (
+                  <button
+                    type="button"
+                    key={tpl.id}
+                    className="chat-ch-opt"
+                    onClick={() => {
+                      applyTemplate(tpl.body);
+                      setTplOpen(false);
+                    }}
+                  >
+                    <span className="chat-ch-opt-label">{tpl.name}</span>
                   </button>
                 ))}
               </div>

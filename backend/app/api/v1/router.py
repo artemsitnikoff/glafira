@@ -22,6 +22,7 @@ from .audit import router as audit_router
 from .integrations import router as integrations_router
 from .suggestions import router as suggestions_router
 from .smart import router as smart_router
+from .message_templates import router as message_templates_router
 from ...core.permissions import settings_permission_dependency, integrations_permission_dependency, require_recruiter_or_admin
 
 api_router = APIRouter()
@@ -64,3 +65,4 @@ api_router.include_router(
     tags=["smart"],
     dependencies=[Depends(require_recruiter_or_admin)]
 )
+api_router.include_router(message_templates_router, prefix="/message-templates", tags=["message_templates"])

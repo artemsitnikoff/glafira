@@ -131,6 +131,29 @@ class EmailTemplateUpdate(BaseModel):
     is_enabled: Optional[bool] = None
 
 
+# Message Templates schemas
+class MessageTemplateOut(ORMBase):
+    id: UUID
+    company_id: UUID
+    name: str
+    body: str
+    order_index: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageTemplateCreate(BaseModel):
+    name: str
+    body: str
+    order_index: int = 0
+
+
+class MessageTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    body: Optional[str] = None
+    order_index: Optional[int] = None
+
+
 # Survey Templates schemas
 class SurveyTemplateOut(ORMBase):
     id: UUID

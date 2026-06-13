@@ -24,6 +24,7 @@ from .audit import AuditLog
 from .settings import (
     RejectReason,
     EmailTemplate,
+    MessageTemplate,
     SurveyTemplate,
     GlafiraSettings,
     Integration,
@@ -69,6 +70,7 @@ __all__ = [
     "FunnelTemplate",
     "FunnelTemplateStage",
     "EmailTemplate",
+    "MessageTemplate",
     "SurveyTemplate",
     "GlafiraSettings",
     "Integration",

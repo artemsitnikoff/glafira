@@ -11,9 +11,10 @@ import { SettingsAccess } from './tabs/SettingsAccess';
 import { SettingsTags } from './tabs/SettingsTags';
 import { SettingsIntegrations } from './tabs/SettingsIntegrations';
 import { SettingsAI } from './tabs/SettingsAI';
+import { SettingsMessageTemplates } from './tabs/SettingsMessageTemplates';
 import './Settings.css';
 
-type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'integrations' | 'ai';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'message-templates' | 'integrations' | 'ai';
 
 const SET_SECTIONS = [
   { id: 'profile', label: 'Профиль', adminOnly: false },
@@ -21,6 +22,7 @@ const SET_SECTIONS = [
   { id: 'funnel', label: 'Воронка по умолчанию', adminOnly: true },
   { id: 'access', label: 'Права доступа', adminOnly: true },
   { id: 'tags', label: 'Теги', adminOnly: false },
+  { id: 'message-templates', label: 'Шаблоны сообщений', adminOnly: false },
   { id: 'integrations', label: 'Интеграции', adminOnly: true },
   { id: 'ai', label: 'AI', adminOnly: true },
 ] as const;
@@ -81,6 +83,8 @@ export default function SettingsPage() {
         return <SettingsAccess readOnly={readOnly} />;
       case 'tags':
         return <SettingsTags readOnly={readOnly} />;
+      case 'message-templates':
+        return <SettingsMessageTemplates readOnly={!(isAdmin || isRecruiter)} />;
       case 'integrations':
         return <SettingsIntegrations readOnly={readOnly} />;
       case 'ai':

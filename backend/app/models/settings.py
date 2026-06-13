@@ -208,6 +208,25 @@ class FunnelTemplateStage(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class MessageTemplate(Base, TimestampMixin, CompanyMixin):
+    __tablename__ = "message_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
+        server_default=text("'00000000-0000-0000-0000-000000000001'")
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+
 class CompanyDefaultStage(Base, CompanyMixin):
     __tablename__ = "company_default_stages"
 
