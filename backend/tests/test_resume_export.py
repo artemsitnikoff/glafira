@@ -1,5 +1,6 @@
 import pytest
 from uuid import uuid4
+from urllib.parse import quote
 from datetime import date
 
 from app.services.resume_export import (
@@ -9,6 +10,7 @@ from app.services.resume_export import (
     _full_name
 )
 from app.models.candidate import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
+from app.models import Company
 from app.core.errors import NotFoundError
 
 
@@ -133,10 +135,12 @@ class TestResumeExportService:
         self, db_session, test_company, manager_user
     ):
         """Тест изоляции по company_id"""
-        # Создаем кандидата в другой компании
-        other_company_id = uuid4()
+        # Создаем кандидата в другой компании (Company создаём реально — иначе FK)
+        other_company = Company(name="Другая компания (export)")
+        db_session.add(other_company)
+        await db_session.flush()
         candidate = Candidate(
-            company_id=other_company_id,
+            company_id=other_company.id,
             last_name="Петров",
             first_name="Петр",
             source="manual",
@@ -316,7 +320,8 @@ class TestResumeExportEndpoint:
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/pdf"
         assert "attachment" in response.headers["content-disposition"]
-        assert "Экспортов Экспорт Экспортович.pdf" in response.headers["content-disposition"]
+        # Имя файла в заголовке RFC5987-кодировано (filename*=UTF-8''<percent-encoded>)
+        assert quote("Экспортов Экспорт Экспортович.pdf") in response.headers["content-disposition"]
         assert len(response.content) > 0
         assert response.content.startswith(b"%PDF")
 
@@ -343,7 +348,7 @@ class TestResumeExportEndpoint:
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         assert "attachment" in response.headers["content-disposition"]
-        assert "Документов Документ.docx" in response.headers["content-disposition"]
+        assert quote("Документов Документ.docx") in response.headers["content-disposition"]
         assert len(response.content) > 0
         assert response.content.startswith(b"PK")
 
@@ -387,10 +392,12 @@ class TestResumeExportEndpoint:
         self, async_client, auth_headers, admin_user, db_session
     ):
         """Тест изоляции по company_id"""
-        # Создаем кандидата в другой компании
-        other_company_id = uuid4()
+        # Создаем кандидата в другой компании (Company создаём реально — иначе FK)
+        other_company = Company(name="Чужая компания (export)")
+        db_session.add(other_company)
+        await db_session.flush()
         candidate = Candidate(
-            company_id=other_company_id,
+            company_id=other_company.id,
             last_name="Чужой",
             first_name="Кандидат",
             source="manual"

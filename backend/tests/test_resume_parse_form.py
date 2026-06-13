@@ -113,27 +113,19 @@ async def test_create_candidate_with_experience_skills_education(db_session, adm
     assert result.last_position == "Senior Python Developer"
     assert len(result.experience) == 2
     assert len(result.skills) == 4
-    assert "Python" in [s.skill for s in result.skills]
+    assert "Python" in result.skills  # CandidateDetail.skills — список строк
     assert len(result.education) == 1
     assert result.education[0].institution == "МГУ"
 
 
 @pytest.mark.asyncio
-async def test_create_candidate_skip_empty_experience_position(db_session, admin_user, test_company):
-    """Тест пропуска записей опыта с пустым position"""
-    from app.services.candidate import create_candidate
-    from app.schemas.candidate import CandidateCreate, ExperienceCreate
+async def test_create_candidate_empty_experience_position_rejected():
+    """Пустой position в опыте теперь отклоняется СХЕМОЙ (ExperienceCreate.position
+    min_length=1) — пустые записи не доходят до сервиса (раньше «пропускались» в коде)."""
+    from app.schemas.candidate import ExperienceCreate
 
-    candidate_data = CandidateCreate(
-        first_name="Иван", last_name="Пустов", source="manual",
-        experience=[
-            ExperienceCreate(position="", company="ООО Тест", period="2020-2021"),
-            ExperienceCreate(position="Developer", company="ООО Технологии", period="2021-2022"),
-        ],
-    )
-    result = await create_candidate(db_session, candidate_data, test_company.id, admin_user.id)
-    assert len(result.experience) == 1
-    assert result.experience[0].position == "Developer"
+    with pytest.raises(ValueError):  # pydantic.ValidationError ⊂ ValueError
+        ExperienceCreate(position="", company="ООО Тест", period="2020-2021")
 
 
 @pytest.mark.asyncio
@@ -161,6 +153,7 @@ async def test_upload_document_with_parse_false(db_session, admin_user, test_com
 
     mock_file = MagicMock()
     mock_file.filename = "resume.pdf"
+    mock_file.content_type = "application/pdf"  # upload_document валидирует content_type
     mock_file.read = AsyncMock(return_value=b"test content")
 
     with patch('app.services.glafira.resume_parse.parse_and_apply_resume', new_callable=AsyncMock) as mock_parse:
@@ -178,6 +171,7 @@ async def test_upload_document_with_parse_true(db_session, admin_user, test_comp
 
     mock_file = MagicMock()
     mock_file.filename = "resume.pdf"
+    mock_file.content_type = "application/pdf"  # upload_document валидирует content_type
     mock_file.read = AsyncMock(return_value=b"test content")
 
     with patch('app.services.glafira.resume_parse.parse_and_apply_resume', new_callable=AsyncMock) as mock_parse:

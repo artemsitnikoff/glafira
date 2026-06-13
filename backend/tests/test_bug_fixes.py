@@ -238,12 +238,14 @@ class TestC2DocumentCompanyId:
     async def test_document_upload_uses_correct_company_id(
         self, db_session: AsyncSession, admin_user: User, test_candidate: Candidate
     ):
-        # Create mock file (UploadFile больше не принимает content_type kwarg;
-        # тип определяется по расширению — .pdf)
+        # UploadFile больше не принимает content_type kwarg — он берётся из headers.
+        # (upload_document валидирует И расширение, И content_type.)
+        from starlette.datastructures import Headers
         content = b"test file content"
         file = UploadFile(
             filename="test.pdf",
             file=io.BytesIO(content),
+            headers=Headers({"content-type": "application/pdf"}),
         )
 
         # Upload document (returns DocumentOut — у неё НЕТ company_id, поэтому

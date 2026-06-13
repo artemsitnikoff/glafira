@@ -1,7 +1,7 @@
 """Тест структурного извлечения опыта/навыков/образования из резюме"""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,7 +89,10 @@ async def test_parse_and_apply_resume_creates_structural_records(
     candidate.skills = []
     candidate.education = []
 
-    session.execute.return_value.scalar_one_or_none.return_value = candidate
+    # await session.execute(...) → синхронный Result; .scalar_one_or_none() → candidate
+    _result = MagicMock()
+    _result.scalar_one_or_none.return_value = candidate
+    session.execute = AsyncMock(return_value=_result)
     session.add = AsyncMock()
     session.flush = AsyncMock()
 
@@ -179,7 +182,10 @@ async def test_parse_does_not_overwrite_existing_structural_records(
     candidate.skills = [CandidateSkill(candidate_id=candidate_id, skill="Existing Skill")]
     candidate.education = [CandidateEducation(candidate_id=candidate_id, institution="Existing Uni")]
 
-    session.execute.return_value.scalar_one_or_none.return_value = candidate
+    # await session.execute(...) → синхронный Result; .scalar_one_or_none() → candidate
+    _result = MagicMock()
+    _result.scalar_one_or_none.return_value = candidate
+    session.execute = AsyncMock(return_value=_result)
     session.add = AsyncMock()
     session.flush = AsyncMock()
 
@@ -249,7 +255,10 @@ async def test_parse_populates_extra_additional_fields(mock_extract_text, mock_c
     candidate.education = []
     candidate.extra = {}
 
-    session.execute.return_value.scalar_one_or_none.return_value = candidate
+    # await session.execute(...) → синхронный Result; .scalar_one_or_none() → candidate
+    _result = MagicMock()
+    _result.scalar_one_or_none.return_value = candidate
+    session.execute = AsyncMock(return_value=_result)
     session.add = AsyncMock()
     session.flush = AsyncMock()
 
