@@ -328,12 +328,13 @@ async def test_reindex_candidate_skip_unchanged(mock_embed_texts, db_session, te
 @pytest.mark.asyncio
 async def test_get_embeddings_index_status(db_session, test_company, test_candidate):
     """Тест получения статуса индексации"""
-    # Убеждаемся что test_candidate имеет source
+    # get_embeddings_index_status считает ТОЛЬКО кандидатов с resume_text → задаём его
     test_candidate.source = "manual"
+    test_candidate.resume_text = "Резюме для индексации"
     db_session.add(test_candidate)
     await db_session.commit()
 
-    # Изначально - один кандидат, ноль эмбеддингов
+    # Изначально - один кандидат (с резюме), ноль эмбеддингов
     status = await get_embeddings_index_status(db_session, test_company.id)
     assert status["total_candidates"] == 1
     assert status["indexed_candidates"] == 0

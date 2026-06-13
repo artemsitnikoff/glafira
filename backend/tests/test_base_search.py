@@ -303,12 +303,13 @@ class TestBaseSearch:
         with patch('app.services.base_search.derive_vacancy_filters', new_callable=AsyncMock) as mock_derive:
             mock_derive.return_value = mock_filters
 
-            # Создаём подходящего кандидата
+            # Создаём подходящего кандидата. last_position должен матчить role-фильтр
+            # search_base (ILIKE %role%); role = professional_role из mock_filters.
             candidate = Candidate(
                 company_id=test_company.id,
                 last_name="Подходящий",
                 first_name="Кандидат",
-                last_position="Python Developer",
+                last_position="Программист, разработчик (Python)",
                 ai_score=85,
                 source="manual"
             )
@@ -455,6 +456,7 @@ class TestNewFunctions:
 
         # Мокаем векторный поиск и AI по месту импорта в base_search
         with patch('app.services.base_search.vector_retrieve_scored') as mock_vector, \
+             patch('app.services.base_search.search_base', new_callable=AsyncMock) as mock_search_base, \
              patch('app.services.base_search._load_candidates_for_rerank') as mock_load, \
              patch('app.services.base_search._rerank_candidates_with_progress') as mock_rerank, \
              patch('app.services.base_search.score_resume_dict') as mock_score, \
@@ -462,6 +464,8 @@ class TestNewFunctions:
 
             # Мокаем векторный поиск - пустой результат, чтобы сработал SQL fallback
             mock_vector.return_value = []
+            # SQL fallback (search_base) тоже пуст → top_ids=[] → финализация 'done' с []
+            mock_search_base.return_value = {"results": []}
 
             # Мокаем загрузку кандидатов - возвращаем минимальные данные
             mock_load.return_value = []
@@ -657,8 +661,11 @@ class TestNewFunctions:
 
             mock_embed_texts.return_value = fake_embeddings
 
-            # Запускаем переиндексацию
-            await reindex_all_embeddings(test_company.id)
+            # reindex_all_embeddings СПАВНИТ фоновую задачу и возвращает её — дожидаемся,
+            # иначе embed_texts ещё не вызван на момент ассерта.
+            task = await reindex_all_embeddings(test_company.id)
+            if task:
+                await task
 
             # Проверяем, что embed_texts был вызван ОДИН раз с батчем текстов
             assert mock_embed_texts.call_count == 1

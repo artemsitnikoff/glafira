@@ -337,20 +337,21 @@ async def evaluate_base_search_candidates(
     if request.evaluate_n > GLAFIRA_MAX_EVALUATE:
         logger.info(f"[base] evaluate_n {request.evaluate_n} урезан до максимума {GLAFIRA_MAX_EVALUATE}")
 
-    # ФИКС TOCTOU: атомарный conditional UPDATE вместо проверки+флипа
-    async with AsyncSessionLocal() as short_session:
-        result = await short_session.execute(
-            update(BaseSearchRun)
-            .where(
-                BaseSearchRun.id == run_id,
-                BaseSearchRun.company_id == company_id,
-                BaseSearchRun.status.in_(['retrieved', 'done']),
-            )
-            .values(status='running', stage='rerank', to_evaluate=n, evaluated=0)
-            .returning(BaseSearchRun.id)
+    # ФИКС TOCTOU: атомарный conditional UPDATE на сессии запроса + commit. Коммит
+    # делает флип видимым фоновой задаче (она откроет свой AsyncSessionLocal). Отдельная
+    # сессия тут не нужна (и ломала бы изоляцию в тестах — конкурентные операции).
+    result = await session.execute(
+        update(BaseSearchRun)
+        .where(
+            BaseSearchRun.id == run_id,
+            BaseSearchRun.company_id == company_id,
+            BaseSearchRun.status.in_(['retrieved', 'done']),
         )
-        flipped = result.first()
-        await short_session.commit()
+        .values(status='running', stage='rerank', to_evaluate=n, evaluated=0)
+        .returning(BaseSearchRun.id)
+    )
+    flipped = result.first()
+    await session.commit()
 
     if flipped is None:
         raise ConflictError("Оценка по этому прогону уже выполняется")

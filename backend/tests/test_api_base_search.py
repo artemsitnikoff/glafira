@@ -1,6 +1,7 @@
 """Тесты API поиска по собственной базе кандидатов"""
 
 import pytest
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -107,8 +108,9 @@ class TestBaseSearchAPI:
             headers=auth_headers
         )
 
-        assert response.status_code == 400
-        assert "query" in response.json()["error"]["message"].lower()
+        # model_validator схемы → Pydantic 422 (инвариант 7: валидация формы → 422)
+        assert response.status_code == 422
+        assert "query" in str(response.json()).lower()
 
     async def test_base_search_vacancy_validation_error(self, async_client, auth_headers):
         """Тест валидации запроса - vacancy без vacancy_id"""
@@ -121,8 +123,8 @@ class TestBaseSearchAPI:
             headers=auth_headers
         )
 
-        assert response.status_code == 400
-        assert "vacancy_id" in response.json()["error"]["message"].lower()
+        assert response.status_code == 422
+        assert "vacancy_id" in str(response.json()).lower()
 
     async def test_base_search_short_query_error(self, async_client, auth_headers):
         """Тест валидации короткого запроса"""
@@ -135,7 +137,7 @@ class TestBaseSearchAPI:
             headers=auth_headers
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 422  # min_length=3 → Pydantic 422
 
     async def test_base_search_manager_forbidden(self, async_client, test_company, manager_user, db_session):
         """Тест запрета доступа для менеджера"""
@@ -159,13 +161,16 @@ class TestBaseSearchAPI:
     async def test_get_base_runs_success(self, async_client, auth_headers, test_company, db_session):
         """Тест получения истории поиска"""
         # Создаём записи истории
+        # Явные РАЗНЫЕ created_at: server_default now() даёт одинаковый штамп в быстром
+        # тесте → сортировка desc неоднозначна. run 2 — самый свежий.
         runs = [
             BaseSearchRun(
                 company_id=test_company.id,
                 search_type="prompt",
                 query_text=f"Python разработчик {i}",
                 found=i + 1,
-                added_to_funnel=i
+                added_to_funnel=i,
+                created_at=datetime(2026, 1, 1, 12, 0, 0) + timedelta(minutes=i),
             )
             for i in range(3)
         ]
@@ -200,7 +205,8 @@ class TestBaseSearchAPI:
             Candidate(
                 company_id=test_company.id,
                 last_name=f"Кандидат{i}",
-                first_name="Тест"
+                first_name="Тест",
+                source="manual"  # NOT NULL
             )
             for i in range(5)
         ]
@@ -266,6 +272,7 @@ class TestBaseSearchAPI:
         other_user = User(
             email="other@example.com",
             password_hash="fake",
+            full_name="Чужой Админ",  # NOT NULL
             company_id=other_company.id,
             role="admin"
         )

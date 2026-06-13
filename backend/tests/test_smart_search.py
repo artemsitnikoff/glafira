@@ -1944,7 +1944,7 @@ async def test_start_search_happy_path_creates_run(
 # === НОВЫЕ ТЕСТЫ для фиксов TOCTOU и idle-in-transaction ===
 
 @pytest.mark.asyncio
-@patch('app.services.base_search._run_base_evaluate', new_callable=AsyncMock)
+@patch('app.api.v1.smart._run_base_evaluate', new_callable=AsyncMock)
 async def test_evaluate_toctou_prevention(mock_evaluate, db_session, test_company):
     """Тест предотвращения TOCTOU в evaluate_base_search_candidates"""
     from app.models.base_search import BaseSearchRun
@@ -1976,11 +1976,28 @@ async def test_evaluate_toctou_prevention(mock_evaluate, db_session, test_compan
 
     current_user = MockUser()
 
-    # Мокаем AsyncSessionLocal для фоновых функций И эндпоинта
-    with patch('app.services.base_search.AsyncSessionLocal', _session_local_returning(db_session)), \
-         patch('app.api.v1.smart.AsyncSessionLocal', _session_local_returning(db_session)):
-        # Первый вызов должен успешно флипнуть статус
-        result1 = await evaluate_base_search_candidates(
+    # Эндпоинт делает атомарный UPDATE на сессии запроса (db_session) — отдельный
+    # AsyncSessionLocal больше не нужен. Фоновая задача замокана (см. декоратор).
+    # Первый вызов должен успешно флипнуть статус
+    result1 = await evaluate_base_search_candidates(
+        run_id=run_id,
+        request=request,
+        session=db_session,
+        company_id=test_company.id,
+        current_user=current_user
+    )
+
+    assert result1.run_id == run_id
+
+    # Проверяем что статус изменился на 'running'
+    await db_session.refresh(run)
+    assert run.status == "running"
+    assert run.stage == "rerank"
+    assert run.to_evaluate == 5
+
+    # Второй вызов должен получить ConflictError
+    with pytest.raises(ConflictError) as exc_info:
+        await evaluate_base_search_candidates(
             run_id=run_id,
             request=request,
             session=db_session,
@@ -1988,28 +2005,10 @@ async def test_evaluate_toctou_prevention(mock_evaluate, db_session, test_compan
             current_user=current_user
         )
 
-        assert result1.run_id == run_id
+    assert "уже выполняется" in str(exc_info.value)
 
-        # Проверяем что статус изменился на 'running'
-        await db_session.refresh(run)
-        assert run.status == "running"
-        assert run.stage == "rerank"
-        assert run.to_evaluate == 5
-
-        # Второй вызов должен получить ConflictError
-        with pytest.raises(ConflictError) as exc_info:
-            await evaluate_base_search_candidates(
-                run_id=run_id,
-                request=request,
-                session=db_session,
-                company_id=test_company.id,
-                current_user=current_user
-            )
-
-        assert "уже выполняется" in str(exc_info.value)
-
-        # Проверяем что mock_evaluate был вызван только один раз
-        assert mock_evaluate.call_count == 1
+    # Проверяем что mock_evaluate был вызван только один раз
+    assert mock_evaluate.call_count == 1
 
 
 @pytest.mark.asyncio
