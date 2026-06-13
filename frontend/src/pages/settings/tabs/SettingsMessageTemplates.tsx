@@ -164,7 +164,7 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
           </div>
         )}
 
-        <div className="tags-table">
+        <div className="tags-table mt-table">
           <div className="tt-thead">
             <div>Название</div>
             <div>Текст</div>
@@ -206,10 +206,10 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
                 </div>
               ) : (
                 <div key={t.id} className="tt-row">
-                  <div>
-                    <span style={{ fontWeight: 600, fontSize: '14px' }}>{t.name}</span>
+                  <div className="tt-name">
+                    <span>{t.name}</span>
                   </div>
-                  <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <div className="tt-text" style={{ color: 'var(--fg-2)' }}>
                     {truncateText(t.body)}
                   </div>
                   <div className="t-mono" style={{ fontSize: 12, color: 'var(--fg-2)' }}>

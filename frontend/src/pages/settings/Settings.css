@@ -754,6 +754,19 @@
 .tt-empty { padding: 22px 14px; color: var(--fg-3); font-size: 13px; grid-column: 1 / -1; }
 .tt-actions { gap: 4px; justify-content: flex-end; }
 
+/* Шаблоны сообщений: грид тегов не подходит (имя 2fr, текст зажат в 120px → куцо).
+   Имя — узкая колонка с ellipsis на длинных названиях; текст — широкая основная. */
+.tags-table.mt-table { grid-template-columns: minmax(150px, 1.3fr) minmax(260px, 3fr) 96px 84px; }
+.tags-table.mt-table .tt-name > span {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tags-table.mt-table .tt-text { font-size: 13px; }
+
 .tag-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px;
