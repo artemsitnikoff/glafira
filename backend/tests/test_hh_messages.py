@@ -1,7 +1,8 @@
 """Тесты для функционала переписки через hh.ru"""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 from app.services.message import send_message
@@ -89,14 +90,16 @@ class TestHhMessaging:
             body="Тестовое сообщение"
         )
 
-        with pytest.raises(ValidationError) as exc_info:
-            await send_message(
-                db_session,
-                test_candidate.id,
-                message_data,
-                test_company.id,
-                admin_user.id
-            )
+        # Токен есть (интеграцию не поднимаем) — проверяем именно отказ из-за отсутствия чата
+        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"):
+            with pytest.raises(ValidationError) as exc_info:
+                await send_message(
+                    db_session,
+                    test_candidate.id,
+                    message_data,
+                    test_company.id,
+                    admin_user.id
+                )
 
         assert "Канал hh недоступен: у кандидата нет чата hh" in str(exc_info.value)
 
@@ -300,14 +303,15 @@ class TestHhMessaging:
             application_id=application.id
         )
 
-        with pytest.raises(ValidationError) as exc_info:
-            await send_message(
-                db_session,
-                test_candidate.id,
-                message_data,
-                test_company.id,
-                admin_user.id
-            )
+        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"):
+            with pytest.raises(ValidationError) as exc_info:
+                await send_message(
+                    db_session,
+                    test_candidate.id,
+                    message_data,
+                    test_company.id,
+                    admin_user.id
+                )
 
         assert "Канал hh недоступен: у кандидата нет чата hh" in str(exc_info.value)
 
@@ -330,7 +334,8 @@ class TestHhMessaging:
             direction="in",
             sender_type="candidate",
             body="Первое сообщение",
-            external_id="hh_msg_123"
+            external_id="hh_msg_123",
+            sent_at=datetime.now(timezone.utc)  # NOT NULL
         )
         db_session.add(message1)
         await db_session.flush()
@@ -343,7 +348,8 @@ class TestHhMessaging:
             direction="in",
             sender_type="candidate",
             body="Дубликат сообщения",
-            external_id="hh_msg_123"
+            external_id="hh_msg_123",
+            sent_at=datetime.now(timezone.utc)
         )
         db_session.add(message2)
 
@@ -408,7 +414,7 @@ class TestHhMessaging:
                     "type": "PARTICIPANT_LEFT",
                     "creation_time": "2024-01-15T10:02:00+0300",
                     "sender_display_info": {"role": "APPLICANT"},
-                    "payload": {"text": null}
+                    "payload": {"text": None}
                 }
             ]
         }
@@ -452,7 +458,7 @@ class TestHhClient:
 
         with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
             mock_client = AsyncMock()
-            mock_response = AsyncMock()
+            mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
             mock_response.status_code = 200
             mock_response.json.return_value = {
                 "messages": [
@@ -481,7 +487,7 @@ class TestHhClient:
 
         with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
             mock_client = AsyncMock()
-            mock_response = AsyncMock()
+            mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
             mock_response.status_code = 201
             mock_response.json.return_value = {"id": "msg_123"}
             mock_client.post.return_value = mock_response
@@ -505,7 +511,7 @@ class TestHhClient:
 
         with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
             mock_client = AsyncMock()
-            mock_response = AsyncMock()
+            mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
             mock_response.status_code = 403
             mock_client.post.return_value = mock_response
             mock_client_factory.return_value.__aenter__.return_value = mock_client
@@ -523,7 +529,7 @@ class TestHhClient:
 
         with patch('app.services.integrations.hh.client._get_client') as mock_client_factory:
             mock_client = AsyncMock()
-            mock_response = AsyncMock()
+            mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
             mock_response.status_code = 200
             mock_response.json.return_value = {
                 "id": "neg_123",

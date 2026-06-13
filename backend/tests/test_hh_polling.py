@@ -1,7 +1,7 @@
 """Тесты для hh.ru polling и интеграций"""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from app.services.integrations.hh import service as hh_service, client as hh_client
@@ -14,7 +14,8 @@ class TestHhClient:
     @patch('app.services.integrations.hh.client._get_client')
     async def test_get_employer_vacancies(self, mock_get_client):
         """Тест получения вакансий работодателя"""
-        mock_response = AsyncMock()
+        mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "items": [
                 {"id": "123", "name": "Python Developer", "area": {"name": "Москва"}},
@@ -40,7 +41,8 @@ class TestHhClient:
     @patch('app.services.integrations.hh.client._get_client')
     async def test_get_negotiation_responses(self, mock_get_client):
         """Тест получения откликов"""
-        mock_response = AsyncMock()
+        mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "items": [
                 {
@@ -70,7 +72,8 @@ class TestHhClient:
     @patch('app.services.integrations.hh.client._get_client')
     async def test_publish_vacancy(self, mock_get_client):
         """Тест публикации вакансии"""
-        mock_response = AsyncMock()
+        mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
+        mock_response.status_code = 200
         mock_response.json.return_value = {"id": "new_vacancy_123"}
         mock_response.raise_for_status.return_value = None
 
@@ -202,44 +205,18 @@ class TestHhService:
 class TestHhPollingJob:
     """Тесты джоба polling откликов"""
 
-    @patch('app.services.integrations.hh.service.get_valid_access_token')
-    @patch('app.services.integrations.hh.client.get_negotiation_responses')
-    async def test_poll_vacancy_responses(
-        self, mock_get_responses, mock_get_token, db_session, test_company, test_vacancy
-    ):
-        """Тест polling откликов для одной вакансии"""
-        from app.jobs.poll_hh_responses import poll_vacancy_responses
+    async def test_poll_company_responses_maps_stats(self, db_session, test_company):
+        """Джоб poll_company_responses оборачивает hh_service.poll_responses_now и
+        отдаёт {imported, skipped}. (Per-vacancy poll_vacancy_responses удалён —
+        импорт одного отклика покрыт TestHhService.test_import_response_*.)"""
+        from app.jobs.poll_hh_responses import poll_company_responses
 
-        # Настройка моков
-        mock_get_token.return_value = "valid_token"
-        mock_get_responses.return_value = {
-            "items": [
-                {
-                    "id": "resp1",
-                    "resume": {"first_name": "Тест", "last_name": "Кандидат1"}
-                },
-                {
-                    "id": "resp2",
-                    "resume": {"first_name": "Тест", "last_name": "Кандидат2"}
-                }
-            ],
-            "pages": 1
-        }
+        with patch(
+            'app.services.integrations.hh.service.poll_responses_now',
+            new_callable=AsyncMock,
+            return_value={"imported": 2, "skipped": 1},
+        ):
+            stats = await poll_company_responses(db_session, test_company.id)
 
-        # Устанавливаем hh_vacancy_id
-        test_vacancy.hh_vacancy_id = "hh_vac_test"
-
-        # Запускаем polling
-        stats = await poll_vacancy_responses(db_session, "token", test_vacancy)
-
-        # Проверяем результат
         assert stats["imported"] == 2
-        assert stats["skipped"] == 0
-
-        # Проверяем, что создались Application'ы
-        applications = await db_session.execute(
-            "SELECT COUNT(*) as count FROM applications WHERE vacancy_id = :vacancy_id AND hh_negotiation_id IS NOT NULL",
-            {"vacancy_id": str(test_vacancy.id)}
-        )
-        count = applications.scalar()
-        assert count == 2
+        assert stats["skipped"] == 1
