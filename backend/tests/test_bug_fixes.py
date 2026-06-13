@@ -255,6 +255,7 @@ class TestC2DocumentCompanyId:
             candidate_id=test_candidate.id,
             file=file,
             kind="resume",
+            parse=False,
             company_id=admin_user.company_id,
             actor_user_id=admin_user.id
         )

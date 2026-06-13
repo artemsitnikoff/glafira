@@ -339,4 +339,5 @@ class TestHhRejectionSync:
             # Флаг synced ВЫСТАВЛЕН (повторно не берём)
             await db_session.refresh(application)
             assert application.hh_discard_synced_at is not None
-            assert stats["skipped_no_token"] == -1  # Индикатор отсутствия токена
+            # Токен валиден (mock_token.return_value="test_token") → НЕ skip-no-token
+            assert stats["skipped_no_token"] == 0

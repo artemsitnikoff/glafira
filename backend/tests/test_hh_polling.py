@@ -41,9 +41,21 @@ class TestHhClient:
     @patch('app.services.integrations.hh.client._get_client')
     async def test_get_negotiation_responses(self, mock_get_client):
         """Тест получения откликов"""
-        mock_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
+        # get_negotiation_responses делает ДВА get-запроса:
+        # 1) /negotiations → коллекции по статусам (нужен 'collections' c id='response')
+        # 2) url коллекции 'response' → собственно отклики (нужен 'items')
+        collections_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
+        collections_response.status_code = 200
+        collections_response.json.return_value = {
+            "collections": [
+                {"id": "response", "url": "https://api.hh.ru/negotiations/response?vacancy_id=vacancy123"}
+            ]
+        }
+        collections_response.raise_for_status.return_value = None
+
+        items_response = MagicMock()  # httpx Response.json()/.status_code — синхронные
+        items_response.status_code = 200
+        items_response.json.return_value = {
             "items": [
                 {
                     "id": "neg1",
@@ -56,11 +68,12 @@ class TestHhClient:
             ],
             "pages": 1
         }
-        mock_response.raise_for_status.return_value = None
+        items_response.raise_for_status.return_value = None
 
         mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
-        mock_client.get.return_value = mock_response
+        # первый get → коллекции, второй get → отклики
+        mock_client.get.side_effect = [collections_response, items_response]
         mock_get_client.return_value = mock_client
 
         result = await hh_client.get_negotiation_responses("token", "vacancy123", page=0)
@@ -108,7 +121,7 @@ class TestHhService:
             db_session, test_company.id, test_vacancy, item
         )
 
-        assert imported is True
+        assert imported == "created"
 
         # Проверяем, что создались кандидат и Application
         candidates = await db_session.execute(
@@ -151,7 +164,7 @@ class TestHhService:
             db_session, test_company.id, test_vacancy, item
         )
 
-        assert imported is False  # Пропущен как дубль
+        assert imported == "updated"  # Существующая заявка обновляется (create-or-update), не пропускается
 
     async def test_import_response_handles_missing_fields(self, db_session, test_company, test_vacancy):
         """Тест обработки неполных данных resume"""
@@ -167,7 +180,7 @@ class TestHhService:
             db_session, test_company.id, test_vacancy, item
         )
 
-        assert imported is True
+        assert imported == "created"
 
         # Проверяем, что кандидат создался с дефолтными значениями
         candidates = await db_session.execute(

@@ -650,11 +650,16 @@ class TestNewFunctions:
         # Мокаем embed_texts для проверки батчевого вызова
         fake_embeddings = [[0.1] * 384, [0.2] * 384, [0.3] * 384]
 
+        from contextlib import asynccontextmanager
+
         def _session_local_returning(db_session):
-            """Паттерн патча сессии как в tests/test_smart_search.py"""
-            async_session_mock = AsyncMock()
-            async_session_mock.return_value.__aenter__.return_value = db_session
-            return async_session_mock
+            """Паттерн патча сессии как в tests/test_smart_search.py:
+            AsyncSessionLocal() должен вернуть async-контекст-менеджер, а не корутину
+            (вызов AsyncMock() отдаёт корутину → 'coroutine' не поддерживает async with)."""
+            @asynccontextmanager
+            async def _factory():
+                yield db_session
+            return _factory
 
         with patch('app.services.base_search.embed_texts') as mock_embed_texts, \
              patch('app.services.base_search.AsyncSessionLocal', _session_local_returning(db_session)):

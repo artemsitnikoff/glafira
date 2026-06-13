@@ -328,7 +328,12 @@ async def evaluate_base_search_candidates(
     if not run:
         raise NotFoundError("Поиск")
 
-    # Разрешаем при status in ('retrieved','done') (повторная оценка ок)
+    # Разрешаем при status in ('retrieved','done') (повторная оценка ок).
+    # Если оценка уже идёт (status='running') — это конфликт конкуренции, а не
+    # ошибка валидации: отдаём ConflictError (см. атомарный UPDATE ниже), чтобы
+    # повторный вызов не маскировался как ValidationError до TOCTOU-флипа.
+    if run.status == 'running':
+        raise ConflictError("Оценка по этому прогону уже выполняется")
     if run.status not in ('retrieved', 'done'):
         raise ValidationError("Поиск должен быть в статусе 'retrieved' или 'done'")
 

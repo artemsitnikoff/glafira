@@ -141,11 +141,17 @@ async def test_assign_to_nonexistent_vacancy(
 
 
 @pytest.mark.asyncio
-async def test_assign_invalid_stage(
+async def test_assign_unknown_stage_falls_back_to_real_stage(
     async_client: AsyncClient, auth_headers: dict, test_candidate
 ):
-    """Test assigning with invalid stage returns 400"""
-    # Create a vacancy for testing
+    """A stage not present in the vacancy's funnel falls back to the first
+    non-terminal stage of that vacancy (documented intentional behaviour:
+    the request schema defaults stage to 'response', so the service cannot
+    distinguish an explicit bad stage from the default, and we avoid putting
+    the candidate into a ghost stage / raising 500). The candidate must land
+    on a real, non-terminal stage of the vacancy — never on the requested
+    unknown stage."""
+    # Create a vacancy for testing — this seeds real vacancy_stages rows
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
@@ -160,6 +166,15 @@ async def test_assign_invalid_stage(
     assert vacancy_response.status_code == 201
     vacancy_id = vacancy_response.json()["id"]
 
+    # Fetch the vacancy's real funnel stages
+    stages_response = await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/stages",
+        headers=auth_headers,
+    )
+    assert stages_response.status_code == 200
+    funnel_keys = {s["stage_key"] for s in stages_response.json()}
+    assert funnel_keys  # vacancy has seeded stages
+
     response = await async_client.post(
         f"/api/v1/candidates/{test_candidate.id}/applications",
         headers=auth_headers,
@@ -168,8 +183,15 @@ async def test_assign_invalid_stage(
             "stage": "invalid_stage"
         }
     )
-    assert response.status_code == 400  # ValidationError from our logic
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert response.status_code == 201
+    data = response.json()
+    # Candidate must NOT be placed on the requested unknown stage
+    assert data["stage"] != "invalid_stage"
+    # Candidate lands on a real stage of THIS vacancy's funnel
+    assert data["stage"] in funnel_keys
+    # ...and it is a non-terminal one (first non-terminal = 'response' here)
+    assert data["stage"] not in ("hired", "rejected")
+    assert data["stage"] == "response"
 
 
 @pytest.mark.asyncio

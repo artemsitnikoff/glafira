@@ -109,7 +109,7 @@ async def test_parse_and_apply_resume_creates_structural_records(
     # Проверяем вызов парсера с увеличенным max_tokens
     mock_call_json.assert_called_once()
     call_kwargs = mock_call_json.call_args.kwargs
-    assert call_kwargs['max_tokens'] == 8000
+    assert call_kwargs['max_tokens'] == 16000
 
     # Проверяем создание записей опыта (2 валидных из 3)
     experience_calls = [call for call in session.add.call_args_list

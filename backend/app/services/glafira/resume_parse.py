@@ -172,6 +172,11 @@ async def parse_resume_to_dict(content: bytes, filename: str) -> dict | None:
             "last_period": _to_str(parsed_data.get("last_period"), 120),
             "about": _to_str(parsed_data.get("about"), 5000),
 
+            # Доп. поля блока «Дополнительно» карточки
+            "relocation": _to_str(parsed_data.get("relocation"), 255),
+            "business_trips": _to_str(parsed_data.get("business_trips"), 255),
+            "remote": _to_str(parsed_data.get("remote"), 255),
+
             # Структурированные секции
             "experience": [],
             "skills": [],
@@ -375,6 +380,10 @@ async def parse_and_apply_resume(
         if "languages" not in existing_extra and parsed_data.get("languages"):
             existing_extra["languages"] = parsed_data["languages"]
             extra_changed = True
+        for _extra_key in ("relocation", "business_trips", "remote"):
+            if _extra_key not in existing_extra and parsed_data.get(_extra_key):
+                existing_extra[_extra_key] = parsed_data[_extra_key]
+                extra_changed = True
         if extra_changed:
             candidate.extra = existing_extra
 

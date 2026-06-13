@@ -360,6 +360,10 @@ async def get_candidates_paginated(
                     )
                 )
             )
+        else:
+            # tags передан, но все значения — мусор (невалидные UUID). Fail-closed:
+            # фильтр задан → ничего не матчим (а не возвращаем всю базу).
+            base_filters.append(false())
 
     if added_period:
         now = datetime.now(timezone.utc)
