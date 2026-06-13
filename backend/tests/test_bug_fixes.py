@@ -238,12 +238,12 @@ class TestC2DocumentCompanyId:
     async def test_document_upload_uses_correct_company_id(
         self, db_session: AsyncSession, admin_user: User, test_candidate: Candidate
     ):
-        # Create mock file
+        # Create mock file (UploadFile больше не принимает content_type kwarg;
+        # тип определяется по расширению — .pdf)
         content = b"test file content"
         file = UploadFile(
             filename="test.pdf",
             file=io.BytesIO(content),
-            content_type="application/pdf"
         )
 
         # Upload document (returns DocumentOut — у неё НЕТ company_id, поэтому
@@ -322,10 +322,14 @@ class TestC1CandidateVacancyOwnership:
             actor_user_id=admin_user.id
         )
 
-        assert candidate.company_id == admin_user.company_id
+        # CandidateDetail не отдаёт company_id (мультитенантность) — проверяем по строке в БД
+        from sqlalchemy import select
+        cand_row = (await db_session.execute(
+            select(Candidate).where(Candidate.id == candidate.id)
+        )).scalar_one()
+        assert cand_row.company_id == admin_user.company_id
 
         # Application should be created
-        from sqlalchemy import select
         application_result = await db_session.execute(
             select(Application).where(
                 Application.candidate_id == candidate.id,
@@ -399,15 +403,15 @@ class TestM2AuthRefreshSecurity:
     async def test_refresh_uses_secure_setting(
         self, async_client: AsyncClient, admin_user: User
     ):
-        # Login to get refresh token
-        login_response = await async_client.post(
-            "/api/v1/auth/login",
-            json={"email": admin_user.email, "password": "Glafira2026!"},
-        )
-        assert login_response.status_code == 200
+        # refresh-токен передаём cookie явно (async_client не персистит cookie между
+        # запросами в тестах — как в test_auth_security).
+        from app.core.security import create_refresh_token
+        refresh_token = create_refresh_token(data={"sub": str(admin_user.id)})
 
-        # Refresh token
-        refresh_response = await async_client.post("/api/v1/auth/refresh")
+        refresh_response = await async_client.post(
+            "/api/v1/auth/refresh",
+            cookies={"refresh_token": refresh_token},
+        )
         assert refresh_response.status_code == 200
 
         # Check that Set-Cookie header respects settings (this is integration-level,

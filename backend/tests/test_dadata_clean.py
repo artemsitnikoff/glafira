@@ -1,7 +1,7 @@
 """Tests for DaData Clean API functionality"""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.dadata import clean_phone, clean_email, clean_name
 
 
@@ -20,8 +20,11 @@ class TestDaDataCleanAPI:
         }]
 
         with patch('app.services.dadata.httpx.AsyncClient') as mock_client:
-            mock_client.return_value.__aenter__.return_value.post.return_value.json.return_value = mock_response_data
-            mock_client.return_value.__aenter__.return_value.post.return_value.raise_for_status = lambda: None
+            # httpx Response.json()/.raise_for_status() — СИНХРОННЫЕ; client.post — async.
+            _resp = MagicMock()
+            _resp.json.return_value = mock_response_data
+            _resp.raise_for_status = MagicMock()
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=_resp)
 
             result = await clean_phone("79951234567")
 
@@ -58,8 +61,11 @@ class TestDaDataCleanAPI:
         }]
 
         with patch('app.services.dadata.httpx.AsyncClient') as mock_client:
-            mock_client.return_value.__aenter__.return_value.post.return_value.json.return_value = mock_response_data
-            mock_client.return_value.__aenter__.return_value.post.return_value.raise_for_status = lambda: None
+            # httpx Response.json()/.raise_for_status() — СИНХРОННЫЕ; client.post — async.
+            _resp = MagicMock()
+            _resp.json.return_value = mock_response_data
+            _resp.raise_for_status = MagicMock()
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=_resp)
 
             result = await clean_email("test@example.com")
 
@@ -79,8 +85,11 @@ class TestDaDataCleanAPI:
         }]
 
         with patch('app.services.dadata.httpx.AsyncClient') as mock_client:
-            mock_client.return_value.__aenter__.return_value.post.return_value.json.return_value = mock_response_data
-            mock_client.return_value.__aenter__.return_value.post.return_value.raise_for_status = lambda: None
+            # httpx Response.json()/.raise_for_status() — СИНХРОННЫЕ; client.post — async.
+            _resp = MagicMock()
+            _resp.json.return_value = mock_response_data
+            _resp.raise_for_status = MagicMock()
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=_resp)
 
             result = await clean_name("Иванов Иван Иванович")
 

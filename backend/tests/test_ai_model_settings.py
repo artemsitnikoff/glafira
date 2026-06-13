@@ -11,14 +11,24 @@ from app.services.settings.glafira import get_company_llm_model
 from app.services.glafira.models import ALLOWED_MODEL_VALUES, DEFAULT_MODEL
 
 
+async def _login_headers(async_client: AsyncClient, user: User) -> dict[str, str]:
+    """Реальный логин: patch('app.deps.get_current_user') НЕ работает с FastAPI DI
+    (зависимость зарезолвлена при сборке роутера), даёт 401. Берём настоящий токен."""
+    resp = await async_client.post(
+        "/api/v1/auth/login",
+        json={"email": user.email, "password": "Glafira2026!"},
+    )
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
 class TestAiModelSettings:
     """Тесты API настроек AI-модели"""
 
     async def test_get_ai_model_settings_admin(self, async_client: AsyncClient, admin_user: User):
         """GET /settings/ai-model - админ может читать"""
-        async_client.cookies.set("access_token", "fake-token")
-        with patch("app.deps.get_current_user", return_value=admin_user):
-            response = await async_client.get("/api/v1/settings/ai-model")
+        headers = await _login_headers(async_client, admin_user)
+        response = await async_client.get("/api/v1/settings/ai-model", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -29,9 +39,8 @@ class TestAiModelSettings:
 
     async def test_get_ai_model_settings_recruiter(self, async_client: AsyncClient, regular_user: User):
         """GET /settings/ai-model - рекрутёр может читать"""
-        async_client.cookies.set("access_token", "fake-token")
-        with patch("app.deps.get_current_user", return_value=regular_user):
-            response = await async_client.get("/api/v1/settings/ai-model")
+        headers = await _login_headers(async_client, regular_user)
+        response = await async_client.get("/api/v1/settings/ai-model", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -40,21 +49,19 @@ class TestAiModelSettings:
 
     async def test_get_ai_model_settings_manager_forbidden(self, async_client: AsyncClient, manager_user: User):
         """GET /settings/ai-model - менеджер не может читать настройки AI"""
-        async_client.cookies.set("access_token", "fake-token")
-        with patch("app.deps.get_current_user", return_value=manager_user):
-            response = await async_client.get("/api/v1/settings/ai-model")
+        headers = await _login_headers(async_client, manager_user)
+        response = await async_client.get("/api/v1/settings/ai-model", headers=headers)
 
         assert response.status_code == 403
 
     async def test_update_ai_model_settings_admin_success(self, async_client: AsyncClient, admin_user: User):
         """PATCH /settings/ai-model - админ может изменять модель"""
-        async_client.cookies.set("access_token", "fake-token")
+        headers = await _login_headers(async_client, admin_user)
 
         new_model = "deepseek/deepseek-v4-flash"
-        payload = {"model": new_model}
-
-        with patch("app.deps.get_current_user", return_value=admin_user):
-            response = await async_client.patch("/api/v1/settings/ai-model", json=payload)
+        response = await async_client.patch(
+            "/api/v1/settings/ai-model", json={"model": new_model}, headers=headers
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -63,23 +70,21 @@ class TestAiModelSettings:
 
     async def test_update_ai_model_settings_recruiter_forbidden(self, async_client: AsyncClient, regular_user: User):
         """PATCH /settings/ai-model - рекрутёр не может изменять модель"""
-        async_client.cookies.set("access_token", "fake-token")
+        headers = await _login_headers(async_client, regular_user)
 
-        payload = {"model": "deepseek/deepseek-v4-flash"}
-
-        with patch("app.deps.get_current_user", return_value=regular_user):
-            response = await async_client.patch("/api/v1/settings/ai-model", json=payload)
+        response = await async_client.patch(
+            "/api/v1/settings/ai-model", json={"model": "deepseek/deepseek-v4-flash"}, headers=headers
+        )
 
         assert response.status_code == 403
 
     async def test_update_ai_model_settings_invalid_model(self, async_client: AsyncClient, admin_user: User):
         """PATCH /settings/ai-model - валидация белого списка"""
-        async_client.cookies.set("access_token", "fake-token")
+        headers = await _login_headers(async_client, admin_user)
 
-        payload = {"model": "evil/malicious-model"}
-
-        with patch("app.deps.get_current_user", return_value=admin_user):
-            response = await async_client.patch("/api/v1/settings/ai-model", json=payload)
+        response = await async_client.patch(
+            "/api/v1/settings/ai-model", json={"model": "evil/malicious-model"}, headers=headers
+        )
 
         assert response.status_code == 400
 
@@ -134,8 +139,8 @@ class TestCompanyIsolation:
         # Компания A (из фикстуры)
         company_a_id = admin_user.company_id
 
-        # Создаём компанию B
-        company_b = Company(name="Компания Б", domain="company-b.com")
+        # Создаём компанию B (модель Company имеет только name)
+        company_b = Company(name="Компания Б")
         db_session.add(company_b)
         await db_session.flush()
         company_b_id = company_b.id
@@ -181,7 +186,9 @@ class TestScoreCandidateWithCompanyModel:
 
             candidate = Candidate(
                 company_id=admin_user.company_id,
-                full_name="Тест Кандидат",
+                last_name="Кандидат",  # full_name — вычисляемое свойство (нет сеттера)
+                first_name="Тест",
+                source="manual",  # NOT NULL
                 email="test@example.com",
                 resume_text="Опытный разработчик"
             )
@@ -213,13 +220,15 @@ class TestScoreCandidateWithCompanyModel:
 @pytest.mark.asyncio
 async def test_audit_log_on_model_change(async_client: AsyncClient, admin_user: User):
     """Изменение модели записывается в audit_log"""
-    async_client.cookies.set("access_token", "fake-token")
+    headers = await _login_headers(async_client, admin_user)
 
     payload = {"model": "qwen/qwen3.7-max"}
 
-    with patch("app.deps.get_current_user", return_value=admin_user):
-        with patch("app.services.audit.audit") as mock_audit:
-            response = await async_client.patch("/api/v1/settings/ai-model", json=payload)
+    # audit импортирован в namespace роутера → патчим там; AsyncMock (его await-ят)
+    with patch("app.api.v1.settings.audit", new_callable=AsyncMock) as mock_audit:
+        response = await async_client.patch(
+            "/api/v1/settings/ai-model", json=payload, headers=headers
+        )
 
     assert response.status_code == 200
 
