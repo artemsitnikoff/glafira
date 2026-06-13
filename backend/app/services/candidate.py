@@ -593,6 +593,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         last_tenure=last_tenure,
         total_experience=total_exp,
         source=candidate.source,
+        source_url=candidate.source_url,
         preferred_channel=candidate.preferred_channel,
         resume_text=candidate.resume_text,
         resume_summary=candidate.resume_summary,

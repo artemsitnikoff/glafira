@@ -227,6 +227,7 @@ class ParseResumeResponse(BaseModel):
 
 class AssignToVacancyRequest(BaseModel):
     vacancy_id: UUID
+    stage: str = "response"
 
 
 # Схемы для дедупликации кандидатов

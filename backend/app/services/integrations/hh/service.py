@@ -851,6 +851,7 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         entity_id=application.id,
         after={"candidate_name": f"{first_name} {last_name}".strip(), "hh_negotiation_id": nid, "stage": stage},
         actor_type="system",
+        actor_user_id=None,
         company_id=company_id,
     )
 

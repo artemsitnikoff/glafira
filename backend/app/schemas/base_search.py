@@ -50,8 +50,10 @@ class BaseSearchCandidate(BaseModel):
     ai_score: Optional[int]
     source: str
     salary_expectation: Optional[int]
-    salary_from: Optional[int]
-    salary_to: Optional[int]
+    # Дефолты None: старые прогоны в БД (run.results) создавались ДО появления вилки —
+    # без дефолта Pydantic v2 требует ключ и роняет GET /smart/base/runs/{id} в 500.
+    salary_from: Optional[int] = None
+    salary_to: Optional[int] = None
     matched_skills: list[str]
     all_skills: list[str]
     match_percent: Optional[int]
