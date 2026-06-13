@@ -36,6 +36,10 @@ class EventOut(ORMBase):
     created_at: datetime
     actor_type: str
     actor_name: str | None = None
+    candidate_id: UUID | None = None
+    candidate_name: str | None = None
+    vacancy_id: UUID | None = None
+    vacancy_name: str | None = None
 
 
 class AttentionHrItem(BaseModel):
@@ -62,3 +66,15 @@ class PulseSummary(BaseModel):
 class SourceItem(BaseModel):
     source: str
     count: int
+
+
+class HomeDialogOut(BaseModel):
+    candidate_id: UUID
+    candidate_name: str
+    vacancy_id: UUID | None
+    vacancy_name: str | None
+    channel: str
+    preview: str
+    sent_at: datetime
+    last_sender_type: str
+    waiting: bool

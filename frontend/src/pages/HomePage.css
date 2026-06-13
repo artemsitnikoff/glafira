@@ -212,6 +212,13 @@
 .event-row .text .ent { color: var(--accent); cursor: pointer; }
 .event-row .text .ent:hover { text-decoration: underline; }
 .event-row .text .anatoly { color: var(--accent); font-weight: 500; }
+.event-row .context {
+  font-size: 12px; color: var(--fg-2);
+  margin-top: 2px;
+}
+.event-row .context .context-sep {
+  color: var(--fg-3);
+}
 .event-row .time {
   font-size: 11px; color: var(--fg-3);
   font-family: var(--font-mono);
@@ -232,6 +239,124 @@
   0%, 100% { opacity: 1; }
   50% { opacity: .35; }
 }
+
+/* ============ ПОСЛЕДНИЕ СООБЩЕНИЯ / ЧАТЫ ============ */
+.content-inner .msg-card { margin-bottom: 16px; }
+.content-inner .ad-sub-title { color: var(--fg-3); font-weight: 400; }
+.content-inner .msg-summary {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 12.5px; color: var(--fg-2);
+  padding: 2px 0 12px;
+}
+.content-inner .msg-sum-item { display: inline-flex; align-items: center; gap: 6px; }
+.content-inner .msg-sum-num { font-weight: 600; color: var(--fg-1); }
+.content-inner .msg-sum-sep { width: 1px; height: 12px; background: var(--border-1); }
+.content-inner .msg-sum-warn { color: var(--ark-yellow-600); }
+.content-inner .msg-sum-warn .msg-sum-num { color: var(--ark-yellow-600); }
+
+.content-inner .msg-list { display: flex; flex-direction: column; }
+.content-inner .msg-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-1);
+}
+.content-inner .msg-row:first-child { border-top: 0; padding-top: 4px; }
+.content-inner .msg-row:hover { background: var(--bg-3-hover); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
+.content-inner .msg-row:hover + .msg-row { border-top-color: transparent; }
+
+.content-inner .msg-ava-wrap { position: relative; flex: none; }
+.content-inner .msg-ava {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; letter-spacing: .01em;
+  background: var(--ark-blue-50); color: var(--ark-blue-700);
+}
+.content-inner .msg-ava.unknown {
+  background: var(--ark-gray-200); color: var(--fg-3);
+  font-size: 17px; font-weight: 500;
+}
+.content-inner .msg-ch-badge {
+  position: absolute; right: -3px; bottom: -3px;
+  min-width: 18px; height: 15px; padding: 0 3px;
+  border-radius: 5px; border: 2px solid #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8.5px; font-weight: 700; color: #fff;
+  letter-spacing: .02em;
+}
+
+.content-inner .msg-body { flex: 1; min-width: 0; }
+.content-inner .msg-top {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; line-height: 1.3;
+}
+.content-inner .msg-name { font-size: 13px; font-weight: 600; color: var(--fg-1); white-space: nowrap; }
+.content-inner .msg-name-unknown { color: var(--ark-yellow-600); }
+.content-inner .msg-vac {
+  font-size: 11px; font-weight: 500;
+  color: var(--accent);
+  background: var(--ark-blue-50);
+  padding: 1px 8px; border-radius: 999px;
+}
+.content-inner .msg-handle {
+  font-size: 11.5px; color: var(--fg-2);
+  background: var(--ark-yellow-100);
+  padding: 1px 7px; border-radius: 5px;
+}
+.content-inner .msg-ch-name {
+  font-size: 11px; font-weight: 600; margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.content-inner .msg-ch-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.content-inner .msg-text {
+  font-size: 12.5px; color: var(--fg-2);
+  margin-top: 3px; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+}
+
+.content-inner .msg-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.content-inner .msg-goto {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 0; border: 0; background: none;
+  color: var(--accent);
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.content-inner .msg-goto:hover { opacity: .7; }
+.content-inner .msg-find {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 26px; padding: 0 11px;
+  border-radius: 6px; border: 0;
+  background: var(--accent); color: #fff;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.content-inner .msg-find:hover { background: var(--ark-blue-700); }
+.content-inner .msg-link-btn {
+  height: 26px; padding: 0 10px;
+  border-radius: 6px; border: 1px solid var(--border-2);
+  background: #fff; color: var(--fg-2);
+  font-size: 11.5px; font-weight: 500; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.content-inner .msg-link-btn:hover { background: var(--bg-3-hover); }
+
+.content-inner .msg-meta {
+  display: flex; align-items: center; gap: 7px;
+  flex: none; padding-top: 2px;
+}
+.content-inner .msg-time { font-size: 11px; color: var(--fg-3); }
+.content-inner .msg-unread-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); flex: none;
+}
+
+.content-inner .msg-empty {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.content-inner .t-mono { font-family: var(--font-mono); }
 
 /* ============ SOURCES BAR ============ */
 .sources-row {

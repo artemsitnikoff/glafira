@@ -14,7 +14,9 @@ async def list_recent_events(session: AsyncSession, company_id: UUID, limit: int
     query = select(Event).where(
         Event.company_id == company_id
     ).options(
-        selectinload(Event.actor_user)
+        selectinload(Event.actor_user),
+        selectinload(Event.candidate),
+        selectinload(Event.vacancy)
     )
 
     if candidate_id:
@@ -36,7 +38,11 @@ async def list_recent_events(session: AsyncSession, company_id: UUID, limit: int
             entities=event.entities,
             created_at=event.created_at,
             actor_type=event.actor_type,
-            actor_name=event.actor_user.full_name if event.actor_user else None
+            actor_name=event.actor_user.full_name if event.actor_user else None,
+            candidate_id=event.candidate_id,
+            candidate_name=event.candidate.full_name if event.candidate else None,
+            vacancy_id=event.vacancy_id,
+            vacancy_name=event.vacancy.name if event.vacancy else None
         )
         for event in events
     ]

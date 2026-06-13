@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta, timezone, date
 from uuid import uuid4
 
-from app.models import Vacancy, Application, Candidate, Event, Employee, PulseSurvey
+from app.models import Vacancy, Application, Candidate, Event, Employee, PulseSurvey, Message
 
 
 @pytest.mark.asyncio
@@ -312,3 +312,303 @@ async def test_open_vacancies_previous_real(async_client, auth_headers, db_sessi
     # delta = current - previous = 2 - 3 = -1
     assert open_vacancies_card["delta"] == -1.0
     assert open_vacancies_card["delta_dir"] == "down"
+
+
+@pytest.mark.asyncio
+async def test_home_events_context_fields(async_client, auth_headers, db_session, admin_user, test_candidate):
+    """Тест что события возвращают контекст кандидата и вакансии"""
+    # Создаём вакансию
+    vacancy = Vacancy(
+        company_id=admin_user.company_id,
+        name="Тестовая вакансия для контекста",
+        status="active"
+    )
+    db_session.add(vacancy)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+
+    # Создаём событие с контекстом кандидата и вакансии
+    event_with_context = Event(
+        company_id=admin_user.company_id,
+        type="move",
+        actor_type="human",
+        actor_user_id=admin_user.id,
+        text="Кандидат перемещён на этап",
+        entities=[],
+        candidate_id=test_candidate.id,
+        vacancy_id=vacancy.id,
+        created_at=now - timedelta(minutes=5)
+    )
+    db_session.add(event_with_context)
+
+    # Создаём событие без контекста (comment/document/verify/pulse)
+    event_without_context = Event(
+        company_id=admin_user.company_id,
+        type="comment",
+        actor_type="human",
+        actor_user_id=admin_user.id,
+        text="Общий комментарий системы",
+        entities=[],
+        candidate_id=None,
+        vacancy_id=None,
+        created_at=now - timedelta(minutes=10)
+    )
+    db_session.add(event_without_context)
+
+    await db_session.flush()
+
+    response = await async_client.get("/api/v1/home/events?limit=10", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Найдём наши события
+    context_event = None
+    no_context_event = None
+    for event in data:
+        if event["text"] == "Кандидат перемещён на этап":
+            context_event = event
+        elif event["text"] == "Общий комментарий системы":
+            no_context_event = event
+
+    # Проверяем событие с контекстом
+    assert context_event is not None
+    assert context_event["candidate_id"] == str(test_candidate.id)
+    assert context_event["candidate_name"] == test_candidate.full_name
+    assert context_event["vacancy_id"] == str(vacancy.id)
+    assert context_event["vacancy_name"] == vacancy.name
+
+    # Проверяем событие без контекста
+    assert no_context_event is not None
+    assert no_context_event["candidate_id"] is None
+    assert no_context_event["candidate_name"] is None
+    assert no_context_event["vacancy_id"] is None
+    assert no_context_event["vacancy_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_home_dialogs_last_message_per_candidate(async_client, auth_headers, db_session, admin_user):
+    """Тест что диалоги возвращают ПОСЛЕДНЕЕ сообщение на каждого кандидата"""
+    # Создаём кандидатов
+    candidate1 = Candidate(
+        company_id=admin_user.company_id,
+        last_name="Тестовый1",
+        first_name="Кандидат1",
+        source="manual"
+    )
+    candidate2 = Candidate(
+        company_id=admin_user.company_id,
+        last_name="Тестовый2",
+        first_name="Кандидат2",
+        source="manual"
+    )
+    db_session.add(candidate1)
+    db_session.add(candidate2)
+    await db_session.flush()
+
+    # Создаём вакансию
+    vacancy = Vacancy(
+        company_id=admin_user.company_id,
+        name="Тестовая вакансия",
+        status="active"
+    )
+    db_session.add(vacancy)
+    await db_session.flush()
+
+    # Создаём заявку для одного кандидата
+    application = Application(
+        company_id=admin_user.company_id,
+        candidate_id=candidate1.id,
+        vacancy_id=vacancy.id,
+        stage="interview"
+    )
+    db_session.add(application)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+
+    # Создаём 2 сообщения для candidate1 - ждём последнее
+    msg1_old = Message(
+        company_id=admin_user.company_id,
+        candidate_id=candidate1.id,
+        application_id=application.id,
+        channel="telegram",
+        direction="out",
+        sender_type="recruiter",
+        body="Старое сообщение",
+        sent_at=now - timedelta(hours=2),
+        created_at=now - timedelta(hours=2)
+    )
+    msg1_new = Message(
+        company_id=admin_user.company_id,
+        candidate_id=candidate1.id,
+        application_id=application.id,
+        channel="telegram",
+        direction="in",
+        sender_type="candidate",
+        body="Новое сообщение кандидата",
+        sent_at=now - timedelta(minutes=30),
+        created_at=now - timedelta(minutes=30)
+    )
+
+    # Одно сообщение для candidate2
+    msg2 = Message(
+        company_id=admin_user.company_id,
+        candidate_id=candidate2.id,
+        application_id=None,  # без контекста вакансии
+        channel="hh",
+        direction="out",
+        sender_type="recruiter",
+        body="Сообщение второму кандидату",
+        sent_at=now - timedelta(hours=1),
+        created_at=now - timedelta(hours=1)
+    )
+
+    db_session.add_all([msg1_old, msg1_new, msg2])
+    await db_session.flush()
+
+    response = await async_client.get("/api/v1/home/dialogs", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Проверяем что есть диалоги для обоих кандидатов
+    candidate_ids = [dialog["candidate_id"] for dialog in data]
+    assert str(candidate1.id) in candidate_ids
+    assert str(candidate2.id) in candidate_ids
+
+    # Находим диалог candidate1
+    dialog1 = next(d for d in data if d["candidate_id"] == str(candidate1.id))
+    # Проверяем что это ПОСЛЕДНЕЕ сообщение (новое)
+    assert dialog1["preview"] == "Новое сообщение кандидата"
+    assert dialog1["waiting"] == True  # direction='in'
+    assert dialog1["last_sender_type"] == "candidate"
+    assert dialog1["candidate_name"] == candidate1.full_name
+    assert dialog1["vacancy_id"] == str(vacancy.id)
+    assert dialog1["vacancy_name"] == vacancy.name
+
+    # Находим диалог candidate2
+    dialog2 = next(d for d in data if d["candidate_id"] == str(candidate2.id))
+    assert dialog2["preview"] == "Сообщение второму кандидату"
+    assert dialog2["waiting"] == False  # direction='out'
+    assert dialog2["last_sender_type"] == "recruiter"
+    assert dialog2["candidate_name"] == candidate2.full_name
+    assert dialog2["vacancy_id"] is None  # нет application_id
+    assert dialog2["vacancy_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_home_dialogs_company_isolation(async_client, auth_headers, db_session, admin_user, test_company):
+    """Тест изоляции диалогов по компаниям"""
+    # Создаём кандидата из другой компании
+    other_candidate = Candidate(
+        company_id=uuid4(),  # другая компания
+        last_name="Чужой",
+        first_name="Кандидат",
+        source="manual"
+    )
+    db_session.add(other_candidate)
+    await db_session.flush()
+
+    # Создаём сообщение от чужой компании
+    other_message = Message(
+        company_id=other_candidate.company_id,  # другая компания
+        candidate_id=other_candidate.id,
+        application_id=None,
+        channel="telegram",
+        direction="in",
+        sender_type="candidate",
+        body="Сообщение из другой компании",
+        sent_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(other_message)
+    await db_session.flush()
+
+    response = await async_client.get("/api/v1/home/dialogs", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Проверяем что сообщение чужой компании НЕ видно
+    candidate_ids = [dialog["candidate_id"] for dialog in data]
+    assert str(other_candidate.id) not in candidate_ids
+
+    # Проверяем что нет сообщений с текстом из другой компании
+    previews = [dialog["preview"] for dialog in data]
+    assert "Сообщение из другой компании" not in previews
+
+
+@pytest.mark.asyncio
+async def test_home_dialogs_waiting_flag(async_client, auth_headers, db_session, admin_user):
+    """Тест флага waiting - True когда последнее сообщение direction='in'"""
+    # Создаём кандидата
+    candidate = Candidate(
+        company_id=admin_user.company_id,
+        last_name="Тестовый",
+        first_name="Кандидат",
+        source="manual"
+    )
+    db_session.add(candidate)
+    await db_session.flush()
+
+    now = datetime.now(timezone.utc)
+
+    # Создаём сообщение от кандидата (direction='in') - ждём ответа рекрутёра
+    message_in = Message(
+        company_id=admin_user.company_id,
+        candidate_id=candidate.id,
+        application_id=None,
+        channel="telegram",
+        direction="in",
+        sender_type="candidate",
+        body="Вопрос от кандидата",
+        sent_at=now,
+        created_at=now
+    )
+    db_session.add(message_in)
+    await db_session.flush()
+
+    response = await async_client.get("/api/v1/home/dialogs", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    dialog = next(d for d in data if d["candidate_id"] == str(candidate.id))
+    assert dialog["waiting"] == True  # последнее слово за кандидатом
+
+
+@pytest.mark.asyncio
+async def test_home_dialogs_preview_truncation(async_client, auth_headers, db_session, admin_user):
+    """Тест обрезки preview до ~120 символов"""
+    # Создаём кандидата
+    candidate = Candidate(
+        company_id=admin_user.company_id,
+        last_name="Тестовый",
+        first_name="Кандидат",
+        source="manual"
+    )
+    db_session.add(candidate)
+    await db_session.flush()
+
+    # Длинное сообщение (>120 символов)
+    long_body = "Это очень длинное сообщение " * 10  # ~290 символов
+
+    message = Message(
+        company_id=admin_user.company_id,
+        candidate_id=candidate.id,
+        application_id=None,
+        channel="email",
+        direction="in",
+        sender_type="candidate",
+        body=long_body,
+        sent_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc)
+    )
+    db_session.add(message)
+    await db_session.flush()
+
+    response = await async_client.get("/api/v1/home/dialogs", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    dialog = next(d for d in data if d["candidate_id"] == str(candidate.id))
+    assert len(dialog["preview"]) == 120  # обрезано до 120
+    assert dialog["preview"] == long_body[:120]

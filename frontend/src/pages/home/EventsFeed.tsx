@@ -1,10 +1,23 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHomeEvents } from '@/api/hooks/useHomeEvents';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatRelativeTime } from '@/lib/time';
 
 import { Icon } from '@/components/ui/Icon';
+
+// Расширение типа события для контекста (openapi не регенерён)
+interface ExtendedEvent {
+  id: string;
+  type: string;
+  text: string;
+  created_at: string;
+  candidate_id?: string;
+  candidate_name?: string;
+  vacancy_id?: string;
+  vacancy_name?: string;
+}
 
 const EVENT_ICON: Record<string, any> = {
   qual: 'check',
@@ -39,10 +52,11 @@ function parseEventText(text: string): React.ReactNode {
 
 export function EventsFeed() {
   const { data, isLoading } = useHomeEvents(30);
+  const navigate = useNavigate();
 
   if (isLoading) return <Skeleton height={380} />;
 
-  const items = data ?? [];
+  const items = (data ?? []) as ExtendedEvent[];
 
   return (
     <div className="card-block">
@@ -61,6 +75,29 @@ export function EventsFeed() {
               </div>
               <div className="body">
                 <div className="text">{parseEventText(ev.text)}</div>
+                {(ev.candidate_name || ev.vacancy_name) && (
+                  <div className="context">
+                    {ev.candidate_name && (
+                      <span
+                        className="ent"
+                        onClick={() => navigate(`/candidates/${ev.candidate_id}`)}
+                      >
+                        {ev.candidate_name}
+                      </span>
+                    )}
+                    {ev.candidate_name && ev.vacancy_name && (
+                      <span className="context-sep"> • </span>
+                    )}
+                    {ev.vacancy_name && (
+                      <span
+                        className="ent"
+                        onClick={() => navigate(`/vacancies/${ev.vacancy_id}`)}
+                      >
+                        {ev.vacancy_name}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="time">{formatRelativeTime(ev.created_at)}</div>
               </div>
             </div>

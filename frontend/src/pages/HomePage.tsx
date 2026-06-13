@@ -4,6 +4,7 @@ import { HomeHeader } from './home/HomeHeader';
 import { KpiGrid } from './home/KpiGrid';
 import { AttentionList } from './home/AttentionList';
 import { EventsFeed } from './home/EventsFeed';
+import { MessagesBlock } from './home/MessagesBlock';
 import { SourcesBlock } from './home/SourcesBlock';
 import './HomePage.css';
 
@@ -19,6 +20,7 @@ export default function HomePage() {
         <AttentionList />
         <EventsFeed />
       </div>
+      <MessagesBlock />
       {showSources && <SourcesBlock period={period} />}
     </div>
   );

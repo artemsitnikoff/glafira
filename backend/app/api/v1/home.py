@@ -6,12 +6,13 @@ from uuid import UUID
 
 from ...deps import get_current_user, get_current_company_id
 from ...database import get_db
-from ...schemas.home import HomeKpi, AttentionItem, EventOut, PulseSummary, SourceItem
+from ...schemas.home import HomeKpi, AttentionItem, EventOut, PulseSummary, SourceItem, HomeDialogOut
 from ...services.home.kpi import compute_home_kpi
 from ...services.home.attention import compute_attention
 from ...services.home.events import list_recent_events
 from ...services.home.pulse_summary import compute_pulse_summary
 from ...services.home.sources import top_sources
+from ...services.home.dialogs import list_recent_dialogs
 
 router = APIRouter()
 
@@ -77,3 +78,13 @@ async def get_sources(
 ):
     """Получить топ источников кандидатов"""
     return await top_sources(session, company_id, period)
+
+
+@router.get("/dialogs", response_model=list[HomeDialogOut])
+async def get_dialogs(
+    session=Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user=Depends(get_current_user)
+):
+    """Получить последние диалоги (чаты) на главной"""
+    return await list_recent_dialogs(session, company_id)
