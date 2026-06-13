@@ -453,10 +453,11 @@ class TestSettingsAccess:
         async_client: AsyncClient,
         manager_user: User,
     ):
-        """Manager cannot read settings"""
+        """Manager cannot read settings (профиль исключён — это личный аккаунт; берём
+        реальные настройки системы /settings/glafira: GET = admin+recruiter)."""
         headers = await get_auth_headers(async_client, manager_user)
 
-        response = await async_client.get("/api/v1/settings/profile", headers=headers)
+        response = await async_client.get("/api/v1/settings/glafira", headers=headers)
         assert response.status_code == 403
 
     async def test_recruiter_cannot_write_settings(
@@ -484,9 +485,9 @@ class TestSettingsAccess:
         """Admin can write settings"""
         headers = await get_auth_headers(async_client, admin_user)
 
-        # Try to create a reject reason (write operation)
+        # RejectReasonCreate ожидает label+side (не name)
         reason_data = {
-            "name": "Новая причина",
+            "label": "Новая причина",
             "side": "company",
         }
 
@@ -553,8 +554,9 @@ class TestIntegrationsAccess:
         """Admin can configure integrations"""
         headers = await get_auth_headers(async_client, admin_user)
 
+        # Валидный b24-webhook: https://<портал>/rest/<user_id>/<код>/
         config_data = {
-            "webhook_url": "https://example.com/webhook"
+            "webhook_url": "https://demo.bitrix24.ru/rest/1/abc123secretcode/"
         }
 
         response = await async_client.post("/api/v1/integrations/bitrix24/config", json=config_data, headers=headers)

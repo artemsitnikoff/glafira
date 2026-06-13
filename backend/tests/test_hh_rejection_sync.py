@@ -18,6 +18,10 @@ class TestHhRejectionSync:
     ):
         """Тест успешной синхронизации отказа hh-кандидата"""
 
+        # Вежливое сообщение шлётся ТОЛЬКО при включённом auto_reject_message на вакансии
+        # (discard на hh идёт независимо). Включаем, чтобы проверить отправку сообщения.
+        test_vacancy.auto_reject_message = True
+
         # Создаём отклонённую заявку с hh_negotiation_id, но без hh_discard_synced_at
         application = Application(
             company_id=test_company.id,
@@ -76,6 +80,9 @@ class TestHhRejectionSync:
         self, db_session, test_company, admin_user, test_vacancy, test_candidate
     ):
         """Тест ленивого получения chat_id из negotiation"""
+
+        # Вежливое сообщение шлётся только при auto_reject_message=True (см. сервис)
+        test_vacancy.auto_reject_message = True
 
         # Создаём заявку без chat_id
         application = Application(
@@ -314,10 +321,13 @@ class TestHhRejectionSync:
 
         with patch('app.services.integrations.hh.service.get_valid_access_token') as mock_token, \
              patch('app.services.integrations.hh.client.discard_negotiation') as mock_discard, \
+             patch('app.services.integrations.hh.client.get_negotiation') as mock_get_nego, \
              patch('app.services.integrations.hh.client.send_chat_message') as mock_send_msg:
 
             mock_token.return_value = "test_token"
-            mock_discard.return_value = False  # wrong_state — уже в отказе на hh
+            mock_discard.return_value = False  # wrong_state — голый discard не прошёл
+            # Проверка реального состояния на hh: отклик УЖЕ в отказе → already_discarded
+            mock_get_nego.return_value = {"employer_state": {"id": "discard_by_employer"}}
 
             stats = await sync_company_rejections(db_session, test_company.id, limit=10)
 

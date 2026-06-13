@@ -27,7 +27,7 @@ def _parse_comma_separated_strings(value: str | None) -> list[str]:
 
     return [item.strip() for item in value.split(',') if item.strip()]
 
-from sqlalchemy import and_, asc, case, delete, desc, exists, func, or_, select, text
+from sqlalchemy import and_, asc, case, delete, desc, exists, false, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -313,6 +313,10 @@ async def get_candidates_paginated(
                     )
                 )
             )
+        else:
+            # vacancy_id передан, но все значения — мусор (невалидные UUID). Fail-closed:
+            # фильтр задан → ничего не матчим (а не возвращаем всю базу).
+            base_filters.append(false())
 
     if stage:
         stages = _parse_comma_separated_strings(stage)

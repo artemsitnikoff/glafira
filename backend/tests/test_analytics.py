@@ -7,6 +7,21 @@ from uuid import uuid4
 from app.models import Vacancy, Application, StageHistory, Employee, Candidate, User, RejectReason
 
 
+async def _enable_bitrix_turnover(db_session, company_id):
+    """Turnover считается ТОЛЬКО при turnover_source='bitrix24' (по умолчанию 'none' →
+    отчёт пуст). Включаем источник для тестов текучки."""
+    from app.models import GlafiraSettings
+    from sqlalchemy import select
+    row = (await db_session.execute(
+        select(GlafiraSettings).where(GlafiraSettings.company_id == company_id)
+    )).scalar_one_or_none()
+    if row is None:
+        db_session.add(GlafiraSettings(company_id=company_id, turnover_source='bitrix24'))
+    else:
+        row.turnover_source = 'bitrix24'
+    await db_session.commit()
+
+
 @pytest.fixture
 async def seeded_analytics(db_session, admin_user, test_candidate):
     """Создаёт расширенный набор данных для тестирования analytics"""
@@ -183,7 +198,8 @@ async def seeded_analytics(db_session, admin_user, test_candidate):
             manager_user_id=admin_user.id,
             recruiter_user_id=recruiter.id,
             start_date=date.today() - timedelta(days=100),
-            status="passed"
+            status="passed",
+            external_source="bitrix24"  # текучка считается только по Б24-сотрудникам
         ),
         Employee(
             company_id=admin_user.company_id,
@@ -194,7 +210,8 @@ async def seeded_analytics(db_session, admin_user, test_candidate):
             recruiter_user_id=recruiter.id,
             start_date=date.today() - timedelta(days=50),
             status="left",
-            left_at=date.today() - timedelta(days=10)
+            left_at=date.today() - timedelta(days=10),
+            external_source="bitrix24"
         )
     ]
 
@@ -427,8 +444,9 @@ async def test_recruiters_autonomy_pct(async_client, auth_headers, seeded_analyt
             assert autonomy >= 0  # Может быть 0 если нет AI-переходов, или > 0 если есть
 
 
-async def test_turnover_cohort_has_data(async_client, auth_headers, seeded_analytics):
+async def test_turnover_cohort_has_data(async_client, auth_headers, seeded_analytics, db_session, admin_user):
     """Тест что turnover cohort возвращает данные"""
+    await _enable_bitrix_turnover(db_session, admin_user.company_id)
     response = await async_client.get("/api/v1/analytics/turnover?period=month", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
@@ -568,7 +586,7 @@ async def test_turnover_avg_tenure_days_exact(async_client, auth_headers, admin_
     from datetime import date, timedelta
     from app.models import Employee
 
-    # Создаём employee со start_date 100 дней назад
+    # Создаём employee со start_date 100 дней назад (Б24-источник — иначе текучка не считает)
     employee = Employee(
         company_id=admin_user.company_id,
         candidate_id=test_candidate.id,
@@ -576,10 +594,12 @@ async def test_turnover_avg_tenure_days_exact(async_client, auth_headers, admin_
         start_date=date.today() - timedelta(days=100),
         status="onboarding",
         risk_level="low",
-        manager_user_id=admin_user.id  # Устанавливаем manager чтобы попал в группу
+        manager_user_id=admin_user.id,  # Устанавливаем manager чтобы попал в группу
+        external_source="bitrix24"
     )
     db_session.add(employee)
     await db_session.commit()
+    await _enable_bitrix_turnover(db_session, admin_user.company_id)
 
     # Проверяем turnover отчёт
     r = await async_client.get("/api/v1/analytics/turnover?period=month", headers=auth_headers)

@@ -346,11 +346,12 @@ async def test_applications_filter_ready_relocate(
     )
     vacancy_id = vacancy_response.json()["id"]
 
-    # Candidate with relocation: true
+    # relocation в extra — СВОБОДНЫЙ ТЕКСТ (как из hh), не bool: фильтр ищет по ilike '%готов%'.
+    # Candidate with relocation: ready
     relocate_yes = await _make_candidate(
         db_session,
         last_name="WillRelocate",
-        extra={"relocation": True}
+        extra={"relocation": "готов к переезду"}
     )
     await _make_application(
         db_session,
@@ -358,11 +359,11 @@ async def test_applications_filter_ready_relocate(
         vacancy_id=vacancy_id
     )
 
-    # Candidate with relocation: false
+    # Candidate with relocation: not ready
     relocate_no = await _make_candidate(
         db_session,
         last_name="WontRelocate",
-        extra={"relocation": False}
+        extra={"relocation": "не готов к переезду"}
     )
     await _make_application(
         db_session,
@@ -370,7 +371,7 @@ async def test_applications_filter_ready_relocate(
         vacancy_id=vacancy_id
     )
 
-    # Candidate without relocation field (empty extra)
+    # Candidate without relocation field (empty extra → relocation IS NULL)
     relocate_unknown = await _make_candidate(
         db_session,
         last_name="NoRelocateInfo",
@@ -384,7 +385,7 @@ async def test_applications_filter_ready_relocate(
 
     await db_session.commit()
 
-    # Test ready_relocate=true - should return only WillRelocate
+    # Test ready_relocate=true → только явно «готов» (WillRelocate)
     true_response = await async_client.get(
         f"/api/v1/vacancies/{vacancy_id}/applications?ready_relocate=true",
         headers=auth_headers
@@ -394,15 +395,17 @@ async def test_applications_filter_ready_relocate(
     assert true_body["total"] == 1
     assert "WillRelocate" in true_body["items"][0]["full_name"]
 
-    # Test ready_relocate=false - should return only WontRelocate
+    # Test ready_relocate=false → «не готов» + неизвестно (NULL) = fail-closed по дизайну фильтра
     false_response = await async_client.get(
         f"/api/v1/vacancies/{vacancy_id}/applications?ready_relocate=false",
         headers=auth_headers
     )
     assert false_response.status_code == 200
     false_body = false_response.json()
-    assert false_body["total"] == 1
-    assert "WontRelocate" in false_body["items"][0]["full_name"]
+    assert false_body["total"] == 2
+    false_names = {item["full_name"] for item in false_body["items"]}
+    assert any("WontRelocate" in n for n in false_names)
+    assert any("NoRelocateInfo" in n for n in false_names)
 
     # Test without ready_relocate filter - should return all 3
     all_response = await async_client.get(

@@ -187,22 +187,38 @@ class TestAssignCandidateCustomStages:
 
         assert "Неверная стадия: nonexistent_stage" in str(exc_info.value)
 
-    async def test_assign_to_other_vacancy_custom_stage_error(self, db_session: AsyncSession, test_candidate: Candidate, test_vacancy: Vacancy, vacancy_with_custom_stage: tuple[Vacancy, VacancyStage], admin_user: User):
-        """Custom stage of another vacancy should not be accepted"""
-        other_vacancy, custom_stage = vacancy_with_custom_stage
+    async def test_assign_to_other_vacancy_custom_stage_error(self, db_session: AsyncSession, test_candidate: Candidate, test_vacancy: Vacancy, admin_user: User):
+        """Кастомный этап ДРУГОЙ вакансии не принимается для test_vacancy.
 
-        # Try to assign to test_vacancy using custom stage from other_vacancy
+        test_vacancy (conftest) создаётся без vacancy_stages → assign принимает только
+        системные ключи (ветка `elif stage not in STAGES`). Кастомный ключ чужой
+        вакансии — не системный → ValidationError. (Фикстура vacancy_with_custom_stage
+        вешала этап на сам test_vacancy — её premise был сломан, поэтому inline.)"""
+        # Отдельная «другая» вакансия со своим кастомным этапом
+        other_vacancy = Vacancy(
+            company_id=admin_user.company_id, name="Другая вакансия", status="active",
+        )
+        db_session.add(other_vacancy)
+        await db_session.flush()
+        foreign_stage = VacancyStage(
+            company_id=admin_user.company_id, vacancy_id=other_vacancy.id,
+            stage_key="foreign_custom", label="Чужой этап", order_index=5, is_terminal=False,
+        )
+        db_session.add(foreign_stage)
+        await db_session.flush()
+
+        # Назначаем на test_vacancy (без своих этапов) ключом чужой вакансии → отказ
         with pytest.raises(ValidationError) as exc_info:
             await assign_candidate_to_vacancy(
                 session=db_session,
                 candidate_id=test_candidate.id,
-                vacancy_id=test_vacancy.id,  # Different vacancy
-                stage=custom_stage.stage_key,  # Custom stage from other vacancy
+                vacancy_id=test_vacancy.id,
+                stage=foreign_stage.stage_key,
                 company_id=admin_user.company_id,
                 actor_user_id=admin_user.id
             )
 
-        assert f"Неверная стадия: {custom_stage.stage_key}" in str(exc_info.value)
+        assert f"Неверная стадия: {foreign_stage.stage_key}" in str(exc_info.value)
 
 class TestAssignCreatesEvent:
     """#10: assign_candidate_to_vacancy creates an Event for the activity feed"""

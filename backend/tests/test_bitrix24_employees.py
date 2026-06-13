@@ -153,7 +153,7 @@ async def test_import_not_configured_raises(db_session, admin_user, fernet_key):
 
 def _filters():
     return AnalyticsFilters(
-        period="90d", date_from=None, date_to=None,
+        period="quarter", date_from=None, date_to=None,  # 90 дней (валидный ANALYTICS_PERIOD)
         vacancy_ids=[], recruiter_ids=[], compare=False,
     )
 
