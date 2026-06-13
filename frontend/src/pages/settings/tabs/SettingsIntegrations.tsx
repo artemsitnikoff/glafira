@@ -9,6 +9,8 @@ import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
 import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
 import { useTelegramStatus } from '@/api/hooks/useTelegramIntegration';
 import { useTgSendCode, useTgResendCode, useTgConnectSession, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
+import { useMangoStatus } from '@/api/hooks/useMangoIntegration';
+import { useMangoSaveConfig, useMangoTest, useMangoDisconnect } from '@/api/mutations/mangoIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -315,6 +317,64 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   // Ошибка показывается ИНЛАЙН в карточке Telegram (карточка внизу страницы —
   // верхний notification-баннер вне зоны видимости при работе с ней).
   const [tgError, setTgError] = useState<string | null>(null);
+
+  // ---------------- Mango Office (телефония) ----------------
+  const { data: mangoStatus, isLoading: mangoLoading } = useMangoStatus();
+  const mangoSaveMutation = useMangoSaveConfig();
+  const mangoTestMutation = useMangoTest();
+  const mangoDisconnectMutation = useMangoDisconnect();
+
+  const [mangoForm, setMangoForm] = useState({
+    api_key: '',
+    api_salt: '',
+    vpbx_api_url: 'https://app.mango-office.ru/vpbx/',
+  });
+  const [mangoEdit, setMangoEdit] = useState(false);
+
+  const enterMangoEdit = () => {
+    setMangoForm({
+      api_key: '',
+      api_salt: '',
+      vpbx_api_url: mangoStatus?.vpbx_api_url || 'https://app.mango-office.ru/vpbx/',
+    });
+    setMangoEdit(true);
+  };
+
+  const handleMangoSave = async () => {
+    try {
+      await mangoSaveMutation.mutateAsync({
+        api_key: mangoForm.api_key.trim(),
+        api_salt: mangoForm.api_salt.trim(),
+        vpbx_api_url: mangoForm.vpbx_api_url.trim(),
+      });
+      setMangoEdit(false);
+      setMangoForm(prev => ({ ...prev, api_key: '', api_salt: '' })); // не держим секреты в стейте
+      setNotification({ type: 'success', message: 'Настройки Манго сохранены. Нажмите «Проверить подключение».' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при сохранении настроек Манго' });
+    }
+  };
+
+  const handleMangoTest = async () => {
+    try {
+      await mangoTestMutation.mutateAsync();
+      setNotification({ type: 'success', message: `Подключение к Манго успешно проверено` });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось подключиться к Манго' });
+    }
+  };
+
+  const handleMangoDisconnect = async () => {
+    try {
+      await mangoDisconnectMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'Манго отключён' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Манго' });
+    }
+  };
 
   const handleTgSendCode = async () => {
     setTgError(null);
@@ -832,6 +892,114 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                   </button>
                   {b24Edit && (
                     <button className="btn btn-secondary btn-sm" onClick={() => setB24Edit(false)} disabled={b24SaveMutation.isPending}>
+                      Отмена
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </IntegrationCard>
+
+        {/* MANGO OFFICE (телефония) */}
+        <IntegrationCard
+          ico={<Icon name="phone" size={18}/>}
+          iconBg="#FFEBEA"
+          name="Манго Телеком"
+          desc="Телефония: звонки кандидатам, запись и AI-разбор"
+          status={mangoStatus?.verified ? 'ok' : (mangoStatus?.last_test_error ? 'err' : 'bad')}
+          statusLabel={
+            mangoStatus?.verified ? undefined
+              : mangoStatus?.last_test_error ? 'Ошибка подключения'
+              : mangoStatus?.configured ? 'Настроено'
+              : undefined
+          }>
+          <div className="integ-section">
+            {mangoLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : (mangoStatus?.configured && !mangoEdit) ? (
+              // Настроено — проверка/управление
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <div>API URL: <span className="t-mono">{mangoStatus.vpbx_api_url}</span></div>
+                  {mangoStatus.verified && mangoStatus.last_test_at && (
+                    <div style={{ fontSize: '12px', color: 'var(--ark-green-600)', marginTop: '4px' }}>
+                      ✓ Подключение проверено {new Date(mangoStatus.last_test_at).toLocaleString('ru')}
+                    </div>
+                  )}
+                  {!mangoStatus.verified && mangoStatus.last_test_error && (
+                    <div style={{ fontSize: '12px', color: 'var(--ark-red-600)', marginTop: '4px' }}>
+                      Последняя проверка не прошла: {mangoStatus.last_test_error}
+                    </div>
+                  )}
+                  {!mangoStatus.verified && !mangoStatus.last_test_error && (
+                    <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '4px' }}>
+                      Ещё не проверено — нажмите «Проверить подключение».
+                    </div>
+                  )}
+                </div>
+                <div className="integ-actions">
+                  <button className="btn btn-primary btn-sm" onClick={readOnly ? undefined : handleMangoTest} disabled={mangoTestMutation.isPending || readOnly}>
+                    {mangoTestMutation.isPending ? 'Проверка...' : 'Проверить подключение'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={readOnly ? undefined : enterMangoEdit} disabled={mangoTestMutation.isPending || readOnly}>
+                    Изменить настройки
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={readOnly ? undefined : handleMangoDisconnect} disabled={mangoDisconnectMutation.isPending || readOnly}>
+                    {mangoDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Не настроено или изменение настроек — форма
+              <div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="API Key" required>
+                    <TextInput
+                      type="password"
+                      value={mangoForm.api_key}
+                      onChange={(v) => setMangoForm(p => ({ ...p, api_key: v }))}
+                      placeholder={mangoStatus?.configured ? '••••••••' : 'Введите API Key'}
+                      mono
+                    />
+                  </FormRow>
+                  <FormRow label="API Salt" required>
+                    <TextInput
+                      type="password"
+                      value={mangoForm.api_salt}
+                      onChange={(v) => setMangoForm(p => ({ ...p, api_salt: v }))}
+                      placeholder={mangoStatus?.configured ? '••••••••' : 'Введите API Salt'}
+                      mono
+                    />
+                  </FormRow>
+                  <FormRow label="VPBX API URL" required span={2}>
+                    <TextInput
+                      value={mangoForm.vpbx_api_url}
+                      onChange={(v) => setMangoForm(p => ({ ...p, vpbx_api_url: v }))}
+                      placeholder="https://app.mango-office.ru/vpbx/"
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="info-banner small">
+                  <Icon name="alert-triangle" size={14} />
+                  <div>В личном кабинете Манго получите <strong>API Key</strong> и <strong>API Salt</strong> для интеграции. После сохранения проверьте подключение.</div>
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleMangoSave}
+                    disabled={
+                      mangoSaveMutation.isPending ||
+                      (!mangoStatus?.configured && (!mangoForm.api_key.trim() || !mangoForm.api_salt.trim())) ||
+                      !mangoForm.vpbx_api_url.trim() ||
+                      readOnly
+                    }
+                  >
+                    {mangoSaveMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                  {mangoEdit && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => setMangoEdit(false)} disabled={mangoSaveMutation.isPending}>
                       Отмена
                     </button>
                   )}

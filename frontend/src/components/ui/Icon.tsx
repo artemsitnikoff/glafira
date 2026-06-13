@@ -31,6 +31,7 @@ import {
   Sparkles,
   MoreHorizontal,
   Pause,
+  Play,
   Calendar,
   User,
   Loader2,
@@ -101,6 +102,7 @@ const iconMap = {
   more: MoreHorizontal,
   'more-horizontal': MoreHorizontal,
   pause: Pause,
+  play: Play,
   'cal-clock': Calendar,
   // New icons for candidate detail
   user: User,

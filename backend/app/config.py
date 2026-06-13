@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
+    # Mango Office звонки - транскрибация
+    GLAFIRA_TRANSCRIBE_MODEL: str = "google/gemini-2.5-pro"
+
     HH_CLIENT_ID: str = ""
     HH_CLIENT_SECRET: str = ""
     HH_REDIRECT_URI: str = ""

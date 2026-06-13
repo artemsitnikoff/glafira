@@ -1,0 +1,263 @@
+/* ============ CALLS TAB (Манго / amoCRM-style) ============ */
+.cnd-funnel-wrap .cand-detail .calls-tab { padding: 16px 20px 24px; }
+
+.cnd-funnel-wrap .cand-detail .calls-summary {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-1);
+}
+
+.cnd-funnel-wrap .cand-detail .calls-sum-left {
+  display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--fg-2);
+}
+
+.cnd-funnel-wrap .cand-detail .calls-sum-item {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+
+.cnd-funnel-wrap .cand-detail .calls-sum-num {
+  font-weight: 700; color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .cand-detail .calls-sum-sep {
+  width: 1px; height: 12px; background: var(--border-1);
+}
+
+.cnd-funnel-wrap .cand-detail .calls-sum-missed .calls-sum-num {
+  color: var(--ark-red-500);
+}
+
+.cnd-funnel-wrap .cand-detail .calls-mango {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--fg-2); font-weight: 500;
+  background: var(--ark-gray-50); border: 1px solid var(--border-2);
+  padding: 4px 10px; border-radius: 999px;
+}
+
+.cnd-funnel-wrap .cand-detail .mango-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #E2231A; flex: none;
+  box-shadow: 0 0 0 3px rgba(226,35,26,.14);
+}
+
+.cnd-funnel-wrap .cand-detail .calls-list {
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+.cnd-funnel-wrap .cand-detail .call-card {
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.cnd-funnel-wrap .cand-detail .call-card.missed {
+  background: var(--ark-gray-50);
+}
+
+.cnd-funnel-wrap .cand-detail .call-head {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+
+.cnd-funnel-wrap .cand-detail .call-dir {
+  width: 26px; height: 26px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.cnd-funnel-wrap .cand-detail .call-dir-out {
+  background: var(--ark-blue-50); color: var(--ark-blue-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-dir-in  {
+  background: var(--ark-green-100); color: var(--ark-green-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-dir-missed {
+  background: var(--ark-red-100); color: var(--ark-red-500);
+}
+
+.cnd-funnel-wrap .cand-detail .call-title {
+  font-size: 13.5px; font-weight: 600; color: var(--fg-1);
+}
+
+.cnd-funnel-wrap .cand-detail .call-status {
+  font-size: 11px; font-weight: 600;
+  padding: 2px 9px; border-radius: 999px;
+}
+
+.cnd-funnel-wrap .cand-detail .call-status-ok {
+  background: var(--ark-gray-100); color: var(--fg-2);
+}
+
+.cnd-funnel-wrap .cand-detail .call-status-missed {
+  background: var(--ark-red-100); color: var(--ark-red-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-spacer { flex: 1; }
+
+.cnd-funnel-wrap .cand-detail .call-recruiter {
+  font-size: 12px; color: var(--fg-2);
+}
+
+.cnd-funnel-wrap .cand-detail .call-when {
+  font-size: 11.5px; color: var(--fg-3);
+}
+
+/* audio player */
+.cnd-funnel-wrap .cand-detail .call-player {
+  display: flex; align-items: center; gap: 11px;
+  margin-top: 12px; padding: 9px 12px;
+  background: var(--ark-gray-50);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+}
+
+.cnd-funnel-wrap .cand-detail .cp-play {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  border: 0; cursor: pointer;
+  background: var(--cp-color); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+}
+
+.cnd-funnel-wrap .cand-detail .cp-play:hover { filter: brightness(1.06); }
+.cnd-funnel-wrap .cand-detail .cp-play:active { transform: scale(.94); }
+
+.cnd-funnel-wrap .cand-detail .cp-wave {
+  flex: 1; height: 34px; min-width: 0;
+  display: flex; align-items: center; gap: 2px;
+  cursor: pointer;
+}
+
+.cnd-funnel-wrap .cand-detail .cp-bar {
+  flex: 1; min-width: 2px; border-radius: 2px;
+  background: var(--ark-gray-300);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.cnd-funnel-wrap .cand-detail .cp-bar.on {
+  background: var(--cp-color);
+}
+
+.cnd-funnel-wrap .cand-detail .cp-time {
+  font-size: 11.5px; color: var(--fg-2); flex: none; white-space: nowrap;
+}
+
+.cnd-funnel-wrap .cand-detail .cp-speed {
+  flex: none; height: 24px; min-width: 34px; padding: 0 7px;
+  border: 1px solid var(--border-1); border-radius: 6px;
+  background: #fff; color: var(--fg-2);
+  font-size: 11px; font-weight: 600; cursor: pointer;
+}
+
+.cnd-funnel-wrap .cand-detail .cp-speed:hover {
+  background: var(--bg-3-hover);
+}
+
+.cnd-funnel-wrap .cand-detail .cp-dl { flex: none; }
+
+/* summary */
+.cnd-funnel-wrap .cand-detail .call-summary { margin-top: 12px; }
+
+.cnd-funnel-wrap .cand-detail .call-block-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 600; color: var(--fg-2);
+  margin-bottom: 5px;
+}
+
+.cnd-funnel-wrap .cand-detail .call-block-label .glafira-emoji {
+  font-size: 14px;
+}
+
+.cnd-funnel-wrap .cand-detail .call-summary-text {
+  font-size: 13px; line-height: 1.5; color: var(--fg-1);
+}
+
+/* AI hint — amoCRM-style insight */
+.cnd-funnel-wrap .cand-detail .call-hint {
+  display: flex; gap: 10px;
+  margin-top: 12px; padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid;
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-warn {
+  background: #FFFBF0; border-color: #F2E2B8;
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-good {
+  background: #F2FBF5; border-color: #C9EAD5;
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-mark {
+  width: 24px; height: 24px; flex: none; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-warn .call-hint-mark {
+  background: var(--ark-yellow-100); color: var(--ark-yellow-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-good .call-hint-mark {
+  background: var(--ark-green-100); color: var(--ark-green-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-title {
+  font-size: 12px; font-weight: 700; margin-bottom: 3px;
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-warn .call-hint-title {
+  color: var(--ark-yellow-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-good .call-hint-title {
+  color: var(--ark-green-600);
+}
+
+.cnd-funnel-wrap .cand-detail .call-hint-text {
+  font-size: 12.5px; line-height: 1.5; color: var(--fg-1);
+}
+
+/* Transcribe status */
+.cnd-funnel-wrap .cand-detail .call-transcribe-status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--fg-2);
+}
+
+.cnd-funnel-wrap .cand-detail .call-transcribe-error {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--ark-red-600);
+}
+
+/* Empty state */
+.cnd-funnel-wrap .cand-detail .call-empty-state {
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.cnd-funnel-wrap .cand-detail .call-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-1);
+  margin: 12px 0 8px;
+}
+
+.cnd-funnel-wrap .cand-detail .call-empty-hint {
+  font-size: 14px;
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+/* info-banner: .info-banner живёт в чанке Настроек — на маршруте карточки
+   кандидата он не загружен, поэтому повторяем стиль scoped к корню экрана */
+.cnd-funnel-wrap .cand-detail .info-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px;
+  background: var(--ark-blue-50);
+  border: 1px solid var(--ark-blue-100);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--fg-1);
+}
+.cnd-funnel-wrap .cand-detail .info-banner > svg { color: var(--accent); flex: none; margin-top: 1px; }
+.cnd-funnel-wrap .cand-detail .info-banner.small { padding: 10px; }

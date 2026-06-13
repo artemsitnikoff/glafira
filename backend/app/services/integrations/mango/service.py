@@ -153,8 +153,10 @@ async def test_connection(
     client = MangoClient(api_key, api_salt, vpbx_api_url)
 
     try:
-        await client.check_auth()
-        await client.close()
+        try:
+            await client.check_auth()
+        finally:
+            await client.close()
     except Exception as e:
         # Сбой — фиксируем ошибку и пробрасываем
         cfg = dict(row.config)
