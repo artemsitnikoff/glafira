@@ -53,23 +53,31 @@ function Home({ tweaks }) {
   ];
   const sourceMax = Math.max(...sources.map(s => s.value));
 
-  // ===== Адаптация / Пульс-Онбординг =====
-  const pulse = {
-    total: 24,
-    newThisMonth: 7,
-    red: 3, yellow: 5, green: 16,
-    avgRate: 3.8,           // средняя оценка адаптации (из 5)
-    responseRate: 76,        // % ответивших на опросы
-    enps: 42,                // eNPS по 90+ дням
-    enpsD: '+6',
-    noResponse: 2,
-    topAlerts: [
-      { name: 'Иван Петров',    role: 'Кладовщик',          day: 32, risk: 78, reason: 'Не получил зарплату в срок · день 30', flag: 'urgent', icon: 'alert' },
-      { name: 'Мария Орлова',   role: 'Оператор кол-центра',day: 18, risk: 72, reason: 'Триггер «увольняюсь» в ответе на опрос', flag: 'urgent', icon: 'alert' },
-      { name: 'Денис Соколов',  role: 'Грузчик',            day: 6,  risk: 65, reason: 'Не отвечает на сообщения Глафиры 7 дней', flag: 'warn',   icon: 'clock' },
-    ],
+  // ===== Последние сообщения / Чаты =====
+  const channelMeta = {
+    telegram: { abbr: 'TG', color: '#2A8AF0', name: 'Telegram' },
+    whatsapp: { abbr: 'WA', color: '#1FA855', name: 'WhatsApp' },
+    hh:       { abbr: 'HH', color: '#DC4646', name: 'hh.ru' },
+    avito:    { abbr: 'AV', color: '#0AB1C7', name: 'Авито' },
+    sms:      { abbr: 'СМ', color: '#5B6573', name: 'СМС' },
   };
-  const riskTotal = pulse.red + pulse.yellow + pulse.green;
+  const messages = [
+    { id: 'm1', channel: 'whatsapp', name: 'Ольга С.', vacancy: 'Кладовщик · 2/2',
+      preview: 'Здравствуйте! Видела объявление про кладовщика 2/2, ещё актуально? Могу выйти уже на этой неделе',
+      time: '2 мин', unread: true },
+    { id: 'm2', channel: 'telegram', name: 'Михаил К.', vacancy: 'Frontend (Senior)',
+      preview: 'Спасибо за приглашение — подтверждаю собеседование на завтра в 11:00', time: '14 мин', unread: true },
+    { id: 'm3', channel: 'hh', name: 'Павел Д.', vacancy: 'Кладовщик · 2/2',
+      preview: 'Готов приступить хоть завтра. Подскажите, какой график и есть ли оформление по ТК?',
+      time: '38 мин', unread: true },
+    { id: 'm4', channel: 'avito', name: 'Игорь П.', vacancy: 'Кладовщик · 2/2',
+      preview: 'А можно подъехать к 10 утра вместо 9? Дорога от меня неблизкая', time: '1 ч', unread: false },
+    { id: 'm5', channel: 'telegram', name: 'Александр Т.', vacancy: 'Оператор call-центра',
+      preview: 'Это по поводу работы оператором, мне ваш номер дали в чате', time: '2 ч', unread: true },
+    { id: 'm6', channel: 'whatsapp', name: 'Алёна Р.', vacancy: 'HR-дженералист',
+      preview: 'Отправила выполненное тестовое задание вам на почту, посмотрите пожалуйста', time: '3 ч', unread: false },
+  ];
+  const unread = messages.filter(m => m.unread).length;
 
   const periodLabelLow = {
     week: 'к прошлой неделе', month: 'к прошлому месяцу', quarter: 'к прошлому кварталу',
@@ -167,82 +175,57 @@ function Home({ tweaks }) {
         </div>
       </div>
 
-      {/* Адаптация · Пульс-Онбординг */}
-      <div className="card-block ad-card">
+      {/* Последние сообщения · Чаты Глафиры */}
+      <div className="card-block msg-card">
         <div className="card-block-head">
           <div className="title">
-            Адаптация
-            <span className="ad-sub-title">· Пульс-Онбординг</span>
+            Последние сообщения
+            <span className="ad-sub-title">· все каналы в одном чате</span>
           </div>
-          <button className="btn btn-ghost btn-sm">Все сотрудники <Icon name="chevR" size={14}/></button>
+          <button className="btn btn-ghost btn-sm">Все чаты <Icon name="chevR" size={14}/></button>
         </div>
 
-        <div className="ad-stats">
-          <div className="ad-stat ad-stat-total">
-            <div className="ad-stat-num">{pulse.total}</div>
-            <div className="ad-stat-label">на адаптации</div>
-            <div className="ad-stat-sub">+{pulse.newThisMonth} в этом месяце</div>
-          </div>
-
-          <div className="ad-stat ad-stat-risk">
-            <div className="ad-stat-label-top">Риск ухода</div>
-            <div className="ad-risk-bar">
-              <span className="seg seg-red"    style={{flex: pulse.red}}/>
-              <span className="seg seg-yellow" style={{flex: pulse.yellow}}/>
-              <span className="seg seg-green"  style={{flex: pulse.green}}/>
-            </div>
-            <div className="ad-risk-legend">
-              <span><span className="dot dot-red"/>{pulse.red} высокий</span>
-              <span><span className="dot dot-yellow"/>{pulse.yellow} средний</span>
-              <span><span className="dot dot-green"/>{pulse.green} норма</span>
-            </div>
-          </div>
-
-          <div className="ad-stat">
-            <div className="ad-stat-label-top">Средняя оценка</div>
-            <div className="ad-stat-row">
-              <span className="ad-stat-num-md">{pulse.avgRate.toFixed(1)}</span>
-              <span className="ad-stat-unit">/ 5</span>
-            </div>
-            <div className="ad-stat-sub">ответили {pulse.responseRate}% · {pulse.noResponse} молчат</div>
-          </div>
-
-          <div className="ad-stat">
-            <div className="ad-stat-label-top">eNPS <span className="ad-mute">90 дн.</span></div>
-            <div className="ad-stat-row">
-              <span className="ad-stat-num-md">{pulse.enps}</span>
-              <span className="delta up" style={{fontSize:11, marginLeft:6}}>▲ {pulse.enpsD}</span>
-            </div>
-            <div className="ad-stat-sub">к прошлому периоду</div>
-          </div>
+        <div className="msg-summary">
+          <span className="msg-sum-item">
+            <span className="msg-sum-num t-mono">{unread}</span> непрочитанных
+          </span>
+          <span className="msg-sum-sep"/>
+          <span className="msg-sum-item">
+            <span className="msg-sum-num t-mono">{messages.length}</span> активных диалогов
+          </span>
         </div>
 
-        <div className="ad-divider"/>
-
-        <div className="ad-attention-head">
-          <span className="ad-attn-title">Требуют внимания HR</span>
-          <span className="count-pill">{pulse.topAlerts.length}</span>
-        </div>
-        <div className="ad-attention-list">
-          {pulse.topAlerts.map((a, i) => (
-            <div key={i} className="att-row ad-att-row">
-              <div className={`flag-icon ${a.flag}`}><Icon name={a.icon} size={16}/></div>
-              <div className="body">
-                <div className="name">
-                  {a.name}
-                  <span className="ad-role">· {a.role}</span>
+        <div className="msg-list">
+          {messages.map((m) => {
+            const ch = channelMeta[m.channel];
+            const initials = m.name.split(' ').map(s => s[0]).join('').slice(0, 2);
+            return (
+              <div key={m.id} className={`msg-row${m.unread ? ' unread' : ''}`}>
+                <div className="msg-ava-wrap">
+                  <div className="msg-ava">{initials}</div>
+                  <span className="msg-ch-badge t-mono" style={{ background: ch.color }}>{ch.abbr}</span>
                 </div>
-                <div className="reason">{a.reason}</div>
+                <div className="msg-body">
+                  <div className="msg-top">
+                    <span className="msg-name">{m.name}</span>
+                    <span className="msg-vac">{m.vacancy}</span>
+                    <span className="msg-ch-name" style={{ color: ch.color }}>
+                      <span className="msg-ch-dot" style={{ background: ch.color }}/>
+                      {ch.name}
+                    </span>
+                  </div>
+                  <div className="msg-text">{m.preview}</div>
+                  <div className="msg-actions">
+                    <button className="msg-goto">Перейти к кандидату <Icon name="chevR" size={13}/></button>
+                  </div>
+                </div>
+                <div className="msg-meta">
+                  {m.unread && <span className="msg-unread-dot"/>}
+                  <span className="msg-time t-mono">{m.time}</span>
+                </div>
               </div>
-              <div className="ad-att-meta">
-                <span className="ad-day t-mono">день {a.day}</span>
-                <span className={`ad-risk-pill ${a.risk >= 70 ? 'red' : a.risk >= 50 ? 'yellow' : 'green'}`}>
-                  риск <b className="t-mono">{a.risk}</b>
-                </span>
-              </div>
-              <div className="arrow"><Icon name="chevR" size={16}/></div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

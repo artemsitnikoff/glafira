@@ -14,6 +14,7 @@ from ...services.integrations.hh import service as hh_service
 from ...services.integrations.smtp import service as smtp_service
 from ...services.integrations.bitrix24 import service as b24_service
 from ...services.integrations.telegram import service as tg_service
+from ...services.integrations.mango import service as mango_service
 from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixImportRequest, BitrixImportResult
 from ...config import settings
 
@@ -57,6 +58,12 @@ class TgConfirmPasswordRequest(BaseModel):
 
 class TgConnectSessionRequest(BaseModel):
     session: str
+
+
+class MangoConfigRequest(BaseModel):
+    api_key: str | None = None
+    api_salt: str | None = None
+    vpbx_api_url: str | None = None
 
 router = APIRouter()
 
@@ -448,3 +455,60 @@ async def tg_disconnect(
     await tg_service.disconnect(session, current_user.company_id, current_user.id)
     await session.commit()
     return {"message": "Telegram отключён"}
+
+
+# ---------------------------------------------------------------------------
+# Mango Office (VPBX API)
+# ---------------------------------------------------------------------------
+
+@router.post("/mango/config", dependencies=[Depends(require_admin)])
+async def save_mango_config(
+    data: MangoConfigRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Сохранить конфигурацию Mango Office. Возвращает статус (без секретов)."""
+    await mango_service.save_config(
+        session,
+        current_user.company_id,
+        api_key=data.api_key,
+        api_salt=data.api_salt,
+        vpbx_api_url=data.vpbx_api_url,
+        actor_user_id=current_user.id,
+    )
+    await session.commit()
+    return await mango_service.get_status(session, current_user.company_id)
+
+
+@router.get("/mango/status", dependencies=[Depends(require_settings_read_access)])
+async def get_mango_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Статус интеграции Mango Office (секреты не возвращаются)."""
+    return await mango_service.get_status(session, current_user.company_id)
+
+
+@router.post("/mango/test", dependencies=[Depends(require_admin)])
+async def test_mango(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Проверить подключение к Mango Office (реальный вызов stats/request)."""
+    # test_connection коммитит сам (успех и сбой) — чтобы last_test_* сохранилось.
+    return await mango_service.test_connection(
+        session, current_user.company_id, actor_user_id=current_user.id
+    )
+
+
+@router.post("/mango/disconnect", dependencies=[Depends(require_admin)])
+async def disconnect_mango(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Отключить Mango Office (status=disconnected; конфиг остаётся)."""
+    await mango_service.disconnect(
+        session, current_user.company_id, actor_user_id=current_user.id
+    )
+    await session.commit()
+    return {"message": "Mango Office отключён"}

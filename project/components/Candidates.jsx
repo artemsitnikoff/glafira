@@ -833,6 +833,7 @@ function CandidateDetail({ candidate: c, vacancy: v, onClose, fromPool }) {
           { id: 'ai', label: 'Оценка AI' },
           { id: 'verify', label: 'Верификация' },
           { id: 'chat', label: 'Чат' },
+          { id: 'calls', label: 'Звонки' },
           { id: 'docs', label: 'Документы' },
           { id: 'comments', label: 'Комментарии' },
           { id: 'actions', label: 'Все действия' },
@@ -846,6 +847,7 @@ function CandidateDetail({ candidate: c, vacancy: v, onClose, fromPool }) {
       <div className="cc-content">
         {tab === 'resume' && <ResumeTab c={c} onOpenAI={() => setTab('ai')}/>}
         {tab === 'chat' && <ChatTab c={c}/>}
+        {tab === 'calls' && <CallsTab c={c}/>}
         {tab === 'actions' && <ActionsTab c={c}/>}
         {tab === 'docs' && <DocsTab/>}
         {tab === 'ai' && <AITab c={c}/>}
@@ -1511,6 +1513,186 @@ function AITab({ c }) {
         })}
       </div>
 
+    </div>
+  );
+}
+
+// =====================================================================
+// CallsTab — звонки рекрутера через Манго Телеком (amoCRM-style)
+// =====================================================================
+const CALL_WAVE = [8,14,22,31,19,12,26,38,44,30,18,11,24,40,52,46,33,21,14,28,42,55,48,36,24,16,30,46,58,50,38,26,18,12,22,36,48,40,28,17,11,20,33,44,30,19,12,9];
+
+function fmtClock(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function CallPlayer({ durationSec, color = 'var(--accent)' }) {
+  const [playing, setPlaying] = useStateC(false);
+  const [pos, setPos] = useStateC(0);
+  const [speed, setSpeed] = useStateC(1);
+  const trackRef = React.useRef(null);
+
+  useEffectC(() => {
+    if (!playing) return;
+    const iv = setInterval(() => {
+      setPos(p => {
+        const np = p + 0.12 * speed;
+        if (np >= durationSec) return durationSec;
+        return np;
+      });
+    }, 120);
+    return () => clearInterval(iv);
+  }, [playing, speed, durationSec]);
+
+  useEffectC(() => {
+    if (pos >= durationSec && playing) setPlaying(false);
+  }, [pos, durationSec, playing]);
+
+  const pct = Math.min(100, (pos / durationSec) * 100);
+  const toggle = () => {
+    if (pos >= durationSec) setPos(0);
+    setPlaying(p => !p);
+  };
+  const cycleSpeed = () => setSpeed(s => (s === 1 ? 1.5 : s === 1.5 ? 2 : 1));
+  const seek = (e) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    setPos(ratio * durationSec);
+  };
+
+  return (
+    <div className="call-player" style={{'--cp-color': color}}>
+      <button className={`cp-play ${playing ? 'playing' : ''}`} onClick={toggle} aria-label={playing ? 'Пауза' : 'Слушать'}>
+        {playing ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 7 5.5z"/></svg>
+        )}
+      </button>
+      <div className="cp-wave" ref={trackRef} onClick={seek}>
+        {CALL_WAVE.map((h, i) => {
+          const barPct = (i / CALL_WAVE.length) * 100;
+          return <span key={i} className={`cp-bar ${barPct <= pct ? 'on' : ''}`} style={{height: `${h}%`}}/>;
+        })}
+      </div>
+      <span className="cp-time t-mono">{fmtClock(pos)} / {fmtClock(durationSec)}</span>
+      <button className="cp-speed t-mono" onClick={cycleSpeed} title="Скорость воспроизведения">{speed}×</button>
+      <button className="cp-dl icon-btn" title="Скачать запись"><Icon name="download" size={15}/></button>
+    </div>
+  );
+}
+
+function CallsTab({ c }) {
+  const recruiter = c.recruiter || 'Анна Седова';
+  const calls = [
+    {
+      id: 1, dir: 'out', status: 'answered', durationSec: 252, date: c.date, time: '14:32',
+      title: 'Первичный скрининг',
+      summary: `Глафира соединила ${recruiter} с кандидатом. Обсудили текущую занятость и причину поиска, кратко прошлись по опыту в ${c.lastCo}. Кандидат подтвердил интерес к вакансии, готов к интервью на следующей неделе.`,
+      hint: 'Рекрутёр говорил 68% времени — кандидату почти не дали раскрыться. Не уточнили зарплатные ожидания и формат работы (офис/удалёнка), хотя это ключевые отсеивающие критерии. Дважды перебили кандидата на рассказе про достижения.',
+      hintTone: 'warn',
+    },
+    {
+      id: 2, dir: 'out', status: 'missed', durationSec: 0, date: c.date, time: '11:08',
+      title: 'Недозвон',
+      summary: 'Кандидат не взял трубку. Глафира автоматически отправила сообщение в Telegram с предложением выбрать удобное время для звонка.',
+      hint: null,
+    },
+    {
+      id: 3, dir: 'in', status: 'answered', durationSec: 158, date: c.date, time: '15:47',
+      title: 'Кандидат перезвонил',
+      summary: 'Кандидат перезвонил сам, уточнил детали по графику и оформлению по ТК. Договорились о видеоинтервью во вторник в 15:00, ссылку рекрутёр отправит в Telegram.',
+      hint: 'В конце разговора не проговорили следующий шаг явно — кандидат сам спросил, «что дальше». Стоит всегда резюмировать договорённости и сроки голосом, а не только в чате.',
+      hintTone: 'warn',
+    },
+    {
+      id: 4, dir: 'out', status: 'answered', durationSec: 365, date: c.date, time: '16:20',
+      title: 'Согласование интервью',
+      summary: 'Подтвердили дату и время интервью, ответили на вопросы про команду и проект. Кандидат настроен позитивно, прислал подтверждение в календаре.',
+      hint: 'Хороший звонок: чёткая структура, договорённости зафиксированы. Можно было заранее предупредить о тестовом задании, чтобы не было сюрприза на интервью.',
+      hintTone: 'good',
+    },
+  ];
+
+  const answered = calls.filter(x => x.status === 'answered');
+  const totalSec = answered.reduce((s, x) => s + x.durationSec, 0);
+
+  const dirMeta = {
+    out: { label: 'Исходящий', cls: 'out', icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+    )},
+    in: { label: 'Входящий', cls: 'in', icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 7 7 17"/><path d="M16 17H7V8"/></svg>
+    )},
+  };
+
+  return (
+    <div className="calls-tab">
+      {/* Summary strip */}
+      <div className="calls-summary">
+        <div className="calls-sum-left">
+          <span className="calls-sum-item"><span className="calls-sum-num t-mono">{calls.length}</span> звонка</span>
+          <span className="calls-sum-sep"/>
+          <span className="calls-sum-item"><span className="calls-sum-num t-mono">{fmtClock(totalSec)}</span> разговора</span>
+          <span className="calls-sum-sep"/>
+          <span className="calls-sum-item calls-sum-missed"><span className="calls-sum-num t-mono">1</span> недозвон</span>
+        </div>
+        <div className="calls-mango" title="Телефония подключена через Манго Телеком">
+          <span className="mango-dot"/>
+          Манго Телеком · {c.phone}
+        </div>
+      </div>
+
+      {/* Call list */}
+      <div className="calls-list">
+        {calls.map(call => {
+          const dm = dirMeta[call.dir];
+          const missed = call.status === 'missed';
+          return (
+            <div key={call.id} className={`call-card ${missed ? 'missed' : ''}`}>
+              <div className="call-head">
+                <span className={`call-dir call-dir-${dm.cls} ${missed ? 'call-dir-missed' : ''}`}>
+                  {missed ? (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/><line x1="2" y1="22" x2="22" y2="2" stroke="currentColor" strokeWidth="2"/></svg>
+                  ) : dm.icon}
+                </span>
+                <span className="call-title">{call.title}</span>
+                {missed
+                  ? <span className="call-status call-status-missed">Не дозвонился</span>
+                  : <span className="call-status call-status-ok">{dm.label} · {fmtClock(call.durationSec)}</span>}
+                <span className="call-spacer"/>
+                <span className="call-recruiter">{recruiter}</span>
+                <span className="call-when t-mono">{call.date} · {call.time}</span>
+              </div>
+
+              {!missed && <CallPlayer durationSec={call.durationSec} color={call.dir === 'in' ? '#16A34A' : 'var(--accent)'}/>}
+
+              <div className="call-summary">
+                <div className="call-block-label">
+                  <span className="glafira-emoji">👩🏻</span> Краткое содержание
+                </div>
+                <div className="call-summary-text">{call.summary}</div>
+              </div>
+
+              {call.hint && (
+                <div className={`call-hint call-hint-${call.hintTone}`}>
+                  <div className="call-hint-mark">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.79.68-1.4 1.41-2a5 5 0 1 0-7 0c.73.6 1.23 1.21 1.41 2"/></svg>
+                  </div>
+                  <div className="call-hint-body">
+                    <div className="call-hint-title">
+                      {call.hintTone === 'good' ? 'AI-разбор звонка' : 'AI-подсказка: что улучшить'}
+                    </div>
+                    <div className="call-hint-text">{call.hint}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
