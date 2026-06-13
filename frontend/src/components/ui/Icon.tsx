@@ -29,6 +29,7 @@ import {
   ExternalLink,
   Funnel,
   Sparkles,
+  Star,
   MoreHorizontal,
   Pause,
   Play,
@@ -98,6 +99,7 @@ const iconMap = {
   funnel: Funnel,
   sparkles: Sparkles,
   sparkle: Sparkles, // alias для совместимости
+  star: Star,
   pin: MapPin,
   more: MoreHorizontal,
   'more-horizontal': MoreHorizontal,

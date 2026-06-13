@@ -219,6 +219,10 @@
 .event-row .context .context-sep {
   color: var(--fg-3);
 }
+.event-row .context .ent {
+  color: var(--accent); cursor: pointer; font-weight: 500;
+}
+.event-row .context .ent:hover { text-decoration: underline; }
 .event-row .time {
   font-size: 11px; color: var(--fg-3);
   font-family: var(--font-mono);
