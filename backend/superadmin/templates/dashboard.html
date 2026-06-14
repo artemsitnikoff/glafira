@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд — Суперадмин Глафира{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+    <h1 style="font-size: 24px; font-weight: 600; color: var(--ark-gray-800);">
+        Управление тенантами
+    </h1>
+    <a href="/super/companies/new" class="btn btn-primary">+ Создать компанию</a>
+</div>
+
+<!-- Companies List -->
+<div class="card">
+    <div class="card-title">Компании ({{ companies|length }})</div>
+
+    {% if companies %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Админ</th>
+                    <th>Создана</th>
+                    <th>Пользователи</th>
+                    <th>Кандидаты</th>
+                    <th>OpenRouter</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for company in companies %}
+                <tr>
+                    <td style="font-weight: 500;">{{ company.name }}</td>
+                    <td style="color: var(--ark-gray-600);">{{ company.admin_email }}</td>
+                    <td style="color: var(--ark-gray-600);">{{ company.created_at }}</td>
+                    <td>{{ company.users_count }}</td>
+                    <td>{{ company.candidates_count }}</td>
+                    <td>
+                        {% if company.has_openrouter_key %}
+                            <span class="status-badge status-yes">Есть</span>
+                        {% else %}
+                            <span class="status-badge status-no">Нет</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/super/companies/{{ company.id }}/edit" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">
+                            Править
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--ark-gray-500);">
+            Компании не созданы
+        </div>
+    {% endif %}
+</div>
+
+<!-- Test Results -->
+<div class="card" style="margin-top: 30px;">
+    <div class="card-title">Результаты последнего тестирования</div>
+
+    {% if test_results.exists %}
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px;">
+            <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--ark-gray-800);">{{ test_results.total }}</div>
+                <div style="font-size: 12px; color: var(--ark-gray-500);">Всего тестов</div>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--ark-green-500);">{{ test_results.passed }}</div>
+                <div style="font-size: 12px; color: var(--ark-gray-500);">Прошло</div>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--ark-red-500);">{{ test_results.failed }}</div>
+                <div style="font-size: 12px; color: var(--ark-gray-500);">Упало</div>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; color: var(--ark-gray-500);">{{ test_results.skipped }}</div>
+                <div style="font-size: 12px; color: var(--ark-gray-500);">Пропущено</div>
+            </div>
+        </div>
+
+        {% if test_results.time %}
+            <div style="margin-bottom: 16px; font-size: 13px; color: var(--ark-gray-600);">
+                Время выполнения: {{ "%.1f"|format(test_results.time) }}с
+                {% if test_results.timestamp %}
+                    • {{ test_results.timestamp.strftime('%d.%m.%Y %H:%M') }}
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if test_results.failed_names %}
+            <div style="margin-top: 16px;">
+                <strong style="font-size: 13px; color: var(--ark-gray-700);">Упавшие тесты:</strong>
+                <div style="margin-top: 8px; max-height: 200px; overflow-y: auto; background: var(--ark-gray-50); border-radius: 4px; padding: 12px;">
+                    {% for test_name in test_results.failed_names %}
+                        <div style="font-family: 'SF Mono', Consolas, monospace; font-size: 12px; margin-bottom: 4px; color: var(--ark-red-500);">
+                            {{ test_name }}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        {% if test_results.failed == 0 %}
+            <div style="margin-top: 16px; padding: 12px; background: #f0fdf4; border-radius: 6px; color: var(--ark-green-500); font-weight: 500;">
+                ✅ Все тесты прошли успешно!
+            </div>
+        {% endif %}
+    {% else %}
+        <div style="text-align: center; padding: 40px; color: var(--ark-gray-500);">
+            Результаты тестирования не найдены.<br>
+            <span style="font-size: 12px;">Файл: {{ test_results_path }}</span>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -51,6 +51,27 @@ services:
     ports:
       - "127.0.0.1:8080:80"
 
+  # Суперадминка управления тенантами. ИЗОЛИРОВАНА от клиентского приложения
+  # (отдельный код backend/superadmin/, своя авторизация из env SUPERADMIN_*).
+  # ⚠️ profiles:[superadmin] — автодеплой (docker compose up -d БЕЗ профиля) её НЕ
+  # стартует. Поднимать вручную ПОСЛЕ задания SUPERADMIN_* в .env и настройки nginx:
+  #   docker compose -f docker-compose.prod.yml --profile superadmin up -d superadmin
+  # Тот же образ что backend (есть пакеты app + superadmin), другая команда/порт.
+  # backend_storage:ro — читать junit-xml последнего прогона тестов.
+  superadmin:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - backend_storage:/app/storage:ro
+    ports:
+      - "127.0.0.1:8001:8001"
+    command: uvicorn superadmin.main:app --host 0.0.0.0 --port 8001
+    profiles: ["superadmin"]
+
 volumes:
   glafira_pgdata:
   backend_storage:

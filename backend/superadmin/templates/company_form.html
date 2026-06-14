@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if company %}Редактировать {{ company.name }}{% else %}Создать компанию{% endif %} — Суперадмин Глафира
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px;">
+    <div style="margin-bottom: 24px;">
+        <a href="/super/" style="color: var(--ark-gray-600); text-decoration: none; font-size: 13px;">
+            ← Назад к списку
+        </a>
+    </div>
+
+    <h1 style="font-size: 20px; font-weight: 600; margin-bottom: 24px; color: var(--ark-gray-800);">
+        {% if company %}Редактировать компанию{% else %}Создать компанию{% endif %}
+    </h1>
+
+    {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    {% if success %}
+        <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+
+    <div class="card">
+        <form method="post" action="{{ request.url }}">
+            <!-- Company Name -->
+            <div class="form-group">
+                <label class="form-label" for="name">Название компании *</label>
+                <input
+                    type="text"
+                    id="name"
+                    name="name"
+                    class="form-input"
+                    value="{{ company.name if company else (form_data.name or '') }}"
+                    required
+                    placeholder="ООО «Ромашка»"
+                >
+            </div>
+
+            {% if not company %}
+                <!-- Admin User Fields (only for create) -->
+                <div class="form-group">
+                    <label class="form-label" for="admin_email">Email администратора *</label>
+                    <input
+                        type="email"
+                        id="admin_email"
+                        name="admin_email"
+                        class="form-input"
+                        value="{{ form_data.admin_email or '' }}"
+                        required
+                        placeholder="admin@company.ru"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="admin_full_name">ФИО администратора *</label>
+                    <input
+                        type="text"
+                        id="admin_full_name"
+                        name="admin_full_name"
+                        class="form-input"
+                        value="{{ form_data.admin_full_name or '' }}"
+                        required
+                        placeholder="Иванов Иван Иванович"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="admin_password">Пароль администратора *</label>
+                    <input
+                        type="password"
+                        id="admin_password"
+                        name="admin_password"
+                        class="form-input"
+                        required
+                        placeholder="Надёжный пароль"
+                    >
+                </div>
+            {% endif %}
+
+            <!-- OpenRouter API Key -->
+            <div class="form-group">
+                <label class="form-label" for="openrouter_api_key">
+                    API-ключ OpenRouter
+                    {% if company %}(оставьте пустым, чтобы не менять){% endif %}
+                </label>
+                {% if company and company.openrouter_key_display %}
+                    <div style="margin-bottom: 8px; padding: 8px 12px; background: var(--ark-gray-50); border-radius: 4px; font-family: monospace; font-size: 12px; color: var(--ark-gray-600);">
+                        Текущий: {{ company.openrouter_key_display }}
+                    </div>
+                {% endif %}
+                <input
+                    type="text"
+                    id="openrouter_api_key"
+                    name="openrouter_api_key"
+                    class="form-input"
+                    value="{{ form_data.openrouter_api_key or '' }}"
+                    placeholder="sk-or-v1-..."
+                >
+                {% if not form_data.openrouter_api_key and not company %}
+                    <div style="margin-top: 4px; font-size: 12px; color: var(--ark-gray-500);">
+                        Рекомендуется: ключи обычно начинаются с «sk-or-v1-»
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if company and company.available_models %}
+                <!-- LLM Model (only for edit if models available) -->
+                <div class="form-group">
+                    <label class="form-label" for="llm_model">LLM-модель</label>
+                    <select id="llm_model" name="llm_model" class="form-select">
+                        <option value="">Использовать глобальную настройку</option>
+                        {% for model in company.available_models %}
+                            <option value="{{ model }}"
+                                {% if model == (company.llm_model or form_data.llm_model) %}selected{% endif %}>
+                                {{ model }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+
+            <div style="margin-top: 32px; display: flex; gap: 12px;">
+                <button type="submit" class="btn btn-primary">
+                    {% if company %}Сохранить{% else %}Создать компанию{% endif %}
+                </button>
+                <a href="/super/" class="btn btn-secondary">Отмена</a>
+            </div>
+        </form>
+    </div>
+
+    {% if not company %}
+        <div style="margin-top: 20px; padding: 16px; background: var(--ark-blue-50); border-radius: 6px; font-size: 13px; color: var(--ark-gray-700);">
+            <strong>Что произойдёт:</strong>
+            <ul style="margin: 8px 0 0 20px; line-height: 1.6;">
+                <li>Создастся компания с уникальным ID</li>
+                <li>Создастся пользователь-администратор</li>
+                <li>Настроятся шаблоны воронки и причины отказов</li>
+                <li>Пароль будет отправлен на email (если SMTP настроен)</li>
+            </ul>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

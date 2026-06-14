@@ -1,0 +1,1 @@
+# Superadmin service for managing tenants (companies) of Glafira ATS
