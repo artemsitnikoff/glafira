@@ -1,3 +1,6 @@
+import os
+import re
+from pathlib import Path
 from typing import Optional, Union
 from uuid import UUID
 
@@ -22,6 +25,25 @@ from .config import config
 app = FastAPI(title="Glafira Superadmin", version="1.0.0")
 
 templates = Jinja2Templates(directory="superadmin/templates")
+
+
+def _read_app_version() -> str:
+    """Версия Глафиры из примонтированного frontend/src/lib/version.ts — единый
+    источник правды. Читается на каждый рендер → актуальна после git pull, без
+    пересборки суперадминки. Файла нет/не распарсился → «—» (не падаем)."""
+    path = os.getenv("APP_VERSION_FILE", "/app/app_version.ts")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        m = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", text)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return "—"
+
+
+# Доступно во всех шаблонах как {{ app_version() }}
+templates.env.globals["app_version"] = _read_app_version
 
 
 # Error handlers

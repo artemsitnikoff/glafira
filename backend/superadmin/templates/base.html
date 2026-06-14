@@ -232,7 +232,7 @@
     {% if request.url.path != '/super/login' %}
     <div class="header">
         <div class="header-content">
-            <div class="logo">🔧 Суперадмин — Глафира</div>
+            <div class="logo">🔧 Суперадмин — Глафира <span style="font-size: 12px; font-weight: 400; color: var(--ark-gray-500); margin-left: 6px;">v{{ app_version() }}</span></div>
             <div class="user-menu">
                 <span>{{ username }}</span>
                 <form method="post" action="/super/logout" style="display: inline;">

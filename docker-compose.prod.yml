@@ -67,6 +67,9 @@ services:
         condition: service_healthy
     volumes:
       - backend_storage:/app/storage:ro
+      # Версия Глафиры — единый источник frontend/src/lib/version.ts, read-only.
+      # Суперадминка читает её на каждый рендер → актуальна после git pull без пересборки.
+      - ./frontend/src/lib/version.ts:/app/app_version.ts:ro
     ports:
       # Хост-порт настраивается через SUPERADMIN_PORT в .env. На общем VPS 8001
       # часто занят чужим сервисом → задать свободный, напр. SUPERADMIN_PORT=18001.
