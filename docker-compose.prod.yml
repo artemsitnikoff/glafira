@@ -68,7 +68,10 @@ services:
     volumes:
       - backend_storage:/app/storage:ro
     ports:
-      - "127.0.0.1:8001:8001"
+      # Хост-порт настраивается через SUPERADMIN_PORT в .env. На общем VPS 8001
+      # часто занят чужим сервисом → задать свободный, напр. SUPERADMIN_PORT=18001.
+      # Контейнер внутри всегда слушает 8001 (см. command).
+      - "127.0.0.1:${SUPERADMIN_PORT:-8001}:8001"
     command: uvicorn superadmin.main:app --host 0.0.0.0 --port 8001
     profiles: ["superadmin"]
 
