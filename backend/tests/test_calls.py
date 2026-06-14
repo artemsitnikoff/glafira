@@ -186,7 +186,7 @@ class TestCallAPI:
     async def test_get_candidate_calls_empty(self, async_client, test_candidate, admin_headers):
         """Тест получения пустого списка звонков кандидата"""
         response = await async_client.get(
-            f"/candidates/{test_candidate.id}/calls",
+            f"/api/v1/candidates/{test_candidate.id}/calls",
             headers=admin_headers
         )
         assert response.status_code == 200
@@ -210,7 +210,7 @@ class TestCallAPI:
         await db_session.commit()
 
         response = await async_client.get(
-            f"/candidates/{test_candidate.id}/calls",
+            f"/api/v1/candidates/{test_candidate.id}/calls",
             headers=admin_headers
         )
         assert response.status_code == 200
@@ -224,7 +224,7 @@ class TestCallAPI:
         """Тест 404 для несуществующего кандидата"""
         fake_id = str(uuid4())
         response = await async_client.get(
-            f"/candidates/{fake_id}/calls",
+            f"/api/v1/candidates/{fake_id}/calls",
             headers=admin_headers
         )
         assert response.status_code == 404
@@ -243,7 +243,7 @@ class TestCallAPI:
         await db_session.commit()
 
         response = await async_client.get(
-            f"/calls/{call.id}",
+            f"/api/v1/calls/{call.id}",
             headers=admin_headers
         )
         assert response.status_code == 200
@@ -257,7 +257,7 @@ class TestCallAPI:
         mock_get_status.return_value = {"configured": False, "verified": False}
 
         response = await async_client.post(
-            "/calls/sync",
+            "/api/v1/calls/sync",
             headers=admin_headers
         )
         # Должен создать джоб, который завершится с ошибкой в фоне
@@ -268,7 +268,7 @@ class TestCallAPI:
     async def test_manager_access_forbidden(self, async_client, manager_headers):
         """Тест запрета доступа для manager роли"""
         response = await async_client.post(
-            "/calls/sync",
+            "/api/v1/calls/sync",
             headers=manager_headers
         )
         assert response.status_code == 403
@@ -300,7 +300,7 @@ class TestCallAPI:
             mock_client_class.return_value = mock_client
 
             response = await async_client.post(
-                f"/calls/{call.id}/transcribe",
+                f"/api/v1/calls/{call.id}/transcribe",
                 headers=admin_headers
             )
 
@@ -322,7 +322,7 @@ class TestCallAPI:
         await db_session.commit()
 
         response = await async_client.post(
-            f"/calls/{call.id}/transcribe",
+            f"/api/v1/calls/{call.id}/transcribe",
             headers=admin_headers
         )
         assert response.status_code == 400
@@ -343,7 +343,7 @@ class TestCallAPI:
         await db_session.commit()
 
         response = await async_client.post(
-            f"/calls/{call.id}/transcribe",
+            f"/api/v1/calls/{call.id}/transcribe",
             headers=admin_headers
         )
         assert response.status_code == 200
@@ -365,7 +365,7 @@ class TestCallAPI:
         await db_session.commit()
 
         response = await async_client.post(
-            f"/calls/{call.id}/transcribe",
+            f"/api/v1/calls/{call.id}/transcribe",
             headers=admin_headers
         )
         assert response.status_code == 409  # Conflict
