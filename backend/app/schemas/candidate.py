@@ -55,6 +55,7 @@ class CandidateCardVacancy(BaseModel):
     vacancy_id: UUID
     vacancy_name: str
     stage: str
+    stage_label: str
     stage_color: str
     is_last: bool
 

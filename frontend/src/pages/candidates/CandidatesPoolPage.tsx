@@ -463,7 +463,12 @@ const PoolCard = React.memo(function PoolCard({
               </span>
             )}
           </div>
-          <StageChip stage={candidate.last_vacancy.stage} size="sm"/>
+          <StageChip
+            stage={candidate.last_vacancy.stage}
+            label={(candidate.last_vacancy as { stage_label?: string }).stage_label}
+            color={candidate.last_vacancy.stage_color}
+            size="sm"
+          />
         </div>
       ) : (
         <div className="pc-vac pc-vac-empty">

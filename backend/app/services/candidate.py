@@ -436,6 +436,19 @@ async def get_candidates_paginated(
     for app_row in apps_rows:
         apps_by_candidate[app_row.candidate_id].append(app_row)
 
+    # Batch-запрос stage labels для резолва кастомных этапов
+    vacancy_ids = {app_row.vacancy_id for app_row in apps_rows} if apps_rows else set()
+    stage_label_map = {}
+    if vacancy_ids:
+        stage_labels_stmt = select(
+            VacancyStage.vacancy_id,
+            VacancyStage.stage_key,
+            VacancyStage.label
+        ).where(VacancyStage.vacancy_id.in_(vacancy_ids))
+        stage_labels_rows = (await session.execute(stage_labels_stmt)).all()
+        for stage_row in stage_labels_rows:
+            stage_label_map[(stage_row.vacancy_id, stage_row.stage_key)] = stage_row.label
+
     # Batch-запрос опыта страницы — мета «последнее место»/стаж выводится из реального опыта,
     # а не из устаревших last_* (как и в детальной карточке).
     exp_stmt = select(
@@ -471,12 +484,14 @@ async def get_candidates_paginated(
         if candidate_apps:
             last_app = candidate_apps[0]  # первый в отсортированном списке
             stage_color = STAGES.get(last_app.stage, STAGES['added']).color
+            stage_label = stage_label_map.get((last_app.vacancy_id, last_app.stage)) or (STAGES[last_app.stage].label if last_app.stage in STAGES else last_app.stage)
 
             last_vacancy = CandidateCardVacancy(
                 application_id=last_app.id,
                 vacancy_id=last_app.vacancy_id,
                 vacancy_name=last_app.vacancy_name,
                 stage=last_app.stage,
+                stage_label=stage_label,
                 stage_color=stage_color,
                 is_last=True
             )

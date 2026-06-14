@@ -3,11 +3,16 @@ import { STAGES, type StageKey } from '@/lib/stages';
 interface StageChipProps {
   stage: StageKey | string;
   size?: 'sm' | 'md';
+  label?: string;
+  color?: string;
 }
 
-export function StageChip({ stage, size = 'md' }: StageChipProps) {
+export function StageChip({ stage, size = 'md', label, color }: StageChipProps) {
   const cfg = STAGES[stage as StageKey];
-  if (!cfg) return null;
+  const text = label ?? cfg?.label ?? stage;
+  const bg = color ?? cfg?.color ?? STAGES.added.color;
+
+  if (!text) return null;
 
   const padding = size === 'sm' ? '2px 8px' : '4px 12px';
   const fs = size === 'sm' ? 11 : 11;
@@ -15,7 +20,7 @@ export function StageChip({ stage, size = 'md' }: StageChipProps) {
   return (
     <span
       style={{
-        background: cfg.color,
+        background: bg,
         color: '#fff',
         padding,
         borderRadius: 'var(--radius-chip)',
@@ -23,7 +28,7 @@ export function StageChip({ stage, size = 'md' }: StageChipProps) {
         fontWeight: 500
       }}
     >
-      {cfg.label}
+      {text}
     </span>
   );
 }
