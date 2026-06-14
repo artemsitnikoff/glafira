@@ -19,9 +19,22 @@ def fernet_key(monkeypatch):
     return test_key
 
 
+@pytest.fixture(autouse=True)
+def clear_hh_env(monkeypatch):
+    """Форсируем пустой ключ приложения в env для детерминизма тестов.
+
+    На VPS тест-контейнер видит прод-.env, где HH_* заданы — без этого env
+    перебивал бы legacy DB-колонки и ломал DB-основанные ассерты. С пустым env
+    тесты проверяют fallback-путь (legacy DB), эквивалентный прежнему DB-flow.
+    """
+    monkeypatch.setattr("app.config.settings.HH_CLIENT_ID", "")
+    monkeypatch.setattr("app.config.settings.HH_CLIENT_SECRET", "")
+    monkeypatch.setattr("app.config.settings.HH_REDIRECT_URI", "")
+
+
 @pytest.fixture
 def mock_hh_config(monkeypatch):
-    """Мокаем конфигурацию hh.ru для тестов"""
+    """Мокаем конфигурацию hh.ru (env-путь) для тестов"""
     monkeypatch.setattr("app.config.settings.HH_CLIENT_ID", "test_client_id")
     monkeypatch.setattr("app.config.settings.HH_CLIENT_SECRET", "test_client_secret")
     monkeypatch.setattr("app.config.settings.HH_REDIRECT_URI", "https://test.com/callback")
@@ -165,7 +178,7 @@ async def test_save_config_validation_errors(db_session, admin_user):
 @pytest.mark.asyncio
 async def test_start_oauth_without_config_raises_error(db_session, admin_user):
     """Тест ошибки при start_oauth без сохранённой конфигурации"""
-    with pytest.raises(ValidationError, match="Сначала сохраните настройки hh.ru"):
+    with pytest.raises(ValidationError, match="не настроен"):
         await hh_service.start_oauth(db_session, admin_user.company_id, admin_user.id)
 
 

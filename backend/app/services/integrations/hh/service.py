@@ -13,6 +13,7 @@ from ....models import (
     CandidateExperience, CandidateSkill, CandidateEducation, Message,
 )
 from ....models.settings import GlafiraSettings
+from ....config import settings
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....services.chat_log import log_chat
@@ -22,6 +23,25 @@ from . import client as hh_client
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_app_creds(integration: Optional["HhIntegration"] = None) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Ключ приложения Глафиры (client_id, client_secret, redirect_uri).
+
+    Источник правды — env (.env на VPS): один OAuth-app Глафиры авторизует любого
+    работодателя, в UI ничего вводить не надо. Legacy DB-колонки (client_id/secret/
+    redirect_uri в hh_integrations) остаются СТРАХОВКОЙ для арендаторов, подключённых
+    до перехода на env — если env пуст, берём из них. Возвращает (client_id, client_secret, redirect_uri).
+    """
+    client_id = settings.HH_CLIENT_ID or (integration.client_id if integration else None)
+    redirect_uri = settings.HH_REDIRECT_URI or (integration.redirect_uri if integration else None)
+    if settings.HH_CLIENT_SECRET:
+        client_secret = settings.HH_CLIENT_SECRET
+    elif integration and integration.client_secret:
+        client_secret = decrypt_text(integration.client_secret)
+    else:
+        client_secret = None
+    return client_id, client_secret, redirect_uri
 
 
 def _hh_phone(contacts) -> Optional[str]:
@@ -151,10 +171,12 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
     Raises:
         ValidationError: при отсутствии конфигурации
     """
-    # Читаем конфигурацию из БД
+    # Ключ приложения Глафиры — из env (.env), legacy DB-колонки как страховка.
+    # Один OAuth-app авторизует любого работодателя — вводить ничего не нужно.
     integration = await get_integration(session, company_id)
-    if not integration or not integration.client_id or not integration.redirect_uri:
-        raise ValidationError("Сначала сохраните настройки hh.ru")
+    client_id, _, redirect_uri = _resolve_app_creds(integration)
+    if not client_id or not redirect_uri:
+        raise ValidationError("hh.ru не настроен: задайте ключ приложения в .env (HH_CLIENT_ID/HH_REDIRECT_URI)")
 
     # Генерируем уникальный state
     state = secrets.token_urlsafe(32)
@@ -182,8 +204,8 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
     session.add(oauth_state)
     await session.commit()
 
-    # Строим authorize URL с client_id и redirect_uri из БД
-    authorize_url = hh_client.build_authorize_url(state, integration.client_id, integration.redirect_uri)
+    # Строим authorize URL ключом приложения Глафиры (env, fallback на legacy DB)
+    authorize_url = hh_client.build_authorize_url(state, client_id, redirect_uri)
 
     return authorize_url
 
@@ -223,20 +245,18 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
     user_id = oauth_state.user_id
 
     try:
-        # Читаем конфигурацию из БД
+        # Ключ приложения Глафиры — env (.env), fallback на legacy DB-колонки.
         integration_config = await get_integration(session, company_id)
-        if not integration_config or not integration_config.client_id or not integration_config.client_secret or not integration_config.redirect_uri:
-            raise ValidationError("Конфигурация hh.ru не найдена")
+        client_id, client_secret, redirect_uri = _resolve_app_creds(integration_config)
+        if not client_id or not client_secret or not redirect_uri:
+            raise ValidationError("hh.ru не настроен: задайте ключ приложения в .env")
 
-        # Расшифровываем client_secret
-        client_secret = decrypt_text(integration_config.client_secret)
-
-        # Обмениваем код на токены с credentials из БД
+        # Обмениваем код на токены
         token_data = await hh_client.exchange_code(
             code,
-            integration_config.client_id,
+            client_id,
             client_secret,
-            integration_config.redirect_uri
+            redirect_uri
         )
 
         # Получаем информацию о пользователе
@@ -254,9 +274,10 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
         encrypted_access = encrypt_text(token_data["access_token"])
         encrypted_refresh = encrypt_text(token_data["refresh_token"])
 
-        # Используем существующую интеграцию (которая уже есть с конфигом)
+        # Строка интеграции хранит ТОЛЬКО токены работодателя (ключ приложения — в env).
+        # Создаём при первом подключении, иначе обновляем.
+        integration_config = await get_integration(session, company_id)
         if integration_config:
-            # Обновляем существующую (токены + employer_id)
             integration_config.access_token = encrypted_access
             integration_config.refresh_token = encrypted_refresh
             integration_config.expires_at = expires_at
@@ -264,8 +285,16 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
             integration_config.connected_by_user_id = user_id
             integration = integration_config
         else:
-            # Не должно происходить, так как мы проверили выше
-            raise ValidationError("Конфигурация hh.ru исчезла во время OAuth")
+            integration = HhIntegration(
+                company_id=company_id,
+                access_token=encrypted_access,
+                refresh_token=encrypted_refresh,
+                expires_at=expires_at,
+                hh_employer_id=hh_employer_id,
+                connected_by_user_id=user_id,
+            )
+            session.add(integration)
+            await session.flush()
 
         # Удаляем использованный state
         await session.delete(oauth_state)
@@ -365,16 +394,17 @@ async def get_valid_access_token(session: AsyncSession, company_id: UUID) -> str
     if now >= expires_soon:
         # Токен истек или истечет скоро, обновляем
         try:
-            # Проверяем что у нас есть client credentials для refresh
-            if not integration.client_id or not integration.client_secret:
-                raise ValidationError("Отсутствуют client credentials для обновления токенов")
+            # Refresh ключом приложения Глафиры: env (.env), fallback на legacy DB-колонки
+            # (тот же app, что подключал работодателя).
+            client_id, client_secret, _ = _resolve_app_creds(integration)
+            if not client_id or not client_secret:
+                raise ValidationError("hh.ru не настроен: задайте ключ приложения в .env")
 
             current_refresh = decrypt_text(integration.refresh_token)
-            client_secret = decrypt_text(integration.client_secret)
 
             token_data = await hh_client.refresh_tokens(
                 current_refresh,
-                integration.client_id,
+                client_id,
                 client_secret
             )
 
@@ -406,39 +436,22 @@ async def get_status(session: AsyncSession, company_id: UUID) -> dict:
     Returns:
         dict: статус интеграции
     """
+    # Ключ приложения — env (.env), fallback на legacy DB. «Настроено» = ключ есть
+    # на сервере; работодателю достаточно нажать «Подключить» (ничего не вводя).
     integration = await get_integration(session, company_id)
+    client_id, _, redirect_uri = _resolve_app_creds(integration)
 
-    if not integration:
-        return {
-            "configured": False,
-            "connected": False,
-            "redirect_uri": None,
-            "client_id_masked": None,
-            "hh_employer_id": None,
-            "expires_at": None
-        }
-
-    # Проверяем что конфигурация сохранена
-    configured = bool(integration.client_id)
-
-    # Проверяем что есть валидные токены
-    connected = bool(integration.access_token)
-
-    # Маскируем client_id
     client_id_masked = None
-    if integration.client_id:
-        if len(integration.client_id) > 4:
-            client_id_masked = "••••" + integration.client_id[-4:]
-        else:
-            client_id_masked = "••••"
+    if client_id:
+        client_id_masked = ("••••" + client_id[-4:]) if len(client_id) > 4 else "••••"
 
     return {
-        "configured": configured,
-        "connected": connected,
-        "redirect_uri": integration.redirect_uri,
+        "configured": bool(client_id and redirect_uri),
+        "connected": bool(integration and integration.access_token),
+        "redirect_uri": redirect_uri,
         "client_id_masked": client_id_masked,
-        "hh_employer_id": integration.hh_employer_id,
-        "expires_at": integration.expires_at
+        "hh_employer_id": integration.hh_employer_id if integration else None,
+        "expires_at": integration.expires_at if integration else None,
     }
 
 

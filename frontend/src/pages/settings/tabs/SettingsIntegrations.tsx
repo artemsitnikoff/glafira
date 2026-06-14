@@ -1,7 +1,7 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
-import { useHhSaveConfig, useHhAuthorize, useHhDisconnect, useHhPollResponses } from '@/api/mutations/hhIntegration';
+import { useHhAuthorize, useHhDisconnect, useHhPollResponses } from '@/api/mutations/hhIntegration';
 import type { HhPollResult } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
@@ -68,7 +68,6 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const { data: hhStatus, isLoading: hhStatusLoading } = useHhStatus();
-  const hhSaveConfigMutation = useHhSaveConfig();
   const hhAuthorizeMutation = useHhAuthorize();
   const hhDisconnectMutation = useHhDisconnect();
   const hhPollMutation = useHhPollResponses();
@@ -95,15 +94,6 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
       setNotification({ type: 'error', message: e.error?.message || 'Не удалось забрать отклики с hh.ru' });
     }
   };
-
-  // Состояние формы hh.ru
-  const [hhForm, setHhForm] = useState({
-    client_id: '',
-    client_secret: '',
-    redirect_uri: `${window.location.origin}/api/v1/integrations/hh/callback`
-  });
-  // Режим повторного ввода настроек (когда уже configured, но хотим сменить креды)
-  const [editConfig, setEditConfig] = useState(false);
 
   // Обработка OAuth-возврата
   useEffect(() => {
@@ -136,19 +126,6 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
       }
     }
   }, [searchParams, setSearchParams]);
-
-  const handleHhSaveConfig = async () => {
-    try {
-      const response = await hhSaveConfigMutation.mutateAsync(hhForm);
-      window.location.href = response.authorize_url;
-    } catch (error) {
-      const e = error as unknown as ApiError;
-      setNotification({
-        type: 'error',
-        message: e.error?.message || 'Ошибка при сохранении настроек hh.ru'
-      });
-    }
-  };
 
   const handleHhConnect = async () => {
     try {
@@ -577,92 +554,29 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                   </div>
                 </div>
               </div>
-            ) : hhStatus?.configured && !editConfig ? (
-              // Состояние 2: Настроено, но не подключено — одна синяя кнопка «Подключить»
+            ) : (
+              // Не подключено: ключ приложения Глафиры — в .env на сервере, вводить
+              // ничего не нужно. Один OAuth-app авторизует любого работодателя.
               <div>
                 <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                  Настроено: Client ID <span className="t-mono">{hhStatus.client_id_masked}</span>.
-                  Осталось пройти авторизацию на hh.ru.
+                  Приложение Глафиры авторизует ваш аккаунт работодателя на hh.ru —
+                  ничего вводить не нужно. Нажмите «Подключить» и подтвердите доступ на hh.ru.
                 </div>
                 <div className="integ-actions">
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={readOnly ? undefined : handleHhConnect}
-                    disabled={hhAuthorizeMutation.isPending || readOnly}
+                    disabled={hhAuthorizeMutation.isPending || readOnly || !hhStatus?.configured}
                   >
-                    {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить'}
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => {
-                      if (hhStatus.redirect_uri) {
-                        setHhForm(prev => ({ ...prev, redirect_uri: hhStatus.redirect_uri! }));
-                      }
-                      setEditConfig(true);
-                    }}
-                    disabled={hhAuthorizeMutation.isPending}
-                  >
-                    Изменить настройки
+                    {hhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить hh.ru'}
                   </button>
                 </div>
-              </div>
-            ) : (
-              // Состояние 1: Не настроено (или повторный ввод настроек) — одна синяя «Сохранить и подключить»
-              <div>
-                <div className="form-grid form-grid-2">
-                  <FormRow label="Client ID" required>
-                    <TextInput
-                      value={hhForm.client_id}
-                      onChange={(value) => setHhForm(prev => ({ ...prev, client_id: value }))}
-                      placeholder="Введите Client ID"
-                      mono
-                    />
-                  </FormRow>
-                  <FormRow label="Client Secret" required>
-                    <TextInput
-                      type="password"
-                      value={hhForm.client_secret}
-                      onChange={(value) => setHhForm(prev => ({ ...prev, client_secret: value }))}
-                      placeholder="Введите Client Secret"
-                      mono
-                    />
-                  </FormRow>
-                  <FormRow label="Redirect URI" required span={2}>
-                    <TextInput
-                      value={hhForm.redirect_uri}
-                      onChange={(value) => setHhForm(prev => ({ ...prev, redirect_uri: value }))}
-                      mono
-                    />
-                  </FormRow>
-                </div>
-                <div className="info-banner small">
-                  <Icon name="alert-triangle" size={14} />
-                  <div>Зарегистрируйте приложение на <strong>dev.hh.ru</strong>, укажите этот Redirect URI, и вставьте Client ID / Client Secret.</div>
-                </div>
-                <div className="integ-actions">
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={readOnly ? undefined : handleHhSaveConfig}
-                    disabled={
-                      hhSaveConfigMutation.isPending ||
-                      !hhForm.client_id ||
-                      !hhForm.client_secret ||
-                      !hhForm.redirect_uri ||
-                      readOnly
-                    }
-                  >
-                    {hhSaveConfigMutation.isPending ? 'Сохранение...' : 'Сохранить и подключить'}
-                  </button>
-                  {editConfig && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setEditConfig(false)}
-                      disabled={hhSaveConfigMutation.isPending}
-                    >
-                      Отмена
-                    </button>
-                  )}
-                </div>
+                {hhStatus && !hhStatus.configured && (
+                  <div className="info-banner small" style={{ marginTop: 10 }}>
+                    <Icon name="alert-triangle" size={14} />
+                    <div>hh.ru не настроен на сервере: задайте HH_CLIENT_ID / HH_CLIENT_SECRET / HH_REDIRECT_URI в .env (обратитесь к администратору).</div>
+                  </div>
+                )}
               </div>
             )}
           </div>

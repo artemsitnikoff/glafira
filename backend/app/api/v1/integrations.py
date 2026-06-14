@@ -19,12 +19,6 @@ from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixI
 from ...config import settings
 
 
-class HhConfigRequest(BaseModel):
-    client_id: str
-    client_secret: str
-    redirect_uri: str
-
-
 class SmtpConfigRequest(BaseModel):
     host: str
     port: int
@@ -66,31 +60,6 @@ class MangoConfigRequest(BaseModel):
     vpbx_api_url: str | None = None
 
 router = APIRouter()
-
-
-@router.post("/hh/config", dependencies=[Depends(require_admin)])
-async def save_hh_config(
-    data: HhConfigRequest,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db)
-):
-    """Сохранить конфигурацию hh.ru и начать OAuth"""
-    # Сохраняем конфигурацию
-    await hh_service.save_config(
-        session,
-        current_user.company_id,
-        current_user.id,
-        data.client_id,
-        data.client_secret,
-        data.redirect_uri
-    )
-
-    # Сразу начинаем OAuth flow
-    authorize_url = await hh_service.start_oauth(
-        session, current_user.company_id, current_user.id
-    )
-
-    return {"authorize_url": authorize_url}
 
 
 @router.get("/hh/status", dependencies=[Depends(require_settings_read_access)])
