@@ -310,6 +310,10 @@ def pytest_configure(config):
         "markers",
         "real_openrouter_key: тест проверяет реальный резолв ключа компании (без авто-дефолта conftest)",
     )
+    config.addinivalue_line(
+        "markers",
+        "billing_gate: тест проверяет реальный billing-гейт (без авто-обхода conftest)",
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -318,3 +322,13 @@ def _default_company_openrouter_key(request, monkeypatch):
         return
     for site in _OPENROUTER_KEY_SITES:
         monkeypatch.setattr(site, AsyncMock(return_value="test-openrouter-key"), raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_billing_gate(request, monkeypatch):
+    """Billing-гейт по умолчанию ОТКЛЮЧЁН в тестах: тест-компании создаются без paid_until,
+    иначе ВСЕ аутентифицированные запросы ловили бы 402 SUBSCRIPTION_EXPIRED. Тесты самого
+    гейта помечают @pytest.mark.billing_gate и идут против реальной проверки."""
+    if request.node.get_closest_marker("billing_gate"):
+        return
+    monkeypatch.setattr("app.deps.company_subscription_active", lambda company: True, raising=True)

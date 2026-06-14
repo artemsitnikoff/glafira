@@ -150,6 +150,15 @@ class OpenRouterNotConfiguredError(AppError):
         )
 
 
+class SubscriptionExpiredError(AppError):
+    def __init__(self):
+        super().__init__(
+            code="SUBSCRIPTION_EXPIRED",
+            message="Тариф вашей организации истёк. Обратитесь к администратору сервиса.",
+            status_code=402
+        )
+
+
 class FeatureNotImplementedError(AppError):
     def __init__(self, details: dict | None = None):
         super().__init__(

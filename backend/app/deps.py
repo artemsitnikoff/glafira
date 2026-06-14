@@ -1,4 +1,5 @@
 from typing import AsyncGenerator
+from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,10 +9,18 @@ from uuid import UUID
 from .database import get_db
 from .config import settings
 from .core.security import decode_token
-from .core.errors import InvalidCredentialsError, UserInactiveError
-from .models import User
+from .core.errors import InvalidCredentialsError, UserInactiveError, SubscriptionExpiredError
+from .models import User, Company
 
 oauth2_scheme = HTTPBearer()
+
+
+def company_subscription_active(company: "Company | None") -> bool:
+    """Тариф компании активен: запись есть и paid_until сегодня/в будущем.
+    NULL paid_until → НЕ активен (биллинг fail-closed: не оплачено = заблокировано)."""
+    if company is None or company.paid_until is None:
+        return False
+    return company.paid_until >= datetime.now(timezone.utc).date()
 
 
 async def get_current_user(
@@ -49,6 +58,11 @@ async def get_current_user(
 
     if not user.is_active:
         raise UserInactiveError()
+
+    # Billing gate: компания юзера должна иметь активный тариф (scoped по company_id)
+    company = await session.get(Company, user.company_id)
+    if not company_subscription_active(company):
+        raise SubscriptionExpiredError()
 
     return user
 

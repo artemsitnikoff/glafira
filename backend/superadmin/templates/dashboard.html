@@ -23,6 +23,7 @@
                     <th>Создана</th>
                     <th>Пользователи</th>
                     <th>Кандидаты</th>
+                    <th>Оплачено до</th>
                     <th>OpenRouter</th>
                     <th>Действия</th>
                 </tr>
@@ -35,6 +36,17 @@
                     <td style="color: var(--ark-gray-600);">{{ company.created_at }}</td>
                     <td>{{ company.users_count }}</td>
                     <td>{{ company.candidates_count }}</td>
+                    <td>
+                        {% if company.paid_until %}
+                            {% if company.is_expired %}
+                                <span style="color: var(--ark-red-500); font-weight: 500;">{{ company.paid_until }}</span>
+                            {% else %}
+                                <span style="color: var(--ark-gray-600);">{{ company.paid_until }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span style="color: var(--ark-red-500); font-weight: 500;">—</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if company.has_openrouter_key %}
                             <span class="status-badge status-yes">Есть</span>

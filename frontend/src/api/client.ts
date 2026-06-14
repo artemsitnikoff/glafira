@@ -49,6 +49,15 @@ api.interceptors.response.use(
     const original = error.config as RetriableConfig | undefined;
     const isRefreshCall = original?.url?.endsWith('/auth/refresh');
 
+    // Handle subscription expired (402 SUBSCRIPTION_EXPIRED) before 401 logic
+    if (error.response?.status === 402) {
+      const normalizedError = normalizeApiError(error);
+      if (normalizedError.error.code === 'SUBSCRIPTION_EXPIRED') {
+        useAuthStore.getState().setSubscriptionExpired(true);
+        return Promise.reject(normalizedError);
+      }
+    }
+
     if (error.response?.status === 401 && original && !original._retry && !isRefreshCall) {
       original._retry = true;
       try {

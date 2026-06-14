@@ -7,6 +7,7 @@ import AppLayout from '@/components/AppLayout';
 import LoginPage from '@/pages/LoginPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import { RoleGuard } from '@/components/RoleGuard';
+import SubscriptionExpiredScreen from '@/components/SubscriptionExpiredScreen';
 
 // Lazy-загружаемые страницы
 const HomePage = lazy(() => import('@/pages/HomePage'));
@@ -63,6 +64,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const subscriptionExpired = useAuthStore((s) => s.subscriptionExpired);
+
+  if (subscriptionExpired) {
+    return <SubscriptionExpiredScreen />;
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

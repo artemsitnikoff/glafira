@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import String, text
+from datetime import date
+from sqlalchemy import String, Date, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +16,7 @@ class Company(Base, TimestampMixin):
         server_default=text("gen_random_uuid()")
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    paid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Relationships (forward references will be resolved after all models are loaded)
     users: Mapped[list["User"]] = relationship("User", back_populates="company", lazy="select")

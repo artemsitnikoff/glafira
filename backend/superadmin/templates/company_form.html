@@ -107,6 +107,22 @@
                 {% endif %}
             </div>
 
+            <!-- Billing date -->
+            <div class="form-group">
+                <label class="form-label" for="paid_until">Оплачено до</label>
+                <input
+                    type="date"
+                    id="paid_until"
+                    name="paid_until"
+                    class="form-input"
+                    value="{{ company.paid_until if company else (form_data.paid_until or '') }}"
+                    placeholder="YYYY-MM-DD"
+                >
+                <div style="margin-top: 4px; font-size: 12px; color: var(--ark-gray-500);">
+                    Оставьте пустым, чтобы заблокировать доступ
+                </div>
+            </div>
+
             {% if company and company.available_models %}
                 <!-- LLM Model (only for edit if models available) -->
                 <div class="form-group">

@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
+from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -11,6 +12,9 @@ from app.provision_company import provision_company, ProvisionError
 from app.services.settings.glafira import get_glafira_settings
 from app.services.settings.crypto import encrypt_text, decrypt_text
 from app.services.glafira.models import ALLOWED_MODEL_VALUES
+
+# Sentinel for optional parameters in update functions
+_UNSET = object()
 
 
 class CompanyInfo:
@@ -24,7 +28,9 @@ class CompanyInfo:
         created_at: str,
         has_openrouter_key: bool,
         users_count: int,
-        candidates_count: int
+        candidates_count: int,
+        paid_until: Optional[date],
+        is_expired: bool
     ):
         self.id = id
         self.name = name
@@ -33,6 +39,8 @@ class CompanyInfo:
         self.has_openrouter_key = has_openrouter_key
         self.users_count = users_count
         self.candidates_count = candidates_count
+        self.paid_until = paid_until
+        self.is_expired = is_expired
 
 
 class CompanyService:
@@ -47,6 +55,7 @@ class CompanyService:
                     Company.id,
                     Company.name,
                     Company.created_at,
+                    Company.paid_until,
                     # distinct: иначе тройной outerjoin (User×Candidate×GlafiraSettings)
                     # даёт декартово произведение и счётчики перемножаются
                     func.count(distinct(User.id)).label("users_count"),
@@ -62,7 +71,7 @@ class CompanyService:
                     Candidate.deleted_at.is_(None)
                 ))
                 .outerjoin(GlafiraSettings, GlafiraSettings.company_id == Company.id)
-                .group_by(Company.id, Company.name, Company.created_at)
+                .group_by(Company.id, Company.name, Company.created_at, Company.paid_until)
                 .order_by(Company.created_at.desc())
             )
 
@@ -71,6 +80,9 @@ class CompanyService:
 
             companies = []
             for row in rows:
+                paid_until = row.paid_until
+                is_expired = paid_until is None or paid_until < datetime.now(timezone.utc).date()
+
                 companies.append(CompanyInfo(
                     id=row.id,
                     name=row.name,
@@ -78,7 +90,9 @@ class CompanyService:
                     created_at=row.created_at.strftime("%Y-%m-%d %H:%M"),
                     has_openrouter_key=bool(row.has_openrouter_key),
                     users_count=row.users_count,
-                    candidates_count=row.candidates_count
+                    candidates_count=row.candidates_count,
+                    paid_until=paid_until,
+                    is_expired=is_expired
                 ))
 
             return companies
@@ -89,7 +103,8 @@ class CompanyService:
         admin_email: str,
         admin_password: str,
         admin_full_name: str,
-        openrouter_api_key: Optional[str] = None
+        openrouter_api_key: Optional[str] = None,
+        paid_until: Optional[date] = None
     ) -> CompanyInfo:
         """Create new company with admin user and settings"""
         async with AsyncSessionLocal() as session:
@@ -103,12 +118,18 @@ class CompanyService:
                     admin_full_name=admin_full_name
                 )
 
+                # Set paid_until if provided
+                if paid_until is not None:
+                    company.paid_until = paid_until
+
                 # Set OpenRouter API key if provided
                 if openrouter_api_key and openrouter_api_key.strip():
                     gs = await get_glafira_settings(session, company.id)
                     gs.openrouter_api_key = encrypt_text(openrouter_api_key.strip())
 
                 await session.commit()
+
+                is_expired = paid_until is None or paid_until < datetime.now(timezone.utc).date()
 
                 return CompanyInfo(
                     id=company.id,
@@ -117,7 +138,9 @@ class CompanyService:
                     created_at=company.created_at.strftime("%Y-%m-%d %H:%M"),
                     has_openrouter_key=bool(openrouter_api_key and openrouter_api_key.strip()),
                     users_count=1,
-                    candidates_count=0
+                    candidates_count=0,
+                    paid_until=paid_until,
+                    is_expired=is_expired
                 )
 
             except Exception:
@@ -137,7 +160,8 @@ class CompanyService:
         company_id: UUID,
         name: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
-        llm_model: Optional[str] = None
+        llm_model: Optional[str] = None,
+        paid_until=_UNSET
     ) -> bool:
         """Update company information"""
         async with AsyncSessionLocal() as session:
@@ -153,6 +177,10 @@ class CompanyService:
                 # Update company name if provided
                 if name is not None:
                     company.name = name
+
+                # Update paid_until if provided (including None to clear)
+                if paid_until is not _UNSET:
+                    company.paid_until = paid_until
 
                 # Update Glafira settings if needed
                 if openrouter_api_key is not None or llm_model is not None:
@@ -205,7 +233,9 @@ class CompanyService:
                 "name": company.name,
                 "openrouter_key_display": openrouter_key_display,
                 "llm_model": gs.llm_model or "",
-                "available_models": ALLOWED_MODEL_VALUES if ALLOWED_MODEL_VALUES else []
+                "available_models": ALLOWED_MODEL_VALUES if ALLOWED_MODEL_VALUES else [],
+                "paid_until": company.paid_until.isoformat() if company.paid_until else "",
+                "is_expired": (company.paid_until is None or company.paid_until < datetime.now(timezone.utc).date())
             }
 
 

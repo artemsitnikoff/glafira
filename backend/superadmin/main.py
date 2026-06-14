@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from typing import Optional, Union
 from uuid import UUID
+from datetime import date
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -44,6 +45,16 @@ def _read_app_version() -> str:
 
 # Доступно во всех шаблонах как {{ app_version() }}
 templates.env.globals["app_version"] = _read_app_version
+
+
+def _parse_paid_until(s: str) -> Optional[date]:
+    """Parse date string in YYYY-MM-DD format, empty string returns None"""
+    if not s or not s.strip():
+        return None
+    try:
+        return date.fromisoformat(s.strip())
+    except ValueError:
+        raise ValidationError("Некорректная дата оплаты")
 
 
 # Error handlers
@@ -141,7 +152,8 @@ async def create_company(
     admin_email: str = Form(...),
     admin_full_name: str = Form(...),
     admin_password: str = Form(...),
-    openrouter_api_key: Optional[str] = Form("")
+    openrouter_api_key: Optional[str] = Form(""),
+    paid_until: Optional[str] = Form("")
 ):
     if isinstance(username, RedirectResponse):
         return username
@@ -167,12 +179,16 @@ async def create_company(
                 # Just log but don't fail
                 pass
 
+        # Parse paid_until
+        parsed_paid_until = _parse_paid_until(paid_until)
+
         await company_service.create_company(
             name=name.strip(),
             admin_email=admin_email.strip(),
             admin_password=admin_password.strip(),
             admin_full_name=admin_full_name.strip(),
-            openrouter_api_key=openrouter_api_key.strip() if openrouter_api_key else None
+            openrouter_api_key=openrouter_api_key.strip() if openrouter_api_key else None,
+            paid_until=parsed_paid_until
         )
 
         return RedirectResponse(
@@ -195,7 +211,8 @@ async def create_company(
                 "name": name,
                 "admin_email": admin_email,
                 "admin_full_name": admin_full_name,
-                "openrouter_api_key": openrouter_api_key
+                "openrouter_api_key": openrouter_api_key,
+                "paid_until": paid_until
             },
             "error": error_msg
         })
@@ -208,7 +225,8 @@ async def create_company(
                 "name": name,
                 "admin_email": admin_email,
                 "admin_full_name": admin_full_name,
-                "openrouter_api_key": openrouter_api_key
+                "openrouter_api_key": openrouter_api_key,
+                "paid_until": paid_until
             },
             "error": f"Неожиданная ошибка: {str(e)}"
         })
@@ -246,7 +264,8 @@ async def update_company(
     username: str = Depends(require_super_admin),
     name: str = Form(...),
     openrouter_api_key: Optional[str] = Form(""),
-    llm_model: Optional[str] = Form("")
+    llm_model: Optional[str] = Form(""),
+    paid_until: Optional[str] = Form("")
 ):
     if isinstance(username, RedirectResponse):
         return username
@@ -274,6 +293,10 @@ async def update_company(
         # Update model (can be empty to clear)
         update_data["llm_model"] = llm_model.strip() if llm_model else None
 
+        # Parse and update paid_until
+        parsed_paid_until = _parse_paid_until(paid_until)
+        update_data["paid_until"] = parsed_paid_until
+
         success = await company_service.update_company(company_id, **update_data)
         if not success:
             raise ValidationError("Компания не найдена")
@@ -293,7 +316,8 @@ async def update_company(
             "form_data": {
                 "name": name,
                 "openrouter_api_key": openrouter_api_key,
-                "llm_model": llm_model
+                "llm_model": llm_model,
+                "paid_until": paid_until
             },
             "error": str(e)
         })
