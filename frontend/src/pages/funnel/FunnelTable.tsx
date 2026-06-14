@@ -1,5 +1,6 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { useApplications, type ApplicationFilters } from '@/api/hooks/useApplications';
+import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Avatar } from '@/components/ui/Avatar';
 import { StageChip } from '@/components/ui/StageChip';
@@ -40,6 +41,14 @@ export default function FunnelTable({
   onCandidateSelect,
 }: Props) {
   const { data, isLoading } = useApplications(vacancyId, filters);
+
+  // Лейбл/цвет этапа берём из этапов воронки (как доска воронки), иначе кастомные/
+  // переименованные этапы показывались бы сырым ключом stage_<...>.
+  const { data: vacancyStages } = useVacancyStages(vacancyId);
+  const stageMap = useMemo(
+    () => Object.fromEntries((vacancyStages ?? []).map((s) => [s.stage_key, s])),
+    [vacancyStages]
+  );
 
   // Строки (ФИО/Город) и этап начинают с возрастания (А-Я / порядок воронки);
   // числовые (AI/Телефон/ЗП) и дата — с убывания. Повторный клик — переключает направление.
@@ -214,6 +223,8 @@ export default function FunnelTable({
             <FunnelRow
               key={candidate.id}
               candidate={candidate}
+              stageLabel={stageMap[candidate.stage]?.label}
+              stageColor={stageMap[candidate.stage]?.color}
               isSelected={selectedIds.has(candidate.id)}
               isActive={candidate.candidate_id === activeCandidateId}
               detailMode={detailMode}
@@ -265,6 +276,8 @@ function SortableHeader({
 
 const FunnelRow = React.memo(function FunnelRow({
   candidate,
+  stageLabel,
+  stageColor,
   isSelected,
   isActive,
   detailMode,
@@ -272,6 +285,8 @@ const FunnelRow = React.memo(function FunnelRow({
   onOpenRow,
 }: {
   candidate: any;
+  stageLabel?: string;
+  stageColor?: string;
   isSelected: boolean;
   isActive: boolean;
   detailMode: boolean;
@@ -363,7 +378,12 @@ const FunnelRow = React.memo(function FunnelRow({
           </div>
 
           <div className="ct-col" style={{ width: 200 }}>
-            <StageChip stage={candidate.stage} size="sm" />
+            <StageChip
+              stage={candidate.stage}
+              label={stageLabel}
+              color={stageColor}
+              size="sm"
+            />
           </div>
         </div>
       )}
