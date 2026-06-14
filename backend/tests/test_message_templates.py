@@ -269,7 +269,10 @@ class TestMessageTemplatesValidation:
     ):
         """Templates should be isolated by company_id"""
         # Create another company and user
+        from app.models import Company
         other_company_id = uuid.uuid4()
+        db_session.add(Company(id=other_company_id, name="Other Co"))
+        await db_session.flush()
         other_user = User(
             company_id=other_company_id,
             email="other@company.com",

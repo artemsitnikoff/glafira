@@ -75,7 +75,8 @@ class TestGlafiraClientNetworkErrors:
             with pytest.raises(GlafiraParseError) as exc_info:
                 await call_json(
                     system="test system",
-                    user="test user"
+                    user="test user",
+                    api_key="test-key"
                 )
 
             assert exc_info.value.status_code == 502
@@ -93,7 +94,8 @@ class TestGlafiraClientNetworkErrors:
             with pytest.raises(GlafiraParseError) as exc_info:
                 await call_text(
                     system="test system",
-                    user="test user"
+                    user="test user",
+                    api_key="test-key"
                 )
 
             assert exc_info.value.status_code == 502
@@ -101,16 +103,12 @@ class TestGlafiraClientNetworkErrors:
             assert "Сетевая ошибка при обращении к OpenRouter" in exc_info.value.details["reason"]
             assert "ReadTimeout" in exc_info.value.details["reason"]
 
-    @patch('app.config.settings.OPENROUTER_API_KEY', '')
-    async def test_empty_api_key_still_raises_glafira_parse_error(self):
-        """Test that empty OPENROUTER_API_KEY still raises GlafiraParseError immediately"""
+    async def test_empty_api_key_raises_not_configured(self):
+        """Пустой api_key компании → OpenRouterNotConfiguredError (ключ per-company обязателен)."""
+        from app.core.errors import OpenRouterNotConfiguredError
 
-        with pytest.raises(GlafiraParseError) as exc_info:
-            await call_json(system="test", user="test")
+        with pytest.raises(OpenRouterNotConfiguredError):
+            await call_json(system="test", user="test", api_key="")
 
-        assert "OPENROUTER_API_KEY not configured" in exc_info.value.details["reason"]
-
-        with pytest.raises(GlafiraParseError) as exc_info:
-            await call_text(system="test", user="test")
-
-        assert "OPENROUTER_API_KEY not configured" in exc_info.value.details["reason"]
+        with pytest.raises(OpenRouterNotConfiguredError):
+            await call_text(system="test", user="test", api_key="")

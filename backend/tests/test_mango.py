@@ -6,7 +6,7 @@
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from cryptography.fernet import Fernet
 
 from app.services.integrations.mango import service as mango_service
@@ -135,7 +135,7 @@ async def test_connection_success(db_session, admin_user, fernet_key):
     await _save(db_session, admin_user)
 
     # Мокаем успешный check_auth
-    mock_client_class = AsyncMock()
+    mock_client_class = MagicMock()
     mock_client_instance = AsyncMock()
     mock_client_instance.check_auth.return_value = {"ok": True}
     mock_client_class.return_value = mock_client_instance
@@ -164,7 +164,7 @@ async def test_connection_failure_records_error(db_session, admin_user, fernet_k
     await _save(db_session, admin_user)
 
     # Мокаем ошибку check_auth
-    mock_client_class = AsyncMock()
+    mock_client_class = MagicMock()
     mock_client_instance = AsyncMock()
     mock_client_instance.check_auth.side_effect = AppError(
         code="MANGO_AUTH_ERROR",
@@ -206,7 +206,7 @@ async def test_disconnect_resets_verified(db_session, admin_user, fernet_key):
     await _save(db_session, admin_user)
 
     # Имитируем успешное подключение
-    mock_client_class = AsyncMock()
+    mock_client_class = MagicMock()
     mock_client_instance = AsyncMock()
     mock_client_instance.check_auth.return_value = {"ok": True}
     mock_client_class.return_value = mock_client_instance

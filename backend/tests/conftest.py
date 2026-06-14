@@ -256,6 +256,33 @@ async def second_company(db_session: AsyncSession, admin_user: User) -> Company:
     return company
 
 
+@pytest_asyncio.fixture
+async def other_company(db_session: AsyncSession, admin_user: User) -> Company:
+    """Ещё одна компания (alias-семантика для тестов изоляции, отдельная запись)."""
+    company = Company(id=uuid.uuid4(), name="Other Test Company")
+    db_session.add(company)
+    await db_session.commit()
+    await db_session.refresh(company)
+    return company
+
+
+@pytest_asyncio.fixture
+async def admin_headers(auth_headers: dict[str, str]) -> dict[str, str]:
+    """Алиас auth_headers (часть тестов ждёт имя admin_headers)."""
+    return auth_headers
+
+
+@pytest_asyncio.fixture
+async def manager_headers(async_client: AsyncClient, manager_user: User) -> dict[str, str]:
+    """Заголовки авторизации менеджера (для RBAC-тестов)."""
+    response = await async_client.post(
+        "/api/v1/auth/login",
+        json={"email": manager_user.email, "password": "Glafira2026!"},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 # === Per-company OpenRouter ключ: дефолт для тестов =========================
 # LLM-функции теперь резолвят ключ компании через get_company_openrouter_key
 # ДО вызова call_json. Большинство тестов мокают call_json и НЕ задают ключ —

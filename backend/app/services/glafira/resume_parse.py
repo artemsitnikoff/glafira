@@ -234,8 +234,9 @@ async def parse_and_apply_resume(
     company_id: UUID
 ) -> None:
     """Parse resume and update candidate fields"""
-    # Parse resume to structured dict
-    parsed_data = await parse_resume_to_dict(content, filename)
+    # Parse resume to structured dict (ключ OpenRouter компании)
+    api_key = await get_company_openrouter_key(session, company_id)
+    parsed_data = await parse_resume_to_dict(content, filename, api_key)
     if not parsed_data:
         logger.info(f"No data extracted from {filename}")
         return

@@ -60,7 +60,7 @@ class TestCSVParsing:
     def test_parse_stats_csv_success(self):
         """Тест успешного парсинга CSV"""
         csv_content = """records;start;finish;answer;from_extension;from_number;to_extension;to_number;disconnect_reason;entry_id;line_number
-record1;1640995200;1640995260;1;101;;102;+79007654321;completed;call_001;line_001
+record1;1640995200;1640995260;1;101;;;+79007654321;completed;call_001;line_001
 ;1640995300;1640995320;0;;+79001111111;102;;no_answer;call_002;line_002"""
 
         calls = _parse_stats_csv(csv_content)
@@ -137,7 +137,9 @@ class TestPhoneMatching:
 
         candidate_b = Candidate(
             company_id=company_b.id,
-            name="Кандидат B",
+            last_name="Б",
+            first_name="Кандидат",
+            source="manual",
             phone="+79001234567"
         )
         db_session.add(candidate_b)

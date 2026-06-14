@@ -1047,7 +1047,7 @@ async def test_score_resume_dict_returns_full_breakdown(mock_call_json):
     company_id = uuid4()
 
     # Вызываем функцию
-    result = await score_resume_dict(hh_resume, vacancy, company_id)
+    result = await score_resume_dict(hh_resume, vacancy, company_id, "test-key")
 
     # Проверяем что возвращаются все поля
     assert result["score"] == 85

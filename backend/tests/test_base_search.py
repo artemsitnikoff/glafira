@@ -37,7 +37,7 @@ class TestBaseSearch:
         with patch('app.services.base_search.call_json', new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_response
 
-            result = await parse_query_to_criteria("Python разработчик в Москве, Django, 150-200k")
+            result = await parse_query_to_criteria("Python разработчик в Москве, Django, 150-200k", "test-key")
 
             assert result["role"] == "Python разработчик"
             assert result["skills"] == ["Python", "Django", "PostgreSQL"]
@@ -50,7 +50,7 @@ class TestBaseSearch:
         with patch('app.services.base_search.call_json', new_callable=AsyncMock) as mock_call:
             mock_call.side_effect = GlafiraParseError(details={"reason": "API error"})
 
-            result = await parse_query_to_criteria("Python разработчик Django PostgreSQL")
+            result = await parse_query_to_criteria("Python разработчик Django PostgreSQL", "test-key")
 
             assert result["role"] == "Python разработчик Django PostgreSQL"
             assert "python" in result["skills"]

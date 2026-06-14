@@ -497,11 +497,11 @@ async def test_home_dialogs_last_message_per_candidate(async_client, auth_header
 
 
 @pytest.mark.asyncio
-async def test_home_dialogs_company_isolation(async_client, auth_headers, db_session, admin_user, test_company):
+async def test_home_dialogs_company_isolation(async_client, auth_headers, db_session, admin_user, test_company, other_company):
     """Тест изоляции диалогов по компаниям"""
     # Создаём кандидата из другой компании
     other_candidate = Candidate(
-        company_id=uuid4(),  # другая компания
+        company_id=other_company.id,  # другая компания
         last_name="Чужой",
         first_name="Кандидат",
         source="manual"
