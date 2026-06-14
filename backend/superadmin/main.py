@@ -31,7 +31,7 @@ def _read_app_version() -> str:
     """Версия Глафиры из примонтированного frontend/src/lib/version.ts — единый
     источник правды. Читается на каждый рендер → актуальна после git pull, без
     пересборки суперадминки. Файла нет/не распарсился → «—» (не падаем)."""
-    path = os.getenv("APP_VERSION_FILE", "/app/app_version.ts")
+    path = os.getenv("APP_VERSION_FILE", "/app/frontend_lib/version.ts")
     try:
         text = Path(path).read_text(encoding="utf-8")
         m = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", text)

@@ -68,8 +68,10 @@ services:
     volumes:
       - backend_storage:/app/storage:ro
       # Версия Глафиры — единый источник frontend/src/lib/version.ts, read-only.
-      # Суперадминка читает её на каждый рендер → актуальна после git pull без пересборки.
-      - ./frontend/src/lib/version.ts:/app/app_version.ts:ro
+      # Монтируем ПАПКУ, не файл: git pull заменяет version.ts с новым inode, и маунт
+      # одного файла застрял бы на старом → версия читается на каждый рендер и
+      # остаётся актуальной после git pull даже без пересборки суперадминки.
+      - ./frontend/src/lib:/app/frontend_lib:ro
     ports:
       # Хост-порт настраивается через SUPERADMIN_PORT в .env. На общем VPS 8001
       # часто занят чужим сервисом → задать свободный, напр. SUPERADMIN_PORT=18001.
