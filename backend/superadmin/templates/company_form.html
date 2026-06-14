@@ -25,7 +25,7 @@
     {% endif %}
 
     <div class="card">
-        <form method="post" action="{{ request.url }}">
+        <form method="post" action="{% if company %}/super/companies/{{ company.id }}{% else %}/super/companies/new{% endif %}">
             <!-- Company Name -->
             <div class="form-group">
                 <label class="form-label" for="name">Название компании *</label>
