@@ -216,7 +216,7 @@ class TestCallAPI:
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
-        assert data[0]["external_id"] == "test_call_001"
+        # external_id — внутренний Mango-ключ дедупа, в CallOut намеренно НЕ отдаётся
         assert data[0]["direction"] == "out"
         assert data[0]["duration_sec"] == 120
 
