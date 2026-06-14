@@ -53,4 +53,19 @@ jobs:
               docker compose -f docker-compose.prod.yml run --rm backend alembic upgrade head
             fi
 
+              # Суперадминка — отдельный сервис (profiles:[superadmin]), обычный up -d
+              # её не трогает (свой образ glafira-superadmin). Если менялись её файлы
+              # И она УЖЕ запущена — пересобрать и перезапустить. Не запущена → пропуск.
+              if echo "$CHANGED" | grep -qE "^backend/superadmin/"; then
+                if [ -n "$(docker ps -q --filter name=glafira-superadmin --filter status=running)" ]; then
+                  echo "Rebuild + restart superadmin (running)"
+                  docker compose -f docker-compose.prod.yml --profile superadmin build superadmin \
+                    && docker compose -f docker-compose.prod.yml --profile superadmin up -d superadmin \
+                    || echo "WARN: superadmin rebuild/restart failed — проверь вручную"
+                else
+                  echo "superadmin not running — skip (поднять: --profile superadmin up -d --build superadmin)"
+                fi
+              fi
+
+
             echo "[$(date -Iseconds)] deployed: $REMOTE"
