@@ -38,7 +38,7 @@ async def validation_error_handler(request: Request, exc: ValidationError):
 # Auth routes
 @app.get("/super/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: Optional[str] = None):
-    return templates.TemplateResponse("login.html", {
+    return templates.TemplateResponse(request, "login.html", {
         "request": request,
         "error": error
     })
@@ -54,7 +54,7 @@ async def login(
         token = auth_service.create_token()
         return auth_service.create_cookie_response(token)
     else:
-        return templates.TemplateResponse("login.html", {
+        return templates.TemplateResponse(request, "login.html", {
             "request": request,
             "error": "invalid_credentials",
             "username": username
@@ -80,7 +80,7 @@ async def dashboard(
     companies = await company_service.list_companies()
     test_results = parse_test_results(config.TEST_RESULTS_PATH)
 
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "username": username,
         "companies": companies,
@@ -101,7 +101,7 @@ async def new_company_page(
     if isinstance(username, RedirectResponse):
         return username
 
-    return templates.TemplateResponse("company_form.html", {
+    return templates.TemplateResponse(request, "company_form.html", {
         "request": request,
         "username": username,
         "company": None,
@@ -165,7 +165,7 @@ async def create_company(
         else:
             error_msg = f"Ошибка создания: {str(e)}"
 
-        return templates.TemplateResponse("company_form.html", {
+        return templates.TemplateResponse(request, "company_form.html", {
             "request": request,
             "username": username,
             "company": None,
@@ -178,7 +178,7 @@ async def create_company(
             "error": error_msg
         })
     except Exception as e:
-        return templates.TemplateResponse("company_form.html", {
+        return templates.TemplateResponse(request, "company_form.html", {
             "request": request,
             "username": username,
             "company": None,
@@ -207,7 +207,7 @@ async def edit_company_page(
     if not company_settings:
         return RedirectResponse("/super/?error=Компания не найдена", status_code=303)
 
-    return templates.TemplateResponse("company_form.html", {
+    return templates.TemplateResponse(request, "company_form.html", {
         "request": request,
         "username": username,
         "company": company_settings,
@@ -264,7 +264,7 @@ async def update_company(
     except Exception as e:
         # Get company settings again for form
         company_settings = await company_service.get_company_settings(company_id)
-        return templates.TemplateResponse("company_form.html", {
+        return templates.TemplateResponse(request, "company_form.html", {
             "request": request,
             "username": username,
             "company": company_settings,
