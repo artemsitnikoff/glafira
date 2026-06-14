@@ -673,9 +673,14 @@ async def get_ai_model_settings(
     # Получаем текущую модель для компании
     current_model = await glafira.get_company_llm_model(session, company_id)
 
+    # Проверяем наличие API-ключа OpenRouter
+    gs = await glafira.get_glafira_settings(session, company_id)
+    has_openrouter_key = bool(gs.openrouter_api_key)
+
     return AiModelSettingsOut(
         current=current_model,
-        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS]
+        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS],
+        has_openrouter_key=has_openrouter_key
     )
 
 
@@ -701,19 +706,32 @@ async def update_ai_model_settings(
     # Получаем текущую настройку для audit
     settings_obj = await glafira.get_glafira_settings(session, company_id)
     old_model = settings_obj.llm_model
+    had_key_before = bool(settings_obj.openrouter_api_key)
 
     # Обновляем модель
     settings_obj.llm_model = data.model
+
+    # Обновляем API-ключ OpenRouter если передан
+    key_updated = False
+    if data.openrouter_api_key and data.openrouter_api_key.strip():
+        from ...services.settings.crypto import encrypt_text
+        settings_obj.openrouter_api_key = encrypt_text(data.openrouter_api_key.strip())
+        key_updated = True
+
     await session.flush()
 
     # Audit log
+    audit_after = {"llm_model": data.model}
+    if key_updated:
+        audit_after["openrouter_key_set"] = True
+
     await audit(
         session,
         action="update_ai_model",
         entity_type="glafira_settings",
         entity_id=settings_obj.id,
-        before={"llm_model": old_model},
-        after={"llm_model": data.model},
+        before={"llm_model": old_model, "had_openrouter_key": had_key_before},
+        after=audit_after,
         actor_user_id=current_user.id,
         actor_type="human",
         company_id=company_id,
@@ -721,10 +739,13 @@ async def update_ai_model_settings(
 
     await session.commit()
 
-    # Получаем обновлённую модель
+    # Получаем обновлённую модель и статус ключа
     current_model = await glafira.get_company_llm_model(session, company_id)
+    updated_gs = await glafira.get_glafira_settings(session, company_id)
+    has_openrouter_key = bool(updated_gs.openrouter_api_key)
 
     return AiModelSettingsOut(
         current=current_model,
-        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS]
+        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS],
+        has_openrouter_key=has_openrouter_key
     )

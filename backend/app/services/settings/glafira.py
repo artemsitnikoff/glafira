@@ -3,10 +3,11 @@ from sqlalchemy.future import select
 from uuid import UUID
 
 from ...models import GlafiraSettings
-from ...core.errors import ValidationError
+from ...core.errors import ValidationError, OpenRouterNotConfiguredError
 from ...services.audit import audit
 from ...config import settings
 from ..glafira.models import ALLOWED_MODEL_VALUES, DEFAULT_MODEL
+from .crypto import decrypt_text
 
 
 async def get_glafira_settings(session: AsyncSession, company_id: UUID) -> GlafiraSettings:
@@ -50,6 +51,21 @@ async def get_company_llm_model(session: AsyncSession, company_id: UUID) -> str:
 
     # Финальный fallback
     return DEFAULT_MODEL
+
+
+async def get_company_openrouter_key(session: AsyncSession, company_id: UUID) -> str:
+    """
+    Получить API-ключ OpenRouter для оценки резюме конкретной компании.
+
+    Company-scoped, поднимает OpenRouterNotConfiguredError если ключа нет.
+    Никогда не возвращает чужой/глобальный ключ.
+    """
+    gs = await get_glafira_settings(session, company_id)
+
+    if not gs.openrouter_api_key:
+        raise OpenRouterNotConfiguredError()
+
+    return decrypt_text(gs.openrouter_api_key)
 
 
 async def update_glafira_settings(

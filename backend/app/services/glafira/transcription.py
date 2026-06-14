@@ -300,9 +300,13 @@ async def analyze_call(transcript: str) -> Dict[str, Any]:
         system_prompt = "Ты — эксперт по рекрутингу. Анализируй звонки рекрутеров с кандидатами."
         user_prompt = CALL_ANALYSIS_PROMPT.format(transcript=transcript)
 
+        # Канал звонков (Gemini-транскрибация + разбор) остаётся на ГЛОБАЛЬНОМ
+        # ключе OpenRouter (заказчик: per-company миграцию звонков НЕ делаем).
+        # call_json теперь требует api_key — передаём глобальный явно.
         result = await call_json(
             system=system_prompt,
             user=user_prompt,
+            api_key=settings.OPENROUTER_API_KEY,
             max_tokens=1000
         )
 

@@ -41,6 +41,7 @@ from ...services.resume_export import (
     _full_name
 )
 from ...services.glafira.resume_parse import parse_resume_to_dict
+from ...services.settings.glafira import get_company_openrouter_key
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -154,7 +155,9 @@ async def parse_resume_endpoint(
 
     # Parse resume
     try:
-        parsed_data = await parse_resume_to_dict(content, file.filename or "unknown")
+        # Резолвим API-ключ компании для LLM-парсинга
+        api_key = await get_company_openrouter_key(session, company_id)
+        parsed_data = await parse_resume_to_dict(content, file.filename or "unknown", api_key)
         if parsed_data is None:
             return ParseResumeResponse(
                 parsed=False,

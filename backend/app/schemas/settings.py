@@ -264,7 +264,9 @@ class AiModelOption(BaseModel):
 class AiModelSettingsOut(BaseModel):
     current: str  # текущая выбранная модель
     options: list[AiModelOption]  # белый список доступных моделей
+    has_openrouter_key: bool  # есть ли API-ключ OpenRouter у компании
 
 
 class AiModelUpdate(BaseModel):
     model: str  # новая модель из белого списка
+    openrouter_api_key: str | None = None  # API-ключ OpenRouter (write-only)

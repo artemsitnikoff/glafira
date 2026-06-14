@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from .client import call_json
 from .prompts import SCREENING_SYSTEM_PROMPT_TEMPLATE
+from ..settings.glafira import get_company_openrouter_key
 from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Application, Candidate, Vacancy, Message, Event, GlafiraSettings
 from ...services.audit import audit
@@ -123,10 +124,14 @@ async def start_screening(
 Поприветствуй кандидата и начни беседу. Цель — понять мотивацию, опыт и готовность к работе.
 Верни JSON в формате: {{"message": "текст ответа", "finished": false, "extracted": {{}}}}"""
 
+    # Резолвим API-ключ компании
+    api_key = await get_company_openrouter_key(session, company_id)
+
     # Call Claude API
     response_data = await call_json(
         system=system_prompt,
         user=user_prompt,
+        api_key=api_key,
         max_tokens=1024
     )
 
@@ -289,10 +294,14 @@ async def reply_screening(
 Попробуй извлечь ключевую информацию (зарплатные ожидания, готовность к переезду, и т.д.).
 Верни JSON в формате: {{"message": "ответ", "finished": false, "extracted": {{"salary_expectation": 100000, "ready_relocate": true}}}}"""
 
+    # Резолвим API-ключ компании
+    api_key = await get_company_openrouter_key(session, company_id)
+
     # Call Claude API
     response_data = await call_json(
         system=system_prompt,
         user=user_prompt,
+        api_key=api_key,
         max_tokens=1024
     )
 

@@ -17,8 +17,8 @@ from .scoring_log import log_scoring
 from .verify import verify_candidate, fill_candidate_osint
 from ...core.errors import ConsentRequiredError
 from ...config import settings
-from ...core.errors import NotFoundError, GlafiraParseError
-from ..settings.glafira import get_company_llm_model
+from ...core.errors import NotFoundError, GlafiraParseError, OpenRouterNotConfiguredError
+from ..settings.glafira import get_company_llm_model, get_company_openrouter_key
 
 
 def _strip_html(s: str | None) -> str:
@@ -54,7 +54,7 @@ class _ScoringLLMOutput(BaseModel):
     questions: list[str] = []
 
 
-async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUID) -> dict:
+async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUID, api_key: str) -> dict:
     """
     Оценивает резюме из hh.ru БЕЗ персиста в БД (для умного подбора).
 
@@ -140,6 +140,7 @@ async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUI
     response_data = await call_json(
         system=system_prompt,
         user=user_prompt,
+        api_key=api_key,
         max_tokens=8000
     )
 
@@ -377,8 +378,9 @@ Email: {candidate.email or "не указан"}
 Навыки: {skills_text}
 """
 
-    # Get company-specific LLM model
+    # Get company-specific LLM model and API key
     company_model = await get_company_llm_model(session, company_id)
+    api_key = await get_company_openrouter_key(session, company_id)
 
     # Call Claude API
     response_data = await call_json(
@@ -386,6 +388,7 @@ Email: {candidate.email or "не указан"}
             vacancy.recruiter_scoring_instructions if vacancy is not None else None
         ),
         user=user_prompt,
+        api_key=api_key,
         model=company_model,
         max_tokens=8000  # богатая рубрика (до 14 критериев + комментарии + 5 вопросов) не влезала в 2048 → обрыв JSON
     )
@@ -574,10 +577,11 @@ async def score_pending_applications(
 
     Returns: {scored, failed, skipped_no_key}
     """
-    # Без ключа OpenRouter живых вызовов нет — не гоняем впустую (каждый
-    # score_candidate сразу упал бы GlafiraParseError).
-    if not settings.OPENROUTER_API_KEY:
-        log_scoring("АВТО • оценки не было (нет ключа OpenRouter)")
+    # Проверяем наличие ключа OpenRouter у компании
+    try:
+        await get_company_openrouter_key(session, company_id)
+    except OpenRouterNotConfiguredError:
+        log_scoring("АВТО • оценки не было (OpenRouter не настроен для компании)")
         return {"scored": 0, "failed": 0, "skipped_no_key": True}
 
     if limit is None:

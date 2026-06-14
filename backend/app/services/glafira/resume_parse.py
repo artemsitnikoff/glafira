@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .client import call_json
 from .prompts import RESUME_PARSE_PROMPT
+from ..settings.glafira import get_company_openrouter_key
 from ...models import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ async def extract_resume_text(content: bytes, filename: str) -> str | None:
     return None
 
 
-async def parse_resume_to_dict(content: bytes, filename: str) -> dict | None:
+async def parse_resume_to_dict(content: bytes, filename: str, api_key: str) -> dict | None:
     """Parse resume to structured dict without saving to DB.
 
     Returns:
@@ -150,6 +151,7 @@ async def parse_resume_to_dict(content: bytes, filename: str) -> dict | None:
         parsed_data = await call_json(
             system=RESUME_PARSE_PROMPT,
             user=text,
+            api_key=api_key,
             max_tokens=16000
         )
 

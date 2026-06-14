@@ -141,6 +141,15 @@ class GlafiraParseError(AppError):
         )
 
 
+class OpenRouterNotConfiguredError(AppError):
+    def __init__(self):
+        super().__init__(
+            code="OPENROUTER_NOT_CONFIGURED",
+            message="OpenRouter не настроен для вашей организации — задайте ключ в Настройках → AI",
+            status_code=400
+        )
+
+
 class FeatureNotImplementedError(AppError):
     def __init__(self, details: dict | None = None):
         super().__init__(

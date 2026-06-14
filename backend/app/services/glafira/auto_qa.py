@@ -31,6 +31,7 @@ from ...services.settings.reject_reasons import list_reject_reasons
 from ...services.integrations.hh import client as hh_client
 from ...services.integrations.hh.service import get_valid_access_token
 from .client import call_json
+from ..settings.glafira import get_company_openrouter_key
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,9 @@ async def analyze_and_advance(session: AsyncSession, application: Application, c
     user_prompt = f"Вакансия: {vacancy.name}\n\nДиалог:\n{dialog}"
 
     try:
-        result = await call_json(system=_ANALYZE_SYSTEM, user=user_prompt, max_tokens=512)
+        # Резолвим API-ключ компании для LLM
+        api_key = await get_company_openrouter_key(session, company_id)
+        result = await call_json(system=_ANALYZE_SYSTEM, user=user_prompt, api_key=api_key, max_tokens=512)
         proceed = bool(result.get("proceed"))
         reason = str(result.get("reason") or "")[:500]
     except Exception as e:
@@ -256,7 +259,9 @@ async def analyze_and_reject(session: AsyncSession, application: Application, co
     user_prompt = f"Доступные причины отказа (от кандидата): {reasons_text}\n\nПереписка:\n{dialog}"
 
     try:
-        result = await call_json(system=_REJECT_SYSTEM, user=user_prompt, max_tokens=512)
+        # Резолвим API-ключ компании для LLM
+        api_key = await get_company_openrouter_key(session, company_id)
+        result = await call_json(system=_REJECT_SYSTEM, user=user_prompt, api_key=api_key, max_tokens=512)
         disinterested = bool(result.get("disinterested"))
         confidence = float(result.get("confidence") or 0)
         reason = str(result.get("reason") or "").strip()[:120]

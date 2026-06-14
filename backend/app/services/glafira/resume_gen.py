@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .client import call_json
 from .prompts import RESUME_GEN_SYSTEM_PROMPT, RESUME_GEN_USER_TEMPLATE
+from ..settings.glafira import get_company_openrouter_key
 from ...core.errors import GlafiraParseError
 from ...models import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
 
@@ -17,7 +18,8 @@ async def generate_resume(
     session: AsyncSession,
     candidate: Candidate,
     vacancy_domain: str,
-    quality_hint: str = "middle"
+    quality_hint: str = "middle",
+    company_id: UUID | None = None
 ) -> None:
     """
     Генерирует AI-резюме для кандидата и сохраняет в БД.
@@ -40,10 +42,14 @@ async def generate_resume(
 
         logger.info(f"Генерируем резюме для {candidate.full_name} ({vacancy_domain}, {quality_hint})")
 
+        # Резолвим API-ключ компании для LLM
+        api_key = await get_company_openrouter_key(session, company_id or candidate.company_id)
+
         # Вызов AI
         result = await call_json(
             system=RESUME_GEN_SYSTEM_PROMPT,
             user=user_prompt,
+            api_key=api_key,
             max_tokens=3500
         )
 

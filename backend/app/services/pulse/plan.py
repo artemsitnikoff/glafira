@@ -40,6 +40,10 @@ async def generate_plan_items(
     # Попытка через Glafira
     try:
         from app.services.glafira.client import call_json
+        from app.services.settings.glafira import get_company_openrouter_key
+
+        # Резолвим API-ключ компании для LLM
+        api_key = await get_company_openrouter_key(session, company_id)
 
         user_prompt = PLAN_GEN_USER_TEMPLATE.format(
             position=position or "не указана",
@@ -47,7 +51,7 @@ async def generate_plan_items(
             probation_days=probation_days
         )
 
-        response = await call_json(system=PLAN_GEN_SYSTEM, user=user_prompt)
+        response = await call_json(system=PLAN_GEN_SYSTEM, user=user_prompt, api_key=api_key)
         ai_items = response.get('items', [])
 
         # Валидация каждого элемента

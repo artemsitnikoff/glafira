@@ -5,7 +5,7 @@ import json
 import re
 import httpx
 from ...config import settings
-from ...core.errors import GlafiraParseError
+from ...core.errors import GlafiraParseError, OpenRouterNotConfiguredError
 
 
 # Functions to clean markdown fences from JSON response
@@ -31,14 +31,14 @@ _HTTP_TIMEOUT = httpx.Timeout(
 )
 
 
-async def _make_openrouter_request(client: httpx.AsyncClient, payload: dict) -> httpx.Response:
+async def _make_openrouter_request(client: httpx.AsyncClient, payload: dict, api_key: str) -> httpx.Response:
     """Makes request with exponential backoff retry on transient errors and network failures"""
     for attempt in range(MAX_RETRY_ATTEMPTS):
         try:
             response = await client.post(
                 f"{settings.OPENROUTER_BASE_URL}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
                 },
                 json=payload
@@ -75,10 +75,10 @@ async def _make_openrouter_request(client: httpx.AsyncClient, payload: dict) -> 
     return response
 
 
-async def call_json(*, system: str, user: str, max_tokens: int = 2048, model: str | None = None) -> dict:
+async def call_json(*, system: str, user: str, api_key: str, max_tokens: int = 2048, model: str | None = None) -> dict:
     """Call Claude API via OpenRouter expecting JSON response"""
-    if not settings.OPENROUTER_API_KEY:
-        raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
+    if not api_key:
+        raise OpenRouterNotConfiguredError()
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         payload = {
@@ -91,7 +91,7 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048, model: st
         }
 
         try:
-            response = await _make_openrouter_request(client, payload)
+            response = await _make_openrouter_request(client, payload, api_key)
         except httpx.HTTPError as e:
             raise GlafiraParseError(details={
                 "reason": f"Сетевая ошибка при обращении к OpenRouter: {type(e).__name__}"
@@ -131,10 +131,10 @@ async def call_json(*, system: str, user: str, max_tokens: int = 2048, model: st
         raise GlafiraParseError(details={"raw": text[:500], "reason": str(e)})
 
 
-async def call_text(*, system: str, user: str, max_tokens: int = 1024, model: str | None = None) -> str:
+async def call_text(*, system: str, user: str, api_key: str, max_tokens: int = 1024, model: str | None = None) -> str:
     """Call Claude API via OpenRouter expecting text response"""
-    if not settings.OPENROUTER_API_KEY:
-        raise GlafiraParseError(details={"reason": "OPENROUTER_API_KEY not configured"})
+    if not api_key:
+        raise OpenRouterNotConfiguredError()
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         payload = {
@@ -147,7 +147,7 @@ async def call_text(*, system: str, user: str, max_tokens: int = 1024, model: st
         }
 
         try:
-            response = await _make_openrouter_request(client, payload)
+            response = await _make_openrouter_request(client, payload, api_key)
         except httpx.HTTPError as e:
             raise GlafiraParseError(details={
                 "reason": f"Сетевая ошибка при обращении к OpenRouter: {type(e).__name__}"

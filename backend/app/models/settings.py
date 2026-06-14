@@ -118,6 +118,8 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
     default_rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # LLM-модель для оценки резюме (NULL = fallback на env GLAFIRA_MODEL)
     llm_model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    # API-ключ OpenRouter для компании (зашифрованный Fernet)
+    openrouter_api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Constraints
     __table_args__ = (

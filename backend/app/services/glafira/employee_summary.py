@@ -12,6 +12,7 @@ from ...models.audit import AuditLog
 from ...core.errors import NotFoundError
 from .client import call_text
 from .prompts import build_employee_summary_prompt
+from ..settings.glafira import get_company_openrouter_key
 
 
 async def generate_employee_summary(
@@ -120,8 +121,9 @@ async def generate_employee_summary(
     }
 
     # 5. Генерируем промпт и вызываем LLM
+    api_key = await get_company_openrouter_key(session, company_id)
     system_prompt, user_prompt = build_employee_summary_prompt(facts)
-    text = await call_text(system=system_prompt, user=user_prompt, max_tokens=1024)
+    text = await call_text(system=system_prompt, user=user_prompt, api_key=api_key, max_tokens=1024)
 
     # 6. Сохраняем результат
     employee.ai_summary = text.strip()

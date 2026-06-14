@@ -24,6 +24,7 @@ from ..services.integrations.hh import service as hh_service
 from ..services.integrations.hh import client as hh_client
 from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
+from ..services.settings.glafira import get_company_openrouter_key
 from ..services.audit import audit
 from .smart_search_log import log_smart_search, log_and_append_to_run
 
@@ -661,9 +662,11 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             if not hasattr(run, 'scored_candidates') or run.scored_candidates is None:
                 run.scored_candidates = []
 
-            # Получаем токен и вакансию
+            # Получаем токен, вакансию и API-ключ компании
             access_token = await hh_service.get_valid_access_token(init_session, company_id)
             vacancy = await init_session.get(Vacancy, run.vacancy_id)
+            # Резолвим API-ключ компании один раз для всех LLM-вызовов
+            company_api_key = await get_company_openrouter_key(init_session, company_id)
 
             # Сохраняем нужные данные в локальные переменные до закрытия сессии
             params = run.params
@@ -775,7 +778,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                 try:
                     # Оцениваем резюме БЕЗ открытой DB сессии с таймаутом
                     score_result = await asyncio.wait_for(
-                        score_resume_dict(full_resume, vacancy_for_scoring, company_id),
+                        score_resume_dict(full_resume, vacancy_for_scoring, company_id, company_api_key),
                         timeout=180  # LLM-вызов может быть долгим с ретраями
                     )
                     score = score_result["score"]
@@ -1537,10 +1540,14 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
 
 Определи оптимальные фильтры для поиска резюме на hh.ru."""
 
+        # Резолвим API-ключ компании для LLM
+        api_key = await get_company_openrouter_key(session, company_id)
+
         # Вызов LLM
         response_data = await call_json(
             system=system_prompt,
             user=user_prompt,
+            api_key=api_key,
             max_tokens=2000
         )
 

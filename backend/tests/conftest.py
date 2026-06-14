@@ -2,7 +2,9 @@ import asyncio
 import os
 import uuid
 from typing import AsyncGenerator
+from unittest.mock import AsyncMock
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -242,3 +244,50 @@ async def admin_token(async_client: AsyncClient, admin_user: User) -> str:
 def default_company_id(admin_user: User) -> str:
     """ID компании тест-админа как строка"""
     return str(admin_user.company_id)
+
+
+@pytest_asyncio.fixture
+async def second_company(db_session: AsyncSession, admin_user: User) -> Company:
+    """Вторая компания (для тестов изоляции per-company ключей и т.п.)."""
+    company = Company(id=uuid.uuid4(), name="Second Test Company")
+    db_session.add(company)
+    await db_session.commit()
+    await db_session.refresh(company)
+    return company
+
+
+# === Per-company OpenRouter ключ: дефолт для тестов =========================
+# LLM-функции теперь резолвят ключ компании через get_company_openrouter_key
+# ДО вызова call_json. Большинство тестов мокают call_json и НЕ задают ключ —
+# без дефолта они бы падали на OpenRouterNotConfiguredError. Эта autouse-фикстура
+# подменяет резолвер во ВСЕХ сервис-модулях на фиктивный ключ. Тесты, проверяющие
+# сам резолв/эндпоинт ключа, помечают себя @pytest.mark.real_openrouter_key и
+# получают настоящее поведение.
+_OPENROUTER_KEY_SITES = (
+    "app.services.glafira.scoring.get_company_openrouter_key",
+    "app.services.smart_search.get_company_openrouter_key",
+    "app.services.base_search.get_company_openrouter_key",
+    "app.services.glafira.screening.get_company_openrouter_key",
+    "app.services.glafira.auto_qa.get_company_openrouter_key",
+    "app.services.glafira.resume_gen.get_company_openrouter_key",
+    "app.services.glafira.employee_summary.get_company_openrouter_key",
+    "app.services.glafira.resume_parse.get_company_openrouter_key",
+    "app.api.v1.candidates.get_company_openrouter_key",
+    # source-модуль покрывает локальные импорты (pulse/plan.py) — резолв в рантайме
+    "app.services.settings.glafira.get_company_openrouter_key",
+)
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_openrouter_key: тест проверяет реальный резолв ключа компании (без авто-дефолта conftest)",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _default_company_openrouter_key(request, monkeypatch):
+    if request.node.get_closest_marker("real_openrouter_key"):
+        return
+    for site in _OPENROUTER_KEY_SITES:
+        monkeypatch.setattr(site, AsyncMock(return_value="test-openrouter-key"), raising=False)
