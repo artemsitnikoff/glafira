@@ -484,7 +484,10 @@ async def get_candidates_paginated(
         if candidate_apps:
             last_app = candidate_apps[0]  # первый в отсортированном списке
             stage_color = STAGES.get(last_app.stage, STAGES['added']).color
-            stage_label = stage_label_map.get((last_app.vacancy_id, last_app.stage)) or (STAGES[last_app.stage].label if last_app.stage in STAGES else last_app.stage)
+            # vacancy_stages (кастом/переименованные) → встроенный лейбл → «Этап снят»
+            # (осиротевшая заявка на удалённом/пересозданном этапе — связь строковая без FK,
+            # такого ключа уже нет в воронке; НЕ показываем криптоключ stage_<digits>)
+            stage_label = stage_label_map.get((last_app.vacancy_id, last_app.stage)) or (STAGES[last_app.stage].label if last_app.stage in STAGES else "Этап снят")
 
             last_vacancy = CandidateCardVacancy(
                 application_id=last_app.id,
