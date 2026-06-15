@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from app.services.integrations.potok.client import get_all_applicants, list_applicants, preview_applicants
+from app.services.integrations.potok.client import get_all_applicants, list_applicants, preview_applicants, iter_applicants
 from app.services.integrations.potok.mapper import map_potok_applicant
 from app.services.candidate_import import preview_potok_import, _classify_potok_rows
 from app.models import Candidate
@@ -244,6 +244,172 @@ class TestPotokClient:
             await list_applicants("")
 
         assert "токен" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_iter_applicants_streaming(self):
+        """Тест стримингового генератора кандидатов"""
+        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # Phase 1: две страницы
+            list_response_page1 = MagicMock()
+            list_response_page1.is_success = True
+            list_response_page1.status_code = 200
+            list_response_page1.json.return_value = {
+                "data": [
+                    {"id": 100, "first_name": "Batch1", "last_name": "User1"},
+                    {"id": 101, "first_name": "Batch1", "last_name": "User2"}
+                ],
+                "pages": 2,
+                "per_page": 2
+            }
+
+            list_response_page2 = MagicMock()
+            list_response_page2.is_success = True
+            list_response_page2.status_code = 200
+            list_response_page2.json.return_value = {"data": []}  # Конец Phase 1
+
+            # Phase 2: пустой для простоты
+            empty_jobs_response = MagicMock()
+            empty_jobs_response.is_success = True
+            empty_jobs_response.json.return_value = {
+                "objects": {"jobs": []},
+                "has_next_page": False
+            }
+
+            mock_client.get = AsyncMock()
+            mock_client.get.side_effect = [
+                list_response_page1,  # page=1
+                list_response_page2,  # page=2, empty
+                empty_jobs_response,  # active jobs
+                empty_jobs_response,  # archived jobs
+            ]
+
+            # Собираем все батчи
+            all_batches = []
+            async for batch in iter_applicants("valid_token"):
+                all_batches.append(batch)
+
+            assert len(all_batches) == 1  # Один батч из Phase 1
+            assert len(all_batches[0]) == 2  # Два кандидата в батче
+            assert all_batches[0][0]["id"] == 100
+            assert all_batches[0][1]["id"] == 101
+
+    @pytest.mark.asyncio
+    async def test_iter_applicants_422_page_limit_graceful(self):
+        """Тест graceful обработки 422 page limit"""
+        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # Page 1 успешная
+            list_response_page1 = MagicMock()
+            list_response_page1.is_success = True
+            list_response_page1.status_code = 200
+            list_response_page1.json.return_value = {
+                "data": [{"id": 100, "first_name": "Success"}],
+                "pages": 200,
+                "per_page": 100
+            }
+
+            # Page 2 → 422 page limit
+            list_response_422 = MagicMock()
+            list_response_422.is_success = False
+            list_response_422.status_code = 422
+            list_response_422.content = b'{"errors":{"page":["page limit"]}}'
+            list_response_422.json.return_value = {"errors": {"page": ["page limit"]}}
+
+            # Empty Phase 2
+            empty_jobs_response = MagicMock()
+            empty_jobs_response.is_success = True
+            empty_jobs_response.json.return_value = {
+                "objects": {"jobs": []},
+                "has_next_page": False
+            }
+
+            mock_client.get = AsyncMock()
+            mock_client.get.side_effect = [
+                list_response_page1,
+                list_response_422,  # Должно graceful break, не raise
+                empty_jobs_response,
+                empty_jobs_response,
+            ]
+
+            batches = []
+            async for batch in iter_applicants("valid_token"):
+                batches.append(batch)
+
+            # Должны получить только успешную страницу 1
+            assert len(batches) == 1
+            assert len(batches[0]) == 1
+            assert batches[0][0]["id"] == 100
+
+    @pytest.mark.asyncio
+    async def test_iter_applicants_timeout_continue(self):
+        """Тест продолжения работы при таймауте одной страницы"""
+        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
+            import httpx
+
+            mock_client = MagicMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # Page 1 успешная
+            success_response = MagicMock()
+            success_response.is_success = True
+            success_response.status_code = 200
+            success_response.json.return_value = {
+                "data": [{"id": 100, "first_name": "Success"}],
+                "pages": 3,
+                "per_page": 1
+            }
+
+            # Page 3 успешная после таймаута на page 2
+            success_response2 = MagicMock()
+            success_response2.is_success = True
+            success_response2.status_code = 200
+            success_response2.json.return_value = {
+                "data": [{"id": 102, "first_name": "AfterTimeout"}]
+            }
+
+            # Empty end
+            empty_response = MagicMock()
+            empty_response.is_success = True
+            empty_response.status_code = 200
+            empty_response.json.return_value = {"data": []}
+
+            # Empty Phase 2
+            empty_jobs_response = MagicMock()
+            empty_jobs_response.is_success = True
+            empty_jobs_response.json.return_value = {
+                "objects": {"jobs": []},
+                "has_next_page": False
+            }
+
+            # Настраиваем side_effect с таймаутом на page 2
+            mock_client.get = AsyncMock()
+            mock_client.get.side_effect = [
+                success_response,           # page=1 success
+                httpx.TimeoutException("timeout on page 2"),  # page=2 timeout
+                httpx.TimeoutException("timeout retry 1"),    # page=2 retry 1
+                httpx.TimeoutException("timeout retry 2"),    # page=2 retry 2
+                success_response2,          # page=3 success
+                empty_response,             # page=4 empty
+                empty_jobs_response,        # active jobs
+                empty_jobs_response,        # archived jobs
+            ]
+
+            batches = []
+            async for batch in iter_applicants("valid_token"):
+                batches.append(batch)
+
+            # Должны получить page 1 и page 3 (page 2 пропущена из-за таймаута)
+            assert len(batches) == 2
+            assert batches[0][0]["id"] == 100
+            assert batches[1][0]["id"] == 102
 
 
 class TestPotokMapper:

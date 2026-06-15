@@ -122,6 +122,225 @@ async def preview_applicants(token: str, sample: int = 50) -> tuple[int, List[Di
         return estimated_total, combined
 
 
+async def iter_applicants(token: str, on_progress: Optional[Callable[[int, int], None]] = None):
+    """
+    STREAMING генератор всех кандидатов из Potok.io (~15,700 кандидатов)
+
+    Yields batches of applicant objects (list[dict]) instead of loading all into memory.
+    Handles timeouts/network errors gracefully by continuing to next page/batch.
+
+    PHASE 1 (fast, full objects): /api/v3/applicants.json pages 1..99 (cap на 10k offset)
+    PHASE 2 (remainder via jobs): jobs → ajs_joins → detail fetch оставшихся по id
+
+    Args:
+        token: API токен Potok.io
+        on_progress: optional callback (done_count, total_count) для обновления UI
+
+    Yields:
+        List[Dict[str, Any]]: batches of full applicant objects
+
+    Raises:
+        ValidationError: при фатальных ошибках токена/подписки (401/402)
+    """
+    if not token or not token.strip():
+        raise ValidationError("Токен Потока обязателен")
+
+    async with httpx.AsyncClient(
+        base_url=settings.POTOK_API_BASE,
+        timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
+        headers={
+            "Authorization": f"Bearer {token.strip()}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    ) as client:
+
+        # Track seen applicant IDs across phases
+        seen_ids = set()
+        done_count = 0
+        total_estimate = None
+
+        async def _fetch_page_with_retry(url: str, params: Optional[dict] = None, retries: int = 3):
+            """Fetch with retry logic for timeouts/network/429"""
+            for attempt in range(retries):
+                try:
+                    resp = await client.get(url, params=params)
+
+                    # Check for page limit error (422) - should break, not retry
+                    if resp.status_code == 422:
+                        try:
+                            error_data = resp.json() if resp.content else {}
+                            if "page" in error_data.get("errors", {}):
+                                return None, "page_limit"  # Signal to break pagination
+                        except:
+                            pass
+
+                    # Handle 429 with retry
+                    if resp.status_code == 429 and attempt < retries - 1:
+                        delay = _parse_retry_after(resp.headers.get("Retry-After"))
+                        await asyncio.sleep(delay)
+                        continue
+
+                    # Fatal errors (auth/subscription) - should abort entire stream
+                    if resp.status_code in (401, 402):
+                        await _handle_potok_error(resp)
+
+                    if not resp.is_success:
+                        if attempt == retries - 1:
+                            # Log and continue to next page/batch on final attempt
+                            logger.error(f"HTTP {resp.status_code} на {url}, пропускаем")
+                            return None, "error"
+                        await asyncio.sleep(2.0 ** attempt)  # exponential backoff
+                        continue
+
+                    return resp, "success"
+
+                except (httpx.TimeoutException, httpx.NetworkError) as e:
+                    if attempt == retries - 1:
+                        logger.error(f"Сетевая ошибка на {url}: {e}, пропускаем")
+                        return None, "error"
+                    await asyncio.sleep(2.0 ** attempt)
+
+            return None, "error"
+
+        # PHASE 1: fast pagination with full objects (до лимита 10k offset)
+        logger.info("Potok Phase 1: начинаем пагинацию по списку")
+        page = 1
+
+        while page <= 99:  # hard cap: page >= 100 returns 422
+            resp, status = await _fetch_page_with_retry(f"/api/v3/applicants.json?page={page}&per_page=100")
+
+            if status == "page_limit":
+                logger.info(f"Potok: достигнут лимит пагинации на странице {page}, переходим к Phase 2")
+                break
+            elif status == "error":
+                logger.warning(f"Ошибка загрузки страницы {page}, продолжаем")
+                page += 1
+                continue
+
+            data = resp.json()
+            candidates = data.get("data", [])
+
+            if not candidates:
+                logger.info(f"Potok Phase 1: пустая страница {page}, завершаем")
+                break
+
+            # Update total estimate from first page
+            if page == 1 and total_estimate is None:
+                pages = data.get("pages", 1)
+                per_page = data.get("per_page", 100)
+                total_estimate = pages * per_page
+
+            # Track seen IDs
+            for obj in candidates:
+                seen_ids.add(obj["id"])
+
+            done_count += len(candidates)
+            if on_progress and total_estimate:
+                on_progress(done_count, total_estimate)
+
+            # Yield this page's batch
+            yield candidates
+            page += 1
+
+        logger.info(f"Potok Phase 1: получено {len(seen_ids)} кандидатов через список")
+
+        # PHASE 2: получаем остальных через jobs → ajs_joins → detail fetch
+        logger.info("Potok Phase 2: сбор ID через jobs")
+
+        # 1. Получаем все job IDs
+        job_ids = []
+        for scope in ("active", "archived"):
+            cursor = None
+            while True:
+                params = {"by_scope": scope, "per_page": 50}
+                if cursor:
+                    params["page_cursor"] = cursor
+
+                resp, status = await _fetch_page_with_retry("/api/v3/cursor_paginated/jobs.json", params)
+                if status == "error":
+                    logger.warning(f"Ошибка получения jobs scope={scope}, пропускаем")
+                    break
+
+                data = resp.json()
+                jobs = data.get("objects", {}).get("jobs", [])
+                job_ids.extend(job["id"] for job in jobs)
+
+                if not data.get("has_next_page"):
+                    break
+                cursor = data.get("page_next_cursor")
+
+        job_ids = list(set(job_ids))
+
+        # 2. Получаем все applicant IDs из всех job-ов
+        all_applicant_ids = set()
+        for job_id in job_ids:
+            cursor = None
+            while True:
+                params = {"per_page": 100}
+                if cursor:
+                    params["page_cursor"] = cursor
+
+                resp, status = await _fetch_page_with_retry(f"/api/v3/jobs/{job_id}/ajs_joins.json", params)
+                if status == "error":
+                    logger.warning(f"Ошибка получения ajs_joins для job {job_id}, пропускаем")
+                    break
+
+                data = resp.json()
+                for obj in data.get("objects", []):
+                    all_applicant_ids.add(obj["applicant_id"])
+
+                if not data.get("has_next_page"):
+                    break
+                cursor = data.get("page_next_cursor")
+
+        # 3. Определяем remainder (кандидаты НЕ в Phase 1)
+        remainder = [aid for aid in all_applicant_ids if aid not in seen_ids]
+        logger.info(f"Potok Phase 2: найдено {len(remainder)} дополнительных кандидатов через jobs")
+
+        # Update refined total
+        total_refined = len(seen_ids) + len(remainder)
+
+        # 4. Detail fetch remainder в chunks
+        if remainder:
+            semaphore = asyncio.Semaphore(5)  # rate limit protection
+            batch_size = 50
+
+            async def _fetch_applicant_detail(applicant_id: int) -> Optional[Dict[str, Any]]:
+                async with semaphore:
+                    resp, status = await _fetch_page_with_retry(f"/api/v3/applicants/{applicant_id}.json")
+                    if status == "error":
+                        return None
+                    return resp.json()
+
+            # Process remainder in chunks of batch_size
+            for i in range(0, len(remainder), batch_size):
+                batch_ids = remainder[i:i + batch_size]
+                tasks = [_fetch_applicant_detail(aid) for aid in batch_ids]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Filter successful results
+                batch_candidates = []
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Ошибка получения applicant detail: {result}")
+                        continue
+                    if result:
+                        batch_candidates.append(result)
+
+                if batch_candidates:
+                    done_count += len(batch_candidates)
+                    if on_progress:
+                        on_progress(done_count, total_refined)
+                    yield batch_candidates
+
+                # Пауза между батчами
+                if i + batch_size < len(remainder):
+                    await asyncio.sleep(0.2)
+
+        logger.info(f"Potok STREAMING: завершено, обработано {done_count} кандидатов")
+
+
 async def get_all_applicants(token: str, on_progress: Optional[Callable[[int, int], None]] = None) -> List[Dict[str, Any]]:
     """
     HYBRID получение всех кандидатов из Potok.io (~15,700 кандидатов)

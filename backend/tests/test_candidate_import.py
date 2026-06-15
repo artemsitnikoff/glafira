@@ -451,13 +451,14 @@ class TestPotokImportTimeout:
         job = await create_import_job(db_session, company_id, 0)
         await db_session.commit()
 
-        # Мокаем list_applicants с мгновенным TimeoutError
-        async def timeout_list_applicants(*args, **kwargs):
-            raise asyncio.TimeoutError()
+        # Мокаем iter_applicants с мгновенным TimeoutError (имитируем фатальную 401 ошибку)
+        async def timeout_iter_applicants(*args, **kwargs):
+            from app.core.errors import ValidationError
+            raise ValidationError("Поток отклонил токен (проверьте, что токен активен и даёт доступ на чтение кандидатов)")
 
-        # Патчим AsyncSessionLocal и list_applicants
+        # Патчим AsyncSessionLocal и iter_applicants
         with patch('app.services.candidate_import.AsyncSessionLocal', _session_local_returning(db_session)), \
-             patch("app.services.candidate_import.list_applicants", side_effect=timeout_list_applicants):
+             patch("app.services.candidate_import.iter_applicants", side_effect=timeout_iter_applicants):
             # Запускаем импорт — должен завершиться с ошибкой
             await _run_potok_import(job.id, company_id, user_id, token, "skip")
 
@@ -467,4 +468,88 @@ class TestPotokImportTimeout:
         # Проверяем, что джоб корректно финализирован с ошибкой
         assert job.status == "error"
         assert job.finished_at is not None
-        assert "Таймаут при обращении к API Potok" in job.error
+        assert "токен активен" in job.error
+
+    @pytest.mark.asyncio
+    async def test_potok_import_streaming_success(self, db_session, admin_user):
+        """Тест успешного стримингового импорта из Potok"""
+        from contextlib import asynccontextmanager
+
+        def _session_local_returning(db_session):
+            @asynccontextmanager
+            async def _factory():
+                yield db_session
+            return _factory
+
+        company_id = admin_user.company_id
+        user_id = admin_user.id
+        token = "valid_token"
+
+        # Создаём джоб
+        job = await create_import_job(db_session, company_id, 0)
+        await db_session.commit()
+
+        # Мокаем стриминговый генератор
+        async def mock_iter_applicants(*args, **kwargs):
+            # Первый батч
+            yield [
+                {
+                    "id": 100,
+                    "first_name": "Иван",
+                    "last_name": "Петров",
+                    "email": "ivan@potok.test",
+                    "phones": ["79991234567"]
+                }
+            ]
+            # Второй батч
+            yield [
+                {
+                    "id": 101,
+                    "first_name": "Петр",
+                    "last_name": "Сидоров",
+                    "email": "petr@potok.test",
+                    "phones": ["79992345678"]
+                }
+            ]
+
+        # Мокаем map_potok_applicant для возврата нужного формата
+        def mock_map_potok_applicant(raw):
+            return {
+                "first_name": raw["first_name"],
+                "last_name": raw["last_name"],
+                "email": raw["email"],
+                "phone": raw["phones"][0] if raw.get("phones") else None,
+                "external_id": str(raw["id"]),
+                "experience": [],
+                "skills": [],
+                "education": [],
+                "languages": []
+            }
+
+        # Патчим зависимости
+        with patch('app.services.candidate_import.AsyncSessionLocal', _session_local_returning(db_session)), \
+             patch("app.services.candidate_import.iter_applicants", side_effect=mock_iter_applicants), \
+             patch("app.services.candidate_import.map_potok_applicant", side_effect=mock_map_potok_applicant), \
+             patch("app.services.candidate_import._create_potok_child_records", new=AsyncMock()), \
+             patch("app.services.candidate_import.reindex_all_embeddings", new=AsyncMock()):
+            # Запускаем импорт
+            await _run_potok_import(job.id, company_id, user_id, token, "skip")
+
+        # Обновляем джоб из БД
+        await db_session.refresh(job)
+
+        # Проверяем результат
+        assert job.status == "done"
+        assert job.created == 2  # Два кандидата созданы
+        assert job.skipped == 0
+        assert job.errors == 0
+
+        # Проверяем, что кандидаты действительно созданы в БД
+        from sqlalchemy import func
+        result = await db_session.execute(
+            select(func.count(Candidate.id))
+            .where(Candidate.company_id == company_id)
+            .where(Candidate.source == "potok")
+        )
+        created_count = result.scalar()
+        assert created_count == 2

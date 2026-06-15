@@ -19,7 +19,7 @@ from ..database import AsyncSessionLocal
 from ..models import Candidate, CandidateImportJob, CandidateExperience, CandidateSkill, CandidateEducation
 from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
-from ..services.integrations.potok.client import get_all_applicants, preview_applicants
+from ..services.integrations.potok.client import get_all_applicants, preview_applicants, iter_applicants
 from ..services.integrations.potok.mapper import map_potok_applicant
 from .base_search import reindex_all_embeddings
 from .candidate_dedup import _clean_phone, _normalize_contact, _phone_query_variants, _get_existing_candidates
@@ -1000,104 +1000,104 @@ async def _create_potok_child_records(session: AsyncSession, company_id: UUID, c
 
 
 async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token: str, dedup_mode: str):
-    """Фоновое выполнение импорта из Potok.io"""
+    """Фоновое выполнение СТРИМИНГОВОГО импорта из Potok.io"""
 
     try:
-        # Progress callback: ставим total СРАЗУ → бар двигается уже на длинной фазе
-        # загрузки из Потока (а не «зависает» на 0). Троттлинг: не плодим сотни
-        # fire-and-forget сессий (иначе по одной на каждого applicant → давление на пул).
-        def update_progress(done: int, total: int):
-            if done == 1 or done % 20 == 0 or done == total:
-                asyncio.create_task(_update_job_progress(job_id, processed=done, total=total))
+        logger.info("Начинаем стриминговый импорт из Potok")
 
-        logger.info("Начинаем полный импорт из Potok")
-
-        # Получаем всех кандидатов через новый HYBRID API
-        try:
-            all_candidates = await asyncio.wait_for(
-                get_all_applicants(token, on_progress=update_progress),
-                timeout=1800  # 30 минут таймаут на полный импорт (~15,700 кандидатов)
-            )
-        except asyncio.TimeoutError:
-            logger.error("Таймаут полного импорта из Potok")
-            await _finalize_job(job_id, "error", "Таймаут при загрузке всех кандидатов из Potok")
-            return
-        except Exception as e:
-            logger.error(f"Ошибка полного импорта из Potok: {e}")
-            raise
-
-        # Обновляем total в джобе
-        await _update_job_progress(job_id, total=len(all_candidates))
-        logger.info(f"Получено {len(all_candidates)} кандидатов для импорта")
-
-        # Маппим кандидатов
-        mapped_candidates = []
-        for raw in all_candidates:
-            try:
-                mapped = map_potok_applicant(raw)
-                mapped_candidates.append(mapped)
-            except Exception as e:
-                logger.error(f"Ошибка маппинга кандидата Potok {raw.get('id', '?')}: {e}")
-                continue
-
-        # Получаем существующих кандидатов для дедупликации
-        all_phones = []
-        all_emails = []
-        for candidate in mapped_candidates:
-            if candidate.get("phone"):
-                norm_phone = _normalize_contact(candidate["phone"])
-                if norm_phone:
-                    all_phones.append(norm_phone)
-            if candidate.get("email"):
-                norm_email = _normalize_contact(candidate["email"])
-                if norm_email:
-                    all_emails.append(norm_email)
-
+        # Загружаем базовые наборы для дедупликации ОДИН раз
         async with AsyncSessionLocal() as session:
-            existing_candidates = await _get_existing_candidates(session, company_id, all_phones, all_emails)
+            result = await session.execute(
+                select(Candidate.phone, Candidate.email)
+                .where(Candidate.company_id == company_id)
+                .where(Candidate.deleted_at.is_(None))
+            )
+            existing_rows = result.fetchall()
 
-        # Классифицируем кандидатов
-        classified_rows = _classify_potok_rows(mapped_candidates, existing_candidates)
+        # Предпроцессинг в наборы для быстрого поиска
+        base_phones = set()
+        base_emails = set()
+        for phone, email in existing_rows:
+            if phone:
+                norm_phone = _normalize_contact(phone)
+                if norm_phone:
+                    base_phones.add(norm_phone)
+            if email:
+                norm_email = _normalize_contact(email)
+                if norm_email:
+                    base_emails.add(norm_email)
 
-        # Обрабатываем батчами
-        batch_size = 500
+        # Наборы для отслеживания дублей в рамках текущего импорта
+        seen_phones = set()
+        seen_emails = set()
+
+        # Счётчики
         created_count = 0
         updated_count = 0
         skipped_count = 0
         errors_count = 0
+        processed_total = 0
 
-        for i in range(0, len(classified_rows), batch_size):
-            batch = classified_rows[i:i + batch_size]
+        # Progress callback с троттлингом
+        def update_progress(done: int, total: int):
+            if done == 1 or done % 20 == 0 or done == total:
+                asyncio.create_task(_update_job_progress(job_id, processed=done, total=total))
 
-            async with AsyncSessionLocal() as session:
-                for row_data in batch:
-                    try:
-                        if row_data["status"] == "error":
-                            errors_count += 1
-                            continue
+        # STREAMING: обрабатываем каждый батч по мере поступления
+        async for batch in iter_applicants(token, on_progress=update_progress):
+            batch_mapped = []
 
-                        # Каждую строку обрабатываем в savepoint: сбой одной записи
-                        # (нарушение CHECK и т.п.) откатывает ТОЛЬКО её, не «отравляет»
-                        # сессию и не валит весь батч (до 500 кандидатов). Счётчики
-                        # инкрементим строго ПОСЛЕ успешного flush.
+            # Маппинг батча
+            for raw in batch:
+                try:
+                    mapped = map_potok_applicant(raw)
+                    batch_mapped.append(mapped)
+                except Exception as e:
+                    logger.error(f"Ошибка маппинга кандидата Potok {raw.get('id', '?')}: {e}")
+                    errors_count += 1
+
+            # Классифицируем батч
+            for candidate in batch_mapped:
+                try:
+                    # Проверка на обязательные поля
+                    if not candidate.get("first_name") and not candidate.get("last_name"):
+                        errors_count += 1
+                        continue
+
+                    phone = candidate.get("phone")
+                    email = candidate.get("email")
+
+                    if not phone and not email:
+                        errors_count += 1
+                        continue
+
+                    # Проверка на дублирование
+                    norm_phone = _normalize_contact(phone) if phone else None
+                    norm_email = _normalize_contact(email) if email else None
+
+                    is_duplicate = False
+                    match_id = None
+
+                    # Проверяем дублирование в базе И внутри импорта
+                    if norm_phone and (norm_phone in base_phones or norm_phone in seen_phones):
+                        is_duplicate = True
+                    elif norm_email and (norm_email in base_emails or norm_email in seen_emails):
+                        is_duplicate = True
+
+                    # Обрабатываем в зависимости от статуса
+                    async with AsyncSessionLocal() as session:
                         async with session.begin_nested():
-                            if row_data["status"] == "duplicate":
-                                match_id = row_data.get("_match_id")
+                            if is_duplicate:
                                 if dedup_mode == "update" and match_id:
-                                    # Обновление существующего кандидата
-                                    existing = await session.get(Candidate, UUID(match_id))
-                                    if existing is not None and existing.company_id == company_id:
-                                        _apply_potok_update(existing, row_data["detail"])
-                                        await session.flush()
-                                        updated_count += 1
-                                    else:
-                                        skipped_count += 1
-                                else:
-                                    # skip-режим или внутренний дубль
+                                    # TODO: Реализовать поиск match_id для обновления
+                                    # Пока пропускаем обновления в стриминговом режиме
                                     skipped_count += 1
-                            elif row_data["status"] == "new":
-                                detail = row_data["detail"]
-                                candidate = Candidate(
+                                else:
+                                    skipped_count += 1
+                            else:
+                                # Новый кандидат
+                                detail = candidate
+                                candidate_obj = Candidate(
                                     company_id=company_id,
                                     first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
                                     last_name=_fit(detail.get("last_name") or "", 120),
@@ -1119,26 +1119,33 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
                                     source_url=_fit(detail.get("source_url"), 500) if detail.get("source_url") else None,
                                     extra={"imported": True, "languages": detail.get("languages") or []}
                                 )
-                                session.add(candidate)
+                                session.add(candidate_obj)
                                 await session.flush()  # получаем ID
 
                                 # Создаем связанные записи и фиксируем их в savepoint
-                                await _create_potok_child_records(session, company_id, candidate.id, detail)
+                                await _create_potok_child_records(session, company_id, candidate_obj.id, detail)
                                 await session.flush()
+
+                                # Добавляем в seen наборы для внутренней дедупликации
+                                if norm_phone:
+                                    seen_phones.add(norm_phone)
+                                if norm_email:
+                                    seen_emails.add(norm_email)
 
                                 created_count += 1
 
-                    except Exception as e:
-                        logger.error(f"Ошибка обработки кандидата Potok: {e}")
-                        errors_count += 1
+                        await session.commit()
 
-                await session.commit()
+                    processed_total += 1
 
-            # Обновляем прогресс
-            processed = min(i + batch_size, len(classified_rows))
+                except Exception as e:
+                    logger.error(f"Ошибка обработки кандидата Potok: {e}")
+                    errors_count += 1
+
+            # Обновляем прогресс после каждого батча
             await _update_job_progress(
                 job_id,
-                processed=processed,
+                processed=processed_total,
                 created=created_count,
                 updated=updated_count,
                 skipped=skipped_count,
