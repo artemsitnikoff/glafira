@@ -69,7 +69,8 @@ def _format_period(start: str, end: str, now: bool = False) -> Optional[str]:
     if not start and not end:
         return None
     s = (start or "")[:7] if start else "?"
-    e = "по наст. время" if now else ((end or "")[:7] if end else "?")
+    # Поток: end=None/пусто у текущего места работы → «по наст. время» (подтверждено живым API)
+    e = "по наст. время" if (now or not end) else (end or "")[:7]
     return f"{s} — {e}"
 
 

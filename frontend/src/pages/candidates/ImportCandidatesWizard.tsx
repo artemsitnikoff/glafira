@@ -797,7 +797,7 @@ function ImpStepToken({ tokenVal, setTokenVal, tokenState, onConnect, actionErro
             id="imp-token-input"
             className="imp-token-input"
             type="text"
-            placeholder="pk_live_••••••••••••••••••••••••"
+            placeholder="32-значный токен, напр. 0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d"
             value={tokenVal}
             onChange={e => setTokenVal(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && tokenVal.trim()) onConnect(); }}
