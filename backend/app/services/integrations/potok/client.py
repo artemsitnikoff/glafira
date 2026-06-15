@@ -89,22 +89,37 @@ async def preview_applicants(token: str, sample: int = 50) -> tuple[int, List[Di
             "Content-Type": "application/json",
         },
     ) as client:
-        try:
-            resp = await client.get(f"/api/v3/applicants.json?page=1&per_page={sample}")
+        async def _fetch_page(p: int) -> dict:
+            resp = await client.get(f"/api/v3/applicants.json?page={p}&per_page={sample}")
             if not resp.is_success:
                 await _handle_potok_error(resp)
+            return resp.json()
 
-            data = resp.json()
-            sample_data = data.get("data", [])
-            pages = data.get("pages", 1)
-            per_page = data.get("per_page", sample)
-            estimated_total = pages * per_page
-
-            return estimated_total, sample_data
+        try:
+            first = await _fetch_page(1)
         except httpx.TimeoutException:
             raise ValidationError("Не удалось связаться с Потоком (таймаут)")
         except httpx.NetworkError:
             raise ValidationError("Не удалось связаться с Потоком (сетевая ошибка)")
+
+        pages = first.get("pages", 1)
+        per_page = first.get("per_page", sample)
+        estimated_total = pages * per_page
+        combined = list(first.get("data", []))
+
+        # Репрезентативный сэмпл: + середина и конец ДОСТИЖИМОГО диапазона (offset<10000 →
+        # max_page зависит от per_page). Страница 1 — обычно свежие кандидаты, которые уже
+        # есть в базе (через hh/ручной ввод) → сэмпл только по ней ЗАВЫШАЕТ «дубли».
+        # Разброс по страницам даёт честную оценку new/dup по всему пулу.
+        max_page = max(1, min(pages, 9999 // max(per_page, 1)))
+        for p in sorted({max_page // 2, max_page} - {0, 1}):
+            try:
+                d = await _fetch_page(p)
+                combined.extend(d.get("data", []))
+            except Exception:
+                pass  # доп. страница необязательна для оценки
+
+        return estimated_total, combined
 
 
 async def get_all_applicants(token: str, on_progress: Optional[Callable[[int, int], None]] = None) -> List[Dict[str, Any]]:
