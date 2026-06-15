@@ -19,7 +19,7 @@ from ..database import AsyncSessionLocal
 from ..models import Candidate, CandidateImportJob, CandidateExperience, CandidateSkill, CandidateEducation
 from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
-from ..services.integrations.potok.client import get_all_applicants
+from ..services.integrations.potok.client import get_all_applicants, preview_applicants
 from ..services.integrations.potok.mapper import map_potok_applicant
 from .base_search import reindex_all_embeddings
 from .candidate_dedup import _clean_phone, _normalize_contact, _phone_query_variants, _get_existing_candidates
@@ -749,7 +749,7 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     """
     Превью импорта кандидатов из Potok.io с дедупликацией
 
-    Использует исправленный API flow через get_all_applicants()
+    Использует LIGHT preview_applicants() — быстрый запрос без полной загрузки
 
     Args:
         session: DB сессия
@@ -763,20 +763,13 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     logger.info("Начинаем превью импорта Potok")
 
     try:
-        # Получаем первые 20 кандидатов для превью (не всех - может быть много)
-        all_applicants = await asyncio.wait_for(get_all_applicants(token), timeout=60)
+        # Быстрый превью без полной загрузки всех ~15,700
+        estimated_total, preview_sample = await preview_applicants(token, sample=50)
 
-        # Берем максимум 50 для превью (остальные показываем в счетчике)
-        preview_sample = all_applicants[:50] if len(all_applicants) > 50 else all_applicants
-        total_count = len(all_applicants)
+        logger.info(f"Превью Potok: получено {len(preview_sample)} образцов, оценка общего количества: {estimated_total}")
 
-        logger.info(f"Получено {total_count} кандидатов из Potok, показываем {len(preview_sample)} в превью")
-
-    except asyncio.TimeoutError:
-        logger.error("Таймаут загрузки кандидатов из Potok")
-        raise ValidationError("Таймаут при обращении к API Potok. Попробуйте позже.")
     except Exception as e:
-        logger.error(f"Ошибка загрузки кандидатов из Potok: {e}")
+        logger.error(f"Ошибка превью Potok: {e}")
         raise
 
     # Маппим кандидатов для превью
@@ -815,8 +808,8 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     preview_errors = len([r for r in classified_rows if r["status"] == "error"])
 
     # Экстраполируем статистику на весь объем данных
-    if len(preview_sample) > 0 and total_count > len(preview_sample):
-        scale_factor = total_count / len(preview_sample)
+    if len(preview_sample) > 0 and estimated_total > len(preview_sample):
+        scale_factor = estimated_total / len(preview_sample)
         total = int(preview_total * scale_factor)
         new = int(preview_new * scale_factor)
         duplicates = int(preview_duplicates * scale_factor)
@@ -1010,11 +1003,11 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
 
         logger.info("Начинаем полный импорт из Potok")
 
-        # Получаем всех кандидатов через новый API
+        # Получаем всех кандидатов через новый HYBRID API
         try:
             all_candidates = await asyncio.wait_for(
                 get_all_applicants(token, on_progress=update_progress),
-                timeout=300  # 5 минут таймаут на полный импорт
+                timeout=1800  # 30 минут таймаут на полный импорт (~15,700 кандидатов)
             )
         except asyncio.TimeoutError:
             logger.error("Таймаут полного импорта из Potok")

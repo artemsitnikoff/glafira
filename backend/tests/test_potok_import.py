@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from app.services.integrations.potok.client import get_all_applicants, list_applicants
+from app.services.integrations.potok.client import get_all_applicants, list_applicants, preview_applicants
 from app.services.integrations.potok.mapper import map_potok_applicant
 from app.services.candidate_import import preview_potok_import, _classify_potok_rows
 from app.models import Candidate
@@ -35,58 +35,156 @@ class TestPotokClient:
     """Тесты клиента Potok API (на моках HTTP)"""
 
     @pytest.mark.asyncio
-    async def test_get_all_applicants_success(self):
-        """Успешный запрос всех кандидатов через новый API flow"""
-        # Mock client для эмуляции полного flow
+    async def test_preview_applicants_success(self):
+        """Быстрый превью кандидатов"""
         with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
-            # Настраиваем mock клиент
+            # Mock для preview API
             mock_client = MagicMock()
             mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            # Mock responses для jobs
+            preview_response = MagicMock()
+            preview_response.is_success = True
+            preview_response.json.return_value = {
+                "data": [
+                    {
+                        "id": 123,
+                        "first_name": "Иван",
+                        "last_name": "Петров",
+                        "cv_params": {"about_me": "Тестовое резюме"}
+                    }
+                ],
+                "pages": 157,  # ~15,700 кандидатов total
+                "per_page": 100
+            }
+
+            mock_client.get = AsyncMock(return_value=preview_response)
+
+            estimated_total, sample_data = await preview_applicants("valid_token", sample=50)
+
+            assert estimated_total == 15700  # 157 * 100
+            assert len(sample_data) == 1
+            assert sample_data[0]["id"] == 123
+
+    @pytest.mark.asyncio
+    async def test_get_all_applicants_hybrid_success(self):
+        """HYBRID запрос всех кандидатов: Phase 1 (список) + Phase 2 (jobs → detail)"""
+        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # Phase 1: /api/v3/applicants.json responses
+            list_response_page1 = MagicMock()
+            list_response_page1.is_success = True
+            list_response_page1.status_code = 200
+            list_response_page1.json.return_value = {
+                "data": [
+                    {"id": 100, "first_name": "Фаза1", "last_name": "Кандидат1"},
+                    {"id": 101, "first_name": "Фаза1", "last_name": "Кандидат2"}
+                ]
+            }
+
+            list_response_page2 = MagicMock()
+            list_response_page2.is_success = True
+            list_response_page2.status_code = 200
+            list_response_page2.json.return_value = {"data": []}  # Пустая страница = конец Phase 1
+
+            # Phase 2: jobs
             jobs_response = MagicMock()
             jobs_response.is_success = True
             jobs_response.json.return_value = {
-                "objects": {"jobs": [{"id": 100}, {"id": 101}]},
+                "objects": {"jobs": [{"id": 500}]},
                 "has_next_page": False
             }
 
-            # Mock responses для ajs_joins
+            # ajs_joins
             ajs_joins_response = MagicMock()
             ajs_joins_response.is_success = True
             ajs_joins_response.json.return_value = {
-                "objects": [{"applicant_id": 123}, {"applicant_id": 124}],
+                "objects": [
+                    {"applicant_id": 100},  # уже есть в Phase 1
+                    {"applicant_id": 200}   # новый для Phase 2
+                ],
                 "has_next_page": False
             }
 
-            # Mock responses для applicant details
-            applicant_response = MagicMock()
-            applicant_response.is_success = True
-            applicant_response.status_code = 200
-            applicant_response.json.return_value = {
-                "id": 123,
-                "first_name": "Иван",
-                "last_name": "Петров",
-                "cv_params": {"about_me": "Тестовое резюме"}
+            # Detail fetch remainder
+            applicant_detail_response = MagicMock()
+            applicant_detail_response.is_success = True
+            applicant_detail_response.status_code = 200
+            applicant_detail_response.json.return_value = {
+                "id": 200,
+                "first_name": "Фаза2",
+                "last_name": "Кандидат3"
             }
 
             # Настраиваем последовательность вызовов
             mock_client.get = AsyncMock()
             mock_client.get.side_effect = [
+                # Phase 1: список
+                list_response_page1,  # page=1
+                list_response_page2,  # page=2, пустая → конец Phase 1
+                # Phase 2: jobs
                 jobs_response,  # active jobs
-                jobs_response,  # archived jobs (тот же для простоты)
-                ajs_joins_response,  # job 100 ajs_joins
-                ajs_joins_response,  # job 101 ajs_joins
-                applicant_response,  # applicant 123
-                applicant_response,  # applicant 124
+                jobs_response,  # archived jobs (тот же)
+                ajs_joins_response,  # job 500 ajs_joins
+                applicant_detail_response,  # detail fetch applicant_id=200
             ]
 
             result = await get_all_applicants("valid_token")
 
-            assert len(result) == 2
-            assert result[0]["id"] == 123
-            assert result[0]["first_name"] == "Иван"
+            assert len(result) == 3  # 2 из Phase 1 + 1 из Phase 2
+            ids = [r["id"] for r in result]
+            assert 100 in ids
+            assert 101 in ids
+            assert 200 in ids
+
+    @pytest.mark.asyncio
+    async def test_get_all_applicants_phase1_422_cap(self):
+        """Test 422 page limit error в Phase 1 → переход к Phase 2"""
+        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # Page 1 успешная
+            list_response_page1 = MagicMock()
+            list_response_page1.is_success = True
+            list_response_page1.status_code = 200
+            list_response_page1.json.return_value = {
+                "data": [{"id": 100, "first_name": "Тест"}]
+            }
+
+            # Page 100 → 422 page limit
+            list_response_422 = MagicMock()
+            list_response_422.is_success = False
+            list_response_422.status_code = 422
+            list_response_422.content = b'{"errors":{"page":["page limit exceeded"]}}'
+            list_response_422.json.return_value = {
+                "errors": {"page": ["page limit exceeded"]}
+            }
+
+            # Mock Phase 2 (пустой для простоты)
+            empty_jobs_response = MagicMock()
+            empty_jobs_response.is_success = True
+            empty_jobs_response.json.return_value = {
+                "objects": {"jobs": []},
+                "has_next_page": False
+            }
+
+            mock_client.get = AsyncMock()
+            mock_client.get.side_effect = [
+                list_response_page1,  # page=1 успех
+                list_response_422,    # page=2 → 422, должен graceful break
+                empty_jobs_response,  # active jobs (пустой)
+                empty_jobs_response,  # archived jobs (пустой)
+            ]
+
+            result = await get_all_applicants("valid_token")
+
+            assert len(result) == 1  # только из Phase 1
+            assert result[0]["id"] == 100
 
     @pytest.mark.asyncio
     async def test_list_applicants_legacy_compatibility(self):
@@ -437,8 +535,8 @@ class TestPotokIntegration:
             "per_page": 100
         }
 
-        with patch("app.services.candidate_import.get_all_applicants") as mock_api:
-            mock_api.return_value = mock_response["data"]
+        with patch("app.services.candidate_import.preview_applicants") as mock_api:
+            mock_api.return_value = (15700, mock_response["data"])  # (estimated_total, sample)
 
             result = await preview_potok_import(db_session, company_id, "test_token", "skip")
 
@@ -454,7 +552,7 @@ class TestPotokIntegration:
     async def test_preview_potok_import_api_error(self, db_session, admin_user):
         """Ошибка API передается корректно"""
         company_id = admin_user.company_id
-        with patch("app.services.candidate_import.get_all_applicants") as mock_api:
+        with patch("app.services.candidate_import.preview_applicants") as mock_api:
             mock_api.side_effect = ValidationError("Невалидный токен")
 
             with pytest.raises(ValidationError):
