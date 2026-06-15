@@ -807,6 +807,14 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     preview_duplicates = len([r for r in classified_rows if r["status"] == "duplicate"])
     preview_errors = len([r for r in classified_rows if r["status"] == "error"])
 
+    # ДИАГНОСТИКА: откуда дубли (база vs внутри-выгрузки) и сколько кандидатов базы совпало
+    _base_dups = sum(1 for r in classified_rows if r.get("_match_id"))
+    logger.info(
+        f"[potok-preview] sample={len(preview_sample)} existing_matched={len(existing_candidates)} "
+        f"new={preview_new} dup={preview_duplicates} (base={_base_dups}, within={preview_duplicates - _base_dups}) "
+        f"err={preview_errors}"
+    )
+
     # Экстраполируем статистику на весь объем данных
     if len(preview_sample) > 0 and estimated_total > len(preview_sample):
         scale_factor = estimated_total / len(preview_sample)

@@ -279,14 +279,19 @@ async def get_candidates_paginated(
 
     if search:
         like = f"%{search}%"
-        base_filters.append(
-            or_(
-                Candidate.last_name.ilike(like),
-                Candidate.first_name.ilike(like),
-                Candidate.phone.ilike(like),
-                Candidate.email.ilike(like)
+        clauses = [
+            Candidate.last_name.ilike(like),
+            Candidate.first_name.ilike(like),
+            Candidate.phone.ilike(like),
+            Candidate.email.ilike(like),
+        ]
+        # Телефон бывает в любом формате — ищем по ЦИФРАМ (цифры телефона в БД vs в запросе).
+        search_digits = _re.sub(r"\D", "", search)
+        if len(search_digits) >= 4:
+            clauses.append(
+                func.regexp_replace(Candidate.phone, r"\D", "", "g").ilike(f"%{search_digits}%")
             )
-        )
+        base_filters.append(or_(*clauses))
 
     if city:
         base_filters.append(Candidate.city.ilike(f"%{city}%"))

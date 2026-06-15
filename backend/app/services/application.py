@@ -1,4 +1,5 @@
 import math
+import re
 from datetime import date, datetime, timezone, timedelta
 from uuid import UUID
 
@@ -73,14 +74,20 @@ async def get_applications_for_vacancy_paginated(
         base_filters.append(Application.stage == stage)
     if search:
         like = f"%{search}%"
-        base_filters.append(
-            or_(
-                Candidate.last_name.ilike(like),
-                Candidate.first_name.ilike(like),
-                Candidate.phone.ilike(like),
-                Candidate.email.ilike(like),
+        clauses = [
+            Candidate.last_name.ilike(like),
+            Candidate.first_name.ilike(like),
+            Candidate.phone.ilike(like),
+            Candidate.email.ilike(like),
+        ]
+        # Телефон бывает в любом формате (+7 931 361-24-08 / +79313612408 / 8 931…):
+        # ищем по ЦИФРАМ — сравниваем только цифры телефона в БД и в запросе.
+        search_digits = re.sub(r"\D", "", search)
+        if len(search_digits) >= 4:
+            clauses.append(
+                func.regexp_replace(Candidate.phone, r"\D", "", "g").ilike(f"%{search_digits}%")
             )
-        )
+        base_filters.append(or_(*clauses))
     if score_min is not None:
         base_filters.append(Application.ai_score >= score_min)
     if salary_max is not None and salary_max > 0:
