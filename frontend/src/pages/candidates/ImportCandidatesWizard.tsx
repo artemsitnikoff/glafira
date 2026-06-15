@@ -1234,19 +1234,41 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepR
   const fromPotok = source === 'potok';
 
   if (!jobData || jobData.status === 'running') {
-    const pct = jobData ? Math.round((jobData.processed / jobData.total) * 100) : 0;
-    const imported = jobData?.processed || 0;
+    const processed = jobData?.processed || 0;
     const total = jobData?.total || 0;
+    const created = jobData?.created || 0;
+    const updated = jobData?.updated || 0;
+    const skipped = jobData?.skipped || 0;
+    const errors = jobData?.errors || 0;
+
+    // total === 0 → ещё грузим список из источника (Поток пагинирует API); иначе уже импортируем.
+    const loading = total === 0;
+    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;  // guard NaN
 
     return (
       <div className="imp-run">
         <div className="imp-run-dancer">💃</div>
-        <div className="imp-run-phase">Импортируем кандидатов в базу…</div>
-        <div className="imp-run-detail">
-          Импортировано <b className="t-mono">{fmtIM(imported)}</b> из <b className="t-mono">{fmtIM(total)}</b>
+        <div className="imp-run-phase">
+          {loading
+            ? (fromPotok ? 'Загружаем кандидатов из Потока…' : 'Готовим импорт…')
+            : 'Импортируем кандидатов в базу…'}
         </div>
-        <div className="imp-run-bar"><span style={{width: `${pct}%`}}/></div>
-        <div className="imp-run-pct t-mono">{pct}%</div>
+        <div className="imp-run-detail">
+          {loading
+            ? 'Получаем список, это может занять время…'
+            : <>Обработано <b className="t-mono">{fmtIM(processed)}</b> из <b className="t-mono">{fmtIM(total)}</b></>}
+        </div>
+        <div className={`imp-run-bar ${loading ? 'is-indet' : ''}`}>
+          <span style={{ width: loading ? undefined : `${pct}%` }}/>
+        </div>
+        {!loading && <div className="imp-run-pct t-mono">{pct}%</div>}
+
+        {/* Живой журнал — счётчики обновляются на каждом поллинге */}
+        <div className="imp-run-journal">
+          <span>Создано: <b>{fmtIM(created)}</b></span>
+          <span>{dedupMode === 'update' ? <>Обновлено: <b>{fmtIM(updated)}</b></> : <>Пропущено: <b>{fmtIM(skipped)}</b></>}</span>
+          <span>Ошибок: <b>{fmtIM(errors)}</b></span>
+        </div>
       </div>
     );
   }

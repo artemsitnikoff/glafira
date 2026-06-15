@@ -651,6 +651,23 @@
 }
 .imp-run-pct { font-size: 13px; color: var(--fg-3); font-weight: 600; }
 
+.imp-run-journal {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-4);
+  margin-top: var(--space-4); font-size: var(--fs-13); color: var(--fg-2);
+}
+.imp-run-journal b { color: var(--fg-1); }
+
+.imp-run-bar.is-indet span {
+  width: 30%;
+  animation: indeterminateSlide 1.2s ease-in-out infinite;
+}
+
+@keyframes indeterminateSlide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+  100% { transform: translateX(300%); }
+}
+
 .imp-result {
   display: flex; flex-direction: column; align-items: center; text-align: center;
   padding: 40px 0 20px;
