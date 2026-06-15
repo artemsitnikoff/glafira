@@ -857,8 +857,9 @@ def _classify_potok_rows(candidates: list[dict], existing_candidates: list[Candi
         # Базовая информация для превью
         first_name = candidate.get("first_name", "")
         last_name = candidate.get("last_name", "")
-        phone = candidate.get("phone", "")
-        email = candidate.get("email", "")
+        # маппер отдаёт phone/email как None (не "") → coerce, иначе .strip() ниже падает
+        phone = candidate.get("phone") or ""
+        email = candidate.get("email") or ""
 
         preview_row = {
             "index": i + 1,

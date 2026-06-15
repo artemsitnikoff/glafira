@@ -111,7 +111,7 @@
 .imp-drop-title { font-size: 16px; font-weight: 600; color: var(--fg-1); line-height: 1.4; }
 .imp-drop-sub { font-size: 13px; color: var(--fg-2); margin-top: 8px; max-width: 460px; line-height: 1.5; }
 .imp-drop-sub b { color: var(--fg-1); font-weight: 600; }
-.imp-drop-btn { margin-top: 20px; height: 36px; }
+.imp-drop-btn { margin-top: 20px; }
 .imp-drop-actions { margin-top: 18px; }
 .imp-drop-error { border-style: solid; border-color: var(--ark-red-100); background: #FEF6F6; cursor: default; }
 .imp-drop-error:hover { border-color: var(--ark-red-100); background: #FEF6F6; }

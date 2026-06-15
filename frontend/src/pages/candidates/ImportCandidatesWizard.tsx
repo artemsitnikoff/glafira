@@ -930,7 +930,7 @@ function ImpStepUpload({
         <div className="imp-drop-ic"><Icon name="download" size={30}/></div>
         <div className="imp-drop-title">Перетащите Excel-файл с кандидатами<br/>или нажмите для выбора</div>
         <div className="imp-drop-sub">Поддерживаются выгрузки из hh, Потока, Хантфлоу и других систем · форматы <b>.xlsx</b>, <b>.xls</b></div>
-        <button className="btn btn-primary imp-drop-btn" onClick={(e) => { e.stopPropagation(); onPick(); }}>
+        <button className="btn btn-primary btn-sm imp-drop-btn" onClick={(e) => { e.stopPropagation(); onPick(); }}>
           <Icon name="download" size={14}/> Выбрать файл
         </button>
       </div>
