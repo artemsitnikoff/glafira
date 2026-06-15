@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 import httpx
 
 from ....config import settings
@@ -52,42 +52,32 @@ async def _handle_potok_error(response: httpx.Response):
         raise ValidationError(f"Ошибка Потока: {error_message}")
 
 
-async def _retry_request(func, *args, max_retries=3, **kwargs):
-    """Ретраи с экспоненциальным backoff для 429/5xx ошибок"""
-    for attempt in range(max_retries):
-        try:
-            return await func(*args, **kwargs)
-        except ValidationError as e:
-            if "лимит запросов" in str(e) and attempt < max_retries - 1:
-                # 429 rate limit - ждем и повторяем
-                wait_time = (2 ** attempt) * 1
-                logger.warning(f"Rate limit Потока, повтор через {wait_time}с")
-                await asyncio.sleep(wait_time)
-                continue
-            elif "недоступен" in str(e) and attempt < max_retries - 1:
-                # 5xx server error - ждем и повторяем
-                wait_time = (2 ** attempt) * 2
-                logger.warning(f"Сервер Потока недоступен, повтор через {wait_time}с")
-                await asyncio.sleep(wait_time)
-                continue
-            else:
-                raise
+def _parse_retry_after(header_value: str | None, default: float = 2.0) -> float:
+    """Parse Potok's Retry-After header (usually seconds). Fall back to `default`
+    if not parseable or missing. Never raises."""
+    if not header_value:
+        return default
+    try:
+        return float(header_value)
+    except ValueError:
+        return default
 
 
-async def list_applicants(token: str, page: int = 1, per_page: int = 100) -> Dict[str, Any]:
+async def get_all_applicants(token: str, on_progress: Optional[Callable[[int, int], None]] = None) -> List[Dict[str, Any]]:
     """
-    Получение списка кандидатов из Potok.io
+    Получение всех кандидатов из Potok.io через правильный flow API
 
-    ВНИМАНИЕ: Реальный ответ API пинится на токене заказчика. Структура может отличаться
-    от OpenAPI спеки при реальных запросах.
+    Использует проверенную схему из ArkadyJarvis:
+    1. Список всех job-ов (активных + архивных)
+    2. Для каждого job получение списка applicant_id
+    3. Fetch каждого applicant по id с ограничением concurrency
 
     Args:
         token: API токен Potok.io
-        page: номер страницы (начиная с 1)
-        per_page: количество записей на странице (макс 100)
+        on_progress: optional callback (done_count, total_count) для обновления UI
 
     Returns:
-        Ответ API с массивом кандидатов и пагинацией
+        Список всех applicant detail-объектов
 
     Raises:
         ValidationError: при ошибках токена, подписки, rate limit или сети
@@ -95,45 +85,150 @@ async def list_applicants(token: str, page: int = 1, per_page: int = 100) -> Dic
     if not token or not token.strip():
         raise ValidationError("Токен Потока обязателен")
 
-    if page < 1:
-        page = 1
-    if per_page > 100:
-        per_page = 100
+    async with httpx.AsyncClient(
+        base_url=settings.POTOK_API_BASE,
+        timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
+        headers={
+            "Authorization": f"Bearer {token.strip()}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    ) as client:
+        # 1. Получаем все job IDs (активные + архивные)
+        job_ids = []
+        for scope in ("active", "archived"):
+            cursor = None
+            while True:
+                params = {"by_scope": scope, "per_page": 50}
+                if cursor:
+                    params["page_cursor"] = cursor
 
-    url = f"{settings.POTOK_API_BASE}/applicants.json"
-    headers = {
-        "Authorization": f"Bearer {token.strip()}",
-        "Content-Type": "application/json",
-        "User-Agent": "Glafira/1.0 (glafira.dclouds.ru)"
-    }
-    params = {
+                try:
+                    resp = await client.get("/api/v3/cursor_paginated/jobs.json", params=params)
+                    if not resp.is_success:
+                        await _handle_potok_error(resp)
+                    data = resp.json()
+                    jobs = data.get("objects", {}).get("jobs", [])
+                    job_ids.extend(job["id"] for job in jobs)
+
+                    if not data.get("has_next_page"):
+                        break
+                    cursor = data.get("page_next_cursor")
+                except httpx.TimeoutException:
+                    raise ValidationError("Не удалось связаться с Потоком (таймаут)")
+                except httpx.NetworkError:
+                    raise ValidationError("Не удалось связаться с Потоком (сетевая ошибка)")
+
+        # Дедуплицируем job IDs
+        job_ids = list(set(job_ids))
+        logger.info(f"Potok: найдено {len(job_ids)} уникальных job-ов")
+
+        # 2. Получаем все applicant IDs из всех job-ов
+        all_applicant_ids = set()
+        for job_id in job_ids:
+            cursor = None
+            while True:
+                params = {"per_page": 100}
+                if cursor:
+                    params["page_cursor"] = cursor
+
+                try:
+                    resp = await client.get(f"/api/v3/jobs/{job_id}/ajs_joins.json", params=params)
+                    if not resp.is_success:
+                        await _handle_potok_error(resp)
+                    data = resp.json()
+
+                    # Включаем всех кандидатов (active и inactive), если не указано иное
+                    for obj in data.get("objects", []):
+                        all_applicant_ids.add(obj["applicant_id"])
+
+                    if not data.get("has_next_page"):
+                        break
+                    cursor = data.get("page_next_cursor")
+                except httpx.TimeoutException:
+                    raise ValidationError("Не удалось связаться с Потоком (таймаут)")
+                except httpx.NetworkError:
+                    raise ValidationError("Не удалось связаться с Потоком (сетевая ошибка)")
+
+        applicant_ids = list(all_applicant_ids)
+        logger.info(f"Potok: найдено {len(applicant_ids)} уникальных applicant-ов")
+
+        # 3. Fetch каждого applicant по id с ограничением concurrency
+        semaphore = asyncio.Semaphore(5)  # Ограничиваем до 5 одновременных запросов
+        applicants = []
+        completed = 0
+
+        async def _fetch_applicant(applicant_id: int) -> Optional[Dict[str, Any]]:
+            nonlocal completed
+            async with semaphore:
+                for attempt in range(3):  # 3 попытки с retry на 429
+                    try:
+                        resp = await client.get(f"/api/v3/applicants/{applicant_id}.json")
+                        if resp.status_code == 429 and attempt < 2:
+                            delay = _parse_retry_after(resp.headers.get("Retry-After"))
+                            await asyncio.sleep(delay)
+                            continue
+                        if not resp.is_success:
+                            await _handle_potok_error(resp)
+                        completed += 1
+                        if on_progress:
+                            on_progress(completed, len(applicant_ids))
+                        return resp.json()
+                    except httpx.TimeoutException:
+                        if attempt == 2:
+                            raise ValidationError("Не удалось связаться с Потоком (таймаут)")
+                    except httpx.NetworkError:
+                        if attempt == 2:
+                            raise ValidationError("Не удалось связаться с Потоком (сетевая ошибка)")
+                return None
+
+        # Выполняем запросы батчами для контроля нагрузки
+        batch_size = 10
+        for i in range(0, len(applicant_ids), batch_size):
+            batch_ids = applicant_ids[i:i + batch_size]
+            tasks = [_fetch_applicant(aid) for aid in batch_ids]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Ошибка получения applicant: {result}")
+                    continue
+                if result:
+                    applicants.append(result)
+
+            # Небольшая пауза между батчами
+            if i + batch_size < len(applicant_ids):
+                await asyncio.sleep(0.2)
+
+        logger.info(f"Potok: успешно загружено {len(applicants)} кандидатов из {len(applicant_ids)}")
+        return applicants
+
+
+async def list_applicants(token: str, page: int = 1, per_page: int = 100) -> Dict[str, Any]:
+    """
+    LEGACY: Совместимость с существующим API
+
+    Вызывает новый get_all_applicants() и эмулирует старую пагинацию
+    """
+    logger.warning("Вызван legacy list_applicants - используйте get_all_applicants()")
+
+    # Получаем всех кандидатов
+    all_applicants = await get_all_applicants(token)
+
+    # Эмулируем пагинацию
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    page_applicants = all_applicants[start_idx:end_idx]
+
+    total_pages = (len(all_applicants) + per_page - 1) // per_page
+
+    return {
+        "data": page_applicants,
         "page": page,
-        "per_page": per_page
+        "per_page": per_page,
+        "pages": total_pages,
+        "total": len(all_applicants)
     }
-
-    async def _make_request():
-        try:
-            async with httpx.AsyncClient(timeout=settings.POTOK_TIMEOUT) as client:
-                response = await client.get(url, headers=headers, params=params)
-
-                if not response.is_success:
-                    await _handle_potok_error(response)
-
-                return response.json()
-
-        except httpx.TimeoutException:
-            raise ValidationError("Не удалось связаться с Потоком (таймаут)")
-        except httpx.NetworkError:
-            raise ValidationError("Не удалось связаться с Потоком (сетевая ошибка)")
-        except httpx.HTTPStatusError as e:
-            await _handle_potok_error(e.response)
-        except Exception as e:
-            if isinstance(e, (ValidationError, ConflictError)):
-                raise
-            logger.error(f"Неожиданная ошибка при запросе к Potok: {e}")
-            raise ValidationError("Не удалось связаться с Потоком")
-
-    return await _retry_request(_make_request)
 
 
 async def test_connection(token: str) -> bool:
@@ -147,8 +242,8 @@ async def test_connection(token: str) -> bool:
         True если соединение успешное, False иначе
     """
     try:
-        # Запрашиваем первую страницу с минимальным количеством записей
-        result = await list_applicants(token, page=1, per_page=1)
+        # Пробуем получить первый батч кандидатов
+        await get_all_applicants(token)
         return True
     except Exception:
         return False

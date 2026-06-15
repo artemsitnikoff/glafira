@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from app.services.integrations.potok.client import list_applicants
+from app.services.integrations.potok.client import get_all_applicants, list_applicants
 from app.services.integrations.potok.mapper import map_potok_applicant
 from app.services.candidate_import import preview_potok_import, _classify_potok_rows
 from app.models import Candidate
@@ -35,23 +35,70 @@ class TestPotokClient:
     """Тесты клиента Potok API (на моках HTTP)"""
 
     @pytest.mark.asyncio
-    async def test_list_applicants_success(self):
-        """Успешный запрос к API Potok"""
-        mock_response = {
-            "data": [
-                {"id": 123, "first_name": "Иван", "last_name": "Петров"}
-            ],
-            "page": 1,
-            "per_page": 100,
-            "pages": 1
-        }
+    async def test_get_all_applicants_success(self):
+        """Успешный запрос всех кандидатов через новый API flow"""
+        # Mock client для эмуляции полного flow
+        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client_class:
+            # Настраиваем mock клиент
+            mock_client = MagicMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.services.integrations.potok.client.httpx.AsyncClient") as mock_client:
-            _patch_potok_http(mock_client, is_success=True, payload=mock_response)
+            # Mock responses для jobs
+            jobs_response = MagicMock()
+            jobs_response.is_success = True
+            jobs_response.json.return_value = {
+                "objects": {"jobs": [{"id": 100}, {"id": 101}]},
+                "has_next_page": False
+            }
+
+            # Mock responses для ajs_joins
+            ajs_joins_response = MagicMock()
+            ajs_joins_response.is_success = True
+            ajs_joins_response.json.return_value = {
+                "objects": [{"applicant_id": 123}, {"applicant_id": 124}],
+                "has_next_page": False
+            }
+
+            # Mock responses для applicant details
+            applicant_response = MagicMock()
+            applicant_response.is_success = True
+            applicant_response.status_code = 200
+            applicant_response.json.return_value = {
+                "id": 123,
+                "first_name": "Иван",
+                "last_name": "Петров",
+                "cv_params": {"about_me": "Тестовое резюме"}
+            }
+
+            # Настраиваем последовательность вызовов
+            mock_client.get = AsyncMock()
+            mock_client.get.side_effect = [
+                jobs_response,  # active jobs
+                jobs_response,  # archived jobs (тот же для простоты)
+                ajs_joins_response,  # job 100 ajs_joins
+                ajs_joins_response,  # job 101 ajs_joins
+                applicant_response,  # applicant 123
+                applicant_response,  # applicant 124
+            ]
+
+            result = await get_all_applicants("valid_token")
+
+            assert len(result) == 2
+            assert result[0]["id"] == 123
+            assert result[0]["first_name"] == "Иван"
+
+    @pytest.mark.asyncio
+    async def test_list_applicants_legacy_compatibility(self):
+        """Legacy list_applicants использует новый API под капотом"""
+        with patch("app.services.integrations.potok.client.get_all_applicants") as mock_get_all:
+            mock_get_all.return_value = [
+                {"id": 123, "first_name": "Иван", "last_name": "Петров"}
+            ]
 
             result = await list_applicants("valid_token", page=1, per_page=100)
 
-            assert result == mock_response
+            assert "data" in result
             assert len(result["data"]) == 1
             assert result["data"][0]["id"] == 123
 
@@ -105,7 +152,7 @@ class TestPotokMapper:
     """Тесты маппинга данных из Potok"""
 
     def test_map_potok_applicant_full_data(self):
-        """Маппинг полных данных кандидата"""
+        """Маппинг полных данных кандидата с cv_params на top level"""
         potok_data = {
             "id": 12345,
             "first_name": "Иван",
@@ -119,37 +166,36 @@ class TestPotokMapper:
             "salary": 150000,
             "city": {"name": "Москва", "text": "Москва"},
             "source_url": "https://potok.io/candidate/123",
-            "resumes": [{
-                "cv_params": {
-                    "about_me": "Опытный разработчик Python",
-                    "skills": "Дополнительные навыки",
-                    "experience": [
+            # cv_params теперь на TOP LEVEL
+            "cv_params": {
+                "about_me": "Опытный разработчик Python",
+                "skills": "Дополнительные навыки",
+                "experience": [
+                    {
+                        "position": "Senior Developer",
+                        "company": "ООО Рога и копыта",
+                        "start": "2020-01-15",
+                        "end": "2023-12-01",
+                        "now": False,
+                        "description": "Разработка веб-приложений"
+                    }
+                ],
+                "skill_set": ["Python", "Django", "PostgreSQL"],
+                "education": {
+                    "primary": [
                         {
-                            "position": "Senior Developer",
-                            "company": "ООО Рога и копыта",
-                            "start": "2020-01-15",
-                            "end": "2023-12-01",
-                            "now": False,
-                            "description": "Разработка веб-приложений"
+                            "name": "МГУ",
+                            "organization": "ВМК",
+                            "result": "Прикладная математика",
+                            "year": "2018"
                         }
-                    ],
-                    "skill_set": ["Python", "Django", "PostgreSQL"],
-                    "education": {
-                        "primary": [
-                            {
-                                "name": "МГУ",
-                                "organization": "ВМК",
-                                "result": "Прикладная математика",
-                                "year": "2018"
-                            }
-                        ]
-                    },
-                    "languages": [
-                        {"name": "Английский", "level": {"name": "B2"}},
-                        {"name": "Немецкий", "level": {"name": "A1"}}
                     ]
-                }
-            }]
+                },
+                "languages": [
+                    {"name": "Английский", "level": {"name": "B2"}},
+                    {"name": "Немецкий", "level": {"name": "A1"}}
+                ]
+            }
         }
 
         result = map_potok_applicant(potok_data)
@@ -241,6 +287,25 @@ class TestPotokMapper:
 
         result = map_potok_applicant(potok_data)
         assert result["salary_expectation"] is None
+
+    def test_map_potok_applicant_legacy_resumes_fallback(self):
+        """Фолбэк на legacy схему resumes[].cv_params если top-level пуст"""
+        potok_data = {
+            "id": 1,
+            "first_name": "Тест",
+            # cv_params отсутствует на top level
+            "resumes": [{
+                "cv_params": {
+                    "about_me": "Тест из legacy резюме",
+                    "skill_set": ["Legacy Skill"]
+                }
+            }]
+        }
+
+        result = map_potok_applicant(potok_data)
+        assert result["resume_summary"] == "Тест из legacy резюме"
+        assert len(result["skills"]) == 1
+        assert result["skills"][0]["skill"] == "Legacy Skill"
 
 
 class TestPotokClassification:
@@ -372,8 +437,8 @@ class TestPotokIntegration:
             "per_page": 100
         }
 
-        with patch("app.services.candidate_import.list_applicants") as mock_api:
-            mock_api.return_value = mock_response
+        with patch("app.services.candidate_import.get_all_applicants") as mock_api:
+            mock_api.return_value = mock_response["data"]
 
             result = await preview_potok_import(db_session, company_id, "test_token", "skip")
 
@@ -389,7 +454,7 @@ class TestPotokIntegration:
     async def test_preview_potok_import_api_error(self, db_session, admin_user):
         """Ошибка API передается корректно"""
         company_id = admin_user.company_id
-        with patch("app.services.candidate_import.list_applicants") as mock_api:
+        with patch("app.services.candidate_import.get_all_applicants") as mock_api:
             mock_api.side_effect = ValidationError("Невалидный токен")
 
             with pytest.raises(ValidationError):

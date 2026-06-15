@@ -124,11 +124,15 @@ def map_potok_applicant(raw: Dict[str, Any]) -> Dict[str, Any]:
         if source_url and len(source_url) > 500:
             source_url = source_url[:500]
 
-        # Резюме из первого элемента resumes
-        resumes = raw.get("resumes") or []
-        resume_params = {}
-        if resumes and isinstance(resumes, list) and resumes[0]:
-            resume_params = resumes[0].get("cv_params") or {}
+        # cv_params теперь на TOP LEVEL applicant-а, не в resumes[].cv_params
+        # (по проверенным данным из ArkadyJarvis)
+        resume_params = raw.get("cv_params") or {}
+
+        # Фолбэк на старую схему resumes[].cv_params если top-level пуст
+        if not resume_params:
+            resumes = raw.get("resumes") or []
+            if resumes and isinstance(resumes, list) and resumes[0]:
+                resume_params = resumes[0].get("cv_params") or {}
 
         # Извлекаем данные резюме
         about_me = (resume_params.get("about_me") or "").strip() or None

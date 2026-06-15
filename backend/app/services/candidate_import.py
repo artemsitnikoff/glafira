@@ -19,7 +19,7 @@ from ..database import AsyncSessionLocal
 from ..models import Candidate, CandidateImportJob, CandidateExperience, CandidateSkill, CandidateEducation
 from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
-from ..services.integrations.potok.client import list_applicants
+from ..services.integrations.potok.client import get_all_applicants
 from ..services.integrations.potok.mapper import map_potok_applicant
 from .base_search import reindex_all_embeddings
 from .candidate_dedup import _clean_phone, _normalize_contact, _phone_query_variants, _get_existing_candidates
@@ -749,8 +749,7 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     """
     Превью импорта кандидатов из Potok.io с дедупликацией
 
-    ВНИМАНИЕ: Двойной фетч (preview + execute) — осознанный компромисс ради честных
-    счётчиков. Потом при execute будет повторный запрос к API Potok.
+    Использует исправленный API flow через get_all_applicants()
 
     Args:
         session: DB сессия
@@ -761,41 +760,28 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     Returns:
         Статистика превью аналогично Excel-импорту
     """
-    all_candidates = []
-    page = 1
-    per_page = 100
+    logger.info("Начинаем превью импорта Potok")
 
-    # Фетчим все страницы (с защитой от бесконечности)
-    max_pages = 100  # защита от API без pages
-    while page <= max_pages:
-        logger.info(f"Загрузка страницы {page} Potok")
-        try:
-            response = await asyncio.wait_for(list_applicants(token, page, per_page), timeout=30)
-        except asyncio.TimeoutError:
-            logger.error(f"Таймаут загрузки страницы {page} Potok")
-            raise ValidationError("Таймаут при обращении к API Potok. Попробуйте позже.")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки страницы {page} Potok: {e}")
-            raise
+    try:
+        # Получаем первые 20 кандидатов для превью (не всех - может быть много)
+        all_applicants = await asyncio.wait_for(get_all_applicants(token), timeout=60)
 
-        applicants = response.get("data") or []
-        if not applicants:
-            break
+        # Берем максимум 50 для превью (остальные показываем в счетчике)
+        preview_sample = all_applicants[:50] if len(all_applicants) > 50 else all_applicants
+        total_count = len(all_applicants)
 
-        all_candidates.extend(applicants)
+        logger.info(f"Получено {total_count} кандидатов из Potok, показываем {len(preview_sample)} в превью")
 
-        # Проверяем есть ли еще страницы
-        total_pages = response.get("pages", 1)
-        if page >= total_pages:
-            break
+    except asyncio.TimeoutError:
+        logger.error("Таймаут загрузки кандидатов из Potok")
+        raise ValidationError("Таймаут при обращении к API Potok. Попробуйте позже.")
+    except Exception as e:
+        logger.error(f"Ошибка загрузки кандидатов из Potok: {e}")
+        raise
 
-        page += 1
-
-    logger.info(f"Загружено {len(all_candidates)} кандидатов из Potok")
-
-    # Маппим всех кандидатов
+    # Маппим кандидатов для превью
     mapped_candidates = []
-    for raw in all_candidates:
+    for raw in preview_sample:
         try:
             mapped = map_potok_applicant(raw)
             mapped_candidates.append(mapped)
@@ -819,21 +805,34 @@ async def preview_potok_import(session: AsyncSession, company_id: UUID, token: s
     # Получаем существующих кандидатов
     existing_candidates = await _get_existing_candidates(session, company_id, all_phones, all_emails)
 
-    # Классифицируем (адаптируем _classify_rows под формат Potok)
+    # Классифицируем кандидатов для превью
     classified_rows = _classify_potok_rows(mapped_candidates, existing_candidates)
 
-    # Подсчет статистики
-    total = len(classified_rows)
-    new = len([r for r in classified_rows if r["status"] == "new"])
-    duplicates = len([r for r in classified_rows if r["status"] == "duplicate"])
-    errors = len([r for r in classified_rows if r["status"] == "error"])
+    # Подсчет статистики для превью
+    preview_total = len(classified_rows)
+    preview_new = len([r for r in classified_rows if r["status"] == "new"])
+    preview_duplicates = len([r for r in classified_rows if r["status"] == "duplicate"])
+    preview_errors = len([r for r in classified_rows if r["status"] == "error"])
 
-    # Возвращаем первые 50 строк для превью
-    shown = min(50, total)
+    # Экстраполируем статистику на весь объем данных
+    if len(preview_sample) > 0 and total_count > len(preview_sample):
+        scale_factor = total_count / len(preview_sample)
+        total = int(preview_total * scale_factor)
+        new = int(preview_new * scale_factor)
+        duplicates = int(preview_duplicates * scale_factor)
+        errors = int(preview_errors * scale_factor)
+    else:
+        total = preview_total
+        new = preview_new
+        duplicates = preview_duplicates
+        errors = preview_errors
+
+    # Возвращаем preview sample
+    shown = len(classified_rows)
     remaining = max(0, total - shown)
     clean_rows = [
         {k: v for k, v in r.items() if not k.startswith("_")}
-        for r in classified_rows[:shown]
+        for r in classified_rows
     ]
 
     return {
@@ -1002,38 +1001,32 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
     """Фоновое выполнение импорта из Potok.io"""
 
     try:
-        # Фетчим всех кандидатов из Potok (повторно, но с честными счетчиками)
-        all_candidates = []
-        page = 1
-        per_page = 100
-        max_pages = 100
+        # Progress callback: ставим total СРАЗУ → бар двигается уже на длинной фазе
+        # загрузки из Потока (а не «зависает» на 0). Троттлинг: не плодим сотни
+        # fire-and-forget сессий (иначе по одной на каждого applicant → давление на пул).
+        def update_progress(done: int, total: int):
+            if done == 1 or done % 20 == 0 or done == total:
+                asyncio.create_task(_update_job_progress(job_id, processed=done, total=total))
 
-        while page <= max_pages:
-            logger.info(f"Импорт Potok: страница {page}")
-            try:
-                response = await asyncio.wait_for(list_applicants(token, page, per_page), timeout=30)
-            except asyncio.TimeoutError:
-                logger.error(f"Таймаут загрузки страницы {page} Potok в импорте")
-                await _finalize_job(job_id, "error", "Таймаут при обращении к API Potok. Попробуйте позже.")
-                return
-            except Exception as e:
-                logger.error(f"Ошибка загрузки страницы {page} Potok в импорте: {e}")
-                raise
+        logger.info("Начинаем полный импорт из Potok")
 
-            applicants = response.get("data") or []
-            if not applicants:
-                break
-
-            all_candidates.extend(applicants)
-
-            total_pages = response.get("pages", 1)
-            if page >= total_pages:
-                break
-
-            page += 1
+        # Получаем всех кандидатов через новый API
+        try:
+            all_candidates = await asyncio.wait_for(
+                get_all_applicants(token, on_progress=update_progress),
+                timeout=300  # 5 минут таймаут на полный импорт
+            )
+        except asyncio.TimeoutError:
+            logger.error("Таймаут полного импорта из Potok")
+            await _finalize_job(job_id, "error", "Таймаут при загрузке всех кандидатов из Potok")
+            return
+        except Exception as e:
+            logger.error(f"Ошибка полного импорта из Potok: {e}")
+            raise
 
         # Обновляем total в джобе
         await _update_job_progress(job_id, total=len(all_candidates))
+        logger.info(f"Получено {len(all_candidates)} кандидатов для импорта")
 
         # Маппим кандидатов
         mapped_candidates = []
