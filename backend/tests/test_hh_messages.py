@@ -101,7 +101,7 @@ class TestHhMessaging:
                     admin_user.id
                 )
 
-        assert "Канал hh недоступен: у кандидата нет чата hh" in str(exc_info.value)
+        assert "Канал hh недоступен" in str(exc_info.value)
 
         # Проверяем, что сообщение НЕ сохранено
         from sqlalchemy import select
@@ -303,7 +303,8 @@ class TestHhMessaging:
             application_id=application.id
         )
 
-        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"):
+        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"), \
+             patch('app.services.message.hh_client.get_negotiation_responses', new_callable=AsyncMock, return_value={"items": [], "pages": 0}):
             with pytest.raises(ValidationError) as exc_info:
                 await send_message(
                     db_session,
@@ -313,9 +314,163 @@ class TestHhMessaging:
                     admin_user.id
                 )
 
-        assert "Канал hh недоступен: у кандидата нет чата hh" in str(exc_info.value)
+        assert "Канал hh недоступен" in str(exc_info.value)
 
         # Проверяем, что сообщение НЕ сохранено
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(Message).where(Message.candidate_id == test_candidate.id)
+        )
+        assert not result.fetchall()
+
+    @pytest.mark.asyncio
+    async def test_send_hh_backfill_by_resume_id_success(
+        self, db_session, test_company, admin_user, test_candidate
+    ):
+        """Бэкфилл по resume_id: нет negotiation_id/chat_id, но hh_resume_id в extra и
+        get_negotiation_responses возвращает совпадающий отклик → negotiation_id/chat_id
+        сохраняются в Application, сообщение отправляется."""
+
+        from app.models import Vacancy, Application
+
+        # Устанавливаем hh_resume_id в extra кандидата
+        test_candidate.extra = {"hh_resume_id": "resume_abc"}
+        await db_session.flush()
+
+        # Вакансия с hh_vacancy_id
+        vacancy = Vacancy(
+            company_id=test_company.id,
+            name="Test Vacancy",
+            description="Test Description",
+            status="active",
+            hh_vacancy_id="hh_vac_123",
+        )
+        db_session.add(vacancy)
+        await db_session.flush()
+
+        # Заявка БЕЗ negotiation_id и chat_id
+        application = Application(
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=vacancy.id,
+            stage="response",
+            hh_negotiation_id=None,
+            hh_chat_id=None,
+        )
+        db_session.add(application)
+        await db_session.flush()
+
+        # Ответ get_negotiation_responses: один отклик с resume.id == "resume_abc"
+        mock_negotiations_page = {
+            "items": [
+                {
+                    "id": "neg_999",
+                    "chat_id": 42,
+                    "resume": {"id": "resume_abc"},
+                    "state": {"id": "phone_interview"},
+                }
+            ],
+            "pages": 1,
+        }
+
+        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"), \
+             patch('app.services.message.hh_client.get_negotiation_responses', new_callable=AsyncMock, return_value=mock_negotiations_page), \
+             patch('app.services.message.hh_client.send_chat_message', new_callable=AsyncMock, return_value={"id": "msg_bkf"}):
+
+            message_data = MessageCreate(
+                channel="hh",
+                body="Бэкфилл-тест",
+                application_id=application.id,
+            )
+            result = await send_message(
+                db_session,
+                test_candidate.id,
+                message_data,
+                test_company.id,
+                admin_user.id,
+            )
+
+        # Сообщение успешно отправлено и сохранено
+        assert result.channel == "hh"
+        assert result.direction == "out"
+        assert result.body == "Бэкфилл-тест"
+
+        # negotiation_id и chat_id персистированы в Application
+        await db_session.refresh(application)
+        assert application.hh_negotiation_id == "neg_999"
+        assert application.hh_chat_id == "42"
+
+        # Внешний id сообщения
+        from sqlalchemy import select
+        saved = await db_session.execute(
+            select(Message).where(Message.candidate_id == test_candidate.id, Message.channel == "hh")
+        )
+        msgs = saved.scalars().all()
+        assert len(msgs) == 1
+        assert msgs[0].external_id == "msg_bkf"
+
+    @pytest.mark.asyncio
+    async def test_send_hh_backfill_no_match_clear_error(
+        self, db_session, test_company, admin_user, test_candidate
+    ):
+        """Бэкфилл: resume_id есть, но ни один отклик не совпадает → чёткая ошибка,
+        сообщение НЕ сохранено."""
+
+        from app.models import Vacancy, Application
+
+        test_candidate.extra = {"hh_resume_id": "resume_xyz"}
+        await db_session.flush()
+
+        vacancy = Vacancy(
+            company_id=test_company.id,
+            name="Test Vacancy",
+            description="Test Description",
+            status="active",
+            hh_vacancy_id="hh_vac_456",
+        )
+        db_session.add(vacancy)
+        await db_session.flush()
+
+        application = Application(
+            company_id=test_company.id,
+            candidate_id=test_candidate.id,
+            vacancy_id=vacancy.id,
+            stage="response",
+            hh_negotiation_id=None,
+            hh_chat_id=None,
+        )
+        db_session.add(application)
+        await db_session.flush()
+
+        # Ни одного совпадающего отклика — другой resume_id
+        mock_negotiations_page = {
+            "items": [
+                {
+                    "id": "neg_000",
+                    "chat_id": 99,
+                    "resume": {"id": "resume_other"},
+                    "state": {"id": "response"},
+                }
+            ],
+            "pages": 1,
+        }
+
+        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"), \
+             patch('app.services.message.hh_client.get_negotiation_responses', new_callable=AsyncMock, return_value=mock_negotiations_page):
+            with pytest.raises(ValidationError) as exc_info:
+                await send_message(
+                    db_session,
+                    test_candidate.id,
+                    MessageCreate(channel="hh", body="Текст", application_id=application.id),
+                    test_company.id,
+                    admin_user.id,
+                )
+
+        err = str(exc_info.value)
+        assert "Канал hh недоступен" in err
+        assert "диалога на hh" in err
+
+        # Сообщение НЕ сохранено
         from sqlalchemy import select
         result = await db_session.execute(
             select(Message).where(Message.candidate_id == test_candidate.id)

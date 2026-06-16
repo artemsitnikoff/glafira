@@ -1,4 +1,5 @@
 import html
+import logging
 import math
 from datetime import datetime, timezone
 from uuid import UUID
@@ -17,6 +18,8 @@ from ..services.integrations.hh import client as hh_client
 from ..services.integrations.hh.service import get_valid_access_token
 from ..services.integrations.smtp.service import send_email
 from ..services.integrations.smtp.templates import render_simple_email
+
+logger = logging.getLogger(__name__)
 
 
 async def get_messages_paginated(
@@ -147,8 +150,124 @@ async def _send_hh(session, company_id, candidate_id, message_data, validated_ap
                 target_application.hh_chat_id = hh_chat_id
                 await session.flush()
 
+    # Бэкфилл по resume_id: кандидат был приглашён через Умный подбор — negotiation_id
+    # не вернулся (или чат открыт на hh web). Ищем диалог в откликах на hh-вакансии.
+    if not hh_chat_id and not hh_negotiation_id:
+        try:
+            # Получаем resume_id кандидата (сохранён при smart-search invite)
+            candidate_result = await session.execute(
+                select(Candidate).where(
+                    Candidate.id == candidate_id,
+                    Candidate.company_id == company_id,
+                )
+            )
+            candidate_obj = candidate_result.scalar_one_or_none()
+            resume_id = (candidate_obj.extra or {}).get("hh_resume_id") if candidate_obj else None
+
+            if resume_id:
+                # Собираем список hh_vacancy_id для поиска: сначала из target_application,
+                # затем из всех заявок кандидата у которых есть hh_vacancy_id
+                hh_vacancy_ids_to_search: list[tuple[str, object]] = []
+
+                # target_application может иметь вакансию с hh_vacancy_id
+                if target_application and target_application.vacancy_id:
+                    vac_result = await session.execute(
+                        select(Vacancy).where(
+                            Vacancy.id == target_application.vacancy_id,
+                            Vacancy.company_id == company_id,
+                            Vacancy.hh_vacancy_id.isnot(None),
+                        )
+                    )
+                    vac = vac_result.scalar_one_or_none()
+                    if vac:
+                        hh_vacancy_ids_to_search.append((vac.hh_vacancy_id, target_application))
+
+                # Также проверяем остальные заявки кандидата (кроме уже добавленных)
+                already_vids = {v for v, _ in hh_vacancy_ids_to_search}
+                apps_result = await session.execute(
+                    select(Application, Vacancy).join(
+                        Vacancy, Application.vacancy_id == Vacancy.id
+                    ).where(
+                        Application.candidate_id == candidate_id,
+                        Application.company_id == company_id,
+                        Vacancy.hh_vacancy_id.isnot(None),
+                    )
+                )
+                for app_row, vac_row in apps_result.all():
+                    if vac_row.hh_vacancy_id not in already_vids:
+                        hh_vacancy_ids_to_search.append((vac_row.hh_vacancy_id, app_row))
+                        already_vids.add(vac_row.hh_vacancy_id)
+
+                # Перебираем вакансии, ищем отклик с совпадающим resume_id
+                _MAX_PAGES = 20
+                found_negotiation_id = None
+                found_chat_id = None
+                found_app = None
+
+                for hh_vid, app_for_vid in hh_vacancy_ids_to_search:
+                    if found_negotiation_id:
+                        break
+                    for page in range(_MAX_PAGES):
+                        try:
+                            data = await hh_client.get_negotiation_responses(
+                                access_token, hh_vid, page=page, per_page=50
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "hh backfill: ошибка get_negotiation_responses vacancy=%s page=%d: %s",
+                                hh_vid, page, exc,
+                            )
+                            break
+                        items = data.get("items") or []
+                        for item in items:
+                            # Зеркалим import_response: resume_id = resume.get("id")
+                            item_resume = item.get("resume") or {}
+                            item_resume_id = str(item_resume.get("id")) if item_resume.get("id") else None
+                            if item_resume_id and item_resume_id == str(resume_id):
+                                # Нашли совпадение — извлекаем nid и chat_id (зеркало import_response)
+                                found_negotiation_id = str(item["id"])
+                                raw_chat_id = item.get("chat_id")
+                                found_chat_id = str(raw_chat_id) if raw_chat_id is not None else None
+                                found_app = app_for_vid
+                                break
+                        if found_negotiation_id:
+                            break
+                        # Нет следующей страницы
+                        pages_total = data.get("pages", 0)
+                        if page + 1 >= pages_total:
+                            break
+
+                if found_negotiation_id:
+                    # Персистируем в заявку
+                    if found_app is not None:
+                        found_app.hh_negotiation_id = found_negotiation_id
+                        if found_chat_id:
+                            found_app.hh_chat_id = found_chat_id
+                        await session.flush()
+                    hh_chat_id = found_chat_id
+                    hh_negotiation_id = found_negotiation_id
+                    # Если нашли negotiation_id но не chat_id — пробуем дозаполнить
+                    if not hh_chat_id and hh_negotiation_id:
+                        try:
+                            neg_data = await hh_client.get_negotiation(access_token, hh_negotiation_id)
+                            raw = neg_data.get("chat_id")
+                            if raw:
+                                hh_chat_id = str(raw)
+                                if found_app is not None:
+                                    found_app.hh_chat_id = hh_chat_id
+                                    await session.flush()
+                        except Exception as exc:
+                            logger.warning("hh backfill: не удалось получить chat_id из negotiation %s: %s", hh_negotiation_id, exc)
+
+        except Exception as exc:
+            logger.warning("hh backfill по resume_id не удался: %s", exc)
+
     if not hh_chat_id:
-        raise ValidationError("Канал hh недоступен: у кандидата нет чата hh")
+        raise ValidationError(
+            "Канал hh недоступен: у кандидата нет диалога на hh. "
+            "Написать можно только в существующий диалог — пригласите кандидата "
+            "(Умный подбор) или дождитесь отклика."
+        )
 
     hh_response = await hh_client.send_chat_message(access_token, hh_chat_id, message_data.body)
     return hh_response.get("id") if isinstance(hh_response, dict) else None
