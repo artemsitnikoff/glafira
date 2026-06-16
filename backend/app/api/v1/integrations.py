@@ -1,12 +1,17 @@
 """Эндпоинты для работы с интеграциями"""
 
+import logging
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from ...deps import get_current_user
-from ...core.errors import ValidationError, ForbiddenError
+from ...core.errors import ValidationError, ForbiddenError, AppError
+
+logger = logging.getLogger(__name__)
 from ...core.permissions import require_admin, require_settings_read_access
 from ...database import get_db
 from ...models import User
@@ -108,9 +113,16 @@ async def hh_oauth_callback(
         await hh_service.complete_oauth(session, code, state)
         return RedirectResponse(url=f"{frontend_base}/settings?tab=integrations&hh=connected")
 
+    except AppError as e:
+        # Бизнес-ошибка (невалидный state, не настроен ключ, hh отклонил обмен кода) —
+        # ЛОГИРУЕМ и протаскиваем понятный текст на фронт через hh_msg (это браузерный
+        # редирект, не 500). Сообщения AppError безопасны для показа.
+        logger.warning("hh OAuth callback failed: %s", e.message)
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?tab=integrations&hh=error&hh_msg={quote(e.message)}"
+        )
     except Exception:
-        # Это браузерный редирект — на ЛЮБУЮ ошибку (невалидный state, сбой обмена кода,
-        # недоступность hh) возвращаем редирект на фронт, а не 500.
+        logger.exception("hh OAuth callback: неожиданная ошибка")
         return RedirectResponse(url=f"{frontend_base}/settings?tab=integrations&hh=error")
 
 

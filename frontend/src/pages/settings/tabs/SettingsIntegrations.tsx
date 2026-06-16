@@ -98,6 +98,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   // Обработка OAuth-возврата
   useEffect(() => {
     const hhParam = searchParams.get('hh');
+    const hhMsg = searchParams.get('hh_msg');  // реальная причина из callback'а
     if (hhParam) {
       let message = '';
       let type: 'success' | 'error' = 'success';
@@ -112,16 +113,17 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
           type = 'error';
           break;
         case 'error':
-          message = 'Ошибка при подключении hh.ru';
+          message = hhMsg || 'Ошибка при подключении hh.ru';
           type = 'error';
           break;
       }
 
       if (message) {
         setNotification({ type, message });
-        // Убираем параметр из URL
+        // Убираем параметры из URL
         const newParams = new URLSearchParams(searchParams);
         newParams.delete('hh');
+        newParams.delete('hh_msg');
         setSearchParams(newParams);
       }
     }
