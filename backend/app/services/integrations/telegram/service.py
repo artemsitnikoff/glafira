@@ -405,6 +405,79 @@ def extract_telegram_username(messengers: list) -> str | None:
     return None
 
 
+async def _store_inbound_message(session, company_id, candidate, *, peer_id, msg_id, text, date) -> int:
+    """Сохранить одно входящее (dedup по external_id+company_id). Возвращает 1/0."""
+    ext_id = f"tg:{peer_id}:{msg_id}"
+    existing = await session.execute(
+        select(Message.id).where(
+            Message.external_id == ext_id,
+            Message.company_id == company_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return 0
+    session.add(Message(
+        company_id=company_id,
+        candidate_id=candidate.id,
+        application_id=None,
+        channel="telegram",
+        direction="in",
+        sender_type="candidate",
+        sender_user_id=None,
+        body=text,
+        sent_at=date,
+        created_at=datetime.now(timezone.utc),
+        external_id=ext_id,
+    ))
+    log_chat(f"telegram ← входящее: {text[:80]}")
+    return 1
+
+
+async def _sync_one_candidate(session, company_id, candidate_id, session_str) -> dict:
+    """Синк входящих по ОДНОМУ кандидату через прямой резолв диалога (как при отправке).
+
+    Работает и без сохранённого tg_user_id (резолвит по username/телефону), бэкфиллит
+    tg_user_id — после чего company-wide cron начинает матчить его по uid.
+    """
+    cand = (await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if cand is None:
+        return {"imported": 0, "connected": True}
+
+    username = extract_telegram_username(cand.messengers or [])
+    phone = cand.phone
+    if not username and not phone:
+        return {"imported": 0, "connected": True}  # нечем резолвить
+
+    try:
+        res = await tg_client.fetch_candidate_inbound(session_str, username=username, phone=phone)
+    except Exception as e:
+        logger.warning("[tg_sync] fetch_candidate_inbound не удался (cand=%s): %s", candidate_id, e)
+        return {"imported": 0, "connected": True}
+
+    peer_id = res.get("peer_id")
+    if not peer_id:
+        return {"imported": 0, "connected": True}
+
+    # Бэкфилл tg_user_id (для company-wide cron и блока «Последние сообщения»)
+    if str((cand.extra or {}).get("tg_user_id") or "") != str(peer_id):
+        cand.extra = {**(cand.extra or {}), "tg_user_id": str(peer_id)}
+
+    imported = 0
+    for m in res.get("messages", []):
+        imported += await _store_inbound_message(
+            session, company_id, cand,
+            peer_id=peer_id, msg_id=m["msg_id"], text=m["text"], date=m["date"],
+        )
+    await session.flush()
+    return {"imported": imported, "connected": True}
+
+
 async def sync_inbound(
     session: AsyncSession,
     company_id: UUID,
@@ -428,6 +501,14 @@ async def sync_inbound(
     if not row or not row.config or row.config.get("state") != "connected":
         return {"imported": 0, "connected": False}
 
+    session_str = decrypt_text(row.config["session"])
+
+    # Синк ОДНОГО кандидата (открытие чата) — ПРЯМОЙ резолв диалога (как при отправке),
+    # не зависит от сохранённого tg_user_id и окна топ-N диалогов. Бэкфиллит tg_user_id.
+    if candidate_id is not None:
+        return await _sync_one_candidate(session, company_id, candidate_id, session_str)
+
+    # --- Company-wide синк (cron): обход диалогов аккаунта ---
     # --- Строим lookup-таблицы (company-scoped) ---
     filters = [
         Candidate.company_id == company_id,
@@ -473,7 +554,6 @@ async def sync_inbound(
         return {"imported": 0, "connected": True}
 
     # --- Запрашиваем входящие через Telethon ---
-    session_str = decrypt_text(row.config["session"])
     try:
         inbound = await tg_client.fetch_inbound(
             session_str,

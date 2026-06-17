@@ -507,6 +507,133 @@ async def fetch_inbound(
     return result
 
 
+async def _resolve_peer(client, *, username: str | None, phone: str | None):
+    """Резолвит Telegram-entity кандидата (приоритет username > телефон) — единая логика
+    для отправки и для чтения диалога. Клиент должен быть уже подключён.
+
+    Raises AppError(TG_PEER_NOT_FOUND / TG_NO_TG_ACCOUNT), если не нашли.
+    """
+    if username:
+        uname = _normalize_username(username)
+        logger.info("[tg] resolve по username (len=%d)", len(uname))
+        try:
+            return await client.get_entity(uname)
+        except (ValueError, UsernameNotOccupiedError, UsernameInvalidError) as e:
+            logger.warning("[tg] resolve: username не найден (%s)", type(e).__name__)
+            raise AppError(
+                code="TG_PEER_NOT_FOUND",
+                message="Не нашли Telegram по username кандидата",
+                status_code=400,
+            )
+    if phone:
+        phone = _normalize_phone(phone)
+        masked = _mask_phone(phone)
+        logger.info("[tg] resolve по телефону %s", masked)
+        # Сначала get_entity напрямую (если номер уже в контактах / раскрыт приватностью).
+        try:
+            return await client.get_entity(phone)
+        except Exception:
+            logger.info("[tg] resolve: get_entity по телефону не удался, пробуем ImportContacts")
+            client_id = abs(hash(phone)) % (10 ** 18)
+            result = await client(
+                ImportContactsRequest(
+                    contacts=[
+                        InputPhoneContact(
+                            client_id=client_id,
+                            phone=phone,
+                            first_name="Кандидат",
+                            last_name="",
+                        )
+                    ]
+                )
+            )
+            if not result.users:
+                logger.warning("[tg] resolve: ImportContacts пустой для %s", masked)
+                raise AppError(
+                    code="TG_NO_TG_ACCOUNT",
+                    message=(
+                        "У кандидата нет аккаунта Telegram на этом номере "
+                        "или номер скрыт настройками приватности"
+                    ),
+                    status_code=400,
+                )
+            return result.users[0]
+    raise AppError(
+        code="TG_PEER_NOT_FOUND",
+        message="Не задан ни username, ни номер телефона кандидата",
+        status_code=400,
+    )
+
+
+async def fetch_candidate_inbound(
+    session_str: str,
+    *,
+    username: str | None,
+    phone: str | None,
+    per_chat: int = 50,
+) -> dict:
+    """ПРЯМОЙ резолв диалога кандидата (как при отправке) + чтение входящих.
+
+    Надёжнее `fetch_inbound` для синка ОДНОГО кандидата: не зависит от сохранённого
+    tg_user_id и от окна топ-N диалогов — резолвит пира тем же путём, что и отправка
+    (username → get_entity; телефон → get_entity/ImportContacts). Раз можем отправить —
+    значит можем и прочитать историю.
+
+    Возвращает {"peer_id": str|None, "messages": [{"msg_id","text","date"}]}.
+    Если кандидат не резолвится в Telegram (нет аккаунта/приватность) — мягко
+    {"peer_id": None, "messages": []} (НЕ кидает — это фоновый pull).
+    """
+    api_id, api_hash = _api_creds()
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    out: dict = {"peer_id": None, "messages": []}
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise AppError(
+                code="TG_NOT_AUTHORIZED",
+                message="Сессия Telegram недействительна — подключитесь заново",
+                status_code=400,
+            )
+
+        try:
+            entity = await _resolve_peer(client, username=username, phone=phone)
+        except AppError as e:
+            if e.code in ("TG_PEER_NOT_FOUND", "TG_NO_TG_ACCOUNT"):
+                logger.info("[tg_inbound] кандидат не резолвится (%s) — пропуск", e.code)
+                return out
+            raise
+
+        peer_id = str(getattr(entity, "id", ""))
+        out["peer_id"] = peer_id or None
+
+        msgs = await client.get_messages(entity, limit=per_chat)
+        for msg in msgs:
+            if msg.out:          # наши исходящие
+                continue
+            if not msg.message:  # сервисные/медиа без текста
+                continue
+            out["messages"].append({
+                "msg_id": str(msg.id),
+                "text": msg.message,
+                "date": msg.date,
+            })
+        logger.info("[tg_inbound] candidate inbound: peer_id=%s, входящих=%d", peer_id, len(out["messages"]))
+        return out
+
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error("[tg_inbound] fetch_candidate_inbound ошибка: %s", type(e).__name__)
+        raise AppError(
+            code="TG_SYNC_ERROR",
+            message="Ошибка синхронизации входящих Telegram-сообщений",
+            status_code=500,
+            details={"reason": str(e)},
+        )
+    finally:
+        await client.disconnect()
+
+
 async def send_to_peer(
     session_str: str,
     *,
@@ -532,63 +659,7 @@ async def send_to_peer(
                 status_code=400,
             )
 
-        entity = None
-
-        if username:
-            uname = _normalize_username(username)
-            logger.info("[tg] send_to_peer: резолв по username (len=%d)", len(uname))
-            try:
-                entity = await client.get_entity(uname)
-            except (ValueError, UsernameNotOccupiedError, UsernameInvalidError) as e:
-                logger.warning("[tg] send_to_peer: username не найден (%s)", type(e).__name__)
-                raise AppError(
-                    code="TG_PEER_NOT_FOUND",
-                    message="Не нашли Telegram по username кандидата",
-                    status_code=400,
-                )
-        elif phone:
-            phone = _normalize_phone(phone)
-            masked = _mask_phone(phone)
-            logger.info("[tg] send_to_peer: резолв по телефону %s", masked)
-            # Сначала пробуем get_entity напрямую (работает, если номер уже в контактах
-            # или Telegram его раскрывает при текущих настройках приватности).
-            try:
-                entity = await client.get_entity(phone)
-            except Exception:
-                # Номер не разрешился напрямую — импортируем как контакт (MTProto contacts.ImportContacts)
-                logger.info("[tg] send_to_peer: get_entity по телефону не удался, пробуем ImportContacts")
-                client_id = abs(hash(phone)) % (10 ** 18)
-                result = await client(
-                    ImportContactsRequest(
-                        contacts=[
-                            InputPhoneContact(
-                                client_id=client_id,
-                                phone=phone,
-                                first_name="Кандидат",
-                                last_name="",
-                            )
-                        ]
-                    )
-                )
-                if not result.users:
-                    logger.warning("[tg] send_to_peer: ImportContacts вернул пустой список users для %s", masked)
-                    raise AppError(
-                        code="TG_NO_TG_ACCOUNT",
-                        message=(
-                            "У кандидата нет аккаунта Telegram на этом номере "
-                            "или номер скрыт настройками приватности"
-                        ),
-                        status_code=400,
-                    )
-                entity = result.users[0]
-        else:
-            # Этот путь не должен случиться — service.py проверяет раньше,
-            # но на случай прямого вызова:
-            raise AppError(
-                code="TG_PEER_NOT_FOUND",
-                message="Не задан ни username, ни номер телефона кандидата",
-                status_code=400,
-            )
+        entity = await _resolve_peer(client, username=username, phone=phone)
 
         msg = await client.send_message(entity, text)
         peer_id = str(getattr(entity, "id", ""))

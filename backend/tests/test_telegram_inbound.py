@@ -28,6 +28,7 @@ from app.models import Integration, Message, Candidate
 
 # Путь мока — на уровне import-site (service.py импортирует tg_client)
 FETCH_INBOUND = "app.services.integrations.telegram.service.tg_client.fetch_inbound"
+FETCH_CANDIDATE_INBOUND = "app.services.integrations.telegram.service.tg_client.fetch_candidate_inbound"
 # Патч-сайт для _send_telegram (test 5): message.py импортирует tg_service
 SEND_TO_CANDIDATE = "app.services.message.tg_service.send_to_candidate"
 
@@ -262,6 +263,52 @@ async def test_send_telegram_stores_tg_user_id(db_session, admin_user, fernet_ke
 # ---------------------------------------------------------------------------
 # Тест 6: company_id изоляция (кандидат другой компании не матчится)
 # ---------------------------------------------------------------------------
+
+async def test_sync_inbound_candidate_scoped_direct_resolve(db_session, admin_user, fernet_key):
+    """Синк по candidate_id: прямой резолв диалога БЕЗ заранее сохранённого tg_user_id
+    (кандидат только с телефоном) → сообщения импортируются + tg_user_id бэкфиллится."""
+    await _make_connected_integration(db_session, admin_user.company_id)
+    cand = await _make_candidate(
+        db_session, admin_user.company_id, phone="+7 900 555 11 22",
+    )
+    assert (cand.extra or {}).get("tg_user_id") is None
+
+    direct = {
+        "peer_id": "654321",
+        "messages": [
+            {"msg_id": "10", "text": "Да, мне интересно", "date": datetime(2026, 6, 17, 13, 0, 0, tzinfo=timezone.utc)},
+            {"msg_id": "11", "text": "Когда собеседование?", "date": datetime(2026, 6, 17, 13, 1, 0, tzinfo=timezone.utc)},
+        ],
+    }
+    with patch(FETCH_CANDIDATE_INBOUND, new=AsyncMock(return_value=direct)):
+        r = await tg.sync_inbound(db_session, admin_user.company_id, candidate_id=cand.id)
+
+    assert r == {"imported": 2, "connected": True}
+    # tg_user_id бэкфилл
+    await db_session.refresh(cand)
+    assert cand.extra["tg_user_id"] == "654321"
+    rows = (await db_session.execute(
+        select(Message).where(Message.candidate_id == cand.id, Message.direction == "in")
+    )).scalars().all()
+    assert len(rows) == 2
+    assert {row.external_id for row in rows} == {"tg:654321:10", "tg:654321:11"}
+
+    # Повтор → дедуп, 0 новых
+    with patch(FETCH_CANDIDATE_INBOUND, new=AsyncMock(return_value=direct)):
+        r2 = await tg.sync_inbound(db_session, admin_user.company_id, candidate_id=cand.id)
+    assert r2["imported"] == 0
+
+
+async def test_sync_inbound_candidate_no_contacts_noop(db_session, admin_user, fernet_key):
+    """Синк по candidate_id без username и телефона → 0, fetch_candidate_inbound не зовётся."""
+    await _make_connected_integration(db_session, admin_user.company_id)
+    cand = await _make_candidate(db_session, admin_user.company_id)  # ни phone, ни messengers
+    fetch_mock = AsyncMock()
+    with patch(FETCH_CANDIDATE_INBOUND, new=fetch_mock):
+        r = await tg.sync_inbound(db_session, admin_user.company_id, candidate_id=cand.id)
+    assert r == {"imported": 0, "connected": True}
+    fetch_mock.assert_not_awaited()
+
 
 async def test_sync_inbound_company_isolation(db_session, admin_user, fernet_key):
     """Кандидат из другой компании не должен матчиться."""
