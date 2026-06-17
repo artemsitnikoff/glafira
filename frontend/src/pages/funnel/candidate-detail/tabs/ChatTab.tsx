@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { useMessages } from '@/api/hooks/useMessages';
+import { useMessages, useSyncTelegramInbound } from '@/api/hooks/useMessages';
 import { useSendMessage } from '@/api/mutations/candidateDetail';
 import { useMessageTemplates } from '@/api/hooks/useMessageTemplates';
 
@@ -33,6 +34,44 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   const { data: messages, isLoading } = useMessages(actualCandidateId);
   const { data: templates } = useMessageTemplates();
   const sendMutation = useSendMessage(actualCandidateId);
+
+  const queryClient = useQueryClient();
+  const syncMutation = useSyncTelegramInbound(actualCandidateId ?? null);
+  // Сохраняем ссылку на mutate, чтобы не пересоздавать эффект при каждом рендере
+  const syncMutateRef = useRef(syncMutation.mutate);
+  syncMutateRef.current = syncMutation.mutate;
+  // In-flight guard: синк = тяжёлый серверный iter_dialogs(200) по MTProto. Не даём
+  // тикам накладываться, если предыдущий синк ещё идёт (медленный Telethon / быстрые
+  // переключения вкладок).
+  const syncInFlight = useRef(false);
+
+  // Синхронизация входящих Telegram-ответов: сразу при монтировании/смене кандидата,
+  // затем каждые 90 секунд (фоновый cron раз в 3 мин закрывает промежуток).
+  // Ошибки проглатываются — это фоновый pull, не блокирует UI.
+  useEffect(() => {
+    if (!actualCandidateId) return;
+
+    const runSync = () => {
+      if (syncInFlight.current) return;  // предыдущий синк ещё не завершился — пропускаем тик
+      syncInFlight.current = true;
+      syncMutateRef.current(undefined, {
+        onSuccess: (result) => {
+          if (result.imported > 0) {
+            queryClient.invalidateQueries({
+              queryKey: ['candidates', actualCandidateId, 'messages'],
+            });
+          }
+        },
+        onSettled: () => {
+          syncInFlight.current = false;
+        },
+      });
+    };
+
+    runSync();
+    const timer = setInterval(runSync, 90000);
+    return () => clearInterval(timer);
+  }, [actualCandidateId, queryClient]);
 
   const channelMeta = (id: string) => CHANNELS.find(x => x.id === id) || CHANNELS[0];
   const active = channelMeta(activeChannel);

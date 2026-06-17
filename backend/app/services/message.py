@@ -305,6 +305,9 @@ async def _send_telegram(session, company_id, candidate, message_data, validated
     Резолв пира: сначала Telegram-username из messengers (объектный формат),
     затем phone кандидата. Если ни того ни другого — ValidationError.
     При сбое отправки AppError пробрасывается наружу, сообщение НЕ сохраняется.
+
+    После успешной отправки персистирует tg_user_id (Telegram peer id) в
+    candidate.extra — он нужен входящему поллеру для матчинга ответов кандидата.
     """
     username = tg_service.extract_telegram_username(candidate.messengers or [])
     phone = candidate.phone
@@ -319,6 +322,13 @@ async def _send_telegram(session, company_id, candidate, message_data, validated
         phone=phone,
         text=message_data.body,
     )
+    # Сохраняем Telegram user-id кандидата (peer) для последующего матчинга
+    # входящих сообщений в poll_telegram_messages.
+    peer = res.get("peer")
+    if peer:
+        # Переприсваиваем dict целиком — SQLAlchemy обнаруживает изменение JSONB только
+        # при замене объекта, не при мутации вложенного dict.
+        candidate.extra = {**(candidate.extra or {}), "tg_user_id": str(peer)}
     return res.get("message_id") or None
 
 

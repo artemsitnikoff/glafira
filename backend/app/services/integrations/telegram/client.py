@@ -415,6 +415,98 @@ def _normalize_phone(raw: str) -> str:
     return ("+" + digits) if has_plus else digits
 
 
+async def fetch_inbound(
+    session_str: str,
+    *,
+    peer_ids: set[str],
+    usernames: set[str],
+    phones: set[str],
+    dialog_limit: int = 200,
+    per_chat: int = 30,
+) -> list[dict]:
+    """Получить входящие сообщения от кандидатов через диалоги Telegram-аккаунта.
+
+    Итерирует `iter_dialogs(limit=dialog_limit)` и сопоставляет каждый диалог
+    с множествами peer_ids / usernames / phones. Читает только совпавшие диалоги —
+    личные переписки без совпадений пропускаются (PII-предохранитель).
+
+    Возвращает список dict:
+      {"peer_id", "username", "phone", "msg_id", "text", "date"}
+
+    Raises:
+      AppError(TG_NOT_AUTHORIZED) — сессия не авторизована.
+      AppError(TG_SYNC_ERROR)     — неожиданная ошибка.
+    """
+    from telethon.tl.types import User as TgUser  # локальный импорт чтобы не засорять namespace
+
+    api_id, api_hash = _api_creds()
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    result: list[dict] = []
+
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise AppError(
+                code="TG_NOT_AUTHORIZED",
+                message="Сессия Telegram недействительна — подключитесь заново",
+                status_code=400,
+            )
+
+        async for dialog in client.iter_dialogs(limit=dialog_limit):
+            entity = dialog.entity
+            if not isinstance(entity, TgUser):
+                # Игнорируем группы, каналы, боты
+                continue
+
+            uid = str(entity.id)
+            uname = (entity.username or "").lower().lstrip("@")
+            raw_phone = entity.phone or ""
+            ph = _normalize_phone(raw_phone) if raw_phone else ""
+
+            # Сопоставление с нашими кандидатами
+            matched = (
+                uid in peer_ids
+                or (uname and uname in usernames)
+                or (ph and ph in phones)
+            )
+            if not matched:
+                continue
+
+            logger.info("[tg_inbound] совпадение: uid=%s, читаем историю", uid)
+
+            msgs = await client.get_messages(entity, limit=per_chat)
+            for msg in msgs:
+                # Пропускаем исходящие (наши отправки)
+                if msg.out:
+                    continue
+                # Пропускаем сервисные сообщения без текста
+                if not msg.message:
+                    continue
+                result.append({
+                    "peer_id": uid,
+                    "username": uname or None,
+                    "phone": ph or None,
+                    "msg_id": str(msg.id),
+                    "text": msg.message,
+                    "date": msg.date,  # tz-aware datetime (UTC) из Telethon
+                })
+
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error("[tg_inbound] неожиданная ошибка: %s", type(e).__name__)
+        raise AppError(
+            code="TG_SYNC_ERROR",
+            message="Ошибка синхронизации входящих Telegram-сообщений",
+            status_code=500,
+            details={"reason": str(e)},
+        )
+    finally:
+        await client.disconnect()
+
+    return result
+
+
 async def send_to_peer(
     session_str: str,
     *,

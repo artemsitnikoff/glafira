@@ -9,6 +9,7 @@ from ...database import get_db
 from ...schemas.message import MessageOut, MessageCreate
 from ...schemas.base import Paginated
 from ...services.message import get_messages_paginated, send_message
+from ...services.integrations.telegram import service as tg_service
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -43,5 +44,29 @@ async def send_message_route(
     session: AsyncSession = Depends(get_db),
 ):
     result = await send_message(session, candidate_id, data, company_id, user.id)
+    await session.commit()
+    return result
+
+
+@router.post(
+    "/candidates/{candidate_id}/messages/telegram/sync",
+    summary="Синхронизировать входящие Telegram-сообщения для кандидата",
+)
+async def sync_telegram_messages(
+    candidate_id: UUID = Path(...),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Импортирует входящие Telegram-сообщения от конкретного кандидата.
+
+    Возвращает {"imported": int, "connected": bool}.
+    Если интеграция не подключена — {"imported": 0, "connected": false} (без ошибки).
+    Идемпотентен: повторный вызов с теми же данными вернёт imported=0 (дедуп).
+    """
+    result = await tg_service.sync_inbound(
+        session,
+        company_id,
+        candidate_id=candidate_id,
+    )
     await session.commit()
     return result

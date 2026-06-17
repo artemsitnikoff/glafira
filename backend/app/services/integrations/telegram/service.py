@@ -17,14 +17,16 @@ from typing import Optional
 import qrcode
 import qrcode.image.svg
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....models import Integration
+from ....models import Integration, Candidate, Message
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
+from ....services.chat_log import log_chat
 from ....core.errors import ValidationError
 from . import client as tg_client
+from .client import _normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -401,6 +403,141 @@ def extract_telegram_username(messengers: list) -> str | None:
         if path:
             return path
     return None
+
+
+async def sync_inbound(
+    session: AsyncSession,
+    company_id: UUID,
+    *,
+    candidate_id: UUID | None = None,
+) -> dict:
+    """Импортировать входящие Telegram-сообщения от кандидатов компании.
+
+    Не кидает исключений при отключённой интеграции — возвращает {"imported":0,"connected":False}.
+    Вызывающий обязан сделать session.commit() после успешного возврата.
+
+    Args:
+        session:      AsyncSession (не коммитит сам).
+        company_id:   UUID компании (scoping — никаких чужих данных).
+        candidate_id: ограничить поиск одним кандидатом (опционально).
+
+    Returns:
+        {"imported": int, "connected": bool}
+    """
+    row = await _get_row(session, company_id)
+    if not row or not row.config or row.config.get("state") != "connected":
+        return {"imported": 0, "connected": False}
+
+    # --- Строим lookup-таблицы (company-scoped) ---
+    filters = [
+        Candidate.company_id == company_id,
+        Candidate.deleted_at.is_(None),
+        or_(
+            Candidate.extra["tg_user_id"].astext.isnot(None),
+            Candidate.phone.isnot(None),
+            Candidate.messengers != "[]",
+        ),
+    ]
+    if candidate_id is not None:
+        filters.append(Candidate.id == candidate_id)
+
+    result = await session.execute(select(Candidate).where(*filters))
+    candidates = result.scalars().all()
+
+    by_uid: dict[str, Candidate] = {}
+    by_username: dict[str, Candidate] = {}
+    by_phone: dict[str, Candidate] = {}
+
+    for cand in candidates:
+        extra = cand.extra or {}
+        uid = extra.get("tg_user_id")
+        if uid and uid not in by_uid:
+            by_uid[uid] = cand
+
+        uname = extract_telegram_username(cand.messengers or [])
+        if uname:
+            uname_lower = uname.lower()
+            if uname_lower not in by_username:
+                by_username[uname_lower] = cand
+
+        phone = cand.phone
+        if phone:
+            # Только цифры (без ведущего '+'): Telethon отдаёт entity.phone цифрами
+            # без '+', поэтому ключи матчинга должны быть в том же виде.
+            ph_norm = _normalize_phone(phone).lstrip("+")
+            if ph_norm and ph_norm not in by_phone:
+                by_phone[ph_norm] = cand
+
+    if not by_uid and not by_username and not by_phone:
+        # Нет кандидатов с какими-либо Telegram-реквизитами — нечего сканировать
+        return {"imported": 0, "connected": True}
+
+    # --- Запрашиваем входящие через Telethon ---
+    session_str = decrypt_text(row.config["session"])
+    try:
+        inbound = await tg_client.fetch_inbound(
+            session_str,
+            peer_ids=set(by_uid.keys()),
+            usernames=set(by_username.keys()),
+            phones=set(by_phone.keys()),
+        )
+    except Exception as e:
+        logger.warning("[tg_sync] fetch_inbound не удался (company=%s): %s", company_id, e)
+        return {"imported": 0, "connected": True}
+
+    # --- Дедуп и сохранение ---
+    imported = 0
+    now = datetime.now(timezone.utc)
+
+    for msg_dict in inbound:
+        peer_id: str = msg_dict["peer_id"]
+        username_val: str | None = msg_dict.get("username")
+        phone_val: str | None = msg_dict.get("phone")
+        msg_id: str = msg_dict["msg_id"]
+        text: str = msg_dict["text"]
+        date = msg_dict["date"]  # tz-aware datetime
+
+        # Матчинг кандидата: приоритет uid > username > phone
+        cand = by_uid.get(peer_id)
+        if cand is None and username_val:
+            cand = by_username.get(username_val.lower())
+        if cand is None and phone_val:
+            cand = by_phone.get(phone_val)
+        if cand is None:
+            continue
+
+        # external_id: "tg:{peer_id}:{msg_id}" — уникален в рамках аккаунта
+        ext_id = f"tg:{peer_id}:{msg_id}"  # max len ≈ 3+1+20+1+20 = 45 < String(64)
+
+        # Дедуп: проверяем наличие по external_id + company_id
+        existing = await session.execute(
+            select(Message.id).where(
+                Message.external_id == ext_id,
+                Message.company_id == company_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        message = Message(
+            company_id=company_id,
+            candidate_id=cand.id,
+            application_id=None,
+            channel="telegram",
+            direction="in",
+            sender_type="candidate",
+            sender_user_id=None,
+            body=text,
+            sent_at=date,
+            created_at=now,
+            external_id=ext_id,
+        )
+        session.add(message)
+        imported += 1
+        log_chat(f"telegram ← входящее: {text[:80]}")
+
+    await session.flush()
+    return {"imported": imported, "connected": True}
 
 
 async def send_to_candidate(
