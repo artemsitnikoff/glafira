@@ -18,6 +18,7 @@ from ..services.integrations.hh import client as hh_client
 from ..services.integrations.hh.service import get_valid_access_token
 from ..services.integrations.smtp.service import send_email
 from ..services.integrations.smtp.templates import render_simple_email
+from ..services.integrations.telegram import service as tg_service
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +299,29 @@ async def _send_email(session, company_id, candidate, message_data, validated_ap
     )
 
 
+async def _send_telegram(session, company_id, candidate, message_data, validated_application) -> str | None:
+    """Реальная отправка в Telegram через user-аккаунт компании (Telethon MTProto).
+
+    Резолв пира: сначала Telegram-username из messengers (объектный формат),
+    затем phone кандидата. Если ни того ни другого — ValidationError.
+    При сбое отправки AppError пробрасывается наружу, сообщение НЕ сохраняется.
+    """
+    username = tg_service.extract_telegram_username(candidate.messengers or [])
+    phone = candidate.phone
+    if not username and not phone:
+        raise ValidationError(
+            "Канал Telegram недоступен: у кандидата нет ни Telegram-username, ни телефона"
+        )
+    res = await tg_service.send_to_candidate(
+        session,
+        company_id,
+        username=username,
+        phone=phone,
+        text=message_data.body,
+    )
+    return res.get("message_id") or None
+
+
 async def send_message(
     session: AsyncSession,
     candidate_id: UUID,
@@ -345,13 +369,16 @@ async def send_message(
     channel = message_data.channel
     cand_name = candidate.full_name or "Кандидат"
 
-    # Каналы с РЕАЛЬНОЙ отправкой: hh (Chats API) и email (SMTP-ядро + единый шаблон).
-    # Прочие (telegram/max/whatsapp/sms) — пока только запись в карточку (рабочего API нет).
+    # Каналы с РЕАЛЬНОЙ отправкой: hh (Chats API), email (SMTP-ядро + единый шаблон),
+    # telegram (Telethon user-аккаунт компании).
+    # Прочие (max/whatsapp/sms) — пока только запись в карточку (рабочего API нет).
     # Упал реальный канал → лог + проброс, сообщение НЕ сохраняется (никакого фейка «отправлено»).
-    if channel in ("hh", "email"):
+    if channel in ("hh", "email", "telegram"):
         try:
             if channel == "hh":
                 external_id = await _send_hh(session, company_id, candidate_id, message_data, validated_application)
+            elif channel == "telegram":
+                external_id = await _send_telegram(session, company_id, candidate, message_data, validated_application)
             else:
                 await _send_email(session, company_id, candidate, message_data, validated_application)
         except Exception as e:

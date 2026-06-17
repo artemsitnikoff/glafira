@@ -8,6 +8,7 @@ State-машина входа: pending_code → (pending_password) → connected
 
 import base64
 import io
+import logging
 import re
 from datetime import datetime, timezone
 from uuid import UUID
@@ -24,6 +25,8 @@ from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError
 from . import client as tg_client
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "telegram"
 PHONE_RE = re.compile(r"^\+?\d{7,15}$")
@@ -373,3 +376,52 @@ async def disconnect(session: AsyncSession, company_id: UUID, user_id: UUID) -> 
     row.status = "disconnected"
     await session.flush()
     await audit(session, action="telegram_disconnected", entity_type="integration", entity_id=row.id, actor_user_id=user_id, company_id=company_id)
+
+
+def extract_telegram_username(messengers: list) -> str | None:
+    """Извлекает Telegram-username из поля messengers кандидата.
+
+    Поддерживает объектный формат: [{type: 'tg'|'telegram', url: 'https://t.me/ivan'}].
+    Строки-каналы ['telegram', 'whatsapp'] игнорируются — в них нет хэндла.
+    Возвращает username без '@' (напр. 'ivan') или None.
+    """
+    for item in (messengers or []):
+        if not isinstance(item, dict):
+            continue
+        item_type = (item.get("type") or "").lower()
+        if item_type not in ("tg", "telegram"):
+            continue
+        url = (item.get("url") or "").strip()
+        if not url or "t.me/" not in url:
+            continue
+        # Берём сегмент после последнего t.me/
+        path = url.split("t.me/")[-1]
+        # Убираем query-параметры и хвостовые слеши
+        path = path.split("?")[0].rstrip("/").lstrip("@")
+        if path:
+            return path
+    return None
+
+
+async def send_to_candidate(
+    session: AsyncSession,
+    company_id: UUID,
+    *,
+    username: str | None,
+    phone: str | None,
+    text: str,
+) -> dict:
+    """Отправить сообщение кандидату через подключённый Telegram-аккаунт компании.
+
+    Только читает зашифрованную строку сессии из БД — не пишет, не меняет конфиг.
+    Audit делает вызывающий (send_message в message.py).
+    Кидает ValidationError, если интеграция не подключена.
+    Кидает AppError (TG_*) при сбое отправки.
+    """
+    row = await _get_row(session, company_id)
+    if not row or not row.config or row.config.get("state") != "connected":
+        raise ValidationError("Telegram не подключён")
+    session_str = decrypt_text(row.config["session"])
+    logger.info("[tg_service] send_to_candidate: company_id=%s username_set=%s phone_set=%s",
+                company_id, bool(username), bool(phone))
+    return await tg_client.send_to_peer(session_str, username=username, phone=phone, text=text)

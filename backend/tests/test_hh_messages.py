@@ -170,14 +170,14 @@ class TestHhMessaging:
             assert not result.fetchall()
 
     @pytest.mark.asyncio
-    async def test_send_telegram_message_unchanged(
+    async def test_send_records_only_channel_unchanged(
         self, db_session, test_company, admin_user, test_candidate
     ):
-        """Другие каналы (telegram) работают как раньше (запись в БД, hh НЕ дёргается)"""
+        """Канал без реальной отправки (sms) работает как раньше (запись в БД, hh НЕ дёргается)"""
 
         message_data = MessageCreate(
-            channel="telegram",
-            body="Тестовое сообщение telegram"
+            channel="sms",
+            body="Тестовое сообщение sms"
         )
 
         # Мокаем hh-методы, чтобы убедиться, что они НЕ вызываются
@@ -197,10 +197,10 @@ class TestHhMessaging:
             mock_send.assert_not_called()
 
             # Проверяем результат
-            assert result.channel == "telegram"
+            assert result.channel == "sms"
             assert result.direction == "out"
             assert result.sender_type == "recruiter"
-            assert result.body == "Тестовое сообщение telegram"
+            assert result.body == "Тестовое сообщение sms"
 
             # Проверяем сохранение в БД (без external_id для telegram)
             saved_message = await db_session.get(Message, result.id)
@@ -751,12 +751,149 @@ class TestEmailMessaging:
                 )
 
     @pytest.mark.asyncio
-    async def test_telegram_does_not_send_email(self, db_session, test_company, admin_user, test_candidate):
-        """Канал telegram (заглушка) -> send_email НЕ вызывается, сообщение сохраняется в БД"""
+    async def test_records_only_channel_does_not_send_email(self, db_session, test_company, admin_user, test_candidate):
+        """Канал без реальной отправки (sms) -> send_email НЕ вызывается, сообщение сохраняется в БД"""
         with patch('app.services.message.send_email') as mock_send_email:
-            message_data = MessageCreate(channel="telegram", body="Внутренняя заметка")
+            message_data = MessageCreate(channel="sms", body="Внутренняя заметка")
             result = await send_message(
                 db_session, test_candidate.id, message_data, test_company.id, admin_user.id
             )
             mock_send_email.assert_not_called()
-            assert result.channel == "telegram"
+            assert result.channel == "sms"
+
+
+class TestTelegramMessaging:
+    """Реальная отправка кандидату через Telegram (Telethon user-аккаунт).
+
+    tg_service.send_to_candidate мокается по import-site в message.py — живой Telethon
+    не дёргается. Проверяем: успех сохраняет сообщение, сбой/нет-контакта НЕ сохраняет
+    (никакого фейка «отправлено»).
+    """
+
+    @pytest.mark.asyncio
+    async def test_send_telegram_real_success(self, db_session, test_company, admin_user, test_candidate):
+        """telegram: send_to_candidate ок → сообщение сохранено, external_id проставлен."""
+        from sqlalchemy import select
+
+        message_data = MessageCreate(channel="telegram", body="Привет из Глафиры")
+        with patch(
+            'app.services.message.tg_service.send_to_candidate',
+            new_callable=AsyncMock,
+            return_value={"message_id": "555", "peer": "777"},
+        ) as mock_send:
+            result = await send_message(
+                db_session, test_candidate.id, message_data, test_company.id, admin_user.id
+            )
+
+        mock_send.assert_awaited_once()
+        # вызвано по номеру кандидата (у фикстуры есть phone, нет tg-username)
+        kwargs = mock_send.await_args.kwargs
+        assert kwargs["phone"] == test_candidate.phone
+        assert kwargs["text"] == "Привет из Глафиры"
+        assert result.channel == "telegram"
+        assert result.direction == "out"
+
+        # сообщение реально в БД + external_id из Telegram
+        row = (await db_session.execute(
+            select(Message).where(Message.id == result.id)
+        )).scalar_one()
+        assert row.external_id == "555"
+
+    @pytest.mark.asyncio
+    async def test_send_telegram_failure_not_persisted(self, db_session, test_company, admin_user, test_candidate):
+        """telegram: send_to_candidate кидает AppError → проброс + сообщение НЕ сохранено."""
+        from sqlalchemy import select, func
+        from app.core.errors import AppError
+
+        before = (await db_session.execute(
+            select(func.count()).select_from(Message).where(Message.candidate_id == test_candidate.id)
+        )).scalar_one()
+
+        message_data = MessageCreate(channel="telegram", body="Не дойдёт")
+        with patch(
+            'app.services.message.tg_service.send_to_candidate',
+            new_callable=AsyncMock,
+            side_effect=AppError(
+                code="TG_NO_TG_ACCOUNT",
+                message="У кандидата нет аккаунта Telegram на этом номере",
+                status_code=400,
+            ),
+        ):
+            with pytest.raises(AppError):
+                await send_message(
+                    db_session, test_candidate.id, message_data, test_company.id, admin_user.id
+                )
+
+        after = (await db_session.execute(
+            select(func.count()).select_from(Message).where(Message.candidate_id == test_candidate.id)
+        )).scalar_one()
+        assert after == before  # ничего не сохранилось — никакого фейка «отправлено»
+
+    @pytest.mark.asyncio
+    async def test_send_telegram_no_contact_validation(self, db_session, test_company, admin_user):
+        """telegram: у кандидата ни телефона, ни tg-username → ValidationError, отправка не зовётся."""
+        candidate = Candidate(
+            company_id=test_company.id,
+            last_name="Без",
+            first_name="Контактов",
+            phone=None,
+            messengers=[],
+            source="manual",
+        )
+        db_session.add(candidate)
+        await db_session.flush()
+
+        message_data = MessageCreate(channel="telegram", body="Куда-то")
+        with patch(
+            'app.services.message.tg_service.send_to_candidate',
+            new_callable=AsyncMock,
+        ) as mock_send:
+            with pytest.raises(ValidationError):
+                await send_message(
+                    db_session, candidate.id, message_data, test_company.id, admin_user.id
+                )
+        mock_send.assert_not_called()
+
+
+class TestExtractTelegramUsername:
+    """Юнит-тесты разбора tg-username из поля messengers (двухформатное)."""
+
+    def test_extracts_from_tme_url(self):
+        from app.services.integrations.telegram.service import extract_telegram_username
+        assert extract_telegram_username([{"type": "tg", "url": "https://t.me/ivan"}]) == "ivan"
+
+    def test_extracts_type_telegram_with_trailing_and_query(self):
+        from app.services.integrations.telegram.service import extract_telegram_username
+        assert extract_telegram_username([{"type": "telegram", "url": "t.me/petr/?start=1"}]) == "petr"
+
+    def test_ignores_plain_string_channels(self):
+        from app.services.integrations.telegram.service import extract_telegram_username
+        assert extract_telegram_username(["telegram", "whatsapp"]) is None
+
+    def test_empty_returns_none(self):
+        from app.services.integrations.telegram.service import extract_telegram_username
+        assert extract_telegram_username([]) is None
+
+    def test_non_tg_object_returns_none(self):
+        from app.services.integrations.telegram.service import extract_telegram_username
+        assert extract_telegram_username([{"type": "wa", "url": "https://wa.me/79001234567"}]) is None
+
+
+class TestNormalizePhone:
+    """Юнит-тесты нормализации телефона перед резолвом в Telethon."""
+
+    def test_human_format_with_plus(self):
+        from app.services.integrations.telegram.client import _normalize_phone
+        assert _normalize_phone("+7 900 123 45 67") == "+79001234567"
+
+    def test_parens_and_dashes(self):
+        from app.services.integrations.telegram.client import _normalize_phone
+        assert _normalize_phone("+7 (931) 361-24-08") == "+79313612408"
+
+    def test_no_plus_kept_digits_only(self):
+        from app.services.integrations.telegram.client import _normalize_phone
+        assert _normalize_phone("8 900 123 45 67") == "89001234567"
+
+    def test_empty(self):
+        from app.services.integrations.telegram.client import _normalize_phone
+        assert _normalize_phone("") == ""

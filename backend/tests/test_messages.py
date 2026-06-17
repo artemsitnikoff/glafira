@@ -20,7 +20,7 @@ class TestMessages:
             f"/api/v1/candidates/{candidate_id}/messages",
             headers=auth_headers,
             json={
-                "channel": "telegram",
+                "channel": "sms",
                 "body": "Тестовое сообщение"
             }
         )
@@ -28,7 +28,7 @@ class TestMessages:
         assert response.status_code == 201
         message = response.json()
         assert message["body"] == "Тестовое сообщение"
-        assert message["channel"] == "telegram"
+        assert message["channel"] == "sms"
         assert message["direction"] == "out"
         assert message["sender_type"] == "recruiter"
 
@@ -46,7 +46,7 @@ class TestMessages:
         messages = messages_data["items"]
         test_message = next((m for m in messages if m["body"] == "Тестовое сообщение"), None)
         assert test_message is not None
-        assert test_message["channel"] == "telegram"
+        assert test_message["channel"] == "sms"
         assert test_message["sender_type"] == "recruiter"
 
         # Test with channel filter
@@ -54,7 +54,7 @@ class TestMessages:
             f"/api/v1/candidates/{candidate_id}/messages",
             headers=auth_headers,
             params={
-                "channel": "telegram"
+                "channel": "sms"
             }
         )
 
@@ -98,7 +98,7 @@ async def test_message_vacancy_id_from_application(
         f"/api/v1/candidates/{test_candidate.id}/messages",
         headers=auth_headers,
         json={
-            "channel": "telegram",
+            "channel": "sms",
             "body": "Message with application context",
             "application_id": str(application.id)
         }

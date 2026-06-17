@@ -19,6 +19,8 @@ import time
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.functions.auth import ResendCodeRequest, ExportLoginTokenRequest, ImportLoginTokenRequest
+from telethon.tl.functions.contacts import ImportContactsRequest
+from telethon.tl.types import InputPhoneContact
 from telethon.errors import (
     SessionPasswordNeededError,
     PhoneCodeInvalidError,
@@ -28,6 +30,8 @@ from telethon.errors import (
     ApiIdInvalidError,
     AuthTokenExpiredError,
     AuthTokenAlreadyAcceptedError,
+    UsernameNotOccupiedError,
+    UsernameInvalidError,
 )
 from telethon.tl import types as tl_types
 
@@ -384,5 +388,131 @@ async def send_to_self(session_str: str, text: str) -> None:
         raise
     except Exception as e:
         raise AppError(code="TG_SEND_ERROR", message="Не удалось отправить сообщение через Telegram", status_code=400, details={"reason": str(e)})
+    finally:
+        await client.disconnect()
+
+
+def _normalize_username(raw: str) -> str:
+    """Нормализует username: убирает '@', из t.me-ссылок берёт последний сегмент пути."""
+    raw = raw.strip()
+    if "t.me/" in raw:
+        # https://t.me/ivan или t.me/ivan → "ivan"
+        path = raw.split("t.me/")[-1]
+        # Убираем возможный хвост (query-параметры, слеши) и ведущий '@'
+        path = path.split("?")[0].rstrip("/").lstrip("@")
+        return path
+    return raw.lstrip("@")
+
+
+def _normalize_phone(raw: str) -> str:
+    """Приводит телефон к виду, который понимает Telethon (E.164-подобный): только
+    цифры, ведущий '+' если он был. Кандидатские номера хранятся в человекочитаемом
+    формате ('+7 900 123 45 67') — без чистки Telethon их не резолвит. Зеркалит
+    нормализацию из login-пути (service.send_code)."""
+    raw = (raw or "").strip()
+    has_plus = raw.startswith("+")
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return ("+" + digits) if has_plus else digits
+
+
+async def send_to_peer(
+    session_str: str,
+    *,
+    username: str | None,
+    phone: str | None,
+    text: str,
+) -> dict:
+    """Отправить сообщение кандидату по username или номеру телефона.
+
+    Приоритет: username > phone.
+    Возвращает {"message_id": str, "peer": str}.
+    При любом сбое — AppError с кодом TG_*.
+    PII (username/phone/текст) не пишем в лог целиком.
+    """
+    api_id, api_hash = _api_creds()
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise AppError(
+                code="TG_NOT_AUTHORIZED",
+                message="Сессия Telegram недействительна — подключитесь заново",
+                status_code=400,
+            )
+
+        entity = None
+
+        if username:
+            uname = _normalize_username(username)
+            logger.info("[tg] send_to_peer: резолв по username (len=%d)", len(uname))
+            try:
+                entity = await client.get_entity(uname)
+            except (ValueError, UsernameNotOccupiedError, UsernameInvalidError) as e:
+                logger.warning("[tg] send_to_peer: username не найден (%s)", type(e).__name__)
+                raise AppError(
+                    code="TG_PEER_NOT_FOUND",
+                    message="Не нашли Telegram по username кандидата",
+                    status_code=400,
+                )
+        elif phone:
+            phone = _normalize_phone(phone)
+            masked = _mask_phone(phone)
+            logger.info("[tg] send_to_peer: резолв по телефону %s", masked)
+            # Сначала пробуем get_entity напрямую (работает, если номер уже в контактах
+            # или Telegram его раскрывает при текущих настройках приватности).
+            try:
+                entity = await client.get_entity(phone)
+            except Exception:
+                # Номер не разрешился напрямую — импортируем как контакт (MTProto contacts.ImportContacts)
+                logger.info("[tg] send_to_peer: get_entity по телефону не удался, пробуем ImportContacts")
+                client_id = abs(hash(phone)) % (10 ** 18)
+                result = await client(
+                    ImportContactsRequest(
+                        contacts=[
+                            InputPhoneContact(
+                                client_id=client_id,
+                                phone=phone,
+                                first_name="Кандидат",
+                                last_name="",
+                            )
+                        ]
+                    )
+                )
+                if not result.users:
+                    logger.warning("[tg] send_to_peer: ImportContacts вернул пустой список users для %s", masked)
+                    raise AppError(
+                        code="TG_NO_TG_ACCOUNT",
+                        message=(
+                            "У кандидата нет аккаунта Telegram на этом номере "
+                            "или номер скрыт настройками приватности"
+                        ),
+                        status_code=400,
+                    )
+                entity = result.users[0]
+        else:
+            # Этот путь не должен случиться — service.py проверяет раньше,
+            # но на случай прямого вызова:
+            raise AppError(
+                code="TG_PEER_NOT_FOUND",
+                message="Не задан ни username, ни номер телефона кандидата",
+                status_code=400,
+            )
+
+        msg = await client.send_message(entity, text)
+        peer_id = str(getattr(entity, "id", ""))
+        msg_id = str(getattr(msg, "id", ""))
+        logger.info("[tg] send_to_peer: сообщение отправлено, peer_id=%s", peer_id)
+        return {"message_id": msg_id, "peer": peer_id}
+
+    except AppError:
+        raise
+    except Exception as e:
+        logger.exception("[tg] send_to_peer: неожиданная ошибка %s", type(e).__name__)
+        raise AppError(
+            code="TG_SEND_ERROR",
+            message="Не удалось отправить сообщение через Telegram",
+            status_code=400,
+            details={"reason": str(e)},
+        )
     finally:
         await client.disconnect()

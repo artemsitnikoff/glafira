@@ -672,6 +672,15 @@
 .cnd-funnel-wrap .cand-detail .chat-ch-opt:hover { background: var(--bg-panel-2, #f6f7f9); }
 .cnd-funnel-wrap .cand-detail .chat-ch-opt.active { background: color-mix(in srgb, var(--accent) 10%, #fff); color: var(--accent); }
 .cnd-funnel-wrap .cand-detail .chat-ch-opt-label { flex: 1; font-weight: 500; }
+/* Канал «Скоро» — виден, но неактивен (нет реальной отправки) */
+.cnd-funnel-wrap .cand-detail .chat-ch-opt.soon { color: var(--fg-3); cursor: default; }
+.cnd-funnel-wrap .cand-detail .chat-ch-opt.soon:hover { background: transparent; }
+.cnd-funnel-wrap .cand-detail .chat-ch-opt.soon .chat-ch-dot { opacity: .45; }
+.cnd-funnel-wrap .cand-detail .chat-ch-soon {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--fg-3); background: var(--bg-3);
+  padding: 1px 6px; border-radius: var(--radius-full);
+}
 
 .cnd-funnel-wrap .cand-detail .chat-compose-body {
   display: flex; align-items: stretch; gap: 8px;

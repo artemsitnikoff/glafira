@@ -41,9 +41,19 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
     setDraft(prev => prev.trim() ? `${prev.trimEnd()}\n${text}` : text);
   };
 
-  // Фильтр каналов для селектора: hh только для hh-кандидатов
+  // Каналы селектора:
+  //  • REAL — реальная отправка (telegram/hh/email); hh только для hh-кандидатов.
+  //  • SOON — видны, но неактивны («Скоро»): реальной отправки ещё нет (sms — нет
+  //    SMS-провайдера). Честно показываем, что канал не работает, а не делаем вид.
+  //  • whatsapp/max убраны совсем. CHANNELS оставлен полным — для отрисовки истории.
   const isHhCandidate = candidate?.source === 'hh';
-  const availableChannels = CHANNELS.filter(c => c.id !== 'hh' || isHhCandidate);
+  const REAL_CHANNELS = new Set(['telegram', 'hh', 'email']);
+  const SOON_CHANNELS = new Set(['sms']);
+  const availableChannels = CHANNELS.filter(
+    c =>
+      (REAL_CHANNELS.has(c.id) && (c.id !== 'hh' || isHhCandidate)) ||
+      SOON_CHANNELS.has(c.id)
+  );
 
   // Группировка сообщений по vacancy_id для fromPool режима (упрощённо - можно убрать)
   const messageGroups = fromPool && messages ? (() => {
@@ -188,18 +198,23 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
             </button>
             {open && (
               <div className="chat-ch-menu">
-                {availableChannels.map(ch => (
-                  <button
-                    type="button"
-                    key={ch.id}
-                    className={`chat-ch-opt ${ch.id === activeChannel ? 'active' : ''}`}
-                    onClick={() => { setActiveChannel(ch.id); setOpen(false); }}
-                  >
-                    <span className="chat-ch-dot" style={{background: ch.color}} />
-                    <span className="chat-ch-opt-label">{ch.label}</span>
-                    {ch.id === activeChannel && <Icon name="check" size={14} />}
-                  </button>
-                ))}
+                {availableChannels.map(ch => {
+                  const soon = SOON_CHANNELS.has(ch.id);
+                  return (
+                    <button
+                      type="button"
+                      key={ch.id}
+                      className={`chat-ch-opt ${ch.id === activeChannel ? 'active' : ''}${soon ? ' soon' : ''}`}
+                      disabled={soon}
+                      onClick={() => { if (soon) return; setActiveChannel(ch.id); setOpen(false); }}
+                    >
+                      <span className="chat-ch-dot" style={{background: ch.color}} />
+                      <span className="chat-ch-opt-label">{ch.label}</span>
+                      {soon && <span className="chat-ch-soon">Скоро</span>}
+                      {!soon && ch.id === activeChannel && <Icon name="check" size={14} />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

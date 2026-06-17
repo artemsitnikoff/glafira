@@ -128,7 +128,7 @@ class TestC3SendMessageIDOR:
 
         # Try to send message with foreign application_id
         message_data = MessageCreate(
-            channel="telegram",
+            channel="sms",
             body="Test message",
             application_id=foreign_application.id,
         )
@@ -178,7 +178,7 @@ class TestC3SendMessageIDOR:
 
         # Try to send message to test_candidate with another_candidate's application
         message_data = MessageCreate(
-            channel="telegram",
+            channel="sms",
             body="Test message",
             application_id=another_application.id,
         )
@@ -199,7 +199,7 @@ class TestC3SendMessageIDOR:
     ):
         """Test that send_message works with valid application_id"""
         message_data = MessageCreate(
-            channel="telegram",
+            channel="sms",
             body="Test message",
             application_id=test_application.id,
         )
@@ -221,7 +221,7 @@ class TestC3SendMessageIDOR:
     ):
         """Test that send_message works without application_id"""
         message_data = MessageCreate(
-            channel="telegram",
+            channel="sms",
             body="Test message",
             application_id=None,
         )
