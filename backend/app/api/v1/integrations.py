@@ -427,6 +427,37 @@ async def tg_test(
     return await tg_service.send_test(session, current_user.company_id, current_user.id)
 
 
+@router.post("/telegram/qr/start", dependencies=[Depends(require_admin)])
+async def tg_qr_start(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """QR-вход шаг 1: ExportLoginToken → возвращает SVG-QR (data-uri) и expires.
+
+    Пользователь открывает Telegram на телефоне → Настройки → Устройства →
+    Подключить устройство → сканирует QR. Затем клиент поллит /qr/status.
+    """
+    result = await tg_service.qr_start(session, current_user.company_id, current_user.id)
+    await session.commit()
+    return result
+
+
+@router.get("/telegram/qr/status", dependencies=[Depends(require_admin)])
+async def tg_qr_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """QR-вход шаг 2: ImportLoginToken → проверить состояние.
+
+    Поллить каждые 2–3 секунды до state='connected'|'need_password'.
+    При state='waiting' + qr_image — токен протух, показать новый QR.
+    При state='need_password' — вызвать /confirm-password как обычно.
+    """
+    result = await tg_service.qr_status(session, current_user.company_id, current_user.id)
+    await session.commit()
+    return result
+
+
 @router.post("/telegram/disconnect", dependencies=[Depends(require_admin)])
 async def tg_disconnect(
     current_user: User = Depends(get_current_user),

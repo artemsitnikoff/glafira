@@ -6,10 +6,15 @@ State-машина входа: pending_code → (pending_password) → connected
 не возвращается наружу.
 """
 
+import base64
+import io
 import re
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import Optional
+
+import qrcode
+import qrcode.image.svg
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -181,6 +186,119 @@ async def confirm_password(session: AsyncSession, company_id: UUID, user_id: UUI
     await session.flush()
     await audit(session, action="telegram_connected", entity_type="integration", entity_id=row.id, after={"tg_user_id": (result.get("user") or {}).get("id")}, actor_user_id=user_id, company_id=company_id)
     return {"state": "connected", "user": result.get("user")}
+
+
+def _qr_url_to_svg_data_uri(qr_url: str) -> str:
+    """Рендерит tg:// QR-ссылку в SVG и возвращает data-URI (data:image/svg+xml;base64,...)."""
+    img = qrcode.make(qr_url, image_factory=qrcode.image.svg.SvgPathImage)
+    buf = io.BytesIO()
+    img.save(buf)
+    svg_bytes = buf.getvalue()
+    return "data:image/svg+xml;base64," + base64.b64encode(svg_bytes).decode()
+
+
+async def qr_start(session: AsyncSession, company_id: UUID, user_id: UUID) -> dict:
+    """Начать QR-вход: ExportLoginToken → сохранить qr_session/qr_token/qr_expires в конфиге.
+
+    Возвращает {qr_image: data-uri SVG, expires: int epoch}.
+    Сессия хранится только зашифрованной; qr_url в ответ НЕ идёт (только изображение).
+    """
+    export = await tg_client.qr_export()
+    config = {
+        "qr_session": encrypt_text(export["session"]),
+        "qr_token": export["token"],
+        "qr_expires": export["expires"],
+        "state": "qr_pending",
+        # сбрасываем остатки предыдущего подключения
+        "phone": None,
+        "session": None,
+        "phone_code_hash": None,
+        "code_type": None,
+        "tg_user": None,
+        "last_test_at": None,
+        "last_test_ok": False,
+        "last_test_error": None,
+    }
+    row = await _upsert(session, company_id, config, "disconnected")
+    await audit(
+        session, action="telegram_qr_started", entity_type="integration",
+        entity_id=row.id, actor_user_id=user_id, company_id=company_id,
+    )
+    qr_image = _qr_url_to_svg_data_uri(export["qr_url"])
+    return {"qr_image": qr_image, "expires": export["expires"]}
+
+
+async def qr_status(session: AsyncSession, company_id: UUID, user_id: UUID) -> dict:
+    """Поллинг QR-состояния: ImportLoginToken → обновить конфиг, вернуть состояние.
+
+    Возможные state в ответе:
+      'idle'           — QR-сессия не начата (нет qr_session)
+      'waiting'        — QR не отсканирован (или текущий QR протух — тогда + qr_image/expires)
+      'connected'      — авторизован; {user}
+      'need_password'  — нужен пароль 2FA (далее — существующий confirm_password)
+    """
+    row = await _get_row(session, company_id)
+    if not row or not row.config or not row.config.get("qr_session"):
+        return {"state": "idle"}
+
+    c = dict(row.config)
+    session_str = decrypt_text(c["qr_session"])
+    token_b64 = c["qr_token"]
+
+    result = await tg_client.qr_poll(session_str, token_b64)
+    status = result["status"]
+
+    if status == "connected":
+        # Авторизован — сохраняем реальную сессию так же, как confirm_code/connect_session
+        c["session"] = encrypt_text(result["session"])
+        c["state"] = "connected"
+        c["tg_user"] = result.get("user")
+        c["phone"] = (result.get("user") or {}).get("phone")
+        c["phone_code_hash"] = None
+        # Очищаем qr-поля
+        c["qr_session"] = None
+        c["qr_token"] = None
+        c["qr_expires"] = None
+        row.config = c
+        row.status = "connected"
+        await session.flush()
+        await audit(
+            session, action="telegram_connected", entity_type="integration",
+            entity_id=row.id,
+            after={"tg_user_id": (result.get("user") or {}).get("id"), "via": "qr"},
+            actor_user_id=user_id, company_id=company_id,
+        )
+        return {"state": "connected", "user": result.get("user")}
+
+    if status == "password_needed":
+        # Частичную сессию кладём туда же, куда confirm_code при need_password —
+        # confirm_password читает c["session"] в state="pending_password"
+        c["session"] = encrypt_text(result["session"])
+        c["state"] = "pending_password"
+        c["qr_session"] = None
+        c["qr_token"] = None
+        c["qr_expires"] = None
+        row.config = c
+        row.status = "disconnected"
+        await session.flush()
+        await audit(
+            session, action="telegram_need_password", entity_type="integration",
+            entity_id=row.id, actor_user_id=user_id, company_id=company_id,
+        )
+        return {"state": "need_password"}
+
+    if status == "expired":
+        # Токен протух — qr_poll уже перевыпустил QR; сохраняем новые данные
+        c["qr_session"] = encrypt_text(result["session"])
+        c["qr_token"] = result["token"]
+        c["qr_expires"] = result["expires"]
+        row.config = c
+        await session.flush()
+        qr_image = _qr_url_to_svg_data_uri(result["qr_url"])
+        return {"state": "waiting", "qr_image": qr_image, "expires": result["expires"]}
+
+    # status == "waiting"
+    return {"state": "waiting"}
 
 
 async def get_status(session: AsyncSession, company_id: UUID) -> dict:

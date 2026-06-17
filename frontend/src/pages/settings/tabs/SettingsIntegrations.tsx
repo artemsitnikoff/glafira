@@ -7,11 +7,12 @@ import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
 import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
-import { useTelegramStatus } from '@/api/hooks/useTelegramIntegration';
+import { useTelegramStatus, useTelegramQrStart, useTelegramQrStatus } from '@/api/hooks/useTelegramIntegration';
 import { useTgSendCode, useTgResendCode, useTgConnectSession, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
 import { useMangoStatus } from '@/api/hooks/useMangoIntegration';
 import { useMangoSaveConfig, useMangoTest, useMangoDisconnect } from '@/api/mutations/mangoIntegration';
 import { useAuthStore } from '@/store/authStore';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ApiError } from '@/api/aliases';
@@ -66,6 +67,7 @@ interface SettingsIntegrationsProps {
 export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const qc = useQueryClient();
 
   const { data: hhStatus, isLoading: hhStatusLoading } = useHhStatus();
   const hhAuthorizeMutation = useHhAuthorize();
@@ -296,6 +298,63 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   // Ошибка показывается ИНЛАЙН в карточке Telegram (карточка внизу страницы —
   // верхний notification-баннер вне зоны видимости при работе с ней).
   const [tgError, setTgError] = useState<string | null>(null);
+
+  // QR-логин: режим (null=выбор, 'qr'=QR-поток, 'phone'=телефон+код)
+  const [tgLoginMode, setTgLoginMode] = useState<null | 'qr' | 'phone'>(null);
+  // QR-изображение: сначала из qr/start, потом может обновляться из qr/status
+  const [tgQrImage, setTgQrImage] = useState<string | null>(null);
+  // Поллинг активен если есть QR-изображение и аккаунт ещё не подключён
+  const tgQrPollingEnabled =
+    tgLoginMode === 'qr' &&
+    tgQrImage !== null &&
+    !tgStatus?.connected;
+
+  const tgQrStartMutation = useTelegramQrStart();
+  const { data: tgQrStatusData } = useTelegramQrStatus(tgQrPollingEnabled);
+  // Пароль 2FA для QR-потока (отдельный стейт — чтобы не мешался с phone-потоком)
+  const [tgQrPassword, setTgQrPassword] = useState('');
+
+  // Обновляем QR-изображение из поллинга и инвалидируем статус при подключении
+  useEffect(() => {
+    if (!tgQrStatusData) return;
+    if (tgQrStatusData.qr_image) {
+      setTgQrImage(tgQrStatusData.qr_image);
+    }
+    if (tgQrStatusData.state === 'connected') {
+      qc.invalidateQueries({ queryKey: ['integrations', 'telegram', 'status'] });
+      setTgLoginMode(null);
+      setTgQrImage(null);
+      setNotification({ type: 'success', message: 'Telegram подключён через QR.' });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tgQrStatusData?.state, tgQrStatusData?.qr_image]);
+
+  const handleTgQrStart = async () => {
+    setTgError(null);
+    setTgQrImage(null);
+    try {
+      const res = await tgQrStartMutation.mutateAsync();
+      setTgQrImage(res.qr_image);
+      setTgLoginMode('qr');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setTgError(e.error?.message || 'Не удалось запустить QR-авторизацию');
+    }
+  };
+
+  const handleTgQrConfirmPassword = async () => {
+    setTgError(null);
+    try {
+      await tgConfirmPasswordMutation.mutateAsync({ password: tgQrPassword });
+      setTgQrPassword('');
+      setTgLoginMode(null);
+      setTgQrImage(null);
+      setNotification({ type: 'success', message: 'Telegram подключён.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setTgError(e.error?.message || 'Неверный пароль 2FA');
+    }
+  };
 
   // ---------------- Mango Office (телефония) ----------------
   const { data: mangoStatus, isLoading: mangoLoading } = useMangoStatus();
@@ -936,6 +995,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
             tgStatus?.connected ? undefined
               : tgStatus?.state === 'pending_code' ? 'Введите код'
               : tgStatus?.state === 'pending_password' ? 'Пароль 2FA'
+              : tgLoginMode === 'qr' && tgQrStatusData?.state === 'need_password' ? 'Пароль 2FA'
               : tgStatus?.last_test_error ? 'Ошибка отправки'
               : undefined
           }>
@@ -973,40 +1033,209 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                   </button>
                 </div>
               </div>
-            ) : tgStatus?.state === 'pending_code' ? (
-              // Ввод кода
-              <div>
-                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                  {tgStatus.code_type === 'SentCodeTypeApp' ? (
-                    <>Код отправлен <strong>в приложение Telegram</strong> — откройте чат <strong>«Telegram»</strong> (служебные сообщения, отправитель 42777). Это <strong>не SMS</strong>. </>
-                  ) : tgStatus.code_type === 'SentCodeTypeSms' || tgStatus.code_type === 'SentCodeTypeFragmentSms' ? (
-                    <>Код отправлен по <strong>SMS</strong> на <span className="t-mono">{tgStatus.phone}</span>. </>
-                  ) : tgStatus.code_type === 'SentCodeTypeCall' ? (
-                    <>Вам <strong>позвонят</strong> и продиктуют код на <span className="t-mono">{tgStatus.phone}</span>. </>
-                  ) : tgStatus.code_type === 'SentCodeTypeMissedCall' ? (
-                    <>Будет <strong>сброшенный звонок</strong> — код это последние цифры входящего номера. </>
+
+            ) : tgLoginMode === 'qr' ? (
+              // QR-поток
+              tgQrStatusData?.state === 'need_password' ? (
+                // QR отсканирован, нужен 2FA-пароль
+                <div>
+                  <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                    QR отсканирован. У аккаунта включён облачный пароль (2FA). Введите его:
+                  </div>
+                  <div className="form-grid form-grid-2">
+                    <FormRow label="Облачный пароль (2FA)" required>
+                      <TextInput type="password" value={tgQrPassword} onChange={(v) => setTgQrPassword(v)} placeholder="••••••••" mono />
+                    </FormRow>
+                  </div>
+                  <div className="integ-actions">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleTgQrConfirmPassword}
+                      disabled={tgConfirmPasswordMutation.isPending || !tgQrPassword || readOnly}
+                    >
+                      {tgConfirmPasswordMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setTgLoginMode(null); setTgQrImage(null); setTgQrPassword(''); }}
+                      disabled={readOnly}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // Показываем QR и ждём сканирования
+                <div>
+                  <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                    В Telegram на телефоне: <strong>Настройки → Устройства → Подключить устройство</strong> → отсканируйте QR.
+                    QR автоматически обновляется каждые ~30 секунд.
+                  </div>
+                  {tgQrImage ? (
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '12px',
+                      border: '1px solid var(--border-1)',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-elevated)',
+                      marginBottom: '12px',
+                    }}>
+                      <img
+                        src={tgQrImage}
+                        alt="QR для входа в Telegram"
+                        width={220}
+                        height={220}
+                        style={{ display: 'block' }}
+                      />
+                    </div>
                   ) : (
-                    <>Код отправлен на <span className="t-mono">{tgStatus.phone}</span>. Проверьте <strong>приложение Telegram</strong> (чат «Telegram») и SMS. </>
+                    <div style={{
+                      width: 220,
+                      height: 220,
+                      border: '1px solid var(--border-1)',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--fg-3)',
+                      fontSize: '13px',
+                      marginBottom: '12px',
+                    }}>
+                      Генерация QR…
+                    </div>
                   )}
-                  Введите его:
+                  <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '12px' }}>
+                    Ожидание сканирования…
+                  </div>
+                  <div className="integ-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setTgLoginMode(null); setTgQrImage(null); }}
+                      disabled={readOnly}
+                    >
+                      Отмена
+                    </button>
+                  </div>
                 </div>
-                <div className="form-grid form-grid-2">
-                  <FormRow label="Код из Telegram" required>
-                    <TextInput value={tgCode} onChange={(v) => setTgCode(v)} placeholder="12345" mono />
-                  </FormRow>
+              )
+
+            ) : tgLoginMode === 'phone' || tgStatus?.state === 'pending_code' ? (
+              // Телефон+код поток (вторичный)
+              tgStatus?.state === 'pending_code' ? (
+                // Ввод кода
+                <div>
+                  <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                    {tgStatus.code_type === 'SentCodeTypeApp' ? (
+                      <>Код отправлен <strong>в приложение Telegram</strong> — откройте чат <strong>«Telegram»</strong> (служебные сообщения, отправитель 42777). Это <strong>не SMS</strong>. </>
+                    ) : tgStatus.code_type === 'SentCodeTypeSms' || tgStatus.code_type === 'SentCodeTypeFragmentSms' ? (
+                      <>Код отправлен по <strong>SMS</strong> на <span className="t-mono">{tgStatus.phone}</span>. </>
+                    ) : tgStatus.code_type === 'SentCodeTypeCall' ? (
+                      <>Вам <strong>позвонят</strong> и продиктуют код на <span className="t-mono">{tgStatus.phone}</span>. </>
+                    ) : tgStatus.code_type === 'SentCodeTypeMissedCall' ? (
+                      <>Будет <strong>сброшенный звонок</strong> — код это последние цифры входящего номера. </>
+                    ) : (
+                      <>Код отправлен на <span className="t-mono">{tgStatus.phone}</span>. Проверьте <strong>приложение Telegram</strong> (чат «Telegram») и SMS. </>
+                    )}
+                    Введите его:
+                  </div>
+                  <div className="form-grid form-grid-2">
+                    <FormRow label="Код из Telegram" required>
+                      <TextInput value={tgCode} onChange={(v) => setTgCode(v)} placeholder="12345" mono />
+                    </FormRow>
+                  </div>
+                  <div className="integ-actions">
+                    <button className="btn btn-primary btn-sm" onClick={handleTgConfirmCode} disabled={tgConfirmCodeMutation.isPending || !tgCode.trim() || readOnly}>
+                      {tgConfirmCodeMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={handleTgResendCode} disabled={tgResendCodeMutation.isPending || readOnly}>
+                      {tgResendCodeMutation.isPending ? 'Отправка...' : 'Отправить заново'}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={readOnly}>Отмена</button>
+                  </div>
                 </div>
-                <div className="integ-actions">
-                  <button className="btn btn-primary btn-sm" onClick={handleTgConfirmCode} disabled={tgConfirmCodeMutation.isPending || !tgCode.trim() || readOnly}>
-                    {tgConfirmCodeMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+              ) : tgStatus?.state === 'pending_password' ? (
+                // 2FA облачный пароль (phone-поток)
+                <div>
+                  <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                    У аккаунта включён облачный пароль (2FA). Введите его:
+                  </div>
+                  <div className="form-grid form-grid-2">
+                    <FormRow label="Облачный пароль (2FA)" required>
+                      <TextInput type="password" value={tgPassword} onChange={(v) => setTgPassword(v)} placeholder="••••••••" mono />
+                    </FormRow>
+                  </div>
+                  <div className="integ-actions">
+                    <button className="btn btn-primary btn-sm" onClick={handleTgConfirmPassword} disabled={tgConfirmPasswordMutation.isPending || !tgPassword || readOnly}>
+                      {tgConfirmPasswordMutation.isPending ? 'Проверка...' : 'Подтвердить'}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={readOnly}>Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                // Ввод номера телефона
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setTgLoginMode(null)}
+                    disabled={readOnly}
+                    style={{ marginBottom: 12, background: 'none', border: 'none', color: 'var(--fg-3)', cursor: readOnly ? 'default' : 'pointer', fontSize: 12, padding: 0 }}
+                  >
+                    ← Назад к выбору способа входа
                   </button>
-                  <button className="btn btn-secondary btn-sm" onClick={handleTgResendCode} disabled={tgResendCodeMutation.isPending || readOnly}>
-                    {tgResendCodeMutation.isPending ? 'Отправка...' : 'Отправить заново'}
-                  </button>
-                  <button className="btn btn-secondary btn-sm" onClick={handleTgDisconnect} disabled={readOnly}>Отмена</button>
+                  <div className="form-grid form-grid-2">
+                    <FormRow label="Номер телефона" required>
+                      <TextInput value={tgPhone} onChange={(v) => setTgPhone(v)} placeholder="+79991234567" mono />
+                    </FormRow>
+                  </div>
+                  <div className="info-banner small">
+                    <Icon name="alert-triangle" size={14} />
+                    <div>Вход в <strong>ваш аккаунт Telegram</strong> для отправки сообщений из-под него. Код обычно приходит <strong>в приложение Telegram</strong> (чат «Telegram»), а не по SMS. ⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
+                  </div>
+                  <div className="integ-actions">
+                    <button className="btn btn-primary btn-sm" onClick={handleTgSendCode} disabled={tgSendCodeMutation.isPending || !tgPhone.trim() || readOnly}>
+                      {tgSendCodeMutation.isPending ? 'Отправка...' : 'Получить код'}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setTgLoginMode(null)} disabled={readOnly}>Отмена</button>
+                  </div>
+
+                  {!tgShowSession ? (
+                    <button
+                      type="button"
+                      onClick={() => setTgShowSession(true)}
+                      disabled={readOnly}
+                      style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--accent)', cursor: readOnly ? 'default' : 'pointer', fontSize: 12, padding: 0 }}
+                    >
+                      Код не приходит? Подключить готовой строкой сессии →
+                    </button>
+                  ) : (
+                    <div style={{ marginTop: 12 }}>
+                      <div className="info-banner small">
+                        <Icon name="alert-triangle" size={14} />
+                        <div>Строка сессии (StringSession) = <strong>полный доступ к аккаунту</strong>, вставляйте только свою. На сервере <strong>api_id/api_hash</strong> должны совпадать с теми, которыми сгенерирована сессия (иначе не подойдёт).</div>
+                      </div>
+                      <div className="form-grid form-grid-2">
+                        <FormRow label="Строка сессии (StringSession)" required span={2}>
+                          <TextInput type="password" value={tgSession} onChange={(v) => setTgSession(v)} placeholder="1ApWapz…" mono />
+                        </FormRow>
+                      </div>
+                      <div className="integ-actions">
+                        <button className="btn btn-primary btn-sm" onClick={handleTgConnectSession} disabled={tgConnectSessionMutation.isPending || !tgSession.trim() || readOnly}>
+                          {tgConnectSessionMutation.isPending ? 'Подключение...' : 'Подключить по сессии'}
+                        </button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => { setTgShowSession(false); setTgSession(''); }} disabled={readOnly}>
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )
+
             ) : tgStatus?.state === 'pending_password' ? (
-              // 2FA облачный пароль
+              // 2FA — pending_password без явного режима (после phone+code снаружи)
               <div>
                 <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
                   У аккаунта включён облачный пароль (2FA). Введите его:
@@ -1024,53 +1253,34 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 </div>
               </div>
             ) : (
-              // Не подключено — ввод номера
+              // Не подключено — выбор способа входа (QR — первичный)
               <div>
-                <div className="form-grid form-grid-2">
-                  <FormRow label="Номер телефона" required>
-                    <TextInput value={tgPhone} onChange={(v) => setTgPhone(v)} placeholder="+79991234567" mono />
-                  </FormRow>
+                <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Подключите аккаунт Telegram для отправки сообщений кандидатам.
+                  Рекомендуем войти через QR — надёжнее, чем ожидать SMS/код.
                 </div>
-                <div className="info-banner small">
-                  <Icon name="alert-triangle" size={14} />
-                  <div>Вход в <strong>ваш аккаунт Telegram</strong> для отправки сообщений из-под него. Код обычно приходит <strong>в приложение Telegram</strong> (чат «Telegram»), а не по SMS. ⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
-                </div>
-                <div className="integ-actions">
-                  <button className="btn btn-primary btn-sm" onClick={handleTgSendCode} disabled={tgSendCodeMutation.isPending || !tgPhone.trim() || readOnly}>
-                    {tgSendCodeMutation.isPending ? 'Отправка...' : 'Получить код'}
+                <div className="integ-actions" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleTgQrStart}
+                    disabled={tgQrStartMutation.isPending || readOnly}
+                    style={{ minWidth: 220 }}
+                  >
+                    {tgQrStartMutation.isPending ? 'Генерация QR…' : 'Подключить через QR'}
                   </button>
-                </div>
-
-                {!tgShowSession ? (
                   <button
                     type="button"
-                    onClick={() => setTgShowSession(true)}
+                    onClick={() => { setTgLoginMode('phone'); setTgPhone(''); setTgCode(''); }}
                     disabled={readOnly}
-                    style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--accent)', cursor: readOnly ? 'default' : 'pointer', fontSize: 12, padding: 0 }}
+                    style={{ background: 'none', border: 'none', color: 'var(--fg-3)', cursor: readOnly ? 'default' : 'pointer', fontSize: 12, padding: 0 }}
                   >
-                    Код не приходит? Подключить готовой строкой сессии →
+                    Войти по коду (если QR не подходит) →
                   </button>
-                ) : (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="info-banner small">
-                      <Icon name="alert-triangle" size={14} />
-                      <div>Строка сессии (StringSession) = <strong>полный доступ к аккаунту</strong>, вставляйте только свою. На сервере <strong>api_id/api_hash</strong> должны совпадать с теми, которыми сгенерирована сессия (иначе не подойдёт).</div>
-                    </div>
-                    <div className="form-grid form-grid-2">
-                      <FormRow label="Строка сессии (StringSession)" required span={2}>
-                        <TextInput type="password" value={tgSession} onChange={(v) => setTgSession(v)} placeholder="1ApWapz…" mono />
-                      </FormRow>
-                    </div>
-                    <div className="integ-actions">
-                      <button className="btn btn-primary btn-sm" onClick={handleTgConnectSession} disabled={tgConnectSessionMutation.isPending || !tgSession.trim() || readOnly}>
-                        {tgConnectSessionMutation.isPending ? 'Подключение...' : 'Подключить по сессии'}
-                      </button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => { setTgShowSession(false); setTgSession(''); }} disabled={readOnly}>
-                        Отмена
-                      </button>
-                    </div>
-                  </div>
-                )}
+                </div>
+                <div className="info-banner small" style={{ marginTop: 12 }}>
+                  <Icon name="alert-triangle" size={14} />
+                  <div>⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
+                </div>
               </div>
             )}
           </div>

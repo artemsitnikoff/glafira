@@ -76,8 +76,11 @@ class Settings(BaseSettings):
     AVITO_CLIENT_SECRET: str = ""
 
     # Telegram MTProto user-аккаунт (my.telegram.org) — одно приложение на инстанс.
+    # TELETHON_* имеют приоритет над TELEGRAM_* (так можно задать любые из двух пар).
     TELEGRAM_API_ID: int = 0
     TELEGRAM_API_HASH: str = ""
+    TELETHON_API_ID: int = 0
+    TELETHON_API_HASH: str = ""
 
     # Potok.io API integration
     POTOK_API_BASE: str = "https://app.potok.io"
