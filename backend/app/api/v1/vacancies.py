@@ -30,9 +30,10 @@ from ...services.settings.reject_reasons import (
     update_reject_reason,
     delete_reject_reason,
 )
-from ...services.settings.glafira import get_company_openrouter_key
+from ...services.settings.glafira import get_company_openrouter_key, get_company_llm_model
 from ...services.glafira.vacancy_parse import parse_vacancy_to_dict
 from ...services.glafira.scoring_rubric import generate_scoring_rubric
+from ...services.glafira.scoring import _strip_html
 from ...services.vacancy import (
     get_vacancy,
     create_vacancy,
@@ -105,16 +106,17 @@ async def generate_rubric_endpoint(
     if user.role == "manager":
         raise ForbiddenError("Менеджеры не могут генерировать рубрикатор")
 
-    description = (body.description or "").strip()
-    if not description:
+    # Снимаем HTML-теги ПЕРЕД проверкой пустоты (RichTextField шлёт '<p><br></p>' и т.п.)
+    if not _strip_html(body.description or "").strip():
         return GenerateRubricResponse(
             generated=False,
             reason="Заполните описание вакансии",
             rubric=None,
         )
 
-    # OpenRouter ключ компании (кидает OpenRouterNotConfiguredError → глобальный хендлер → 400)
+    # OpenRouter ключ + модель компании (кидает OpenRouterNotConfiguredError → глобальный хендлер → 400)
     api_key = await get_company_openrouter_key(session, company_id)
+    company_model = await get_company_llm_model(session, company_id)
 
     vacancy_fields = {
         "name": body.name,
@@ -126,7 +128,7 @@ async def generate_rubric_endpoint(
         "salary_to": body.salary_to,
     }
 
-    rubric = await generate_scoring_rubric(vacancy_fields, api_key)
+    rubric = await generate_scoring_rubric(vacancy_fields, api_key, model=company_model)
     if rubric is None:
         return GenerateRubricResponse(
             generated=False,

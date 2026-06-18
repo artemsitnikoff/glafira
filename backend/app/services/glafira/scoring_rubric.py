@@ -60,13 +60,14 @@ def _render_rubric_text(data: dict) -> str:
     return "\n".join(lines)
 
 
-async def generate_scoring_rubric(vacancy_fields: dict, api_key: str) -> str | None:
+async def generate_scoring_rubric(vacancy_fields: dict, api_key: str, model: str | None = None) -> str | None:
     """Генерирует текст рубрикатора из полей вакансии.
 
     Args:
         vacancy_fields: dict с ключами name, description, city, department,
                         employment_type, salary_from, salary_to
         api_key: ключ OpenRouter компании
+        model: LLM-модель компании (как в скоринге); None → дефолт env
 
     Returns:
         Читаемый текст рубрикатора (вставляется в recruiter_scoring_instructions),
@@ -114,6 +115,7 @@ async def generate_scoring_rubric(vacancy_fields: dict, api_key: str) -> str | N
             system=SCORING_RUBRIC_PROMPT,
             user=user_text,
             api_key=api_key,
+            model=model,
             max_tokens=4000,
         )
     except Exception as e:
