@@ -185,3 +185,23 @@ class SmartInviteResponse(BaseModel):
     """Ответ на ручное приглашение кандидатов"""
     results: list[SmartInviteResultItem]
     invited_count: int
+
+
+class SmartTakeRequest(BaseModel):
+    """Запрос на «Забрать к себе» — открыть контакт и создать кандидата без negotiation"""
+    resume_ids: list[str] = Field(description="Список hh_resume_id для забирания")
+
+
+class SmartTakeResultItem(BaseModel):
+    """Результат «забора» одного кандидата"""
+    resume_id: str
+    status: Literal['taken', 'already', 'error']
+    message: Optional[str] = None
+    candidate_id: Optional[UUID] = None
+    name: Optional[str] = None
+
+
+class SmartTakeResponse(BaseModel):
+    """Ответ на «Забрать к себе»"""
+    results: list[SmartTakeResultItem]
+    taken_count: int

@@ -25,7 +25,9 @@ from ...schemas.smart import (
     SmartCountResponse,
     SmartAreaSuggestItem,
     SmartInviteRequest,
-    SmartInviteResponse
+    SmartInviteResponse,
+    SmartTakeRequest,
+    SmartTakeResponse,
 )
 from ...schemas.base_search import (
     BaseSearchRequest,
@@ -48,7 +50,8 @@ from ...services.smart_search import (
     derive_vacancy_filters,
     preview_found_count,
     suggest_areas,
-    invite_selected
+    invite_selected,
+    take_selected,
 )
 from ...services.base_search import (
     increment_added_to_funnel,
@@ -220,6 +223,29 @@ async def smart_invite(
     """Отправить приглашения выбранным кандидатам"""
     data = await invite_selected(session, company_id, current_user.id, run_id, request.resume_ids)
     return SmartInviteResponse(**data)
+
+
+@router.post("/runs/{run_id}/take", response_model=SmartTakeResponse)
+async def smart_take(
+    run_id: UUID,
+    request: SmartTakeRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Забрать выбранных кандидатов в базу компании без приглашения на hh.
+
+    Открывает контакт hh (платно), создаёт Candidate (source='smart') + Application
+    (stage='added', без negotiation) в воронке вакансии прогона.
+    При дедупе (кандидат уже в базе) — привязывает существующего к воронке.
+    Требует платного доступа к базе резюме hh.
+    """
+    # RBAC: manager запрещён (как у invite)
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    data = await take_selected(session, company_id, current_user.id, run_id, request.resume_ids)
+    return SmartTakeResponse(**data)
 
 
 # === ПОИСК ПО СОБСТВЕННОЙ БАЗЕ ===

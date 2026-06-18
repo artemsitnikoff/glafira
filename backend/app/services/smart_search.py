@@ -26,6 +26,7 @@ from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
 from ..services.settings.glafira import get_company_openrouter_key
 from ..services.audit import audit
+from ..services.phone import normalize_phone
 from .smart_search_log import log_smart_search, log_and_append_to_run
 
 logger = logging.getLogger(__name__)
@@ -936,11 +937,18 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
 
 
 def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:
-    """Создает кандидата из данных резюме hh.ru"""
+    """Создает кандидата из данных резюме hh.ru.
+
+    Телефон нормализуется в формат хранения (цифры без '+': 79991234567) — E.164-аналог
+    для дедупа и Mango-матчинга. source='hh' по умолчанию; caller обязан переопределить
+    для других путей (invite → 'hh', take → 'smart').
+    """
 
     first_name = (resume.get("first_name") or "").strip() or "Неизвестно"
     last_name = (resume.get("last_name") or "").strip() or ""
     middle_name = (resume.get("middle_name") or "").strip() or None
+
+    raw_phone = _extract_phone(resume.get("contact", []))
 
     candidate = Candidate(
         company_id=company_id,
@@ -949,7 +957,7 @@ def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:
         middle_name=middle_name,
         source="hh",
         city=(resume.get("area") or {}).get("name"),
-        phone=_extract_phone(resume.get("contact", [])),
+        phone=normalize_phone(raw_phone),
         email=_extract_email(resume.get("contact", [])),
         last_position=resume.get("title"),
         resume_text=_build_resume_text(resume)
@@ -1332,6 +1340,199 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     return {
         "results": results,
         "invited_count": invited_count
+    }
+
+
+async def take_selected(
+    session: AsyncSession,
+    company_id: UUID,
+    user_id: UUID,
+    run_id: UUID,
+    resume_ids: list[str],
+) -> dict:
+    """
+    «Забрать к себе» — открыть контакт hh (платно, даёт ФИО+резюме), создать кандидата
+    в базе компании + привязать к воронке вакансии.
+
+    Принципиальное отличие от invite_selected:
+    - НЕ вызывает invite_to_vacancy / НЕ создаёт negotiation на hh.
+    - Источник кандидата = 'smart' (Умный подбор), НЕ 'hh'.
+    - hh_vacancy_id НЕ требуется (вакансия может быть неопубликована).
+    - Этап создания Application = 'added' (как ручное добавление), hh_negotiation_id=None.
+    - При дедупе (кандидат уже в базе) — привязывает существующего к воронке через
+      assign_candidate_to_vacancy (если ещё не привязан), не плодит дубль.
+
+    Гейт: has_paid_access обязателен (get_resume_by_id — платный контакт).
+
+    Args:
+        session: DB сессия запроса (только для начальной загрузки + commit перед сетевым циклом).
+        company_id: ID компании (scoped).
+        user_id: ID пользователя (рекрутёр, для audit).
+        run_id: ID прогона умного поиска.
+        resume_ids: список hh_resume_id для обработки.
+
+    Returns:
+        dict с ключами 'results' (list[dict]) и 'taken_count' (int).
+    """
+    from ..services.candidate import assign_candidate_to_vacancy
+
+    # Загружаем прогон и вакансию, проверяем принадлежность компании
+    run = await session.get(SmartSearchRun, run_id)
+    if not run or run.company_id != company_id:
+        raise NotFoundError("Поиск")
+
+    vacancy = await session.get(Vacancy, run.vacancy_id)
+    if not vacancy:
+        raise NotFoundError("Вакансия")
+
+    # Гейт: платный доступ обязателен (get_resume_by_id тратит контакт)
+    has_access, has_paid_access, _ = await check_access(session, company_id)
+    if not has_paid_access:
+        raise ValidationError(
+            "Нет платного доступа к базе резюме hh — открытие контактов недоступно."
+        )
+
+    # Сохраняем данные для использования вне сессии запроса
+    vacancy_id = vacancy.id
+
+    # Получаем токен доступа (пока открыта request-сессия)
+    access_token = await hh_service.get_valid_access_token(session, company_id)
+
+    # Освобождаем request-сессию перед входом в сетевой цикл
+    await session.commit()
+
+    results: list[dict] = []
+    taken_count = 0
+
+    for resume_id in resume_ids:
+        try:
+            # Дедуп: проверяем по hh_resume_id (и email/phone) — короткая сессия
+            async with AsyncSessionLocal() as check_session:
+                existing = await _find_existing_candidate(check_session, resume_id, {}, company_id)
+                if existing:
+                    # Кандидат уже в базе — привязываем к воронке (если ещё не привязан)
+                    try:
+                        async with AsyncSessionLocal() as assign_session:
+                            await assign_candidate_to_vacancy(
+                                assign_session,
+                                existing.id,
+                                vacancy_id,
+                                "added",
+                                company_id,
+                                user_id,
+                            )
+                            await assign_session.commit()
+                        msg = "Кандидат уже в базе, привязан к воронке"
+                    except ConflictError:
+                        # уже привязан к этой вакансии — не ошибка
+                        msg = "Кандидат уже в базе и уже в этой воронке"
+                    results.append({
+                        "resume_id": resume_id,
+                        "status": "already",
+                        "message": msg,
+                        "candidate_id": existing.id,
+                        "name": f"{existing.first_name} {existing.last_name}".strip(),
+                    })
+                    continue
+
+            # Открываем контакт — get_resume_by_id даёт ФИО + контакты (платная операция)
+            try:
+                full_resume = await asyncio.wait_for(
+                    hh_client.get_resume_by_id(access_token, resume_id),
+                    timeout=25,
+                )
+            except asyncio.TimeoutError:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": "Таймаут получения резюме (25с)",
+                })
+                continue
+            except Exception as e:
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": f"Ошибка получения резюме: {str(e)[:100]}",
+                })
+                continue
+
+            # Создаём кандидата и Application короткой сессией
+            try:
+                async with AsyncSessionLocal() as create_session:
+                    candidate = _create_candidate_from_resume(full_resume, company_id)
+                    # Переопределяем source='smart' (не 'hh') — Умный подбор
+                    candidate.source = "smart"
+                    candidate.extra = {
+                        "smart_search": True,
+                        "run_id": str(run_id),
+                        "hh_resume_id": str(resume_id),
+                    }
+                    create_session.add(candidate)
+                    await create_session.flush()
+
+                    # Application: этап 'added' (ручное добавление), БЕЗ negotiation
+                    application = Application(
+                        candidate_id=candidate.id,
+                        vacancy_id=vacancy_id,
+                        company_id=company_id,
+                        stage="added",
+                        hh_negotiation_id=None,
+                    )
+                    create_session.add(application)
+
+                    # Audit: actor_type='human' (действие рекрутёра)
+                    await audit(
+                        create_session,
+                        action="smart_search_take",
+                        entity_type="candidate",
+                        entity_id=candidate.id,
+                        after={
+                            "vacancy_id": str(vacancy_id),
+                            "run_id": str(run_id),
+                            "hh_resume_id": str(resume_id),
+                            "source": "smart",
+                        },
+                        actor_type="human",
+                        actor_user_id=user_id,
+                        company_id=company_id,
+                    )
+
+                    await create_session.commit()
+
+                    candidate_id = candidate.id
+                    candidate_name = f"{candidate.first_name} {candidate.last_name}".strip()
+
+                taken_count += 1
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "taken",
+                    "candidate_id": candidate_id,
+                    "name": candidate_name,
+                })
+
+            except Exception as e:
+                logger.error(f"Ошибка создания кандидата (take) {resume_id}: {e}")
+                results.append({
+                    "resume_id": resume_id,
+                    "status": "error",
+                    "message": f"Ошибка создания кандидата: {str(e)[:100]}",
+                })
+                continue
+
+        except (ValidationError, NotFoundError):
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка при «забирании» кандидата {resume_id}: {e}")
+            results.append({
+                "resume_id": resume_id,
+                "status": "error",
+                "message": f"Внутренняя ошибка: {str(e)[:100]}",
+            })
+            continue
+
+    return {
+        "results": results,
+        "taken_count": taken_count,
     }
 
 
