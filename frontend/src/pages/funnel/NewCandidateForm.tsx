@@ -564,9 +564,9 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
     setIsSubmitting(true);
     setErrors({});
 
-    // Валидация телефона: если введён неполный номер (1–9 цифр → не E.164 полный)
-    if (formData.phone && formData.phone !== '' && !/^\+7\d{10}$/.test(formData.phone)) {
-      setErrors({ phone: 'Введите полный номер: 10 цифр после +7' });
+    // Валидация телефона: формат хранения — цифры с кодом страны без '+' (11–15 цифр)
+    if (formData.phone && !/^\d{11,15}$/.test(formData.phone)) {
+      setErrors({ phone: 'Введите полный номер телефона' });
       setIsSubmitting(false);
       return;
     }

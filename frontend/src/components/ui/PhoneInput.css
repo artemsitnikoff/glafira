@@ -1,75 +1,32 @@
-/* PhoneInput — scoped к корню .phi-wrap */
-
+/* PhoneInput — тема react-international-phone под палитру ark.
+   Только реальные токены из tokens.css. */
 .phi-wrap {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-md);
-  background: var(--bg-1);
-  transition: border-color var(--dur-normal);
-  overflow: hidden;
+  width: 100%;
+  --react-international-phone-border-color: var(--border-1);
+  --react-international-phone-border-radius: var(--radius-md);
+  --react-international-phone-height: 38px;
+  --react-international-phone-font-size: 14px;
+  --react-international-phone-background-color: var(--bg-1);
+  --react-international-phone-text-color: var(--fg-1);
+  --react-international-phone-country-selector-background-color: var(--bg-1);
+  --react-international-phone-country-selector-background-color-hover: var(--bg-3);
+  --react-international-phone-selected-dropdown-item-background-color: var(--bg-3);
+  --react-international-phone-dropdown-item-background-color: var(--bg-1);
 }
 
-.phi-wrap:focus-within {
-  border-color: var(--accent);
-  outline: none;
+/* Поле занимает всю доступную ширину */
+.phi-wrap .react-international-phone-input {
+  width: 100%;
 }
 
-.phi-wrap.phi-error {
+/* Состояние ошибки — красная рамка (как у остальных полей формы) */
+.phi-wrap.phi-error .react-international-phone-input,
+.phi-wrap.phi-error .react-international-phone-country-selector-button {
   border-color: var(--error-border);
-  background: var(--error-bg);
 }
 
-.phi-wrap.phi-error:focus-within {
-  border-color: var(--error-fg);
-}
-
-.phi-wrap.phi-disabled {
+/* Disabled-вид (режим просмотра карточки/профиля) — как у прочих полей */
+.phi-wrap:has(input:disabled) {
   opacity: 0.55;
   pointer-events: none;
-}
-
-.phi-prefix {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px 0 10px;
-  font-size: 14px;
-  color: var(--fg-2);
-  white-space: nowrap;
-  user-select: none;
-  border-right: 1px solid var(--border-1);
-  height: 100%;
-  background: var(--bg-1);
-  flex-shrink: 0;
-}
-
-.phi-prefix-code {
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  color: var(--fg-1);
-}
-
-.phi-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  padding: 8px 10px;
-  font-size: 14px;
-  font-family: var(--font-sans);
-  color: var(--fg-1);
-  letter-spacing: 0.02em;
-}
-
-.phi-input::placeholder {
-  color: var(--fg-3);
-  letter-spacing: normal;
-}
-
-.phi-error .phi-input::placeholder {
-  color: var(--error-fg);
-  opacity: 0.6;
 }

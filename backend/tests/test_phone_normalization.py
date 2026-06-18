@@ -1,104 +1,107 @@
-"""Тесты единого нормализатора телефонов E.164.
+"""Тесты единого нормализатора телефонов (формат хранения: цифры без '+', 79991234567).
 
 Охватывает:
-1. normalize_phone_e164 — все входные форматы, edge-cases, идемпотентность.
-2. Дедуп: кандидат с хранимым +7XXX ловится по 8XXX и другим форматам.
+1. normalize_phone — все входные форматы, edge-cases, идемпотентность.
+2. Дедуп: кандидат с хранимым 79XXX ловится по 8XXX и другим форматам.
 3. Mango-матчинг: find_duplicate_candidates с любым форматом входящего номера.
-4. create_candidate сохраняет E.164 (передать '8999…' → в БД '+7999…').
+4. create_candidate сохраняет цифры без '+' (передать '8999…' → в БД '7999…').
 5. update_candidate: phone нормализуется при реальном обновлении; без поля — не трогает.
 """
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from app.services.phone import normalize_phone_e164
+from app.services.phone import normalize_phone
 from app.services.candidate_dedup import find_duplicate_candidates, _normalize_contact
 from app.schemas.candidate import CandidateCreate, CandidateUpdate
 from app.services.candidate import create_candidate, update_candidate
 
 
 # ---------------------------------------------------------------------------
-# 1. Юнит-тесты normalize_phone_e164
+# 1. Юнит-тесты normalize_phone (формат хранения: цифры без '+')
 # ---------------------------------------------------------------------------
 
-class TestNormalizePhoneE164:
-    """normalize_phone_e164 без БД — чистая функция."""
+class TestNormalizePhone:
+    """normalize_phone без БД — чистая функция. Возвращает цифры без '+'."""
 
     def test_8_prefix_11_digits(self):
-        assert normalize_phone_e164("89991234567") == "+79991234567"
+        assert normalize_phone("89991234567") == "79991234567"
 
     def test_7_prefix_11_digits(self):
-        assert normalize_phone_e164("79991234567") == "+79991234567"
+        assert normalize_phone("79991234567") == "79991234567"
 
     def test_10_digits(self):
-        assert normalize_phone_e164("9991234567") == "+79991234567"
+        assert normalize_phone("9991234567") == "79991234567"
 
     def test_plus7_with_spaces_dashes(self):
-        assert normalize_phone_e164("+7 999 123-45-67") == "+79991234567"
+        assert normalize_phone("+7 999 123-45-67") == "79991234567"
 
     def test_plus7_with_parens(self):
-        assert normalize_phone_e164("+7(999)123-45-67") == "+79991234567"
+        assert normalize_phone("+7(999)123-45-67") == "79991234567"
 
-    def test_already_e164_idempotent(self):
-        result = normalize_phone_e164("+79991234567")
-        assert result == "+79991234567"
+    def test_already_stored_idempotent(self):
+        result = normalize_phone("79991234567")
+        assert result == "79991234567"
         # Второй прогон — без изменений
-        assert normalize_phone_e164(result) == "+79991234567"
+        assert normalize_phone(result) == "79991234567"
+
+    def test_plus_form_stripped(self):
+        assert normalize_phone("+79991234567") == "79991234567"
 
     def test_none_returns_none(self):
-        assert normalize_phone_e164(None) is None
+        assert normalize_phone(None) is None
 
     def test_empty_string_returns_none(self):
-        assert normalize_phone_e164("") is None
+        assert normalize_phone("") is None
 
     def test_dash_no_digits_returns_none(self):
-        assert normalize_phone_e164("—") is None
+        assert normalize_phone("—") is None
 
     def test_text_no_digits_returns_none(self):
-        assert normalize_phone_e164("нет") is None
+        assert normalize_phone("нет") is None
 
     def test_na_no_digits_returns_none(self):
-        assert normalize_phone_e164("n/a") is None
+        assert normalize_phone("n/a") is None
 
     def test_spaces_only_returns_none(self):
-        assert normalize_phone_e164("   ") is None
+        assert normalize_phone("   ") is None
 
     def test_8_with_formatting(self):
-        """8 (999) 123-45-67 → +79991234567"""
-        assert normalize_phone_e164("8 (999) 123-45-67") == "+79991234567"
+        """8 (999) 123-45-67 → 79991234567"""
+        assert normalize_phone("8 (999) 123-45-67") == "79991234567"
 
-    def test_international_format_keeps_plus(self):
-        """Нероссийский номер: +38XXXXXXXXXX → '+38...'"""
-        result = normalize_phone_e164("+380991234567")
-        assert result is not None
-        assert result.startswith("+")
+    def test_international_format_no_plus(self):
+        """Нероссийский номер: +38XXXXXXXXXX → '380...' (цифры без '+')"""
+        result = normalize_phone("+380991234567")
+        assert result == "380991234567"
+        assert not result.startswith("+")
 
 
 # ---------------------------------------------------------------------------
-# 2. _normalize_contact не сломан при E.164-хранении
+# 2. _normalize_contact не сломан при хранении без '+'
 # ---------------------------------------------------------------------------
 
 class TestNormalizeContactBackwardCompat:
-    """Дедуп-нормализатор (_normalize_contact) должен давать одинаковые digits
-    для E.164-хранения (+79991234567) и для любого входного формата."""
+    """Дедуп-нормализатор (_normalize_contact) даёт одинаковые digits для
+    хранения без '+' (79991234567) и для любого входного формата."""
 
-    def test_stored_e164_matches_8_input(self):
-        stored = _normalize_contact("+79991234567")   # из БД
-        input_8 = _normalize_contact("89991234567")   # как вводит пользователь
+    def test_stored_matches_8_input(self):
+        stored = _normalize_contact("79991234567")     # из БД (без '+')
+        input_8 = _normalize_contact("89991234567")    # как вводит пользователь
         assert stored == input_8
 
-    def test_stored_e164_matches_7_input(self):
-        stored = _normalize_contact("+79991234567")
-        input_7 = _normalize_contact("79991234567")
-        assert stored == input_7
+    def test_stored_matches_plus_input(self):
+        stored = _normalize_contact("79991234567")
+        input_plus = _normalize_contact("+79991234567")
+        assert stored == input_plus
 
-    def test_stored_e164_matches_10digit_input(self):
-        stored = _normalize_contact("+79991234567")
+    def test_stored_matches_10digit_input(self):
+        stored = _normalize_contact("79991234567")
         input_10 = _normalize_contact("9991234567")
         assert stored == input_10
 
-    def test_stored_e164_matches_formatted_input(self):
-        stored = _normalize_contact("+79991234567")
+    def test_stored_matches_formatted_input(self):
+        stored = _normalize_contact("79991234567")
         input_fmt = _normalize_contact("+7 (999) 123-45-67")
         assert stored == input_fmt
 
@@ -108,8 +111,8 @@ class TestNormalizeContactBackwardCompat:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dedup_finds_e164_candidate_by_8_format(db_session, test_company, admin_user):
-    """Кандидат сохранён с E.164 (+7…), дедуп находит его по 8…-вводу."""
+async def test_dedup_finds_candidate_by_8_format(db_session, test_company, admin_user):
+    """Кандидат сохранён без '+' (79…), дедуп находит его по 8…-вводу."""
     data = CandidateCreate(
         last_name="Дедупов",
         first_name="Дедуп",
@@ -120,14 +123,14 @@ async def test_dedup_finds_e164_candidate_by_8_format(db_session, test_company, 
     await create_candidate(db_session, data, test_company.id, admin_user.id)
     await db_session.commit()
 
-    # Кандидат должен быть сохранён с E.164
+    # Кандидат должен быть сохранён без '+'
     from sqlalchemy import select
     from app.models import Candidate
     cands = (await db_session.execute(
         select(Candidate).where(Candidate.company_id == test_company.id, Candidate.last_name == "Дедупов")
     )).scalars().all()
     assert len(cands) == 1
-    assert cands[0].phone == "+79881112233"
+    assert cands[0].phone == "79881112233"
 
     # Поиск дублей по разным форматам — все находят того же кандидата
     dups_8 = await find_duplicate_candidates(db_session, test_company.id, "89881112233", None)
@@ -145,8 +148,8 @@ async def test_dedup_finds_e164_candidate_by_8_format(db_session, test_company, 
 
 
 @pytest.mark.asyncio
-async def test_create_candidate_stores_e164(db_session, test_company, admin_user):
-    """create_candidate принимает '8999…' и сохраняет '+7999…'."""
+async def test_create_candidate_stores_digits_no_plus(db_session, test_company, admin_user):
+    """create_candidate принимает '8999…' и сохраняет '7999…' (без '+')."""
     data = CandidateCreate(
         last_name="Фонов",
         first_name="Формат",
@@ -157,12 +160,12 @@ async def test_create_candidate_stores_e164(db_session, test_company, admin_user
     detail = await create_candidate(db_session, data, test_company.id, admin_user.id)
     await db_session.commit()
 
-    assert detail.phone == "+74951234567"
+    assert detail.phone == "74951234567"
 
 
 @pytest.mark.asyncio
 async def test_create_candidate_none_phone_stays_none(db_session, test_company, admin_user):
-    """create_candidate без телефона — phone остаётся None, не '+'."""
+    """create_candidate без телефона — phone остаётся None."""
     data = CandidateCreate(
         last_name="Безтелов",
         first_name="Борис",
@@ -178,7 +181,7 @@ async def test_create_candidate_none_phone_stays_none(db_session, test_company, 
 
 @pytest.mark.asyncio
 async def test_update_candidate_normalizes_phone(db_session, test_company, admin_user):
-    """update_candidate: передать '8999…' → в БД '+7999…'."""
+    """update_candidate: передать '8999…' → в БД '7999…' (без '+')."""
     create_data = CandidateCreate(
         last_name="Обновляев",
         first_name="Обновлён",
@@ -193,7 +196,7 @@ async def test_update_candidate_normalizes_phone(db_session, test_company, admin
     updated = await update_candidate(db_session, created.id, update_data, test_company.id, admin_user.id)
     await db_session.commit()
 
-    assert updated.phone == "+79161112233"
+    assert updated.phone == "79161112233"
 
 
 @pytest.mark.asyncio
@@ -214,8 +217,8 @@ async def test_update_candidate_without_phone_field_preserves_existing(db_sessio
     updated = await update_candidate(db_session, created.id, update_data, test_company.id, admin_user.id)
     await db_session.commit()
 
-    # Телефон должен остаться в E.164 без изменений
-    assert updated.phone == "+79162223344"
+    # Телефон должен остаться без изменений
+    assert updated.phone == "79162223344"
 
 
 @pytest.mark.asyncio
@@ -258,8 +261,8 @@ async def test_mango_find_duplicate_by_incoming_number(db_session, test_company,
     created = await create_candidate(db_session, data, test_company.id, admin_user.id)
     await db_session.commit()
 
-    # Убедились: в БД E.164
-    assert created.phone == "+79771234567"
+    # Убедились: в БД цифры без '+'
+    assert created.phone == "79771234567"
 
     # Mango получает входящий номер в разных форматах
     for incoming in ("89771234567", "79771234567", "+79771234567", "9771234567"):

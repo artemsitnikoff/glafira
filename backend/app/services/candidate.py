@@ -69,7 +69,7 @@ from ..services.audit import audit
 from ..services.candidate_format import _compute_age, _compute_full_name
 from ..services.base_search import reindex_candidate
 from ..services.candidate_dedup import find_duplicate_candidates, _fio_match_level, _normalize_contact
-from ..services.phone import normalize_phone_e164
+from ..services.phone import normalize_phone
 from ..database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
@@ -814,7 +814,7 @@ async def create_candidate(
         first_name=candidate_data.first_name,
         middle_name=candidate_data.middle_name,
         source=candidate_data.source,
-        phone=normalize_phone_e164(candidate_data.phone),
+        phone=normalize_phone(candidate_data.phone),
         email=candidate_data.email,
         gender=candidate_data.gender,
         birth_date=candidate_data.birth_date,
@@ -974,7 +974,7 @@ async def update_candidate(
     if candidate_data.middle_name is not None:
         candidate.middle_name = candidate_data.middle_name
     if candidate_data.phone is not None:
-        candidate.phone = normalize_phone_e164(candidate_data.phone)
+        candidate.phone = normalize_phone(candidate_data.phone)
     if candidate_data.email is not None:
         candidate.email = candidate_data.email
     if candidate_data.gender is not None:

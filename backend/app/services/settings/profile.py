@@ -6,7 +6,7 @@ from ...models import User
 from ...core.errors import NotFoundError, ValidationError, ConflictError
 from ...core.security import get_password_hash, verify_password
 from ...services.audit import audit
-from ...services.phone import normalize_phone_e164
+from ...services.phone import normalize_phone
 
 
 async def get_profile(session: AsyncSession, user_id: UUID) -> User:
@@ -53,7 +53,7 @@ async def update_profile(session: AsyncSession, user_id: UUID, data, company_id:
     if new_email is not None:
         user.email = new_email
     if data.phone is not None:
-        user.phone = normalize_phone_e164(data.phone)
+        user.phone = normalize_phone(data.phone)
     if data.position is not None:
         user.position = data.position
     if data.timezone is not None:

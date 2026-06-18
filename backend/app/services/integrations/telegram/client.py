@@ -527,6 +527,9 @@ async def _resolve_peer(client, *, username: str | None, phone: str | None):
             )
     if phone:
         phone = _normalize_phone(phone)
+        # Хранение в БД без '+', а Telethon ждёт E.164 → гарантируем ведущий '+'.
+        if phone and not phone.startswith("+"):
+            phone = "+" + phone
         masked = _mask_phone(phone)
         logger.info("[tg] resolve по телефону %s", masked)
         # Сначала get_entity напрямую (если номер уже в контактах / раскрыт приватностью).

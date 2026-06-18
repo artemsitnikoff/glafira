@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime
 from typing import Dict, List, Optional, Any
 
-from ....services.phone import normalize_phone_e164
+from ....services.phone import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def map_potok_applicant(raw: Dict[str, Any]) -> Dict[str, Any]:
         phones = raw.get("phones") or []
         primary_phone = ""
         if phones and isinstance(phones, list) and phones[0]:
-            primary_phone = normalize_phone_e164(str(phones[0])) or ""
+            primary_phone = normalize_phone(str(phones[0])) or ""
 
         email = (raw.get("email") or "").strip() or None
 

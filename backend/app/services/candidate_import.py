@@ -23,7 +23,7 @@ from ..services.integrations.potok.client import get_all_applicants, preview_app
 from ..services.integrations.potok.mapper import map_potok_applicant
 from .base_search import reindex_all_embeddings
 from .candidate_dedup import _clean_phone, _normalize_contact, _phone_query_variants, _get_existing_candidates
-from .phone import normalize_phone_e164
+from .phone import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -497,7 +497,7 @@ def _apply_update(candidate: Candidate, detail: dict) -> None:
     """Режим «Обновить»: переписывает поля существующего кандидата значениями из файла
     (только непустыми — не затираем имеющееся пустым). Имя/этап не трогаем."""
     if detail.get("phone"):
-        candidate.phone = normalize_phone_e164(detail["phone"]) or _fit(detail["phone"], 20)
+        candidate.phone = normalize_phone(detail["phone"]) or _fit(detail["phone"], 20)
     if detail.get("email"):
         candidate.email = _fit(detail["email"], 255)
     if detail.get("city"):
@@ -652,7 +652,7 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                                     last_name=_fit(detail.get("last_name") or "", 120),
                                     first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
                                     middle_name=_fit(detail.get("middle_name") or None, 120),
-                                    phone=normalize_phone_e164(detail.get("phone")) or _fit(detail.get("phone"), 20),
+                                    phone=normalize_phone(detail.get("phone")) or _fit(detail.get("phone"), 20),
                                     email=_fit(detail.get("email"), 255),
                                     city=_fit(detail.get("city"), 120),
                                     salary_expectation=detail.get("salary"),
@@ -932,7 +932,7 @@ def _apply_potok_update(candidate: Candidate, detail: dict) -> None:
     пересоздаем только для НОВЫХ кандидатов чтобы не плодить дубли.
     """
     if detail.get("phone"):
-        candidate.phone = normalize_phone_e164(detail["phone"]) or _fit(detail["phone"], 20)
+        candidate.phone = normalize_phone(detail["phone"]) or _fit(detail["phone"], 20)
     if detail.get("email"):
         candidate.email = _fit(detail["email"], 255)
     if detail.get("city"):
@@ -1103,7 +1103,7 @@ async def _run_potok_import(job_id: UUID, company_id: UUID, user_id: UUID, token
                                     first_name=_fit(detail.get("first_name") or "Неизвестно", 120),
                                     last_name=_fit(detail.get("last_name") or "", 120),
                                     middle_name=_fit(detail.get("middle_name"), 120) if detail.get("middle_name") else None,
-                                    phone=(normalize_phone_e164(detail.get("phone")) or _fit(detail.get("phone"), 20)) if detail.get("phone") else None,
+                                    phone=(normalize_phone(detail.get("phone")) or _fit(detail.get("phone"), 20)) if detail.get("phone") else None,
                                     email=_fit(detail.get("email"), 255) if detail.get("email") else None,
                                     city=_fit(detail.get("city"), 120) if detail.get("city") else None,
                                     birth_date=detail.get("birth_date"),

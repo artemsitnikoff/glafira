@@ -61,9 +61,10 @@ async def send_code(session: AsyncSession, company_id: UUID, user_id: UUID, *, p
     # Нормализуем: пробелы/скобки/дефисы убираем, ведущий + сохраняем
     # (+7 (999) 123-45-67 → +79991234567).
     raw = (phone or "").strip()
-    has_plus = raw.startswith("+")
     digits = re.sub(r"\D", "", raw)
-    phone = ("+" + digits) if has_plus else digits
+    # Telegram-номер всегда международный → гарантируем E.164 с ведущим '+'
+    # (фронт теперь шлёт цифры без '+', хранение тоже без '+').
+    phone = ("+" + digits) if digits else ""
     if not PHONE_RE.match(phone):
         raise ValidationError("Укажите корректный номер в международном формате (напр. +79991234567)")
 
