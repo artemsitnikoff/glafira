@@ -300,6 +300,7 @@ _OPENROUTER_KEY_SITES = (
     "app.services.glafira.employee_summary.get_company_openrouter_key",
     "app.services.glafira.resume_parse.get_company_openrouter_key",
     "app.api.v1.candidates.get_company_openrouter_key",
+    "app.api.v1.vacancies.get_company_openrouter_key",
     # source-модуль покрывает локальные импорты (pulse/plan.py) — резолв в рантайме
     "app.services.settings.glafira.get_company_openrouter_key",
 )

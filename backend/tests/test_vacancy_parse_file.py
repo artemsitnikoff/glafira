@@ -124,6 +124,7 @@ async def test_parse_vacancy_file_manager_forbidden(async_client, manager_user):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+@pytest.mark.real_openrouter_key  # проверяем РЕАЛЬНЫЙ резолв ключа (без авто-дефолта conftest)
 async def test_parse_vacancy_file_no_openrouter_key(async_client, auth_headers):
     """Нет ключа OpenRouter у компании → 400 OPENROUTER_NOT_CONFIGURED, не 500."""
     from app.core.errors import OpenRouterNotConfiguredError
