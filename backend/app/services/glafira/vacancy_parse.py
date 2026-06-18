@@ -1,50 +1,40 @@
 """Парсинг файла с описанием вакансии и автозаполнение полей формы"""
 
 import logging
-import re
 
 from .client import call_json
 from .prompts import VACANCY_PARSE_PROMPT
-from .resume_parse import extract_resume_text
+from .resume_parse import extract_resume_text, _to_int, _to_str  # переиспускаем хелперы коэрсии
 
 logger = logging.getLogger(__name__)
 
 
-def _to_int(value) -> int | None:
-    """Безопасно привести ответ LLM к int (аналог resume_parse._to_int)."""
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        n = value
-    elif isinstance(value, float):
-        n = int(value)
-    elif isinstance(value, str):
-        m = re.search(r'\d[\d\s]*\d|\d', value)
-        if not m:
-            return None
-        try:
-            n = int(re.sub(r'\s', '', m.group()))
-        except ValueError:
-            return None
-    else:
-        return None
-    if n < 0 or n > 1_000_000_000:
-        return None
-    return n
+def _normalize_employment_type(value) -> str | None:
+    """Приводит тип занятости к коду формы вакансии (full/part/project).
 
-
-def _to_str(value, maxlen: int) -> str | None:
-    """Привести к строке нужной длины, пустое/None → None."""
-    if value is None:
+    LLM может вернуть код ('full') ИЛИ человекочитаемое ('Полная занятость') — фронт
+    принимает только коды full/part/project, поэтому нормализуем здесь, иначе поле
+    молча отбрасывается. Неизвестное → None (человек выберет сам).
+    """
+    if not value:
         return None
-    s = str(value).strip()
-    return s[:maxlen] if s else None
+    s = str(value).strip().lower()
+    if not s:
+        return None
+    if "part" in s or "част" in s:
+        return "part"
+    if "project" in s or "проект" in s:
+        return "project"
+    if "full" in s or "полн" in s:
+        return "full"
+    return None
 
 
 async def parse_vacancy_to_dict(content: bytes, filename: str, api_key: str) -> dict | None:
     """Parse vacancy file to structured dict without saving to DB.
 
-    Переиспользует extract_resume_text (generic, PDF/DOCX/TXT, asyncio.to_thread внутри).
+    Переиспользует extract_resume_text (generic, PDF/DOCX/TXT, asyncio.to_thread внутри)
+    и call_json (OpenRouter, ключ компании) — тот же канал, что у резюме-парсинга.
 
     Returns:
         dict с полями вакансии или None если формат не поддержан / текст не распознан.
@@ -59,14 +49,14 @@ async def parse_vacancy_to_dict(content: bytes, filename: str, api_key: str) -> 
             system=VACANCY_PARSE_PROMPT,
             user=text,
             api_key=api_key,
-            max_tokens=4000,
+            max_tokens=8000,  # описание вакансии бывает длинным — не обрезать
         )
 
         result = {
             "name": _to_str(parsed_data.get("name"), 255),
             "city": _to_str(parsed_data.get("city"), 120),
             "department": _to_str(parsed_data.get("department"), 255),
-            "employment_type": _to_str(parsed_data.get("employment_type"), 120),
+            "employment_type": _normalize_employment_type(parsed_data.get("employment_type")),
             "salary_from": _to_int(parsed_data.get("salary_from")),
             "salary_to": _to_int(parsed_data.get("salary_to")),
             "description": _to_str(parsed_data.get("description"), 50000),

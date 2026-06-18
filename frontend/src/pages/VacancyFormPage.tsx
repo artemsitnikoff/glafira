@@ -331,7 +331,8 @@ export default function VacancyFormPage() {
   const handleParseDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.currentTarget === e.target) setParseIsDragging(false);
+    // Сбрасываем только когда курсор реально покинул зону (а не ушёл на дочерний элемент)
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setParseIsDragging(false);
   };
 
   const handleParseDrop = (e: React.DragEvent) => {

@@ -183,6 +183,7 @@ async def test_parse_vacancy_to_dict_success():
     assert result["salary_from"] == 130000  # строка→int
     assert result["salary_to"] == 200000
     assert result["description"] == "Разработка микросервисов."
+    assert result["employment_type"] == "full"  # 'Полная занятость' → код формы
 
 
 @pytest.mark.asyncio
