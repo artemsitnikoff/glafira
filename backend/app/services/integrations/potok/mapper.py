@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime
 from typing import Dict, List, Optional, Any
 
-from app.services.phone import normalize_phone_e164
+from ....services.phone import normalize_phone_e164
 
 logger = logging.getLogger(__name__)
 

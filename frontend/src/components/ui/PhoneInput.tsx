@@ -17,6 +17,7 @@ import { useEffect, useState, useCallback } from 'react';
 type Props = {
   value: string | null;
   onChange: (e164: string | null) => void;
+  onBlur?: () => void;
   disabled?: boolean;
   error?: boolean;
   id?: string;
@@ -46,7 +47,7 @@ function formatDisplay(digits: string): string {
   return out;
 }
 
-export function PhoneInput({ value, onChange, disabled = false, error = false, id, placeholder }: Props) {
+export function PhoneInput({ value, onChange, onBlur, disabled = false, error = false, id, placeholder }: Props) {
   const [digits, setDigits] = useState<string>(() => extractDigits(value));
 
   // Синхронизируем внутреннее состояние при изменении value извне (редактирование)
@@ -105,6 +106,7 @@ export function PhoneInput({ value, onChange, disabled = false, error = false, i
         disabled={disabled}
         onChange={handleChange}
         onPaste={handlePaste}
+        onBlur={onBlur}
         autoComplete="tel-national"
         aria-label="Номер телефона"
       />

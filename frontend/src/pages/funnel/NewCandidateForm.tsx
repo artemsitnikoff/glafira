@@ -962,10 +962,8 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                 <PhoneInput
                   value={formData.phone || null}
                   error={!!errors.phone}
-                  onChange={v => {
-                    updateFormData({ phone: v ?? '' });
-                    if (v) checkForDuplicates('phone', v);
-                  }}
+                  onChange={v => updateFormData({ phone: v ?? '' })}
+                  onBlur={() => { if (formData.phone) checkForDuplicates('phone', formData.phone); }}
                 />
                 {errors.phone && <div className="field-error">{errors.phone}</div>}
               </div>

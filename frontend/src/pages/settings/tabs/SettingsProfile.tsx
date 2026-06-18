@@ -107,6 +107,10 @@ export function SettingsProfile({ readOnly = false }: SettingsProfileProps) {
       setError('Email не может быть пустым');
       return;
     }
+    if (form.phone && !/^\+7\d{10}$/.test(form.phone)) {
+      setError('Введите полный номер: 10 цифр после +7');
+      return;
+    }
     try {
       // payload включает language (бэк поддерживает) — cast вокруг устаревшего ProfileUpdate
       const payload = {

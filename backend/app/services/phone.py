@@ -5,7 +5,7 @@
 они формат-агностичны и не меняются при хранении E.164.
 """
 
-from app.services.candidate_dedup import _clean_phone
+from .candidate_dedup import _clean_phone
 
 
 def normalize_phone_e164(value: str | None) -> str | None:
