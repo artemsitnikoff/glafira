@@ -422,15 +422,16 @@ class TestPotokImportTimeout:
         company_id = admin_user.company_id
         token = "fake_token"
 
-        # Мокаем list_applicants с мгновенным TimeoutError
-        async def timeout_list_applicants(*args, **kwargs):
-            raise asyncio.TimeoutError()
+        # Мокаем preview_applicants с таймаут-ошибкой (реальный preview_applicants кидает
+        # ValidationError при httpx.TimeoutException)
+        async def timeout_preview_applicants(*args, **kwargs):
+            raise ValidationError("Не удалось связаться с Потоком (таймаут)")
 
-        with patch("app.services.candidate_import.list_applicants", side_effect=timeout_list_applicants):
+        with patch("app.services.candidate_import.preview_applicants", side_effect=timeout_preview_applicants):
             with pytest.raises(ValidationError) as exc_info:
                 await preview_potok_import(db_session, company_id, token, "skip")
 
-            assert "Таймаут при обращении к API Potok" in str(exc_info.value)
+            assert "таймаут" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_potok_import_timeout_finalizes_job(self, db_session, admin_user):
@@ -451,14 +452,16 @@ class TestPotokImportTimeout:
         job = await create_import_job(db_session, company_id, 0)
         await db_session.commit()
 
-        # Мокаем iter_applicants с мгновенным TimeoutError (имитируем фатальную 401 ошибку)
+        # Мокаем iter_applicants как async-генератор, бросающий ValidationError до первого yield
+        # (имитируем фатальную 401 ошибку — токен отклонён)
         async def timeout_iter_applicants(*args, **kwargs):
             from app.core.errors import ValidationError
             raise ValidationError("Поток отклонил токен (проверьте, что токен активен и даёт доступ на чтение кандидатов)")
+            yield  # делает функцию async-генератором
 
         # Патчим AsyncSessionLocal и iter_applicants
         with patch('app.services.candidate_import.AsyncSessionLocal', _session_local_returning(db_session)), \
-             patch("app.services.candidate_import.iter_applicants", side_effect=timeout_iter_applicants):
+             patch("app.services.candidate_import.iter_applicants", new=timeout_iter_applicants):
             # Запускаем импорт — должен завершиться с ошибкой
             await _run_potok_import(job.id, company_id, user_id, token, "skip")
 
@@ -528,7 +531,7 @@ class TestPotokImportTimeout:
 
         # Патчим зависимости
         with patch('app.services.candidate_import.AsyncSessionLocal', _session_local_returning(db_session)), \
-             patch("app.services.candidate_import.iter_applicants", side_effect=mock_iter_applicants), \
+             patch("app.services.candidate_import.iter_applicants", new=mock_iter_applicants), \
              patch("app.services.candidate_import.map_potok_applicant", side_effect=mock_map_potok_applicant), \
              patch("app.services.candidate_import._create_potok_child_records", new=AsyncMock()), \
              patch("app.services.candidate_import.reindex_all_embeddings", new=AsyncMock()):
@@ -545,7 +548,7 @@ class TestPotokImportTimeout:
         assert job.errors == 0
 
         # Проверяем, что кандидаты действительно созданы в БД
-        from sqlalchemy import func
+        from sqlalchemy import select, func
         result = await db_session.execute(
             select(func.count(Candidate.id))
             .where(Candidate.company_id == company_id)

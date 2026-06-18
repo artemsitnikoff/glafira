@@ -202,10 +202,10 @@ class TestHhMessaging:
             assert result.sender_type == "recruiter"
             assert result.body == "Тестовое сообщение sms"
 
-            # Проверяем сохранение в БД (без external_id для telegram)
+            # Проверяем сохранение в БД (без external_id для sms)
             saved_message = await db_session.get(Message, result.id)
             assert saved_message.external_id is None
-            assert saved_message.channel == "telegram"
+            assert saved_message.channel == "sms"
 
     @pytest.mark.asyncio
     async def test_send_hh_message_lazy_backfill_chat_id(

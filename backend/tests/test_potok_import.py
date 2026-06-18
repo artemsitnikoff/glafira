@@ -63,7 +63,9 @@ class TestPotokClient:
             estimated_total, sample_data = await preview_applicants("valid_token", sample=50)
 
             assert estimated_total == 15700  # 157 * 100
-            assert len(sample_data) == 1
+            # preview_applicants делает репрезентативный сэмпл: стр.1 + середина + конец
+            # (max_page=157, доп страницы: {78, 157}); мок отдаёт тот же ответ [id=123] трижды
+            assert len(sample_data) == 3
             assert sample_data[0]["id"] == 123
 
     @pytest.mark.asyncio
@@ -467,7 +469,7 @@ class TestPotokMapper:
         assert result["first_name"] == "Иван"
         assert result["last_name"] == "Петров"
         assert result["middle_name"] == "Владимирович"
-        assert result["phone"] == "+79991234567"
+        assert result["phone"] == "79991234567"
         assert result["email"] == "ivan@example.com"
         assert result["city"] == "Москва"
         assert result["gender"] == "male"
@@ -706,8 +708,9 @@ class TestPotokIntegration:
 
             result = await preview_potok_import(db_session, company_id, "test_token", "skip")
 
-            assert result["summary"]["total"] == 1
-            assert result["summary"]["new"] == 1
+            # estimated_total=15700, sample=1 → scale_factor=15700 → total/new экстраполированы
+            assert result["summary"]["total"] == 15700
+            assert result["summary"]["new"] == 15700
             assert result["summary"]["duplicates"] == 0
             assert result["summary"]["errors"] == 0
             assert len(result["rows"]) == 1

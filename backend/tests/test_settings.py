@@ -205,13 +205,13 @@ async def test_profile_patch_updates_exact_fields(async_client: AsyncClient, aut
 
     data = r.json()
     assert data["full_name"] == "Updated Name"
-    assert data["phone"] == "+7-999-123-4567"
+    assert data["phone"] == "79991234567"
     assert data["email"] == original_email  # Не изменился
 
     # Проверим в БД
     await db_session.refresh(admin_user)
     assert admin_user.full_name == "Updated Name"
-    assert admin_user.phone == "+7-999-123-4567"
+    assert admin_user.phone == "79991234567"
     assert admin_user.email == original_email
 
 

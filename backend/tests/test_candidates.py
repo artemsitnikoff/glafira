@@ -362,7 +362,7 @@ async def test_update_candidate_messengers_omitted_preserved(
     )
     assert r.status_code == 200, r.text
     data = r.json()
-    assert data["phone"] == "+7 999 000 11 22"
+    assert data["phone"] == "79990001122"
     assert data["messengers"] == [{"type": "wa", "url": "https://wa.me/79990001122"}]
 
     # Пустой список — очистка

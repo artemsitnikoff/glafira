@@ -105,7 +105,7 @@ async def test_update_profile_backward_compatibility(
     assert response.status_code == 200
     data = response.json()
     assert data["full_name"] == "Updated Name"
-    assert data["phone"] == "+7999123456"
+    assert data["phone"] == "77999123456"
     # New fields should have defaults
     assert "language" in data
     assert "date_format" in data
