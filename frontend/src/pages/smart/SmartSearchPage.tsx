@@ -1144,8 +1144,8 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
               <Icon name="alert-triangle" size={14} />
               <div>
                 {!accessData?.has_paid_access
-                  ? 'На счёте hh нет квоты на открытие контактов — приглашения на hh недоступны. Можно забрать кандидатов в свою базу через «Забрать к себе».'
-                  : 'Вакансия не опубликована на hh.ru — приглашать некуда. Можно забрать кандидатов в свою базу через «Забрать к себе».'}
+                  ? 'Нет активного платного доступа hh — недоступны и приглашения, и «Забрать к себе» (открытие контакта платное).'
+                  : 'Вакансия не опубликована на hh.ru — приглашать некуда. Но можно забрать кандидатов в свою базу через «Забрать к себе».'}
               </div>
             </div>
           )}
@@ -1442,12 +1442,6 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
       {smartInvite.error && (
         <div className="error-banner" style={{ marginTop: '16px' }}>
           {(smartInvite.error as any)?.response?.data?.error?.message || 'Ошибка отправки приглашений'}
-        </div>
-      )}
-
-      {takeError && (
-        <div className="error-banner" style={{ marginTop: '16px' }}>
-          {takeError}
         </div>
       )}
     </div>
