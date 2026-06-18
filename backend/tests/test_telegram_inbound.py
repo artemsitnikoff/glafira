@@ -364,3 +364,43 @@ async def test_sync_inbound_company_isolation(db_session, admin_user, fernet_key
         select(Message).where(Message.company_id == other_company.id)
     )).scalars().all()
     assert len(other_msgs) == 0
+
+
+# ---------------------------------------------------------------------------
+# Тест 9: company-wide sync с кандидатом только через messengers (без phone/tg_user_id)
+# Регрессия: Candidate.messengers != "[]" (JSONB <> varchar) давало
+# UndefinedFunctionError на Postgres — проверяем, что фильтр-запрос не падает.
+# ---------------------------------------------------------------------------
+
+async def test_sync_inbound_messengers_only_no_sql_error(db_session, admin_user, fernet_key):
+    """Company-wide sync на кандидате только с messengers (нет phone/tg_user_id).
+    Запрос должен пройти без ошибки оператора JSONB <> varchar."""
+    await _make_connected_integration(db_session, admin_user.company_id)
+    cand = await _make_candidate(
+        db_session,
+        admin_user.company_id,
+        messengers=[{"type": "tg", "url": "https://t.me/only_messenger_user"}],
+    )
+
+    inbound = [
+        {
+            "peer_id": "111",
+            "username": "only_messenger_user",
+            "phone": None,
+            "msg_id": "700",
+            "text": "Сообщение через messengers",
+            "date": datetime(2026, 6, 18, 11, 0, 0, tzinfo=timezone.utc),
+        }
+    ]
+
+    # Убеждаемся: без phone/tg_user_id кандидат всё равно попадает в выборку через messengers
+    with patch(FETCH_INBOUND, new=AsyncMock(return_value=inbound)):
+        result = await tg.sync_inbound(db_session, admin_user.company_id)
+
+    assert result["connected"] is True
+    assert result["imported"] == 1
+
+    row = (await db_session.execute(
+        select(Message).where(Message.candidate_id == cand.id, Message.channel == "telegram")
+    )).scalar_one()
+    assert row.external_id == "tg:111:700"

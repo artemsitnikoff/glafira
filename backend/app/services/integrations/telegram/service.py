@@ -17,7 +17,8 @@ from typing import Optional
 import qrcode
 import qrcode.image.svg
 
-from sqlalchemy import select, or_
+from sqlalchemy import cast, select, or_
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import Integration, Candidate, Message
@@ -517,7 +518,7 @@ async def sync_inbound(
         or_(
             Candidate.extra["tg_user_id"].astext.isnot(None),
             Candidate.phone.isnot(None),
-            Candidate.messengers != "[]",
+            Candidate.messengers != cast("[]", JSONB),
         ),
     ]
     if candidate_id is not None:
