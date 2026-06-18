@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .client import call_json
 from .prompts import RESUME_PARSE_PROMPT
 from ..settings.glafira import get_company_openrouter_key
+from ..phone import normalize_phone_e164
 from ...models import Candidate, CandidateExperience, CandidateSkill, CandidateEducation
 
 logger = logging.getLogger(__name__)
@@ -302,7 +303,7 @@ async def parse_and_apply_resume(
             candidate.city = parsed_data["city"]
 
         if candidate.phone is None and parsed_data.get("phone"):
-            candidate.phone = parsed_data["phone"]
+            candidate.phone = normalize_phone_e164(parsed_data["phone"]) or parsed_data["phone"]
 
         if candidate.email is None and parsed_data.get("email"):
             candidate.email = parsed_data["email"]

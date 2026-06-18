@@ -1,31 +1,12 @@
 """Маппинг данных кандидата из Potok.io в формат Глафиры"""
 
 import logging
-import re
 from datetime import date, datetime
 from typing import Dict, List, Optional, Any
 
+from app.services.phone import normalize_phone_e164
+
 logger = logging.getLogger(__name__)
-
-
-def _clean_phone(value: str) -> str:
-    """Очистка и нормализация телефона (переиспользуем из candidate_import)"""
-    if not value:
-        return ""
-
-    # Только цифры
-    digits = re.sub(r'\D', '', str(value))
-
-    if not digits:
-        return str(value)[:20]  # Возвращаем как есть, обрезанное
-
-    # Нормализация
-    if len(digits) == 11 and digits.startswith('8'):
-        digits = '7' + digits[1:]
-    elif len(digits) == 10:
-        digits = '7' + digits
-
-    return '+' + digits
 
 
 def _parse_date(date_str: str) -> Optional[date]:
@@ -97,7 +78,7 @@ def map_potok_applicant(raw: Dict[str, Any]) -> Dict[str, Any]:
         phones = raw.get("phones") or []
         primary_phone = ""
         if phones and isinstance(phones, list) and phones[0]:
-            primary_phone = _clean_phone(phones[0])
+            primary_phone = normalize_phone_e164(str(phones[0])) or ""
 
         email = (raw.get("email") or "").strip() or None
 

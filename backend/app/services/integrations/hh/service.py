@@ -18,6 +18,7 @@ from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....services.chat_log import log_chat
 from ....core.errors import ValidationError, NotFoundError
+from ....services.phone import normalize_phone_e164
 from . import client as hh_client
 
 import logging
@@ -781,7 +782,7 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     if birth_date:
         candidate.birth_date = birth_date
     if phone:
-        candidate.phone = phone[:20]
+        candidate.phone = normalize_phone_e164(phone) or phone[:20]
     if email:
         candidate.email = email[:255]
     if isinstance(salary_amount, int):
