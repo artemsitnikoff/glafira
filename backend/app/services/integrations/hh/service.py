@@ -11,12 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....models import (
     HhIntegration, HhOauthState, Vacancy, Application, Candidate,
     CandidateExperience, CandidateSkill, CandidateEducation, Message,
+    Document, Event,
 )
 from ....models.settings import GlafiraSettings
 from ....config import settings
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....services.chat_log import log_chat
+from ....services.storage import storage_service
 from ....core.errors import ValidationError, NotFoundError
 from ....services.phone import normalize_phone
 from . import client as hh_client
@@ -673,6 +675,108 @@ async def publish_vacancy_to_hh(session: AsyncSession, vacancy_id: UUID, company
     return hh_vacancy_id
 
 
+async def save_hh_resume_document(
+    session: AsyncSession,
+    company_id: UUID,
+    candidate: "Candidate",
+    full_resume: dict,
+    access_token: str,
+    actor_user_id=None,
+) -> bool:
+    """Скачивает PDF резюме с hh и сохраняет его в раздел «Документы» кандидата.
+
+    Best-effort: не кидает исключений наружу. Возвращает True если документ создан.
+
+    Дедупликация:
+    - Если у кандидата уже есть Document с source='hh' → пропуск (не дублируем при повторном поллинге).
+    - Если candidate.extra['hh_resume_file_saved'] == True → пропуск (флаг для быстрой проверки без JOIN).
+
+    Лимит: 10 МБ (download_resume_file вернёт None при превышении).
+    Файл назван «Резюме hh — {ФИО}.pdf», source='hh'.
+    """
+    try:
+        # 1. Флаг быстрой проверки
+        if (candidate.extra or {}).get("hh_resume_file_saved"):
+            return False
+
+        # 2. URL PDF из поля download
+        pdf_url = ((full_resume.get("download") or {}).get("pdf") or {}).get("url")
+        if not pdf_url:
+            return False
+
+        # 3. Дедуп по БД (Document с source='hh' для этого кандидата)
+        existing_doc = (await session.execute(
+            select(Document).where(
+                Document.candidate_id == candidate.id,
+                Document.company_id == company_id,
+                Document.source == "hh",
+            ).limit(1)
+        )).scalar_one_or_none()
+        if existing_doc is not None:
+            return False
+
+        # 4. Скачиваем PDF (best-effort)
+        content = await hh_client.download_resume_file(access_token, pdf_url)
+        if content is None:
+            return False
+
+        # 5. Безопасное имя файла (убираем / и переводы строк, обрезаем до 255)
+        full_name = (candidate.full_name or "кандидат").replace("/", "_").replace("\n", " ").replace("\r", "")
+        raw_filename = f"Резюме hh — {full_name}.pdf"
+        filename = raw_filename[:255]
+
+        # 6. Сохраняем в storage
+        storage_path = await storage_service.save(
+            content,
+            company_id=company_id,
+            candidate_id=candidate.id,
+            filename=filename,
+        )
+
+        # 7. Запись Document
+        now = datetime.now(timezone.utc)
+        document = Document(
+            company_id=company_id,
+            candidate_id=candidate.id,
+            filename=filename,
+            file_type="pdf",
+            size_bytes=len(content),
+            storage_path=storage_path,
+            source="hh",
+            uploaded_by=actor_user_id,
+            created_at=now,
+        )
+        session.add(document)
+
+        # 8. Event для ленты «Все действия» (по паттерну upload_document)
+        session.add(Event(
+            company_id=company_id,
+            type="document",
+            actor_type="system",
+            actor_user_id=actor_user_id,
+            text=f"Загружен файл: {filename}",
+            candidate_id=candidate.id,
+        ))
+
+        # 9. Флаг + resume_id на кандидате (JSONB переприсваиваем для dirty-tracking)
+        resume_id_val = str(full_resume.get("id") or "")
+        candidate.extra = {
+            **(candidate.extra or {}),
+            "hh_resume_file_saved": True,
+            **({"hh_resume_id": resume_id_val} if resume_id_val else {}),
+        }
+
+        logger.info(
+            "[hh] PDF резюме сохранён: candidate_id=%s filename=%s size=%d",
+            candidate.id, filename, len(content),
+        )
+        return True
+
+    except Exception as exc:
+        logger.warning("[hh] save_hh_resume_document: ошибка candidate_id=%s exc=%s", candidate.id, exc)
+        return False
+
+
 async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vacancy", item: dict, access_token: str = None) -> str:
     """Импорт ИЛИ обновление одного отклика hh. Возвращает 'created' | 'updated'.
 
@@ -857,6 +961,24 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     else:
         application = existing
     await session.flush()
+
+    # Единообразно пишем hh_resume_id в extra (как в smart_search.invite_selected)
+    if resume_id:
+        candidate.extra = {
+            **(candidate.extra or {}),
+            "hh_resume_id": resume_id,
+        }
+
+    # Best-effort скачивание PDF резюме hh в раздел «Документы» кандидата.
+    # Не блокирует импорт — save_hh_resume_document ловит все исключения внутри.
+    if access_token:
+        await save_hh_resume_document(
+            session=session,
+            company_id=company_id,
+            candidate=candidate,
+            full_resume=resume,
+            access_token=access_token,
+        )
 
     await audit(
         session,

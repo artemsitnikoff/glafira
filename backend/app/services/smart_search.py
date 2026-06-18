@@ -1286,6 +1286,17 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
 
                     run_obj.invited = (run_obj.invited or 0) + 1
 
+                    # Best-effort скачивание PDF резюме hh в раздел «Документы».
+                    # full_resume уже под рукой (get_resume_by_id выше). Не блокирует инвайт.
+                    await hh_service.save_hh_resume_document(
+                        session=create_session,
+                        company_id=company_id,
+                        candidate=candidate,
+                        full_resume=full_resume,
+                        access_token=access_token,
+                        actor_user_id=user_id,
+                    )
+
                     await create_session.commit()
 
                     candidate_id = candidate.id

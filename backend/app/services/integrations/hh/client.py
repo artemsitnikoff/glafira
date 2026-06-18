@@ -544,6 +544,54 @@ async def search_resumes(access_token: str, params: dict) -> dict:
             raise ValidationError(f"Ошибка поиска резюме hh.ru: {e}")
 
 
+async def download_resume_file(access_token: str, url: str) -> bytes | None:
+    """Скачивает сгенерированный PDF резюме hh по прямой ссылке из поля download.pdf.url.
+
+    Best-effort: никогда не кидает исключение наружу — при любой проблеме возвращает None.
+
+    Args:
+        access_token: Bearer-токен работодателя hh.ru
+        url: прямая ссылка на PDF (из resume["download"]["pdf"]["url"])
+
+    Returns:
+        bytes — содержимое PDF, если скачан успешно и размер ≤ 10 МБ.
+        None  — если PDF недоступен (403/404/429), превышает лимит, или произошёл таймаут/сбой.
+    """
+    _MAX_BYTES = 10 * 1024 * 1024  # 10 MB — лимит Document
+
+    pdf_timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+    headers = {
+        "User-Agent": settings.HH_USER_AGENT,
+        "Authorization": f"Bearer {access_token}",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=pdf_timeout, headers=headers) as client:
+            response = await client.get(url, follow_redirects=True)
+            if response.status_code == 403:
+                logger.warning("[hh] download_resume_file: 403 (нет услуги или прав) url=%s", url[:120])
+                return None
+            if response.status_code == 404:
+                logger.warning("[hh] download_resume_file: 404 (резюме не найдено) url=%s", url[:120])
+                return None
+            if response.status_code == 429:
+                logger.warning("[hh] download_resume_file: 429 (суточный лимит hh) url=%s", url[:120])
+                return None
+            if response.status_code != 200:
+                logger.warning("[hh] download_resume_file: HTTP %s url=%s", response.status_code, url[:120])
+                return None
+            content = response.content
+            if len(content) > _MAX_BYTES:
+                logger.warning(
+                    "[hh] download_resume_file: PDF слишком большой (%d байт > 10 МБ), пропускаем url=%s",
+                    len(content), url[:120],
+                )
+                return None
+            return content
+    except Exception as exc:
+        logger.warning("[hh] download_resume_file: сбой загрузки url=%s exc=%s", url[:120], exc)
+        return None
+
+
 async def get_resume_by_id(access_token: str, resume_id: str) -> dict:
     """
     Получает резюме по ID (ПЛАТНО - тратит квоту просмотров)
