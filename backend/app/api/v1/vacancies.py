@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
@@ -17,7 +17,8 @@ from ...schemas.vacancy import (
     VacancyStageCount,
     VacancyStageCreate,
     VacancyStageUpdate,
-    VacancyStageReorder
+    VacancyStageReorder,
+    ParseVacancyResponse,
 )
 from ...schemas.base import Paginated
 from ...schemas.settings import RejectReasonOut, RejectReasonCreate, RejectReasonUpdate
@@ -27,6 +28,8 @@ from ...services.settings.reject_reasons import (
     update_reject_reason,
     delete_reject_reason,
 )
+from ...services.settings.glafira import get_company_openrouter_key
+from ...services.glafira.vacancy_parse import parse_vacancy_to_dict
 from ...services.vacancy import (
     get_vacancy,
     create_vacancy,
@@ -44,6 +47,46 @@ from ...services.vacancy import (
 from ...models import User
 
 router = APIRouter()
+
+
+@router.post("/parse-file", response_model=ParseVacancyResponse)
+async def parse_vacancy_file_endpoint(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Parse vacancy description file and return structured fields for form (PDF, DOCX, TXT).
+    Does NOT create a vacancy — only returns extracted fields."""
+    # RBAC: manager forbidden
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут парсить файлы вакансий")
+
+    content = await file.read()
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+    if len(content) > MAX_FILE_SIZE:
+        return ParseVacancyResponse(
+            parsed=False,
+            reason="Размер файла превышает 10 МБ",
+            fields={},
+        )
+
+    # OpenRouter ключ компании (кидает OpenRouterNotConfiguredError → глобальный хендлер → 400)
+    api_key = await get_company_openrouter_key(session, company_id)
+
+    parsed_data = await parse_vacancy_to_dict(content, file.filename or "unknown", api_key)
+    if parsed_data is None:
+        return ParseVacancyResponse(
+            parsed=False,
+            reason="Формат не поддержан или текст не распознан (PDF, DOCX, TXT)",
+            fields={},
+        )
+
+    return ParseVacancyResponse(
+        parsed=True,
+        reason=None,
+        fields=parsed_data,
+    )
 
 
 @router.get("/sidebar", response_model=VacancySidebar)

@@ -192,3 +192,10 @@ class VacancyStageUpdate(BaseModel):
 class VacancyStageReorder(BaseModel):
     """Schema for reordering stages"""
     order: list[str] = Field(..., description="List of stage_keys in new order")
+
+
+class ParseVacancyResponse(BaseModel):
+    """Ответ эндпоинта POST /vacancies/parse-file"""
+    parsed: bool
+    reason: str | None = None
+    fields: dict
