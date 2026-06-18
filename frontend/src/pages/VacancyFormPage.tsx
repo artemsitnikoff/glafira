@@ -32,6 +32,7 @@ import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
 import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api/mutations/hhIntegration';
 import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
 import { useParseVacancyFile } from '@/api/hooks/useParseVacancyFile';
+import { useGenerateRubric } from '@/api/hooks/useGenerateRubric';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
@@ -275,6 +276,38 @@ export default function VacancyFormPage() {
   const [parseIsDragging, setParseIsDragging] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const parseFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Генерация критериев оценки Глафиры
+  const generateRubricMutation = useGenerateRubric();
+  const [rubricError, setRubricError] = useState<string | null>(null);
+
+  const handleGenerateRubric = async () => {
+    setRubricError(null);
+    const descriptionText = formData.description || '';
+    if (!descriptionText.trim().replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, '').trim()) {
+      setRubricError('Сначала заполните описание вакансии');
+      return;
+    }
+    try {
+      const result = await generateRubricMutation.mutateAsync({
+        name: formData.name || null,
+        description: formData.description || null,
+        city: formData.city || null,
+        department: formData.department || null,
+        employment_type: formData.employment_type || null,
+        salary_from: formData.salary_from ?? null,
+        salary_to: formData.salary_to ?? null,
+      });
+      if (result.generated && result.rubric) {
+        setRecruiterScoring(result.rubric);
+      } else {
+        setRubricError(result.reason || 'Не удалось сгенерировать критерии');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : null;
+      setRubricError(msg || 'Ошибка при генерации критериев');
+    }
+  };
 
   const handleVacancyFile = async (file: File) => {
     setParseError(null);
@@ -648,6 +681,9 @@ export default function VacancyFormPage() {
               onParseDrop={handleParseDrop}
               onParseFileChange={handleParseFileChange}
               editMode={editMode}
+              isGeneratingRubric={generateRubricMutation.isPending}
+              rubricError={rubricError}
+              onGenerateRubric={handleGenerateRubric}
             />
           )}
           {activeStep === 'funnel' && (
@@ -818,6 +854,9 @@ function DescriptionStep({
   onParseDrop,
   onParseFileChange,
   editMode,
+  isGeneratingRubric,
+  rubricError,
+  onGenerateRubric,
 }: {
   data: VacancyCreate;
   onChange: (updates: Partial<VacancyCreate>) => void;
@@ -834,6 +873,9 @@ function DescriptionStep({
   onParseDrop: (e: React.DragEvent) => void;
   onParseFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   editMode: boolean;
+  isGeneratingRubric: boolean;
+  rubricError: string | null;
+  onGenerateRubric: () => void;
 }) {
   return (
     <div className="nv-step-body">
@@ -1017,11 +1059,35 @@ function DescriptionStep({
       </div>
 
       <div className="nv-field">
-        <label className="nv-label">Оценка для Глафиры AI</label>
+        <div className="nv-scoring-label-row">
+          <label className="nv-label">Оценка для Глафиры AI</label>
+          <button
+            type="button"
+            className="nv-generate-rubric-btn"
+            onClick={onGenerateRubric}
+            disabled={isGeneratingRubric}
+            title="Глафира разложит требования по весам (0–100) — можно отредактировать"
+          >
+            {isGeneratingRubric ? (
+              <>
+                <span className="nv-generate-rubric-spinner">💃</span>
+                Глафира составляет критерии…
+              </>
+            ) : (
+              <>
+                <Icon name="sparkles" size={13} />
+                Сгенерировать критерии
+              </>
+            )}
+          </button>
+        </div>
         <div className="nv-h2" style={{ marginTop: 0, marginBottom: 8 }}>
           Этот текст Глафира учитывает при оценке резюме в баллах. Напишите, что важно именно вам:
           ключевые навыки, стоп-факторы, на что обратить внимание.
         </div>
+        {rubricError && (
+          <div className="nv-rubric-error">{rubricError}</div>
+        )}
         <textarea
           className="nv-textarea"
           placeholder="Например: обязателен реальный опыт с Kubernetes от 2 лет; не подходят кандидаты без английского B2; ценим стабильность — насторожить, если меняет работу чаще раза в год."

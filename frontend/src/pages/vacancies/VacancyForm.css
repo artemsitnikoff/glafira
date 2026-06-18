@@ -1109,3 +1109,60 @@
   background: #E5EFFE;
   transform: scale(1.01);
 }
+
+/* Строка лейбла + кнопка генерации критериев */
+.nv-wrap .nv-scoring-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.nv-wrap .nv-scoring-label-row .nv-label {
+  margin-bottom: 0;
+}
+
+.nv-wrap .nv-generate-rubric-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--ark-blue-50, #EAF3FE);
+  border: 1px solid var(--ark-blue-100, #C2DFFE);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--dur-normal), border-color var(--dur-normal);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.nv-wrap .nv-generate-rubric-btn:hover:not(:disabled) {
+  background: var(--ark-blue-100, #C2DFFE);
+  border-color: var(--accent);
+}
+
+.nv-wrap .nv-generate-rubric-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.nv-wrap .nv-generate-rubric-spinner {
+  font-size: 13px;
+  animation: nc-dance 1s ease-in-out infinite alternate;
+}
+
+/* Ненавязчивый баннер ошибки генерации (жёлтый, как parse-error) */
+.nv-wrap .nv-rubric-error {
+  padding: 8px 12px;
+  background: var(--ark-yellow-100, #FFF1C8);
+  color: var(--ark-yellow-600, #B5821A);
+  border: 1px solid var(--ark-yellow-500, #E0A21A);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
