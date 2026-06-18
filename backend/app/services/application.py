@@ -534,16 +534,29 @@ async def bulk_reject_applications(
     company_id: UUID,
     actor_user_id: UUID,
 ) -> list[Application]:
-    return [
-        await reject_application(
-            session,
-            app_id,
-            RejectRequest(reason=reject_data.reason, side=reject_data.side),
-            company_id,
-            actor_user_id,
-        )
-        for app_id in reject_data.application_ids
-    ]
+    """Массовый отказ — УСТОЙЧИВЫЙ: уже отклонённые / ненайденные заявки
+    ПРОПУСКАЮТСЯ (не валят весь батч). Каждая в своём savepoint, чтобы ошибка
+    одной не отравляла сессию. Возвращает список реально отклонённых.
+
+    (Раньше был list comprehension: первая «уже отклонена» рушила весь запрос →
+    rollback → не отклонялось НИЧЕГО, даже валидные.)
+    """
+    rejected: list[Application] = []
+    for app_id in reject_data.application_ids:
+        try:
+            async with session.begin_nested():
+                application = await reject_application(
+                    session,
+                    app_id,
+                    RejectRequest(reason=reject_data.reason, side=reject_data.side),
+                    company_id,
+                    actor_user_id,
+                )
+            rejected.append(application)
+        except (ValidationError, NotFoundError):
+            # уже отклонена / не найдена — пропускаем, остальные обрабатываем
+            continue
+    return rejected
 
 
 async def get_application_history(

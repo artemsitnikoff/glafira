@@ -167,6 +167,42 @@ async def test_bulk_move_applications(
     assert response.json()["moved_count"] == 3
 
 
+async def test_bulk_reject_skips_already_rejected(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+):
+    """Массовый отказ устойчив: уже отклонённая заявка в выборке ПРОПУСКАЕТСЯ,
+    остальные отклоняются (раньше первая «уже отклонена» рушила весь батч → 400)."""
+    vacancy_response = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Аналитик"},
+    )
+    vacancy_id = vacancy_response.json()["id"]
+
+    ids = []
+    for i in range(3):
+        candidate = await _make_candidate(db_session, last_name=f"Reject{i}")
+        # первая заявка УЖЕ отклонена
+        stage = "rejected" if i == 0 else "response"
+        application = await _make_application(
+            db_session, candidate_id=candidate.id, vacancy_id=vacancy_id, stage=stage
+        )
+        ids.append(str(application.id))
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/applications/bulk/reject",
+        headers=auth_headers,
+        json={"application_ids": ids, "reason": "Не подходит", "side": "company"},
+    )
+    assert response.status_code == 200, response.text  # НЕ 400
+    body = response.json()
+    assert body["rejected_count"] == 2   # две валидные отклонены
+    assert body["skipped_count"] == 1    # одна уже была отклонена — пропущена
+
+
 async def test_applications_filter_added_period(
     async_client: AsyncClient,
     auth_headers: dict[str, str],

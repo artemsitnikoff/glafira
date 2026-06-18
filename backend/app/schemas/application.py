@@ -69,3 +69,4 @@ class BulkMoveResult(BaseModel):
 
 class BulkRejectResult(BaseModel):
     rejected_count: int
+    skipped_count: int = 0  # уже отклонённые / ненайденные — пропущены, не ошибка

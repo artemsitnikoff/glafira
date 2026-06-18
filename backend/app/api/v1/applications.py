@@ -114,7 +114,10 @@ async def bulk_reject_applications_endpoint(
         session, reject_data, company_id, current_user.id
     )
     await session.commit()
-    return {"rejected_count": len(applications)}
+    return {
+        "rejected_count": len(applications),
+        "skipped_count": len(reject_data.application_ids) - len(applications),
+    }
 
 
 @router.post("/applications/{application_id}/move", response_model=StageActionResult)
