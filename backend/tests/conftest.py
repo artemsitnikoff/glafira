@@ -325,6 +325,15 @@ def _default_company_openrouter_key(request, monkeypatch):
         return
     for site in _OPENROUTER_KEY_SITES:
         monkeypatch.setattr(site, AsyncMock(return_value="test-openrouter-key"), raising=False)
+    # create_vacancy авто-генерит рубрику критериев (call_json → OpenRouter) при пустых
+    # критериях + наличии description. В офлайн-тестах НЕ ходим в сеть: по умолчанию
+    # авто-генерация = no-op (None). Тесты самой авто-генерации (test_scoring_rubric)
+    # патчат app.services.vacancy.generate_scoring_rubric сами и переопределяют это.
+    monkeypatch.setattr(
+        "app.services.vacancy.generate_scoring_rubric",
+        AsyncMock(return_value=None),
+        raising=False,
+    )
 
 
 @pytest.fixture(autouse=True)
