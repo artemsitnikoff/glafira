@@ -393,16 +393,18 @@ async def test_take_bulk_partial_success(
     resume_ok = "ok_resume"
     resume_err = "err_resume"
 
+    # AsyncMock side_effect: sync-функция возвращает DICT напрямую (await вернёт его);
+    # для err-ветки raise → await пробросит. НЕ оборачивать в корутину (двойная обёртка
+    # → full_resume станет coroutine → .get() упадёт).
     def _get_resume_side_effect(token, resume_id):
         if resume_id == resume_ok:
-            coro = AsyncMock(return_value=_make_fake_resume(
+            return _make_fake_resume(
                 resume_id=resume_ok,
                 first_name="Ок",
                 last_name="Кандидат",
                 phone_formatted="79001234567",
                 email="ok@example.com",
-            ))()
-            return coro
+            )
         else:
             raise Exception("hh api error")
 
