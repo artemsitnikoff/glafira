@@ -1,5 +1,6 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
+import { PhoneInput } from '@/components/ui/PhoneInput';
 import { useHhStatus } from '@/api/hooks/useHhIntegration';
 import { useHhAuthorize, useHhDisconnect, useHhPollResponses } from '@/api/mutations/hhIntegration';
 import type { HhPollResult } from '@/api/mutations/hhIntegration';
@@ -417,9 +418,9 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const handleTgSendCode = async () => {
     setTgError(null);
     try {
-      await tgSendCodeMutation.mutateAsync({ phone: tgPhone.trim() });
+      await tgSendCodeMutation.mutateAsync({ phone: tgPhone });
       setTgCode('');
-      setNotification({ type: 'success', message: `Код отправлен в Telegram на ${tgPhone.trim()}` });
+      setNotification({ type: 'success', message: `Код отправлен в Telegram на ${tgPhone}` });
     } catch (error) {
       const e = error as unknown as ApiError;
       setTgError(e.error?.message || 'Не удалось отправить код');
@@ -1187,7 +1188,11 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                   </button>
                   <div className="form-grid form-grid-2">
                     <FormRow label="Номер телефона" required>
-                      <TextInput value={tgPhone} onChange={(v) => setTgPhone(v)} placeholder="+79991234567" mono />
+                      <PhoneInput
+                        value={tgPhone || null}
+                        onChange={(v) => setTgPhone(v ?? '')}
+                        disabled={readOnly}
+                      />
                     </FormRow>
                   </div>
                   <div className="info-banner small">
@@ -1195,7 +1200,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                     <div>Вход в <strong>ваш аккаунт Telegram</strong> для отправки сообщений из-под него. Код обычно приходит <strong>в приложение Telegram</strong> (чат «Telegram»), а не по SMS. ⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
                   </div>
                   <div className="integ-actions">
-                    <button className="btn btn-primary btn-sm" onClick={handleTgSendCode} disabled={tgSendCodeMutation.isPending || !tgPhone.trim() || readOnly}>
+                    <button className="btn btn-primary btn-sm" onClick={handleTgSendCode} disabled={tgSendCodeMutation.isPending || !tgPhone || readOnly}>
                       {tgSendCodeMutation.isPending ? 'Отправка...' : 'Получить код'}
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => setTgLoginMode(null)} disabled={readOnly}>Отмена</button>

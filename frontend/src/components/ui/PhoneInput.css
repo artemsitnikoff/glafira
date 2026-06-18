@@ -1,0 +1,75 @@
+/* PhoneInput — scoped к корню .phi-wrap */
+
+.phi-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  transition: border-color var(--dur-normal);
+  overflow: hidden;
+}
+
+.phi-wrap:focus-within {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.phi-wrap.phi-error {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+.phi-wrap.phi-error:focus-within {
+  border-color: var(--error-fg);
+}
+
+.phi-wrap.phi-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.phi-prefix {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px 0 10px;
+  font-size: 14px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  user-select: none;
+  border-right: 1px solid var(--border-1);
+  height: 100%;
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+
+.phi-prefix-code {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--fg-1);
+}
+
+.phi-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  color: var(--fg-1);
+  letter-spacing: 0.02em;
+}
+
+.phi-input::placeholder {
+  color: var(--fg-3);
+  letter-spacing: normal;
+}
+
+.phi-error .phi-input::placeholder {
+  color: var(--error-fg);
+  opacity: 0.6;
+}

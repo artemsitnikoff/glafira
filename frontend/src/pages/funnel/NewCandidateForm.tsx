@@ -17,6 +17,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
+import { PhoneInput } from '@/components/ui/PhoneInput';
 import { useCreateCandidate } from '@/api/mutations/candidates';
 import { useEvaluate, useUpdateCandidate } from '@/api/mutations/candidateDetail';
 import { useVacancies } from '@/api/hooks/useVacancies';
@@ -563,6 +564,13 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
     setIsSubmitting(true);
     setErrors({});
 
+    // Валидация телефона: если введён неполный номер (1–9 цифр → не E.164 полный)
+    if (formData.phone && formData.phone !== '' && !/^\+7\d{10}$/.test(formData.phone)) {
+      setErrors({ phone: 'Введите полный номер: 10 цифр после +7' });
+      setIsSubmitting(false);
+      return;
+    }
+
     // Валидация зарплатной вилки
     const salaryFromNum = formData.salary_from ? parseInt(formData.salary_from) : null;
     const salaryToNum = formData.salary_to ? parseInt(formData.salary_to) : null;
@@ -583,7 +591,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           first_name: formData.first_name.trim(),
           middle_name: formData.middle_name.trim() || null,
           source: formData.source,
-          phone: formData.phone.trim() || null,
+          phone: formData.phone || null,
           email: formData.email.trim() || null,
           gender: formData.gender === 'unset' ? null : formData.gender,
           birth_date: parseDate(formData.birth_date),
@@ -637,7 +645,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         first_name: formData.first_name.trim(),
         middle_name: formData.middle_name.trim() || null,
         source: formData.source,
-        phone: formData.phone.trim() || null,
+        phone: formData.phone || null,
         email: formData.email.trim() || null,
         gender: formData.gender === 'unset' ? null : formData.gender,
         birth_date: parseDate(formData.birth_date),
@@ -951,16 +959,15 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
             <div className="nv-grid-2">
               <div className="nv-field">
                 <label className="nv-label">Телефон</label>
-                <div className="nc-phone">
-                  <span className="nc-phone-flag">🇷🇺</span>
-                  <input
-                    className="nv-input"
-                    placeholder="+7 (___) ___-__-__"
-                    value={formData.phone}
-                    onChange={e => updateFormData({ phone: e.target.value })}
-                    onBlur={e => checkForDuplicates('phone', e.target.value)}
-                  />
-                </div>
+                <PhoneInput
+                  value={formData.phone || null}
+                  error={!!errors.phone}
+                  onChange={v => {
+                    updateFormData({ phone: v ?? '' });
+                    if (v) checkForDuplicates('phone', v);
+                  }}
+                />
+                {errors.phone && <div className="field-error">{errors.phone}</div>}
               </div>
               <div className="nv-field">
                 <label className="nv-label">E-mail</label>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { PageHead, Card, FormRow, TextInput, Select, Switch } from '../components/FormComponents';
+import { PhoneInput } from '@/components/ui/PhoneInput';
 import { useProfile } from '@/api/hooks/useProfile';
 import { useUpdateProfile } from '@/api/mutations/settings';
 import { useAuthStore } from '@/store/authStore';
@@ -197,7 +198,11 @@ export function SettingsProfile({ readOnly = false }: SettingsProfileProps) {
             <TextInput type="email" value={form.email} onChange={(v) => set('email', v)} locked={locked} />
           </FormRow>
           <FormRow label="Телефон">
-            <TextInput value={form.phone} onChange={(v) => set('phone', v)} locked={locked} />
+            <PhoneInput
+              value={form.phone || null}
+              onChange={(v) => set('phone', v ?? '')}
+              disabled={locked}
+            />
           </FormRow>
           <FormRow label="Часовой пояс">
             <Select value={form.timezone} options={tzOptions} onChange={(v) => set('timezone', v)} disabled={locked} />
