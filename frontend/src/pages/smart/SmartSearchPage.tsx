@@ -14,6 +14,7 @@ import {
   useSmartCount,
   useSmartAreaSuggest,
   useSmartInvite,
+  useSmartTake,
   useSmartBaseSearch,
   useSmartBaseEvaluate,
   useSmartBaseHistory,
@@ -27,6 +28,7 @@ import {
   type SmartSearchRequest,
   type SmartCountRequest,
   type SmartAreaSuggestItem,
+  type SmartTakeResponse,
   type BaseSearchCandidate,
   type BaseSearchRequest,
   type BaseSearchRunItem,
@@ -987,11 +989,14 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
   const noOnePassed = passedCandidates.length === 0;
   const canInvite = !!(accessData?.has_paid_access && vac?.hh_published);
 
-  // Состояние для выбора кандидатов к приглашению
+  // Состояние для выбора кандидатов к приглашению/забору
   const [selectedResumeIds, setSelectedResumeIds] = useState<Set<string>>(new Set());
   const [inviteResults, setInviteResults] = useState<any>(null);
+  const [takeResults, setTakeResults] = useState<SmartTakeResponse | null>(null);
+  const [takeError, setTakeError] = useState<string | null>(null);
 
   const smartInvite = useSmartInvite(runId || '');
+  const smartTake = useSmartTake(runId || '');
 
   // Обработчики выбора
   const toggleSelect = (resumeId: string, invited: boolean) => {
@@ -1008,8 +1013,13 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
   };
 
   const selectAll = () => {
+    const takenOrAlreadyIds = new Set(
+      (takeResults?.results ?? [])
+        .filter(r => r.status === 'taken' || r.status === 'already')
+        .map(r => r.resume_id)
+    );
     const allEligible = passedCandidates
-      .filter((c: SmartCandidate) => c.hh_resume_id && !c.invited)
+      .filter((c: SmartCandidate) => c.hh_resume_id && !c.invited && !takenOrAlreadyIds.has(c.hh_resume_id!))
       .map((c: SmartCandidate) => c.hh_resume_id!)
       .filter(Boolean);
     setSelectedResumeIds(new Set(allEligible));
@@ -1049,6 +1059,31 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
       });
     } catch (error) {
       // Ошибка обрабатывается через smartInvite.error в UI
+    }
+  };
+
+  const handleTake = async () => {
+    const resumeIds = Array.from(selectedResumeIds);
+    if (resumeIds.length === 0) return;
+
+    setTakeError(null);
+    try {
+      const response = await smartTake.mutateAsync(resumeIds);
+      setTakeResults(response);
+
+      // Очищаем выбор забранных (taken + already — оба завершены)
+      setSelectedResumeIds(prev => {
+        const newSet = new Set(prev);
+        response.results.forEach(result => {
+          if (result.status === 'taken' || result.status === 'already') {
+            newSet.delete(result.resume_id);
+          }
+        });
+        return newSet;
+      });
+    } catch (error: unknown) {
+      const errMsg = (error as any)?.response?.data?.error?.message || 'Ошибка при добавлении в базу';
+      setTakeError(errMsg);
     }
   };
 
@@ -1096,22 +1131,27 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
             {inviteResults && (
               <span className="live-dot">Приглашено: {inviteResults.invited_count}</span>
             )}
+            {takeResults && (
+              <span className="live-dot" style={{ color: 'var(--ark-violet-500)' }}>
+                Забрано: {takeResults.taken_count}
+              </span>
+            )}
           </div>
 
-          {/* Гейт приглашений */}
+          {/* Гейт приглашений — только когда нельзя пригласить; «Забрать» доступен всегда */}
           {!canInvite && (
             <div className="info-banner" style={{ margin: '12px 0' }}>
               <Icon name="alert-triangle" size={14} />
               <div>
                 {!accessData?.has_paid_access
-                  ? 'На счёте hh нет квоты на открытие контактов — приглашения недоступны (поиск и AI-оценка работают без неё). Квота пополняется на стороне hh.ru.'
-                  : 'Вакансия не опубликована на hh.ru — приглашать некуда.'}
+                  ? 'На счёте hh нет квоты на открытие контактов — приглашения на hh недоступны. Можно забрать кандидатов в свою базу через «Забрать к себе».'
+                  : 'Вакансия не опубликована на hh.ru — приглашать некуда. Можно забрать кандидатов в свою базу через «Забрать к себе».'}
               </div>
             </div>
           )}
 
-          {/* Управление выбором */}
-          {canInvite && (
+          {/* Управление выбором — показывается всегда, если есть кандидаты с hh_resume_id */}
+          {passedCandidates.some((c: SmartCandidate) => c.hh_resume_id) && (
             <div className="ss-invite-controls">
               <label className="ss-master-checkbox">
                 <input
@@ -1127,74 +1167,110 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                 />
                 Выбрать всех
               </label>
+              {canInvite && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={selectedResumeIds.size === 0 || smartInvite.isPending || smartTake.isPending}
+                  onClick={handleInvite}
+                >
+                  <Icon name="mail" size={14} />
+                  Пригласить на hh ({selectedResumeIds.size})
+                </button>
+              )}
               <button
-                className="btn btn-primary btn-sm"
-                disabled={selectedResumeIds.size === 0 || smartInvite.isPending}
-                onClick={handleInvite}
+                className="btn btn-secondary btn-sm ss-take-btn"
+                disabled={selectedResumeIds.size === 0 || smartTake.isPending || smartInvite.isPending}
+                onClick={handleTake}
+                title="Откроет контакты (платно) и добавит в вашу базу и воронку, без приглашения на hh"
               >
-                <Icon name="mail" size={14} />
-                Пригласить выбранных ({selectedResumeIds.size})
+                <Icon name="download" size={14} />
+                {smartTake.isPending ? 'Добавляем…' : `Забрать к себе (${selectedResumeIds.size})`}
               </button>
             </div>
           )}
 
           {/* Список кандидатов */}
-          {passedCandidates.map((c: SmartCandidate, index: number) => (
-            <div
-              key={c.candidate_id || index}
-              className={`ss-inv-row ss-inv-row-clickable ${canInvite ? 'ss-inv-row-selectable' : ''}`}
-              onClick={() => onOpenCandidate?.(c)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onOpenCandidate?.(c);
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              aria-label={`Открыть детальный разбор кандидата ${c.name}`}
-            >
-              {canInvite && c.hh_resume_id && (
-                <input
-                  type="checkbox"
-                  className="ss-row-checkbox"
-                  checked={selectedResumeIds.has(c.hh_resume_id)}
-                  disabled={c.invited}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    toggleSelect(c.hh_resume_id!, !!c.invited);
-                  }}
-                />
-              )}
-              <Avatar name={c.name} size="sm" />
-              <div className="ss-inv-main">
-                <div className="ss-inv-name">{c.name}</div>
-                <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+          {passedCandidates.map((c: SmartCandidate, index: number) => {
+            // Статус «забрать к себе» для конкретного резюме
+            const takeResult = takeResults?.results.find(r => r.resume_id === c.hh_resume_id);
+            const isTaken = takeResult?.status === 'taken';
+            const isAlready = takeResult?.status === 'already';
+            const isActionDone = c.invited || isTaken || isAlready;
+            return (
+              <div
+                key={c.candidate_id || index}
+                className={`ss-inv-row ss-inv-row-clickable ${c.hh_resume_id ? 'ss-inv-row-selectable' : ''}`}
+                onClick={() => onOpenCandidate?.(c)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenCandidate?.(c);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`Открыть детальный разбор кандидата ${c.name}`}
+              >
+                {c.hh_resume_id && (
+                  <input
+                    type="checkbox"
+                    className="ss-row-checkbox"
+                    checked={selectedResumeIds.has(c.hh_resume_id)}
+                    disabled={isActionDone}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleSelect(c.hh_resume_id!, isActionDone);
+                    }}
+                  />
+                )}
+                <Avatar name={c.name} size="sm" />
+                <div className="ss-inv-main">
+                  <div className="ss-inv-name">{c.name}</div>
+                  <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+                </div>
+                <ScoreLabel value={c.score} size="md" />
+                <span className="ss-inv-sent" style={{
+                  background: c.invited
+                    ? 'var(--ark-green-100)'
+                    : isTaken
+                    ? 'var(--ark-violet-100)'
+                    : isAlready
+                    ? 'var(--ark-blue-100)'
+                    : 'var(--ark-blue-100)',
+                  color: c.invited
+                    ? 'var(--ark-green-600)'
+                    : isTaken
+                    ? 'var(--ark-violet-500)'
+                    : isAlready
+                    ? 'var(--accent)'
+                    : 'var(--accent)',
+                }}>
+                  <Icon name={c.invited ? 'check' : isTaken ? 'download' : isAlready ? 'check' : 'user'} size={12} />
+                  {c.invited
+                    ? '✓ приглашён'
+                    : isTaken
+                    ? '✓ забрано'
+                    : isAlready
+                    ? 'уже в базе'
+                    : 'прошёл порог'}
+                </span>
+                {c.hh_resume_id && (
+                  <a
+                    href={`https://hh.ru/resume/${c.hh_resume_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="icon-btn"
+                    onClick={(e) => e.stopPropagation()}
+                    title="Открыть на hh.ru"
+                    style={{ marginLeft: '8px' }}
+                  >
+                    <Icon name="open" size={14} />
+                  </a>
+                )}
               </div>
-              <ScoreLabel value={c.score} size="md" />
-              <span className="ss-inv-sent" style={{
-                background: c.invited ? 'var(--ark-green-100)' : 'var(--ark-blue-100)',
-                color: c.invited ? 'var(--ark-green-600)' : 'var(--accent)'
-              }}>
-                <Icon name={c.invited ? 'check' : 'user'} size={12} />
-                {c.invited ? '✓ приглашён' : 'прошёл порог'}
-              </span>
-              {c.hh_resume_id && (
-                <a
-                  href={`https://hh.ru/resume/${c.hh_resume_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="icon-btn"
-                  onClick={(e) => e.stopPropagation()}
-                  title="Открыть на hh.ru"
-                  style={{ marginLeft: '8px' }}
-                >
-                  <Icon name="open" size={14} />
-                </a>
-              )}
-            </div>
-          ))}
+            );
+          })}
 
           {/* Результаты приглашения */}
           {inviteResults && (
@@ -1217,6 +1293,56 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Результаты «Забрать к себе» — sticky-плашка */}
+          {takeResults && (
+            <div className="ss-take-results">
+              <div className="ss-take-summary">
+                <Icon name="check-circle" size={16} style={{ color: 'var(--ark-green-600)' }} />
+                <span>
+                  <strong>{takeResults.taken_count}</strong> добавлено в базу
+                </span>
+                {vac && (
+                  <a
+                    className="ss-take-link"
+                    href={`/vacancies/${vac.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Icon name="filter" size={13} /> Смотреть в воронке
+                  </a>
+                )}
+                <a className="ss-take-link" href="/candidates" target="_blank" rel="noopener noreferrer">
+                  <Icon name="users" size={13} /> Смотреть в базе
+                </a>
+              </div>
+
+              {/* Детали по каждому резюме */}
+              {takeResults.results.some(r => r.status === 'already' || r.status === 'error') && (
+                <div className="ss-ir-details">
+                  {takeResults.results.map((result, i) => (
+                    result.status !== 'taken' && (
+                      <div key={i} className={`ss-ir-item ss-ir-${result.status}`}>
+                        <span className="ss-ir-name">{result.name || result.resume_id}</span>
+                        <span className="ss-ir-status">
+                          {result.status === 'already'
+                            ? (result.message || 'уже в базе, привязан к воронке')
+                            : `ошибка: ${result.message}`}
+                        </span>
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Ошибка «Забрать к себе» */}
+          {takeError && (
+            <div className="error-banner" style={{ marginTop: '10px' }}>
+              {takeError}
             </div>
           )}
         </div>
@@ -1316,6 +1442,12 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
       {smartInvite.error && (
         <div className="error-banner" style={{ marginTop: '16px' }}>
           {(smartInvite.error as any)?.response?.data?.error?.message || 'Ошибка отправки приглашений'}
+        </div>
+      )}
+
+      {takeError && (
+        <div className="error-banner" style={{ marginTop: '16px' }}>
+          {takeError}
         </div>
       )}
     </div>

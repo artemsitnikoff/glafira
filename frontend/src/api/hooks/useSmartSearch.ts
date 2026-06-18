@@ -431,3 +431,27 @@ export function useReindexBase() {
     },
   });
 }
+
+// === «Забрать к себе» — добавить найденных hh-кандидатов в свою базу+воронку ===
+
+export interface SmartTakeResultItem {
+  resume_id: string;
+  status: 'taken' | 'already' | 'error';
+  message?: string;
+  candidate_id?: string | null;
+  name?: string | null;
+}
+
+export interface SmartTakeResponse {
+  results: SmartTakeResultItem[];
+  taken_count: number;
+}
+
+export function useSmartTake(runId: string) {
+  return useMutation<SmartTakeResponse, Error, string[]>({
+    mutationFn: async (resumeIds): Promise<SmartTakeResponse> => {
+      const response = await api.post(`/smart/runs/${runId}/take`, { resume_ids: resumeIds });
+      return response.data as SmartTakeResponse;
+    },
+  });
+}

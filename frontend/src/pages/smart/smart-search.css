@@ -1360,6 +1360,49 @@
   font-size: 12px;
 }
 
+/* Кнопка «Забрать к себе» — рядом с «Пригласить на hh» */
+.ss-page .ss-invite-controls {
+  flex-wrap: wrap;
+}
+
+/* Sticky-плашка результата «Забрать к себе» */
+.ss-page .ss-take-results {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--ark-violet-100);
+  border: 1px solid var(--ark-violet-500);
+  border-radius: 8px;
+}
+
+.ss-page .ss-take-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ark-violet-500);
+  flex-wrap: wrap;
+}
+
+.ss-page .ss-take-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-1);
+  transition: background var(--dur-normal) var(--ease-out);
+}
+
+.ss-page .ss-take-link:hover {
+  background: var(--bg-3);
+}
+
 /* ============================================================
    Развилка источника + ветка «по своей базе кандидатов»
    ============================================================ */
