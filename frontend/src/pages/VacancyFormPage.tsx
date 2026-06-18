@@ -31,6 +31,7 @@ import type { ApiError } from '@/api/aliases';
 import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
 import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api/mutations/hhIntegration';
 import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
+import { useParseVacancyFile } from '@/api/hooks/useParseVacancyFile';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
@@ -268,6 +269,78 @@ export default function VacancyFormPage() {
   const renameStageMutation = useRenameVacancyStage();
   const deleteStageMutation = useDeleteVacancyStage();
   const reorderStagesMutation = useReorderVacancyStages();
+
+  // Парсинг файла вакансии
+  const parseVacancyMutation = useParseVacancyFile();
+  const [parseIsDragging, setParseIsDragging] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const parseFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleVacancyFile = async (file: File) => {
+    setParseError(null);
+    try {
+      const result = await parseVacancyMutation.mutateAsync(file);
+      if (result.parsed) {
+        const f = result.fields;
+        const updates: Partial<VacancyFormData> = {};
+        if (f.name) updates.name = f.name;
+        if (f.city) updates.city = f.city;
+        if (f.department) updates.department = f.department;
+        if (f.employment_type && ['full', 'part', 'project'].includes(f.employment_type)) {
+          updates.employment_type = f.employment_type as VacancyFormData['employment_type'];
+        }
+        if (f.salary_from != null) updates.salary_from = f.salary_from;
+        if (f.salary_to != null) updates.salary_to = f.salary_to;
+        if (f.description) {
+          // Plain-text → HTML: переводы строк превращаем в <br>
+          const html = f.description
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+          updates.description = html;
+        }
+        updateFormData(updates);
+      } else if (!result.parsed && result.reason) {
+        setParseError(`Не удалось распознать файл (${result.reason}) — заполните поля вручную`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : null;
+      setParseError(msg || 'Ошибка при распознавании файла — заполните поля вручную');
+    }
+  };
+
+  const handleParseFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleVacancyFile(file);
+    // сбрасываем value, чтобы можно было выбрать тот же файл повторно
+    e.target.value = '';
+  };
+
+  const handleParseDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleParseDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setParseIsDragging(true);
+  };
+
+  const handleParseDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === e.target) setParseIsDragging(false);
+  };
+
+  const handleParseDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setParseIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleVacancyFile(file);
+  };
 
   const [activeStep, setActiveStep] = useState('desc');
   const [formData, setFormData] = useState<VacancyFormData>({
@@ -564,6 +637,16 @@ export default function VacancyFormPage() {
               clients={clients || []}
               recruiterScoring={recruiterScoring}
               onRecruiterScoringChange={setRecruiterScoring}
+              isParsing={parseVacancyMutation.isPending}
+              parseIsDragging={parseIsDragging}
+              parseError={parseError}
+              parseFileInputRef={parseFileInputRef}
+              onParseDragOver={handleParseDragOver}
+              onParseDragEnter={handleParseDragEnter}
+              onParseDragLeave={handleParseDragLeave}
+              onParseDrop={handleParseDrop}
+              onParseFileChange={handleParseFileChange}
+              editMode={editMode}
             />
           )}
           {activeStep === 'funnel' && (
@@ -724,17 +807,82 @@ function DescriptionStep({
   clients,
   recruiterScoring,
   onRecruiterScoringChange,
+  isParsing,
+  parseIsDragging,
+  parseError,
+  parseFileInputRef,
+  onParseDragOver,
+  onParseDragEnter,
+  onParseDragLeave,
+  onParseDrop,
+  onParseFileChange,
+  editMode,
 }: {
   data: VacancyCreate;
   onChange: (updates: Partial<VacancyCreate>) => void;
   clients: any[];
   recruiterScoring: string;
   onRecruiterScoringChange: (v: string) => void;
+  isParsing: boolean;
+  parseIsDragging: boolean;
+  parseError: string | null;
+  parseFileInputRef: React.RefObject<HTMLInputElement>;
+  onParseDragOver: (e: React.DragEvent) => void;
+  onParseDragEnter: (e: React.DragEvent) => void;
+  onParseDragLeave: (e: React.DragEvent) => void;
+  onParseDrop: (e: React.DragEvent) => void;
+  onParseFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  editMode: boolean;
 }) {
   return (
     <div className="nv-step-body">
       <div className="nv-h1">Описание вакансии</div>
       <div className="nv-h2">Базовая информация — название, локация, дата закрытия. Текст требований и обязанностей.</div>
+
+      {/* Загрузка файла вакансии для AI-парсинга — только при создании */}
+      {!editMode && (
+        <>
+          {parseError && (
+            <div className="nc-parse-error" style={{ marginBottom: '16px' }}>
+              {parseError}
+            </div>
+          )}
+          <label
+            className={`nv-vacancy-drop${parseIsDragging ? ' is-drag' : ''}`}
+            onDragOver={onParseDragOver}
+            onDragEnter={onParseDragEnter}
+            onDragLeave={onParseDragLeave}
+            onDrop={onParseDrop}
+          >
+            {isParsing ? (
+              <>
+                <div className="nc-parse-spinner">💃</div>
+                <div className="nc-drop-text">
+                  <span className="nc-drop-title">Глафира читает вакансию…</span>
+                  <span className="nc-drop-fmt">Заполним поля автоматически</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <Icon name="open" size={20} className="nc-drop-icon" />
+                <div className="nc-drop-text">
+                  <span className="nc-drop-title">
+                    Перетащите файл вакансии или <span className="nc-drop-link">загрузите файл</span>
+                  </span>
+                  <span className="nc-drop-fmt">PDF · DOC · DOCX — до 10 МБ · Глафира заполнит поля</span>
+                </div>
+              </>
+            )}
+            <input
+              ref={parseFileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx"
+              hidden
+              onChange={onParseFileChange}
+            />
+          </label>
+        </>
+      )}
 
       <div className="nv-field">
         <label className="nv-label">Название вакансии <span className="nv-req">*</span></label>

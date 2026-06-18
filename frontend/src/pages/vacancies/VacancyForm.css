@@ -1035,3 +1035,77 @@
 .nv-hh-controls {
   /* стили для контролов уже в инлайне */
 }
+
+/* ================================================================
+   Дроп-зона загрузки файла вакансии (AI-парсинг) — шаг «Описание»
+   Повторяет паттерн .nc-drop из NewCandidateForm.css, scoped сюда.
+   Классы nc-drop-* переиспользуются намеренно — те же стили.
+   ================================================================ */
+
+/* Переиспользуемые классы дроп-зоны (из NewCandidateForm.css — копия для этого маршрута) */
+.nv-wrap .nc-drop-icon {
+  color: var(--accent, #2A8AF0);
+  flex: none;
+}
+.nv-wrap .nc-drop-text {
+  display: inline-flex; flex-wrap: wrap; align-items: baseline;
+  column-gap: 8px; row-gap: 2px;
+  font-size: 13px;
+  color: var(--fg-1, #1F2733);
+  line-height: 1.4;
+}
+.nv-wrap .nc-drop-title {
+  font-weight: 500;
+}
+.nv-wrap .nc-drop-link {
+  color: var(--accent, #2A8AF0);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+}
+.nv-wrap .nc-drop-fmt {
+  font-size: 11px;
+  color: var(--fg-3, #5B6573);
+  font-family: var(--font-mono, 'SF Mono', Consolas, monospace);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.nv-wrap .nc-parse-spinner {
+  font-size: 20px;
+  animation: nc-dance 1s ease-in-out infinite alternate;
+}
+@keyframes nc-dance {
+  from { transform: translateY(-2px); }
+  to { transform: translateY(2px); }
+}
+.nv-wrap .nc-parse-error {
+  padding: 12px 16px;
+  background: var(--ark-yellow-100, #FFF1C8);
+  color: var(--ark-yellow-600, #B5821A);
+  border: 1px solid var(--ark-yellow-500, #E0A21A);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nv-wrap .nv-vacancy-drop {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  border: 1.5px dashed var(--ark-blue-100);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #F4F9FF 0%, #EAF2FE 100%);
+  cursor: pointer;
+  transition: background var(--dur-fast, 150ms), border-color var(--dur-fast, 150ms);
+}
+
+.nv-wrap .nv-vacancy-drop:hover {
+  background: #E5EFFE;
+  border-color: var(--accent, #2A8AF0);
+}
+
+.nv-wrap .nv-vacancy-drop.is-drag {
+  border-color: var(--accent, #2A8AF0);
+  background: #E5EFFE;
+  transform: scale(1.01);
+}
