@@ -19,6 +19,8 @@ from ...schemas.vacancy import (
     VacancyStageUpdate,
     VacancyStageReorder,
     ParseVacancyResponse,
+    GenerateRubricRequest,
+    GenerateRubricResponse,
 )
 from ...schemas.base import Paginated
 from ...schemas.settings import RejectReasonOut, RejectReasonCreate, RejectReasonUpdate
@@ -30,6 +32,7 @@ from ...services.settings.reject_reasons import (
 )
 from ...services.settings.glafira import get_company_openrouter_key
 from ...services.glafira.vacancy_parse import parse_vacancy_to_dict
+from ...services.glafira.scoring_rubric import generate_scoring_rubric
 from ...services.vacancy import (
     get_vacancy,
     create_vacancy,
@@ -86,6 +89,55 @@ async def parse_vacancy_file_endpoint(
         parsed=True,
         reason=None,
         fields=parsed_data,
+    )
+
+
+@router.post("/generate-rubric", response_model=GenerateRubricResponse)
+async def generate_rubric_endpoint(
+    body: GenerateRubricRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Генерирует взвешенный рубрикатор критериев оценки из полей вакансии (stateless).
+    Описание должно быть непустым. Возвращает текст для поля recruiter_scoring_instructions."""
+    # RBAC: manager forbidden
+    if user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут генерировать рубрикатор")
+
+    description = (body.description or "").strip()
+    if not description:
+        return GenerateRubricResponse(
+            generated=False,
+            reason="Заполните описание вакансии",
+            rubric=None,
+        )
+
+    # OpenRouter ключ компании (кидает OpenRouterNotConfiguredError → глобальный хендлер → 400)
+    api_key = await get_company_openrouter_key(session, company_id)
+
+    vacancy_fields = {
+        "name": body.name,
+        "description": body.description,
+        "city": body.city,
+        "department": body.department,
+        "employment_type": body.employment_type,
+        "salary_from": body.salary_from,
+        "salary_to": body.salary_to,
+    }
+
+    rubric = await generate_scoring_rubric(vacancy_fields, api_key)
+    if rubric is None:
+        return GenerateRubricResponse(
+            generated=False,
+            reason="Не удалось сгенерировать рубрикатор (ошибка LLM)",
+            rubric=None,
+        )
+
+    return GenerateRubricResponse(
+        generated=True,
+        reason=None,
+        rubric=rubric,
     )
 
 

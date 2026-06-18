@@ -199,3 +199,21 @@ class ParseVacancyResponse(BaseModel):
     parsed: bool
     reason: str | None = None
     fields: dict
+
+
+class GenerateRubricRequest(BaseModel):
+    """Тело запроса POST /vacancies/generate-rubric (stateless, вакансия может быть не создана)"""
+    name: str | None = None
+    description: str | None = None
+    city: str | None = None
+    department: str | None = None
+    employment_type: str | None = None
+    salary_from: int | None = None
+    salary_to: int | None = None
+
+
+class GenerateRubricResponse(BaseModel):
+    """Ответ эндпоинта POST /vacancies/generate-rubric"""
+    generated: bool
+    reason: str | None = None
+    rubric: str | None = None

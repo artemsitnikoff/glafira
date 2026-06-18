@@ -1,9 +1,13 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, desc, asc, case
-from sqlalchemy.orm import selectinload, joinedload
-from uuid import UUID
-from datetime import date, datetime, timedelta, timezone
+import logging
 import math
+from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
+
+from sqlalchemy import select, func, and_, desc, asc, case
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, joinedload
+
+logger = logging.getLogger(__name__)
 
 from ..models import Vacancy, VacancyTeam, VacancyStage, User, Application, Client, RejectReason
 from ..schemas.vacancy import (
@@ -15,6 +19,9 @@ from ..schemas.user import UserShort
 from ..core.stages import get_stages_for_template, PROTECTED_STAGE_KEYS
 from ..core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
 from ..services.audit import audit
+from ..services.settings.glafira import get_company_openrouter_key
+from ..services.glafira.scoring_rubric import generate_scoring_rubric
+from ..core.errors import OpenRouterNotConfiguredError
 
 
 async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role: str = None, user_id: UUID = None) -> VacancySidebar:
@@ -317,6 +324,31 @@ async def create_vacancy(
 
     session.add(vacancy)
     await session.flush()
+
+    # BEST-EFFORT авто-генерация рубрикатора критериев оценки.
+    # Условия: поле не заполнено рекрутёром + есть описание вакансии.
+    # Любая ошибка (нет ключа, LLM-сбой, ...) → пропускаем, вакансия создаётся всегда.
+    if not vacancy_data.recruiter_scoring_instructions and vacancy_data.description:
+        try:
+            api_key = await get_company_openrouter_key(session, company_id)
+            rubric = await generate_scoring_rubric(
+                vacancy_fields={
+                    "name": vacancy_data.name,
+                    "description": vacancy_data.description,
+                    "city": vacancy_data.city,
+                    "department": vacancy_data.department,
+                    "employment_type": vacancy_data.employment_type,
+                    "salary_from": vacancy_data.salary_from,
+                    "salary_to": vacancy_data.salary_to,
+                },
+                api_key=api_key,
+            )
+            if rubric:
+                vacancy.recruiter_scoring_instructions = rubric
+        except OpenRouterNotConfiguredError:
+            pass  # нет ключа — создаём вакансию без рубрикатора
+        except Exception as _e:
+            logger.warning("Авто-генерация рубрикатора провалилась (vacancy.create): %s", _e)
 
     # Set responsible user (first in team list)
     if vacancy_data.team:
