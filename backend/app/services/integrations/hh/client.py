@@ -709,6 +709,91 @@ async def get_payable_api_actions(access_token: str, employer_id: str) -> dict:
             raise ValidationError(f"Ошибка получения квот hh.ru: {e}")
 
 
+# Кэш справочника профессиональных ролей hh.ru
+# Справочник статичный (~1500 ролей, обновляется крайне редко).
+# Ключ: строка "global" (справочник единый, токен не влияет на состав).
+# Значение: список плоских dict {id, name, category} или None при сбое.
+_professional_roles_cache: dict[str, list[dict] | None] = {}
+
+
+async def get_professional_roles(access_token: str) -> list[dict]:
+    """
+    Получает справочник профессиональных ролей hh.ru (с module-level кэшем).
+
+    Структура ответа hh: {"categories":[{"id","name","roles":[{"id","name",...}]}]}
+    Плоский список: [{id: str, name: str, category: str}, ...]
+
+    Грейсфул: при ошибке возвращает [], не поднимает исключение.
+    """
+    cache_key = "global"
+    if cache_key in _professional_roles_cache:
+        return _professional_roles_cache[cache_key] or []
+
+    try:
+        async with _get_client() as client:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/professional_roles",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code >= 400:
+                logger.warning("[hh] get_professional_roles: HTTP %s", response.status_code)
+                _professional_roles_cache[cache_key] = []
+                return []
+
+            data = response.json()
+            if not isinstance(data, dict):
+                logger.warning("[hh] get_professional_roles: некорректный формат ответа")
+                _professional_roles_cache[cache_key] = []
+                return []
+
+            flat: list[dict] = []
+            for category in data.get("categories") or []:
+                cat_name = category.get("name", "")
+                for role in category.get("roles") or []:
+                    role_id = role.get("id")
+                    role_name = role.get("name")
+                    if role_id and role_name:
+                        flat.append({"id": str(role_id), "name": role_name, "category": cat_name})
+
+            _professional_roles_cache[cache_key] = flat
+            logger.info("[hh] get_professional_roles: загружено %d ролей в кэш", len(flat))
+            return flat
+
+    except Exception as exc:
+        logger.warning("[hh] get_professional_roles: сбой загрузки справочника: %s", exc)
+        _professional_roles_cache[cache_key] = []
+        return []
+
+
+def suggest_professional_roles_sync(roles: list[dict], text: str, limit: int = 20) -> list[dict]:
+    """
+    Фильтрует плоский список ролей по подстроке text (регистронезависимо).
+    Возвращает топ limit результатов.
+    Пустой/короткий text (<2 символов) → [].
+    """
+    if len(text.strip()) < 2:
+        return []
+
+    needle = text.strip().lower()
+    result = [r for r in roles if needle in r["name"].lower()]
+    return result[:limit]
+
+
+async def get_suggested_professional_roles(access_token: str, text: str) -> list[dict]:
+    """
+    Подсказки профессиональных ролей из кэшированного справочника hh.ru.
+
+    Args:
+        access_token: access token (нужен для первичной загрузки справочника)
+        text: строка для фильтрации
+
+    Returns:
+        list[dict]: [{id: str, name: str, category: str}, ...] до 20 элементов
+    """
+    roles = await get_professional_roles(access_token)
+    return suggest_professional_roles_sync(roles, text)
+
+
 async def suggest_areas(access_token: str, text: str) -> list[dict]:
     """
     Получает подсказки регионов/городов из справочника hh.ru

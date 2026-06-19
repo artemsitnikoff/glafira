@@ -162,9 +162,17 @@ class SmartAreaSuggestItem(BaseModel):
     text: str
 
 
+class SmartRoleSuggestItem(BaseModel):
+    """Элемент подсказок профессиональных ролей hh.ru"""
+    id: str
+    name: str
+    category: Optional[str] = None
+
+
 class SmartCountResponse(BaseModel):
     """Ответ с количеством найденных резюме"""
     found: Optional[int] = None
+    debug_params: Optional[dict] = None  # Реальные параметры, ушедшие в hh (для диагностики)
 
 
 class SmartInviteRequest(BaseModel):

@@ -1626,9 +1626,11 @@ async def get_run_history(session: AsyncSession, company_id: UUID, limit: int = 
     return result.unique().scalars().all()
 
 
-async def preview_found_count(session: AsyncSession, company_id: UUID, request: SmartCountRequest) -> Optional[int]:
+async def preview_found_count(
+    session: AsyncSession, company_id: UUID, request: SmartCountRequest
+) -> tuple[Optional[int], dict]:
     """
-    Предварительный подсчёт количества резюме по фильтрам (БЕЗ денежных трат)
+    Предварительный подсчёт количества резюме по фильтрам (БЕЗ денежных трат).
 
     Args:
         session: сессия БД
@@ -1636,7 +1638,9 @@ async def preview_found_count(session: AsyncSession, company_id: UUID, request: 
         request: запрос с фильтрами
 
     Returns:
-        Optional[int]: количество найденных резюме или None при ошибке
+        tuple[Optional[int], dict]:
+            - количество найденных резюме или None при ошибке
+            - debug_params: реальные параметры, которые ушли в hh (без page/per_page)
 
     Raises:
         NotFoundError: если вакансия не найдена
@@ -1670,6 +1674,9 @@ async def preview_found_count(session: AsyncSession, company_id: UUID, request: 
 
         # Используем общую функцию построения search_params
         search_params = build_search_params(params, vacancy)
+        # debug_params — реальные параметры без page/per_page (то, что реально уходит в hh)
+        debug_params = {k: v for k, v in search_params.items() if k not in ("page", "per_page")}
+
         search_params["per_page"] = 1  # Минимум для получения found
         search_params["page"] = 0
 
@@ -1681,12 +1688,12 @@ async def preview_found_count(session: AsyncSession, company_id: UUID, request: 
             search_result = await hh_client.search_resumes(access_token, search_params)
             found = search_result.get("found")
 
-            return found
+            return found, debug_params
 
         except Exception as e:
             # При ЛЮБОЙ ошибке с hh возвращаем None (превью не должен ронять UI)
             logger.warning(f"Ошибка превью подсчёта резюме: {e}")
-            return None
+            return None, debug_params
 
     except NotFoundError:
         # Пробрасываем дальше - это валидная бизнес-ошибка 404
@@ -1694,7 +1701,7 @@ async def preview_found_count(session: AsyncSession, company_id: UUID, request: 
     except Exception as e:
         # Любые другие ошибки логируем и возвращаем None
         logger.warning(f"Ошибка превью подсчёта резюме: {e}")
-        return None
+        return None, {}
 
 
 async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> dict:
@@ -1837,4 +1844,32 @@ async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> l
     except Exception as e:
         # При ЛЮБОЙ ошибке возвращаем пустой список (подсказки не должны ронять форму)
         logger.warning(f"Ошибка получения подсказок регионов hh: {e}")
+        return []
+
+
+async def suggest_professional_roles(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
+    """
+    Подсказки профессиональных ролей из кэшированного справочника hh.ru.
+
+    Берёт токен компании, загружает справочник (кэш), фильтрует по подстроке text.
+
+    Args:
+        session: сессия БД
+        company_id: ID компании
+        text: строка для фильтрации (пустой/< 2 симв → [])
+
+    Returns:
+        list[dict]: [{id: str, name: str, category: str}, ...] до 20 элементов
+
+    Note:
+        При любой ошибке (нет токена, hh недоступен) возвращает [] — не роняет форму.
+    """
+    if len(text.strip()) < 2:
+        return []
+
+    try:
+        access_token = await hh_service.get_valid_access_token(session, company_id)
+        return await hh_client.get_suggested_professional_roles(access_token, text)
+    except Exception as exc:
+        logger.warning("Ошибка получения подсказок ролей hh: %s", exc)
         return []

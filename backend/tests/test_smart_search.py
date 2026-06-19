@@ -814,7 +814,7 @@ async def test_preview_found_count_success(
         include_no_salary=False
     )
 
-    found = await preview_found_count(db_session, test_company.id, request)
+    found, debug_params = await preview_found_count(db_session, test_company.id, request)
 
     assert found == 269
     mock_search_resumes.assert_called_once()
@@ -822,6 +822,10 @@ async def test_preview_found_count_success(
     call_args = mock_search_resumes.call_args[0][1]  # search_params - второй позиционный аргумент
     assert call_args["per_page"] == 1
     assert call_args["page"] == 0
+    # debug_params содержит реальные hh-параметры без page/per_page
+    assert isinstance(debug_params, dict)
+    assert "page" not in debug_params
+    assert "per_page" not in debug_params
 
 
 @pytest.mark.asyncio
@@ -860,9 +864,10 @@ async def test_preview_found_count_hh_error_graceful(
         skills=["Python"]
     )
 
-    found = await preview_found_count(db_session, test_company.id, request)
+    found, debug_params = await preview_found_count(db_session, test_company.id, request)
 
     assert found is None  # НЕ бросает исключение, возвращает None
+    assert isinstance(debug_params, dict)  # debug_params доступен даже при ошибке
 
 
 @pytest.mark.asyncio
@@ -2088,3 +2093,260 @@ async def test_invite_selected_session_commit_before_loop(
     assert result_item["status"] == "invited"
     assert result_item["candidate_id"] is not None
     assert result_item["name"] == "Тест Кандидат"
+
+
+# ============================================================
+# Тесты suggest_professional_roles (кэш справочника + фильтрация)
+# ============================================================
+
+FAKE_ROLES_CATALOG = [
+    {"id": "1", "name": "Программист", "category": "Разработка"},
+    {"id": "2", "name": "Python-разработчик", "category": "Разработка"},
+    {"id": "3", "name": "Менеджер проекта", "category": "Управление"},
+    {"id": "4", "name": "Аналитик данных", "category": "Аналитика"},
+    {"id": "5", "name": "Тест-инженер", "category": "Тестирование"},
+]
+
+
+@pytest.mark.asyncio
+@patch('app.services.integrations.hh.client.get_professional_roles')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+async def test_suggest_professional_roles_finds_match(
+    mock_token,
+    mock_get_roles,
+    db_session,
+    test_company
+):
+    """suggest_professional_roles находит роль по подстроке (регистронезависимо)"""
+    from app.services.smart_search import suggest_professional_roles
+
+    mock_token.return_value = "test_token"
+    mock_get_roles.return_value = FAKE_ROLES_CATALOG
+
+    result = await suggest_professional_roles(db_session, test_company.id, "python")
+
+    assert len(result) == 1
+    assert result[0]["id"] == "2"
+    assert result[0]["name"] == "Python-разработчик"
+    assert result[0]["category"] == "Разработка"
+
+
+@pytest.mark.asyncio
+@patch('app.services.integrations.hh.client.get_professional_roles')
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+async def test_suggest_professional_roles_case_insensitive(
+    mock_token,
+    mock_get_roles,
+    db_session,
+    test_company
+):
+    """suggest_professional_roles работает регистронезависимо"""
+    from app.services.smart_search import suggest_professional_roles
+
+    mock_token.return_value = "test_token"
+    mock_get_roles.return_value = FAKE_ROLES_CATALOG
+
+    result = await suggest_professional_roles(db_session, test_company.id, "ПРОГР")
+
+    assert len(result) == 1
+    assert result[0]["id"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_suggest_professional_roles_short_text(db_session, test_company):
+    """suggest_professional_roles возвращает [] для коротких/пустых запросов"""
+    from app.services.smart_search import suggest_professional_roles
+
+    assert await suggest_professional_roles(db_session, test_company.id, "") == []
+    assert await suggest_professional_roles(db_session, test_company.id, "П") == []
+    assert await suggest_professional_roles(db_session, test_company.id, " ") == []
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+async def test_suggest_professional_roles_hh_error_graceful(
+    mock_token,
+    db_session,
+    test_company
+):
+    """suggest_professional_roles возвращает [] при ошибке hh (не роняет форму)"""
+    from app.services.smart_search import suggest_professional_roles
+
+    mock_token.side_effect = Exception("hh недоступен")
+
+    result = await suggest_professional_roles(db_session, test_company.id, "программист")
+
+    assert result == []
+
+
+def test_suggest_professional_roles_sync_format():
+    """suggest_professional_roles_sync возвращает {id, name, category} и топ 20"""
+    from app.services.integrations.hh.client import suggest_professional_roles_sync
+
+    # Генерируем 30 ролей — убедимся что топ обрезан до 20
+    roles = [{"id": str(i), "name": f"Роль номер {i}", "category": "Кат"} for i in range(30)]
+    result = suggest_professional_roles_sync(roles, "Роль", limit=20)
+
+    assert len(result) == 20
+    # Проверяем формат элемента
+    item = result[0]
+    assert "id" in item
+    assert "name" in item
+    assert "category" in item
+
+
+def test_suggest_professional_roles_sync_short_text():
+    """suggest_professional_roles_sync возвращает [] при коротком тексте"""
+    from app.services.integrations.hh.client import suggest_professional_roles_sync
+
+    roles = [{"id": "1", "name": "Программист", "category": "Разработка"}]
+
+    assert suggest_professional_roles_sync(roles, "") == []
+    assert suggest_professional_roles_sync(roles, "П") == []
+
+
+# ============================================================
+# Тесты кэша get_professional_roles
+# ============================================================
+
+@pytest.mark.asyncio
+@patch('app.services.integrations.hh.client._get_client')
+async def test_get_professional_roles_cache(mock_get_client):
+    """Второй вызов get_professional_roles не делает hh-запрос (кэш работает)"""
+    import app.services.integrations.hh.client as hh_client_module
+
+    # Сбрасываем кэш перед тестом
+    hh_client_module._professional_roles_cache.clear()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "categories": [
+            {"id": "1", "name": "Разработка", "roles": [
+                {"id": "10", "name": "Python-разработчик"},
+                {"id": "11", "name": "Java-разработчик"},
+            ]}
+        ]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_get_client.return_value = mock_client
+
+    # Первый вызов — загружает справочник
+    from app.services.integrations.hh.client import get_professional_roles
+    result1 = await get_professional_roles("token_a")
+
+    assert len(result1) == 2
+    assert mock_get_client.call_count == 1
+
+    # Второй вызов — из кэша, hh НЕ вызывается
+    result2 = await get_professional_roles("token_b")
+
+    assert result2 == result1
+    assert mock_get_client.call_count == 1  # Всё ещё 1 вызов
+
+    # Убираем за собой
+    hh_client_module._professional_roles_cache.clear()
+
+
+# ============================================================
+# Тест preview-count — debug_params в ответе
+# ============================================================
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+async def test_preview_found_count_returns_debug_params(
+    mock_search_resumes,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """preview_found_count возвращает (found, debug_params) с реальными hh-параметрами"""
+    mock_token.return_value = "test_token"
+    mock_search_resumes.return_value = {"found": 42, "items": []}
+
+    request = SmartCountRequest(
+        vacancy_id=test_vacancy.id,
+        area_id="113",          # Числовой ID Москвы — попадёт в debug_params["area"]
+        professional_role="96", # Числовой ID роли — попадёт в debug_params["professional_role"]
+        experience="between1And3",
+        skills=["Python"],
+        salary_from=50000,
+    )
+
+    found, debug_params = await preview_found_count(db_session, test_company.id, request)
+
+    assert found == 42
+    assert isinstance(debug_params, dict)
+
+    # Реальные hh-параметры должны быть в debug_params
+    assert "text" in debug_params
+    assert "area" in debug_params        # area_id числовой → попал
+    assert debug_params["area"] == "113"
+    assert "professional_role" in debug_params   # числовой → попал
+    assert debug_params["professional_role"] == "96"
+    assert "experience" in debug_params
+    assert debug_params["experience"] == "between1And3"
+
+    # page/per_page НЕ должны быть в debug_params (их убирает функция)
+    assert "page" not in debug_params
+    assert "per_page" not in debug_params
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+async def test_preview_found_count_debug_params_text_role(
+    mock_search_resumes,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """preview_found_count: текстовая professional_role не попадает в professional_role debug_params"""
+    mock_token.return_value = "test_token"
+    mock_search_resumes.return_value = {"found": 10, "items": []}
+
+    request = SmartCountRequest(
+        vacancy_id=test_vacancy.id,
+        professional_role="Программист",  # Текстовое значение — НЕ числовое ID
+    )
+
+    found, debug_params = await preview_found_count(db_session, test_company.id, request)
+
+    assert found == 10
+    # Текстовая роль попала в text, но НЕ в professional_role hh-фильтр
+    assert "professional_role" not in debug_params
+    assert "Программист" in debug_params.get("text", "")
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+async def test_preview_found_count_hh_error_returns_debug_params(
+    mock_search_resumes,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy
+):
+    """preview_found_count возвращает (None, debug_params) при ошибке hh — debug_params всё равно есть"""
+    mock_token.return_value = "test_token"
+    mock_search_resumes.side_effect = Exception("hh rate limit")
+
+    request = SmartCountRequest(
+        vacancy_id=test_vacancy.id,
+        area_id="113",
+    )
+
+    found, debug_params = await preview_found_count(db_session, test_company.id, request)
+
+    assert found is None
+    # debug_params строится до вызова hh — поэтому доступен даже при ошибке
+    assert isinstance(debug_params, dict)
+    assert "text" in debug_params

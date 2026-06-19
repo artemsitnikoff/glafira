@@ -24,6 +24,7 @@ from ...schemas.smart import (
     SmartCountRequest,
     SmartCountResponse,
     SmartAreaSuggestItem,
+    SmartRoleSuggestItem,
     SmartInviteRequest,
     SmartInviteResponse,
     SmartTakeRequest,
@@ -50,6 +51,7 @@ from ...services.smart_search import (
     derive_vacancy_filters,
     preview_found_count,
     suggest_areas,
+    suggest_professional_roles,
     invite_selected,
     take_selected,
 )
@@ -194,9 +196,13 @@ async def smart_preview_count(
     company_id: UUID = Depends(get_current_company_id),
     current_user: User = Depends(get_current_user),
 ):
-    """Получить предварительное количество резюме по фильтрам"""
-    found = await preview_found_count(session, company_id, request)
-    return SmartCountResponse(found=found)
+    """Получить предварительное количество резюме по фильтрам.
+
+    Возвращает found (число резюме от hh) и debug_params (реальные hh-параметры
+    запроса без page/per_page — видно какие фильтры реально ушли в hh).
+    """
+    found, debug_params = await preview_found_count(session, company_id, request)
+    return SmartCountResponse(found=found, debug_params=debug_params)
 
 
 @router.get("/area-suggest", response_model=list[SmartAreaSuggestItem])
@@ -210,6 +216,29 @@ async def smart_area_suggest(
     items = await suggest_areas(session, company_id, text)
     return [SmartAreaSuggestItem(id=str(i.get("id")), text=str(i.get("text", "")))
             for i in items if i.get("id")]
+
+
+@router.get("/role-suggest", response_model=list[SmartRoleSuggestItem])
+async def smart_role_suggest(
+    text: str = "",
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить подсказки профессиональных ролей из справочника hh.ru.
+
+    Справочник загружается один раз и кэшируется на уровне модуля.
+    Пустой text или < 2 символов → [].
+    """
+    items = await suggest_professional_roles(session, company_id, text)
+    return [
+        SmartRoleSuggestItem(
+            id=i["id"],
+            name=i["name"],
+            category=i.get("category"),
+        )
+        for i in items
+    ]
 
 
 @router.post("/runs/{run_id}/invite", response_model=SmartInviteResponse)
