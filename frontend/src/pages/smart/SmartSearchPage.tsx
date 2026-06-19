@@ -41,12 +41,73 @@ import {
   type SmartSkillChip,
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
+import { useSmartResumeDownload } from '@/api/hooks/useSmartResumeDownload';
 import './smart-search.css';
 
 // Форматирование чисел с разделителями
 function ssFmt(n: number | null | undefined) {
   if (n === null || n === undefined) return '—';
   return n.toLocaleString('ru-RU').replace(/ /g, ' ');
+}
+
+// Кнопка скачивания резюме кандидата из умного подбора (hh)
+// Попап с выбором формата — зеркало воронки (cd-move-wrap / cd-move-pop / cd-download-pop)
+function SmartDownloadBtn({ runId, hhResumeId, candidateName }: {
+  runId: string;
+  hhResumeId: string;
+  candidateName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const downloadMutation = useSmartResumeDownload();
+
+  function handleDownload(format: 'pdf' | 'docx') {
+    setOpen(false);
+    downloadMutation.mutate({
+      runId,
+      hhResumeId,
+      format,
+      fileName: `${candidateName || 'Кандидат'}.${format}`,
+    });
+  }
+
+  return (
+    <div className="cd-move-wrap" onClick={(e) => e.stopPropagation()}>
+      <button
+        className="icon-btn"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Скачать резюме"
+        disabled={downloadMutation.isPending}
+        style={{ marginLeft: '4px' }}
+      >
+        <Icon name={downloadMutation.isPending ? 'loader' : 'download'} size={14} />
+      </button>
+
+      {open && (
+        <>
+          <div className="cd-pop-backdrop" onClick={() => setOpen(false)} />
+          <div className="cd-move-pop cd-download-pop" role="menu">
+            <div className="cd-pop-head">Формат файла</div>
+            <button
+              className="cd-pop-item"
+              onClick={() => handleDownload('pdf')}
+              disabled={downloadMutation.isPending}
+            >
+              <Icon name="file" size={16} />
+              <span className="cd-pop-label">Скачать PDF</span>
+            </button>
+            <button
+              className="cd-pop-item"
+              onClick={() => handleDownload('docx')}
+              disabled={downloadMutation.isPending}
+            >
+              <Icon name="file-text" size={16} />
+              <span className="cd-pop-label">Скачать DOCX</span>
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 // Цвета и метки порога
@@ -1409,6 +1470,13 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                     <Icon name="open" size={14} />
                   </a>
                 )}
+                {c.hh_resume_id && runId && (
+                  <SmartDownloadBtn
+                    runId={runId}
+                    hhResumeId={c.hh_resume_id}
+                    candidateName={c.name}
+                  />
+                )}
               </div>
             );
           })}
@@ -1541,6 +1609,13 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
                 >
                   <Icon name="open" size={14} />
                 </a>
+              )}
+              {c.hh_resume_id && runId && (
+                <SmartDownloadBtn
+                  runId={runId}
+                  hhResumeId={c.hh_resume_id}
+                  candidateName={c.name}
+                />
               )}
             </div>
           ))}
@@ -2177,6 +2252,13 @@ function SSHistoryRunDetail({
                           <Icon name="open" size={14} />
                         </a>
                       )}
+                      {c.hh_resume_id && (
+                        <SmartDownloadBtn
+                          runId={runId}
+                          hhResumeId={c.hh_resume_id}
+                          candidateName={c.name}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2211,6 +2293,13 @@ function SSHistoryRunDetail({
                         >
                           <Icon name="open" size={14} />
                         </a>
+                      )}
+                      {c.hh_resume_id && (
+                        <SmartDownloadBtn
+                          runId={runId}
+                          hhResumeId={c.hh_resume_id}
+                          candidateName={c.name}
+                        />
                       )}
                     </div>
                   ))}
