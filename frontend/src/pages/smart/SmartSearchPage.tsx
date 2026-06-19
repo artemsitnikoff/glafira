@@ -14,6 +14,7 @@ import {
   useSmartCount,
   useSmartAreaSuggest,
   useSmartRoleSuggest,
+  useSmartSkillSuggest,
   useRoleCategories,
   useSmartInvite,
   useSmartTake,
@@ -37,6 +38,7 @@ import {
   type BaseSearchRequest,
   type BaseSearchRunItem,
   type SmartDebugParams,
+  type SmartSkillChip,
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
 import './smart-search.css';
@@ -84,6 +86,10 @@ export default function SmartSearchPage() {
 
   // Step 2 — фильтры
   const [skills, setSkills] = useState<string[]>([]);
+  // v0.9.99: навыки из справочника hh (структурный фильтр)
+  const [skillChips, setSkillChips] = useState<SmartSkillChip[]>([]);
+  // v0.9.99: режим навыков — 'soft' по умолчанию (не ломает текущее поведение)
+  const [skillMode, setSkillMode] = useState<'exact' | 'soft'>('soft');
   const [exp, setExp] = useState('');
   const [areaId, setAreaId] = useState<string | null>(null);
   const [areaLabel, setAreaLabel] = useState('');
@@ -140,6 +146,9 @@ export default function SmartSearchPage() {
         include_no_salary: inclNoSalary,
         area_id: areaId ?? undefined,
         period,
+        // v0.9.99: структурный фильтр навыков hh
+        skill_chips: skillChips.length > 0 ? skillChips : undefined,
+        skill_mode: skillMode,
       };
 
       countMut.mutate(request, {
@@ -154,7 +163,7 @@ export default function SmartSearchPage() {
     // countMut НЕ в deps: объект мутации меняет ссылку каждый рендер → был бы
     // бесконечный цикл вызовов. countMut.mutate стабилен, поэтому безопасно.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vac?.id, roleId, exp, skills, salFrom, salTo, inclNoSalary, areaId, period]);
+  }, [vac?.id, roleId, exp, skills, skillChips, skillMode, salFrom, salTo, inclNoSalary, areaId, period]);
 
   const resetAll = () => {
     setPhase('build');
@@ -165,6 +174,8 @@ export default function SmartSearchPage() {
     setShowCostConfirm(false);
     setDetailCandidate(null);
     setSkills([]);
+    setSkillChips([]);
+    setSkillMode('soft');
     setExp('');
     setAreaId(null);
     setAreaLabel('');
@@ -218,9 +229,11 @@ export default function SmartSearchPage() {
         });
     }
 
-    // AI-подбор фильтров professional_role/experience/skills
+    // AI-подбор фильтров professional_role/experience/skills/skill_chips
     // professional_role из AI приходит текстом — кладём в строку поиска селектора,
-    // чтобы юзер выбрал точную роль из справочника hh (roleId)
+    // чтобы юзер выбрал точную роль из справочника hh (roleId).
+    // skill_chips (v0.9.99) — навыки, резолвленные Глафирой в id hh-справочника.
+    // Оставшиеся строковые skills — уходят в свободный текстовый фолбэк.
     deriveFilters.mutate(id, {
       onSuccess: (filters) => {
         // Сбрасываем предыдущий выбор роли — AI предлагает новый текст для поиска
@@ -229,6 +242,12 @@ export default function SmartSearchPage() {
         setRoleSearchText(filters.professional_role);
         setExp(filters.experience);
         setSkills(filters.skills);
+        // v0.9.99: навыки из справочника hh, которые Глафира зарезолвила
+        if (filters.skill_chips && filters.skill_chips.length > 0) {
+          setSkillChips(filters.skill_chips);
+        } else {
+          setSkillChips([]);
+        }
       },
       onError: () => {
         // При ошибке оставляем поля пустыми — пользователь дозаполнит
@@ -237,6 +256,7 @@ export default function SmartSearchPage() {
         setRoleSearchText('');
         setExp('');
         setSkills([]);
+        setSkillChips([]);
       }
     });
   };
@@ -264,6 +284,9 @@ export default function SmartSearchPage() {
       confirm_cost: confirmCost,
       area_id: areaId ?? undefined,
       period,
+      // v0.9.99: структурный фильтр навыков hh
+      skill_chips: skillChips.length > 0 ? skillChips : undefined,
+      skill_mode: skillMode,
     };
 
     try {
@@ -521,8 +544,71 @@ export default function SmartSearchPage() {
                 />
               </div>
 
+              {/* Навыки из справочника hh (структурный фильтр, v0.9.99) */}
               <div className="ss-filter-group">
-                <div className="ss-fg-label">Ключевые навыки</div>
+                <div className="ss-fg-label">Навыки из справочника hh</div>
+                <div className="ss-fg-hint">
+                  Глафира подберёт навыки из справочника. Выбранные уйдут как структурный фильтр hh.
+                </div>
+                <SmartSkillSelector
+                  isPending={deriveFilters.isPending}
+                  onSelect={(chip) => {
+                    setSkillChips(prev =>
+                      prev.some(c => c.id === chip.id) ? prev : [...prev, chip]
+                    );
+                  }}
+                />
+                {skillChips.length > 0 && (
+                  <div className="ss-chip-row" style={{ marginTop: 8 }}>
+                    {skillChips.map((chip) => (
+                      <span key={chip.id} className="ss-chip ss-skill-chip-hh">
+                        <Icon name="star" size={10} style={{ opacity: 0.6, flexShrink: 0 }} />
+                        {chip.text}
+                        <button
+                          className="ss-chip-x"
+                          onClick={() => setSkillChips(prev => prev.filter(c => c.id !== chip.id))}
+                          aria-label={`Убрать навык ${chip.text}`}
+                        >
+                          <Icon name="x" size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Тумблер режима навыков */}
+                {skillChips.length > 0 && (
+                  <div className="ss-skill-mode-row">
+                    <div className="ss-skill-mode-seg">
+                      <button
+                        type="button"
+                        className={`ss-skill-mode-btn${skillMode === 'exact' ? ' active' : ''}`}
+                        onClick={() => setSkillMode('exact')}
+                        title="Строгий фильтр hh по выбранным навыкам — выдача уже, но точнее"
+                      >
+                        Точно
+                      </button>
+                      <button
+                        type="button"
+                        className={`ss-skill-mode-btn${skillMode === 'soft' ? ' active' : ''}`}
+                        onClick={() => setSkillMode('soft')}
+                        title="Навыки идут в текстовый поиск — выдача шире"
+                      >
+                        Мягко
+                      </button>
+                    </div>
+                    <span className="ss-skill-mode-hint">
+                      {skillMode === 'exact'
+                        ? 'Строгий фильтр hh по выбранным навыкам'
+                        : 'Ищет любой из навыков, выдача шире'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Свободные ключевые навыки (текстовый фолбэк) */}
+              <div className="ss-filter-group">
+                <div className="ss-fg-label">Ключевые навыки (текст)</div>
                 <div className="ss-chip-row">
                   {skills.map((s, i) => (
                     <span key={i} className="ss-chip">
@@ -2842,6 +2928,81 @@ function SmartRoleSelector({
   );
 }
 
+// Автокомплит для выбора навыка из справочника hh (v0.9.99, зеркало SmartRoleSelector)
+function SmartSkillSelector({
+  isPending,
+  onSelect,
+}: {
+  isPending: boolean;
+  onSelect: (chip: SmartSkillChip) => void;
+}) {
+  const [searchText, setSearchText] = useState('');
+  const [debouncedValue, setDebouncedValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Debounce для запросов
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(searchText);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const { data: suggestions = [] } = useSmartSkillSuggest(debouncedValue);
+
+  const handleSelect = (item: SmartSkillChip) => {
+    onSelect(item);
+    setSearchText('');
+    setDebouncedValue('');
+    setIsOpen(false);
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div className="ss-area-input-wrap">
+        <input
+          className="ss-input"
+          value={searchText}
+          onChange={(e) => {
+            setSearchText(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => { if (searchText.trim().length >= 2) setIsOpen(true); }}
+          onBlur={() => { setTimeout(() => setIsOpen(false), 150); }}
+          placeholder={isPending ? 'Глафира подбирает…' : 'Начните печатать навык из справочника…'}
+        />
+        {searchText && (
+          <button
+            className="ss-area-clear"
+            onClick={() => { setSearchText(''); setDebouncedValue(''); setIsOpen(false); }}
+            type="button"
+          >
+            <Icon name="x" size={14} />
+          </button>
+        )}
+      </div>
+
+      {isOpen && searchText.trim().length >= 2 && (
+        <div className="ss-area-dropdown">
+          {suggestions.map((item) => (
+            <div
+              key={item.id}
+              className="ss-area-option"
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(item); }}
+            >
+              <Icon name="star" size={15} className="ss-area-icon" />
+              <span>{item.text}</span>
+            </div>
+          ))}
+          {suggestions.length === 0 && (
+            <div className="ss-area-empty">Ничего не найдено</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Перевод enum опыта hh → русский
 function formatExpLabel(val: string): string {
   const map: Record<string, string> = {
@@ -2860,7 +3021,7 @@ function textBlockLabel(block: { field?: string; label: string }): string {
   return block.label || 'Текстовый блок';
 }
 
-// Дебаг-окно: что реально ушло в hh — понятно рекрутёру (v0.9.97)
+// Дебаг-окно: что реально ушло в hh — понятно рекрутёру (v0.9.97, расширено v0.9.99)
 function SSDebugParams({
   debugParams,
   found,
@@ -2893,6 +3054,9 @@ function SSDebugParams({
   const roleNotApplied = hasRoleInput && !roleId && !roleApplied;
   const areaNotApplied = hasAreaInput && !areaId && !areaApplied;
   const showHint = roleNotApplied || areaNotApplied;
+
+  // v0.9.99: навыки, ушедшие как структурный skill= фильтр (только в exact-режиме)
+  const skillFilter = debugParams?.skill_filter ?? [];
 
   // Структурные фильтры: только непустые
   const structuralRows: Array<{ label: string; value: string }> = [];
@@ -2979,6 +3143,25 @@ function SSDebugParams({
                 </div>
               ) : (
                 <div className="ss-debug-empty">текстовый поиск не задан</div>
+              )}
+
+              {/* Раздел 3: навыки как структурный фильтр (v0.9.99, только в exact-режиме) */}
+              {skillFilter.length > 0 && (
+                <>
+                  <div className="ss-debug-section-title" style={{ marginTop: 10 }}>Навыки (точный фильтр hh)</div>
+                  <div className="ss-debug-skill-filter-chips">
+                    {skillFilter.map((chip) => (
+                      <span key={chip.id} className="ss-debug-skill-chip">
+                        <Icon name="star" size={10} style={{ opacity: 0.7, flexShrink: 0 }} />
+                        {chip.text}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="ss-debug-tb-hint" style={{ marginTop: 6 }}>
+                    <Icon name="info" size={11} />
+                    {' '}Навыки ушли как структурный <span className="t-mono">skill=</span> фильтр hh
+                  </div>
+                </>
               )}
             </>
           )}

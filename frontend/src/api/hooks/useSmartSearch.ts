@@ -1,7 +1,8 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../client';
 
-// Локальные типы для умного подбора (openapi не регенерён)
+// Локальные типы для умного подбора (openapi не регенерён — skill_chips/skill_mode добавлены
+// локально, соответствуют схеме v0.9.99 бека; openapi регенерировать при наличии живого сервера)
 export interface SmartAccessResponse {
   has_access: boolean;
   has_paid_access: boolean;
@@ -22,6 +23,13 @@ export interface SmartVacancy {
   hh_published: boolean;
 }
 
+// Навык из справочника hh с id (структурный фильтр, v0.9.99)
+// openapi не регенерён — локальный тип + as-cast
+export interface SmartSkillChip {
+  id: string;
+  text: string;
+}
+
 export interface SmartSearchRequest {
   vacancy_id: string;
   professional_role?: string;
@@ -36,6 +44,9 @@ export interface SmartSearchRequest {
   confirm_cost?: boolean;
   area_id?: string;
   period?: number;
+  // v0.9.99: структурный фильтр навыков hh (openapi не регенерён — локальные типы)
+  skill_chips?: SmartSkillChip[];
+  skill_mode?: 'exact' | 'soft';
 }
 
 export interface SmartSearchResponse {
@@ -124,6 +135,8 @@ export interface SmartVacancyFilters {
   city?: string;
   salary_from?: number | null;
   salary_to?: number | null;
+  // v0.9.99: навыки, резолвленные Глафирой в id справочника hh (openapi не регенерён)
+  skill_chips?: SmartSkillChip[];
 }
 
 export interface SmartAreaSuggestItem {
@@ -221,6 +234,9 @@ export interface SmartCountRequest {
   include_no_salary: boolean;
   area_id?: string;
   period?: number;
+  // v0.9.99: структурный фильтр навыков hh (openapi не регенерён — локальные типы)
+  skill_chips?: SmartSkillChip[];
+  skill_mode?: 'exact' | 'soft';
 }
 
 // Тип debug_params v0.9.96 — новая форма (openapi не регенерён; локальный тип + as-cast)
@@ -245,6 +261,9 @@ export interface SmartDebugStructural {
 export interface SmartDebugParams {
   structural: SmartDebugStructural;
   text_blocks: SmartDebugTextBlock[];
+  // v0.9.99: навыки, ушедшие как структурный skill= фильтр (только в режиме exact)
+  // openapi не регенерён — локальный тип + as-cast
+  skill_filter?: SmartSkillChip[];
 }
 
 export interface SmartCountResponse {
@@ -278,6 +297,19 @@ export function useSmartRoleSuggest(text: string) {
     queryFn: async (): Promise<SmartRoleSuggestItem[]> => {
       const response = await api.get('/smart/role-suggest', { params: { text } });
       return response.data as SmartRoleSuggestItem[];
+    },
+    enabled: text.trim().length >= 2,
+  });
+}
+
+// v0.9.99: подсказки навыков из справочника hh (зеркало useSmartRoleSuggest)
+// openapi не регенерён — локальный тип SmartSkillChip + as-cast
+export function useSmartSkillSuggest(text: string) {
+  return useQuery({
+    queryKey: ['smart', 'skill-suggest', text],
+    queryFn: async (): Promise<SmartSkillChip[]> => {
+      const response = await api.get('/smart/skill-suggest', { params: { text } });
+      return response.data as SmartSkillChip[];
     },
     enabled: text.trim().length >= 2,
   });

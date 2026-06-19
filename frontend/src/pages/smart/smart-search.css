@@ -1806,6 +1806,71 @@
   font-weight: 500;
 }
 
+/* ---------- Навыки из справочника hh (v0.9.99) ---------- */
+
+/* Чип навыка с id из hh — визуально отличается точкой/иконкой от свободных навыков */
+.ss-page .ss-skill-chip-hh {
+  background: var(--ark-blue-50);
+  border-color: var(--ark-blue-100);
+  color: var(--accent);
+  gap: 5px;
+}
+
+/* Тумблер режима навыков (exact / soft) — сегмент-контрол */
+.ss-page .ss-skill-mode-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.ss-page .ss-skill-mode-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex: none;
+}
+
+.ss-page .ss-skill-mode-btn {
+  height: 28px; padding: 0 12px;
+  border: 0; background: var(--bg-elevated);
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--fg-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  line-height: 1;
+}
+
+.ss-page .ss-skill-mode-btn + .ss-skill-mode-btn {
+  border-left: 1px solid var(--border-1);
+}
+
+.ss-page .ss-skill-mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.ss-page .ss-skill-mode-btn:not(.active):hover {
+  background: var(--bg-3-hover);
+  color: var(--fg-1);
+}
+
+.ss-page .ss-skill-mode-hint {
+  font-size: 11px; color: var(--fg-3); line-height: 1.4;
+}
+
+/* Debug: чипы навыков в режиме exact (skill_filter) */
+.ss-page .ss-debug-skill-filter-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+
+.ss-page .ss-debug-skill-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-panel-2); border: 1px solid var(--border-2);
+  border-radius: 999px; padding: 3px 9px;
+  font-size: 11.5px; color: var(--fg-2);
+}
+
 @media (max-width: 720px) {
   .ss-page .ssf-grid { grid-template-columns: 1fr; }
   .ss-page .ssb-actions { flex-direction: column; align-items: stretch; }
@@ -1814,4 +1879,5 @@
   .ss-page .ssb-row-actions { flex-direction: row; width: 100%; }
   .ss-page .ss-indexing-indicator { flex-direction: column; align-items: stretch; gap: 10px; }
   .ss-page .ss-rb-selects { flex-direction: column; }
+  .ss-page .ss-skill-mode-row { flex-direction: column; align-items: flex-start; }
 }
