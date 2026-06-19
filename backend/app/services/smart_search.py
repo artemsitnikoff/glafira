@@ -896,6 +896,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         threshold = params.get("threshold", 70)
         evaluated_candidates = []
         ai_credits_exhausted = False  # кончились токены OpenRouter → стоп (не жечь платные hh-запросы)
+        hh_quota_exhausted = False  # исчерпана квота просмотров резюме hh (429) → стоп
 
         await log_smart_search(run_id, f"Начинаем оценку {scan_n} резюме с порогом {threshold}")
 
@@ -1027,10 +1028,32 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                     log_append=error_msg
                 )
                 continue
+            except ValidationError as e:
+                # Ошибка получения ОДНОГО резюме (hh GET /resumes/{id} → ValidationError).
+                msg = str(e)
+                # Квота просмотров hh исчерпана (429) → дальше платные запросы бессмысленны: стоп.
+                if "квота" in msg.lower():
+                    hh_quota_exhausted = True
+                    stop_msg = "Подбор остановлен: исчерпана квота просмотров резюме hh.ru"
+                    logger.warning(f"Квота просмотров hh исчерпана на резюме {resume_id}: {msg[:200]}")
+                    await log_smart_search(run_id, stop_msg)
+                    await _update_run_progress(run_id, scanned=i + 1, log_append=stop_msg)
+                    break
+                # Иначе резюме недоступно (404 удалено/скрыто/анонимизировано, 403 и т.п.) —
+                # ПРОПУСКАЕМ это резюме и продолжаем отбор, НЕ валим весь run.
+                error_msg = f"Резюме {resume_id or i+1} недоступно, пропускаем: {msg[:120]}"
+                logger.warning(f"Резюме {resume_id} недоступно (пропуск): {msg[:200]}")
+                await log_smart_search(run_id, error_msg)
+                await _update_run_progress(run_id, scanned=i + 1, log_append=error_msg)
+                continue
             except Exception as e:
-                # Неожиданные системные ошибки - пробрасываем вверх для финализации
-                logger.error(f"Неожиданная ошибка при обработке резюме {resume_id}: {e}", exc_info=True)
-                raise
+                # Даже непредвиденная ошибка на ОДНОМ резюме НЕ должна прекращать весь отбор —
+                # логируем (с трейсом для дебага) и идём к следующему резюме.
+                logger.error(f"Непредвиденная ошибка при обработке резюме {resume_id}: {e}", exc_info=True)
+                error_msg = f"Резюме {resume_id or i+1} • пропускаем (непредвиденная ошибка)"
+                await log_smart_search(run_id, error_msg)
+                await _update_run_progress(run_id, scanned=i + 1, log_append=error_msg)
+                continue
 
         # eval полностью завершён — помечаем stage='finalizing' проверенным коротким
         # коммитом (тем же путём, что и eval-итерации, который заведомо работает).
@@ -1047,6 +1070,8 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         # Формируем финальное сообщение
         if ai_credits_exhausted:
             final_note = "❌ Закончились токены AI (OpenRouter). Пополните баланс на openrouter.ai и запустите подбор снова."
+        elif hh_quota_exhausted:
+            final_note = "❌ Исчерпана квота просмотров резюме hh.ru. Пополните доступ к базе резюме и запустите подбор снова."
         elif len(evaluated_candidates) == 0:
             final_note = "Не удалось оценить ни одного резюме"
         elif passed_threshold == 0:

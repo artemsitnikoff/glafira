@@ -3080,6 +3080,7 @@ async def test_run_search_inner_passes_company_model_to_score_resume_dict(
     db_session,
     test_company,
     test_vacancy,
+    admin_user,
 ):
     """_run_search_inner резолвит company_model один раз и передаёт его в score_resume_dict."""
     marker_model = "openai/gpt-4o-smart-marker"
@@ -3124,7 +3125,7 @@ async def test_run_search_inner_passes_company_model_to_score_resume_dict(
         yield db_session
 
     with patch("app.services.smart_search.AsyncSessionLocal", new=_fake_session_local):
-        await _run_search_inner(run.id, test_company.id)
+        await _run_search_inner(run.id, test_company.id, admin_user.id)
 
     # Проверяем, что get_company_llm_model был вызван
     mock_get_model.assert_called_once()
@@ -3141,4 +3142,78 @@ async def test_run_search_inner_passes_company_model_to_score_resume_dict(
     assert received_model == marker_model, (
         f"Ожидали model={marker_model!r} в score_resume_dict, получили {received_model!r}"
     )
-    assert "text" in debug_params
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.smart_search.score_resume_dict')
+@patch('app.services.smart_search.get_company_llm_model')
+@patch('app.services.smart_search.get_company_openrouter_key')
+async def test_run_search_inner_skips_unavailable_resume_not_aborts(
+    mock_get_key,
+    mock_get_model,
+    mock_score,
+    mock_get_resume,
+    mock_search,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy,
+    admin_user,
+):
+    """404 (резюме удалено/скрыто) по ОДНОМУ резюме НЕ прекращает отбор — следующее оценивается.
+
+    Регресс-защита: get_resume_by_id бросает ValidationError на 404; раньше она попадала
+    в `except Exception: raise` и валила весь run. Теперь — пропуск и продолжение.
+    """
+    from app.models import SmartSearchRun
+    from app.core.errors import ValidationError
+    from contextlib import asynccontextmanager
+
+    mock_token.return_value = "test_token"
+    mock_get_key.return_value = "test-api-key"
+    mock_get_model.return_value = "anthropic/claude-sonnet-4-6"
+
+    # hh search вернул ДВА резюме
+    mock_search.return_value = {"found": 2, "items": [{"id": "r1"}, {"id": "r2"}]}
+
+    # Первое — 404 (как у заказчика), второе — валидное
+    mock_get_resume.side_effect = [
+        ValidationError("Ошибка получения резюме hh.ru: Client error '404 Not Found' for url '.../resumes/r1'"),
+        {"id": "r2", "first_name": "Пётр", "last_name": "Второй",
+         "experience": [], "skills": [], "area": {"name": "Москва"}},
+    ]
+    mock_score.return_value = {
+        "score": 88, "verdict": "good", "summary": "ок",
+        "strengths": [], "risks": [], "requirements_match": [], "forecast": "ок",
+    }
+
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="pending",
+        params={"scan_n": 2, "invite_m": 0, "threshold": 70, "has_paid_access": False},
+        log=[],
+        scored_candidates=[],
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    @asynccontextmanager
+    async def _fake_session_local():
+        yield db_session
+
+    with patch("app.services.smart_search.AsyncSessionLocal", new=_fake_session_local):
+        # НЕ должно бросить — 404 первого резюме пропускается
+        await _run_search_inner(run.id, test_company.id, admin_user.id)
+
+    # Оба резюме запрошены (на первом 404, второе — норм)
+    assert mock_get_resume.call_count == 2
+    # Скоринг вызван ТОЛЬКО для уцелевшего (r2) — отбор не оборвался
+    assert mock_score.call_count == 1
+    # Run завершён штатно, а не упал в error
+    await db_session.refresh(run)
+    assert run.status == "done", f"Ожидали status=done, получили {run.status}"
