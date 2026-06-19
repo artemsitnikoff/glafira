@@ -7,6 +7,12 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class SmartSkillChip(BaseModel):
+    """Навык из справочника hh с id (для структурного фильтра skill=)"""
+    id: str
+    text: str
+
+
 class SmartAccessResponse(BaseModel):
     """Ответ на проверку доступа к умному подбору"""
     has_access: bool
@@ -36,6 +42,8 @@ class SmartSearchRequest(BaseModel):
     professional_role: Optional[str] = None
     experience: Optional[str] = None
     skills: list[str] = Field(default_factory=list)
+    skill_chips: list[SmartSkillChip] = Field(default_factory=list)
+    skill_mode: Literal["exact", "soft"] = "soft"
     salary_from: Optional[int] = None
     salary_to: Optional[int] = None
     include_no_salary: bool = True
@@ -140,6 +148,7 @@ class SmartVacancyFilters(BaseModel):
     professional_role: str
     experience: str
     skills: list[str]
+    skill_chips: list[SmartSkillChip] = Field(default_factory=list)
 
 
 class SmartCountRequest(BaseModel):
@@ -149,6 +158,8 @@ class SmartCountRequest(BaseModel):
     professional_role: Optional[str] = None
     experience: Optional[str] = None
     skills: list[str] = Field(default_factory=list)
+    skill_chips: list[SmartSkillChip] = Field(default_factory=list)
+    skill_mode: Literal["exact", "soft"] = "soft"
     salary_from: Optional[int] = None
     salary_to: Optional[int] = None
     include_no_salary: bool = True
@@ -158,6 +169,12 @@ class SmartCountRequest(BaseModel):
 
 class SmartAreaSuggestItem(BaseModel):
     """Элемент подсказок регионов"""
+    id: str
+    text: str
+
+
+class SmartSkillSuggestItem(BaseModel):
+    """Элемент подсказок навыков из справочника hh (skill_set)"""
     id: str
     text: str
 
@@ -191,13 +208,22 @@ class SmartDebugTextBlock(BaseModel):
     period: Optional[str] = None  # text.period: all_time | last_year | ...
 
 
+class SmartDebugSkill(BaseModel):
+    """Навык с id, который ушёл как структурный фильтр skill= в hh"""
+    id: str
+    text: str
+
+
 class SmartDebugParams(BaseModel):
     """
     Структурированное описание параметров запроса к hh для UI-диагностики.
     Показывает структурные фильтры и каждый text-блок отдельно.
+    В режиме exact: skill_filter содержит список навыков с id, ушедших как skill=.
+    В режиме soft: skill_filter пуст, навыки видны в text_blocks (label=«навыки»).
     """
     structural: dict = Field(default_factory=dict)
     text_blocks: list[SmartDebugTextBlock] = Field(default_factory=list)
+    skill_filter: list[SmartDebugSkill] = Field(default_factory=list)
 
 
 class SmartCountResponse(BaseModel):

@@ -892,6 +892,45 @@ async def suggest_areas(access_token: str, text: str) -> list[dict]:
             raise ValidationError(f"Ошибка получения подсказок регионов hh.ru: {e}")
 
 
+async def suggest_skill_set(access_token: str, text: str) -> list[dict]:
+    """
+    Получает подсказки навыков из справочника hh.ru (skill_set).
+
+    Args:
+        access_token: access token
+        text: текст для поиска (минимум 2 символа)
+
+    Returns:
+        list[dict]: список навыков с полями id и text, например:
+            [{"id": "3018", "text": "Холодные продажи"}, ...]
+        При ошибке или text < 2 символов — [].
+
+    Note:
+        id из этого справочника можно передавать как параметр skill= в GET /resumes.
+    """
+    if len(text.strip()) < 2:
+        return []
+
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/suggests/skill_set",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={"text": text}
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            if not isinstance(result, dict):
+                return []
+
+            return result.get("items", [])
+
+        except httpx.HTTPError:
+            return []
+
+
 def build_authorize_url(state: str, client_id: str, redirect_uri: str) -> str:
     """
     Строит URL для авторизации через hh.ru

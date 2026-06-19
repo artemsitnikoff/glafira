@@ -19,6 +19,7 @@ from app.services.smart_search import (
     preview_found_count,
     build_search_params,
     suggest_areas,
+    suggest_skills,
     _compact_resume_for_display,
     _calculate_search_timeout,
     _run_search_background,
@@ -1340,6 +1341,389 @@ async def test_calculate_search_timeout():
         mock_session.get.return_value = None
         timeout = await _calculate_search_timeout(uuid4(), uuid4())
         assert timeout == 900  # fallback
+
+
+# ===========================================================================
+# Тесты skill_mode: exact / soft + suggest_skills
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_build_search_params_skill_mode_exact_structural():
+    """
+    skill_mode=exact: чипы с числовым id → структурный ("skill", id) повтором.
+    Свободные skills (строки без id) → text.field=skills фолбэк.
+    Чипы без числового id → тоже в фолбэк.
+    Нет dict-схлопывания: несколько skill= сохраняются.
+    """
+    from app.services.smart_search import build_search_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Менеджер по продажам"
+
+    params = {
+        "skill_mode": "exact",
+        "skill_chips": [
+            {"id": "3018", "text": "Холодные продажи"},
+            {"id": "1234", "text": "CRM"},
+            {"id": "", "text": "Нет id"},         # без id → фолбэк
+            {"id": "abc", "text": "Не цифра"},    # нечисловой id → фолбэк
+        ],
+        "skills": ["Python"],  # свободный навык → фолбэк
+        "professional_role": "47",  # числовая → структурный
+    }
+
+    result = build_search_params(params, vacancy)
+
+    # Тип - список кортежей (НЕ dict, иначе skill= схлопнется)
+    assert isinstance(result, list)
+    assert all(isinstance(p, tuple) and len(p) == 2 for p in result)
+
+    # Извлекаем значения по ключу
+    skill_values = [v for k, v in result if k == "skill"]
+    text_values = [v for k, v in result if k == "text"]
+    text_fields = [v for k, v in result if k == "text.field"]
+
+    # Два структурных skill= (id=3018 и id=1234)
+    assert len(skill_values) == 2, f"Ожидаем 2 skill=, получили {skill_values}"
+    assert "3018" in skill_values
+    assert "1234" in skill_values
+
+    # Фолбэк-блок для навыков без id + свободные skills
+    assert "skills" in text_fields, "Ожидаем фолбэк text.field=skills"
+    fallback_text_block = next(
+        (v for (k, v), (k2, v2) in zip(result, result[1:]) if k == "text" and k2 == "text.field" and v2 == "skills"),
+        None
+    )
+    # Проверяем что фолбэк содержит нерезолвленные навыки
+    skills_text_block = None
+    for i, (k, v) in enumerate(result):
+        if k == "text":
+            # Ищем следующий text.field=skills
+            for k2, v2 in result[i+1:i+4]:
+                if k2 == "text.field" and v2 == "skills":
+                    skills_text_block = v
+                    break
+            if skills_text_block:
+                break
+    assert skills_text_block is not None, "Должен быть фолбэк text.field=skills для нерезолвленных навыков"
+    assert "Python" in skills_text_block
+    assert "Нет id" in skills_text_block
+    assert "Не цифра" in skills_text_block
+
+    # professional_role числовая → structural
+    prof_roles = [v for k, v in result if k == "professional_role"]
+    assert prof_roles == ["47"]
+
+
+@pytest.mark.asyncio
+async def test_build_search_params_skill_mode_exact_no_fallback_when_all_resolved():
+    """
+    skill_mode=exact + все чипы с числовым id + нет свободных skills:
+    skill= добавляется, text.field=skills НЕ добавляется.
+    """
+    from app.services.smart_search import build_search_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Разработчик"
+
+    params = {
+        "skill_mode": "exact",
+        "skill_chips": [
+            {"id": "100", "text": "Python"},
+            {"id": "200", "text": "Django"},
+        ],
+        "skills": [],  # нет свободных
+    }
+
+    result = build_search_params(params, vacancy)
+
+    skill_values = [v for k, v in result if k == "skill"]
+    text_fields = [v for k, v in result if k == "text.field"]
+
+    assert skill_values == ["100", "200"]
+    # Нет фолбэк-блока навыков (нечего туда класть)
+    assert "skills" not in text_fields
+
+
+@pytest.mark.asyncio
+async def test_build_search_params_skill_mode_soft_no_structural_skill():
+    """
+    skill_mode=soft (дефолт): ВСЕ навыки (skill_chips + skills) → text.field=skills.
+    Структурный skill= НЕ добавляется.
+    """
+    from app.services.smart_search import build_search_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Аналитик"
+
+    params = {
+        "skill_mode": "soft",
+        "skill_chips": [
+            {"id": "3018", "text": "Excel"},
+            {"id": "999", "text": "SQL"},
+        ],
+        "skills": ["Python"],
+    }
+
+    result = build_search_params(params, vacancy)
+
+    # В soft-режиме НЕТ структурного skill=
+    skill_keys = [k for k, v in result if k == "skill"]
+    assert skill_keys == [], f"В soft-режиме skill= не должно быть, но есть: {skill_keys}"
+
+    # Все навыки в одном text.field=skills блоке
+    text_fields = [v for k, v in result if k == "text.field"]
+    assert "skills" in text_fields
+
+    # Найдём текст этого блока
+    skills_text_block = None
+    for i, (k, v) in enumerate(result):
+        if k == "text":
+            for k2, v2 in result[i+1:i+4]:
+                if k2 == "text.field" and v2 == "skills":
+                    skills_text_block = v
+                    break
+            if skills_text_block:
+                break
+    assert skills_text_block is not None
+    assert "Excel" in skills_text_block
+    assert "SQL" in skills_text_block
+    assert "Python" in skills_text_block
+
+
+@pytest.mark.asyncio
+async def test_build_search_params_skill_mode_default_is_soft():
+    """skill_mode отсутствует в params → дефолт soft: нет skill= структурных"""
+    from app.services.smart_search import build_search_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Тест"
+
+    params = {
+        # skill_mode не указан → дефолт soft
+        "skill_chips": [{"id": "42", "text": "Навык"}],
+        "skills": [],
+    }
+
+    result = build_search_params(params, vacancy)
+    skill_keys = [k for k, v in result if k == "skill"]
+    assert skill_keys == [], "Дефолт должен быть soft — skill= не добавляется"
+
+
+@pytest.mark.asyncio
+async def test_build_search_params_skill_no_dict_collapse():
+    """
+    Доказательство отсутствия dict-схлопывания: несколько skill= сохраняются как отдельные пары.
+    Если бы result был dict, второй skill=1234 перетёр бы первый skill=3018.
+    """
+    from app.services.smart_search import build_search_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Менеджер"
+
+    params = {
+        "skill_mode": "exact",
+        "skill_chips": [
+            {"id": "3018", "text": "Навык 1"},
+            {"id": "1234", "text": "Навык 2"},
+            {"id": "5678", "text": "Навык 3"},
+        ],
+        "skills": [],
+    }
+
+    result = build_search_params(params, vacancy)
+
+    # result — список, а не dict
+    assert isinstance(result, list)
+
+    # Все три skill= сохранились (dict бы схлопнул до одного)
+    skill_values = [v for k, v in result if k == "skill"]
+    assert len(skill_values) == 3, f"Ожидаем 3 skill= (не схлопнутые dict), получили {skill_values}"
+    assert set(skill_values) == {"3018", "1234", "5678"}
+
+
+@pytest.mark.asyncio
+async def test_build_debug_params_exact_has_skill_filter():
+    """
+    _build_debug_params в exact-режиме заполняет skill_filter списком структурных навыков.
+    В soft-режиме skill_filter пуст.
+    """
+    from app.services.smart_search import build_search_params, _build_debug_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Разработчик"
+
+    skill_chips = [
+        {"id": "3018", "text": "Холодные продажи"},
+        {"id": "100", "text": "Python"},
+        {"id": "abc", "text": "Нечисловой"},  # не попадёт в skill_filter
+    ]
+
+    # --- exact ---
+    params_exact = {
+        "skill_mode": "exact",
+        "skill_chips": skill_chips,
+        "skills": [],
+    }
+    pairs_exact = build_search_params(params_exact, vacancy)
+    debug_exact = _build_debug_params(params_exact, pairs_exact, skill_chips=skill_chips)
+
+    assert "skill_filter" in debug_exact
+    sf = debug_exact["skill_filter"]
+    assert len(sf) == 2  # "3018" и "100" — оба числовые
+    ids_in_filter = {item["id"] for item in sf}
+    assert ids_in_filter == {"3018", "100"}
+    assert all("text" in item for item in sf)
+    # нечисловой "abc" не в skill_filter
+    assert not any(item["id"] == "abc" for item in sf)
+
+    # --- soft ---
+    params_soft = {
+        "skill_mode": "soft",
+        "skill_chips": skill_chips,
+        "skills": [],
+    }
+    pairs_soft = build_search_params(params_soft, vacancy)
+    debug_soft = _build_debug_params(params_soft, pairs_soft, skill_chips=None)
+
+    assert "skill_filter" in debug_soft
+    assert debug_soft["skill_filter"] == []
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.suggest_skill_set')
+async def test_suggest_skills_success(
+    mock_suggest_skill_set,
+    mock_token,
+    db_session,
+    test_company
+):
+    """suggest_skills возвращает нормализованный список [{id, text}]"""
+    from app.services.smart_search import suggest_skills
+
+    mock_token.return_value = "test_token"
+    mock_suggest_skill_set.return_value = [
+        {"id": "3018", "text": "Холодные продажи"},
+        {"id": "42", "text": "CRM"},
+        {"id": "", "text": "Без id"},  # фильтруется
+        {"text": "Без поля id"},       # фильтруется
+    ]
+
+    result = await suggest_skills(db_session, test_company.id, "продажи")
+
+    # Только элементы с непустыми id и text
+    assert len(result) == 2
+    assert result[0] == {"id": "3018", "text": "Холодные продажи"}
+    assert result[1] == {"id": "42", "text": "CRM"}
+
+    mock_suggest_skill_set.assert_called_once_with("test_token", "продажи")
+
+
+@pytest.mark.asyncio
+async def test_suggest_skills_short_text(db_session, test_company):
+    """suggest_skills возвращает [] для текста < 2 символов"""
+    from app.services.smart_search import suggest_skills
+
+    assert await suggest_skills(db_session, test_company.id, "") == []
+    assert await suggest_skills(db_session, test_company.id, "а") == []
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.suggest_skill_set')
+async def test_suggest_skills_hh_error_graceful(
+    mock_suggest_skill_set,
+    mock_token,
+    db_session,
+    test_company
+):
+    """suggest_skills возвращает [] при любой ошибке hh — не роняет форму"""
+    from app.services.smart_search import suggest_skills
+
+    mock_token.return_value = "test_token"
+    mock_suggest_skill_set.side_effect = Exception("API timeout")
+
+    result = await suggest_skills(db_session, test_company.id, "Python")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_smart_count_request_has_skill_fields():
+    """SmartCountRequest и SmartSearchRequest принимают skill_chips и skill_mode"""
+    from app.schemas.smart import SmartCountRequest, SmartSearchRequest, SmartSkillChip
+    from uuid import uuid4
+
+    vid = uuid4()
+
+    # SmartCountRequest
+    count_req = SmartCountRequest(
+        vacancy_id=vid,
+        skills=["Python"],
+        skill_chips=[SmartSkillChip(id="3018", text="Холодные продажи")],
+        skill_mode="exact",
+    )
+    assert count_req.skill_mode == "exact"
+    assert len(count_req.skill_chips) == 1
+    assert count_req.skill_chips[0].id == "3018"
+
+    # SmartSearchRequest
+    search_req = SmartSearchRequest(
+        vacancy_id=vid,
+        scan_n=10,
+        invite_m=5,
+        threshold=70,
+        skill_chips=[SmartSkillChip(id="100", text="Python")],
+        skill_mode="soft",
+    )
+    assert search_req.skill_mode == "soft"
+    assert len(search_req.skill_chips) == 1
+
+    # Дефолт skill_mode = soft
+    req_default = SmartCountRequest(vacancy_id=vid)
+    assert req_default.skill_mode == "soft"
+    assert req_default.skill_chips == []
+
+
+@pytest.mark.asyncio
+async def test_skill_suggest_item_schema():
+    """SmartSkillSuggestItem корректно валидируется"""
+    from app.schemas.smart import SmartSkillSuggestItem
+
+    item = SmartSkillSuggestItem(id="3018", text="Холодные продажи")
+    assert item.id == "3018"
+    assert item.text == "Холодные продажи"
+
+
+@pytest.mark.asyncio
+async def test_vacancy_filters_has_skill_chips():
+    """SmartVacancyFilters включает skill_chips (для AI-резолва из derive_vacancy_filters)"""
+    from app.schemas.smart import SmartVacancyFilters, SmartSkillChip
+
+    f = SmartVacancyFilters(
+        area="ИТ",
+        professional_role="Разработчик",
+        experience="between1And3",
+        skills=["SQL"],
+        skill_chips=[SmartSkillChip(id="100", text="Python")],
+    )
+    assert len(f.skill_chips) == 1
+    assert f.skill_chips[0].id == "100"
+
+    # Дефолт пустой
+    f2 = SmartVacancyFilters(
+        area="",
+        professional_role="",
+        experience="",
+        skills=[],
+    )
+    assert f2.skill_chips == []
 
 
 @pytest.mark.asyncio

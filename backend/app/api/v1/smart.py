@@ -24,6 +24,7 @@ from ...schemas.smart import (
     SmartCountRequest,
     SmartCountResponse,
     SmartAreaSuggestItem,
+    SmartSkillSuggestItem,
     SmartRoleSuggestItem,
     SmartRoleCategory,
     SmartInviteRequest,
@@ -52,6 +53,7 @@ from ...services.smart_search import (
     derive_vacancy_filters,
     preview_found_count,
     suggest_areas,
+    suggest_skills,
     suggest_professional_roles,
     get_professional_role_categories,
     invite_selected,
@@ -218,6 +220,23 @@ async def smart_area_suggest(
     items = await suggest_areas(session, company_id, text)
     return [SmartAreaSuggestItem(id=str(i.get("id")), text=str(i.get("text", "")))
             for i in items if i.get("id")]
+
+
+@router.get("/skill-suggest", response_model=list[SmartSkillSuggestItem])
+async def smart_skill_suggest(
+    text: str = "",
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить подсказки навыков из справочника hh.ru (skill_set).
+
+    Возвращает [{id, text}]. id можно передавать как skill_chips в запросе поиска
+    для структурного фильтра skill= (режим exact).
+    Требует минимум 2 символа; пустой/короткий text → [].
+    """
+    items = await suggest_skills(session, company_id, text)
+    return [SmartSkillSuggestItem(id=i["id"], text=i["text"]) for i in items]
 
 
 @router.get("/role-suggest", response_model=list[SmartRoleSuggestItem])

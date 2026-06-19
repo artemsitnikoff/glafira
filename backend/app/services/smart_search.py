@@ -425,6 +425,12 @@ async def start_search(
         has_paid_access = False
 
     # Создаем запись поиска с защитой от гонки
+    # Сериализуем skill_chips в list[dict] для хранения в JSONB
+    skill_chips_serialized = [
+        c.model_dump() if hasattr(c, "model_dump") else dict(c)
+        for c in (request.skill_chips or [])
+    ]
+
     search_run = SmartSearchRun(
         company_id=company_id,
         vacancy_id=request.vacancy_id,
@@ -435,6 +441,8 @@ async def start_search(
             "professional_role": request.professional_role,
             "experience": request.experience,
             "skills": request.skills,
+            "skill_chips": skill_chips_serialized,
+            "skill_mode": request.skill_mode,
             "salary_from": request.salary_from,
             "salary_to": request.salary_to,
             "include_no_salary": request.include_no_salary,
@@ -471,19 +479,37 @@ def build_search_params(params: dict, vacancy) -> list[tuple[str, str]]:
     Строит параметры поиска резюме на hh.ru из фильтров умного подбора.
 
     Возвращает list[tuple[str, str]] (список пар ключ-значение) — это позволяет
-    передавать несколько text-блоков с повторяющимся ключом «text», что требует
-    hh API для расширенного поиска по нескольким полям одновременно.
-    httpx.get(params=list_of_tuples) корректно сериализует повторяющиеся ключи
-    в query-строку: text=роль&text.field=everywhere&text=навыки&text.field=skills.
+    передавать несколько text-блоков с повторяющимся ключом «text» и несколько
+    пар skill= с повторяющимся ключом, что требует hh API.
+    httpx.get(params=list_of_tuples) корректно сериализует повторяющиеся ключи.
 
     Args:
-        params: словарь параметров поиска от клиента
+        params: словарь параметров поиска от клиента. Может содержать:
+            - skill_chips: list[dict] — навыки с id из справочника hh ({"id": str, "text": str})
+            - skill_mode: "exact" | "soft" (дефолт "soft")
+            - skills: list[str] — свободные навыки без id
+            - (прочие стандартные поля)
         vacancy: объект вакансии
 
     Returns:
-        list[tuple[str, str]]: пары параметров для hh API БЕЗ page/per_page
+        list[tuple[str, str]]: пары параметров для hh API БЕЗ page/per_page.
+        НЕ dict — повторяющиеся ключи skill= и text= не схлопнутся.
+
+    skill_mode == "exact":
+        - skill_chips с валидным числовым id → структурные ("skill", id) повтором
+        - skill_chips без числового id + свободные skills → text.field=skills фолбэк
+          (чтобы навык не потерялся молча)
+        ⚠️ Логика нескольких skill= (И vs ИЛИ) не задокументирована hh — не утверждать.
+
+    skill_mode == "soft" (дефолт, старое поведение):
+        - ВСЕ навыки (skills + тексты skill_chips) → один text.field=skills блок
+        - структурный skill= не добавляется
     """
     result: list[tuple[str, str]] = []
+
+    skill_mode = params.get("skill_mode", "soft")
+    skill_chips: list[dict] = params.get("skill_chips", []) or []
+    free_skills: list[str] = params.get("skills", []) or []
 
     # --- Структурные фильтры ---
 
@@ -522,13 +548,11 @@ def build_search_params(params: dict, vacancy) -> list[tuple[str, str]]:
     if period is not None and isinstance(period, int) and period > 0:
         result.append(("period", str(period)))
 
-    # --- Текстовые блоки (повторяющийся ключ text) ---
-    # Блок 1: основной — по роли/должности, широко (text.logic=any)
+    # --- Блок 1: роль (text.field=everywhere) — всегда первый ---
     # Если роль числовая — используем название вакансии словами.
     # Если роль текстовая — используем её текст.
     # Fallback — название вакансии.
     if role_is_numeric:
-        # professional_role уже в структурном фильтре → берём название вакансии
         role_text = str(vacancy.name or "").strip()
     else:
         role_raw = params.get("professional_role") or ""
@@ -540,12 +564,44 @@ def build_search_params(params: dict, vacancy) -> list[tuple[str, str]]:
         result.append(("text.logic", "any"))
         result.append(("text.period", "all_time"))
 
-    # Блок 2: навыки — отдельный мягкий блок text.field=skills, text.logic=any
-    # НЕ используем структурный skill= (он принимает только числовые id из справочника hh)
-    skills = params.get("skills", [])
-    if skills and isinstance(skills, list):
-        skills_text = " ".join(str(s).strip() for s in skills if str(s).strip())
-        if skills_text:
+    # --- Блок 2: навыки — режим exact или soft ---
+    if skill_mode == "exact":
+        # Структурные skill= для чипов с валидным числовым id
+        chips_without_id: list[str] = []
+        for chip in skill_chips:
+            chip_id = str(chip.get("id", "")).strip() if isinstance(chip, dict) else ""
+            chip_text = str(chip.get("text", "")).strip() if isinstance(chip, dict) else ""
+            if chip_id.isdigit():
+                result.append(("skill", chip_id))
+            elif chip_text:
+                chips_without_id.append(chip_text)
+
+        # Фолбэк text.field=skills: чипы без числового id + свободные skills
+        # (чтобы ни один навык не потерялся молча — §0 проекта)
+        fallback_skills_parts = chips_without_id + [
+            str(s).strip() for s in free_skills if str(s).strip()
+        ]
+        if fallback_skills_parts:
+            fallback_text = " ".join(fallback_skills_parts)
+            result.append(("text", fallback_text))
+            result.append(("text.field", "skills"))
+            result.append(("text.logic", "any"))
+            result.append(("text.period", "all_time"))
+
+    else:
+        # soft (дефолт, сохраняет старое поведение): все навыки в один text.field=skills блок
+        all_skill_texts: list[str] = []
+        for chip in skill_chips:
+            chip_text = str(chip.get("text", "")).strip() if isinstance(chip, dict) else ""
+            if chip_text:
+                all_skill_texts.append(chip_text)
+        for s in free_skills:
+            s_text = str(s).strip()
+            if s_text:
+                all_skill_texts.append(s_text)
+
+        if all_skill_texts:
+            skills_text = " ".join(all_skill_texts)
             result.append(("text", skills_text))
             result.append(("text.field", "skills"))
             result.append(("text.logic", "any"))
@@ -554,7 +610,11 @@ def build_search_params(params: dict, vacancy) -> list[tuple[str, str]]:
     return result
 
 
-def _build_debug_params(params: dict, search_pairs: list[tuple[str, str]]) -> dict:
+def _build_debug_params(
+    params: dict,
+    search_pairs: list[tuple[str, str]],
+    skill_chips: list[dict] | None = None,
+) -> dict:
     """
     Строит структурированное описание параметров запроса к hh для UI-диагностики.
 
@@ -562,12 +622,17 @@ def _build_debug_params(params: dict, search_pairs: list[tuple[str, str]]) -> di
       {
         "structural": {ключ: значение, ...},   # area, professional_role, experience, salary_*, period
         "text_blocks": [
-          {"label": "роль", "text": "...", "field": "everywhere", "logic": "any"},
-          {"label": "навыки", "text": "...",  "field": "skills",     "logic": "any"},
+          {"label": "навыки", "text": "...", "field": "skills",     "logic": "any"},
+          {"label": "роль",   "text": "...", "field": "everywhere", "logic": "any"},
+        ],
+        "skill_filter": [  # только в режиме exact; в soft — []
+          {"id": "3018", "text": "Холодные продажи"},
+          ...
         ]
       }
 
-    Это позволяет фронту честно показать оба text-блока и структурные фильтры.
+    skill_filter — навыки, ушедшие как структурный skill= (т.е. из skill_chips с валидным id).
+    В soft-режиме или при пустых skill_chips — [].
     """
     structural_keys = {"area", "professional_role", "experience", "salary_from", "salary_to",
                        "only_with_salary", "period"}
@@ -604,7 +669,16 @@ def _build_debug_params(params: dict, search_pairs: list[tuple[str, str]]) -> di
         else:
             i += 1
 
-    return {"structural": structural, "text_blocks": text_blocks}
+    # skill_filter: навыки с числовым id, ушедшие как skill= в exact-режиме
+    skill_filter: list[dict] = []
+    if skill_chips:
+        for chip in skill_chips:
+            chip_id = str(chip.get("id", "")).strip() if isinstance(chip, dict) else ""
+            chip_text = str(chip.get("text", "")).strip() if isinstance(chip, dict) else ""
+            if chip_id.isdigit() and chip_text:
+                skill_filter.append({"id": chip_id, "text": chip_text})
+
+    return {"structural": structural, "text_blocks": text_blocks, "skill_filter": skill_filter}
 
 
 async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
@@ -1729,11 +1803,18 @@ async def preview_found_count(
             raise NotFoundError("Вакансия")
 
         # Собираем параметры фильтров из запроса
+        # skill_chips может быть списком Pydantic-объектов (SmartSkillChip) или dict'ов
+        skill_chips_raw = [
+            c.model_dump() if hasattr(c, "model_dump") else dict(c)
+            for c in (request.skill_chips or [])
+        ]
         params = {
             "area": request.area,
             "professional_role": request.professional_role,
             "experience": request.experience,
             "skills": request.skills,
+            "skill_chips": skill_chips_raw,
+            "skill_mode": getattr(request, "skill_mode", "soft"),
             "salary_from": request.salary_from,
             "salary_to": request.salary_to,
             "include_no_salary": request.include_no_salary,
@@ -1746,8 +1827,8 @@ async def preview_found_count(
         base_params = build_search_params(params, vacancy)
 
         # debug_params — структурированное описание реальных параметров для UI-диагностики.
-        # Формируем отдельно, до добавления page/per_page.
-        debug_params = _build_debug_params(params, base_params)
+        # Передаём skill_chips для точного отображения структурных навыков в exact-режиме.
+        debug_params = _build_debug_params(params, base_params, skill_chips=skill_chips_raw)
 
         # Добавляем page/per_page для самого запроса (конкатенацией, не dict-мутацией)
         search_params = base_params + [("per_page", "1"), ("page", "0")]
@@ -1861,11 +1942,41 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
         if not isinstance(response_data['skills'], list) or len(response_data['skills']) > 8:
             raise GlafiraParseError(details={"reason": "skills must be list with ≤8 items", "got": type(response_data['skills'])})
 
+        ai_skills: list[str] = response_data["skills"]
+
+        # Best-effort: резолвим каждый навык через справочник hh skill_set
+        # Берём первый результат suggest (текстовое совпадение наиболее вероятно).
+        # Что зарезолвилось → skill_chips [{id, text}]; что нет → остаётся в skills.
+        # Graceful: любой сбой (нет токена hh, таймаут) — просто пропускаем резолв.
+        skill_chips: list[dict] = []
+        unresolved_skills: list[str] = []
+        try:
+            access_token = await hh_service.get_valid_access_token(session, company_id)
+            for skill_name in ai_skills:
+                skill_name_str = str(skill_name).strip()
+                if len(skill_name_str) < 2:
+                    unresolved_skills.append(skill_name_str)
+                    continue
+                try:
+                    items = await hh_client.suggest_skill_set(access_token, skill_name_str)
+                    if items and items[0].get("id") and items[0].get("text"):
+                        skill_chips.append({"id": str(items[0]["id"]), "text": str(items[0]["text"])})
+                    else:
+                        unresolved_skills.append(skill_name_str)
+                except Exception:
+                    unresolved_skills.append(skill_name_str)
+        except Exception as e:
+            # hh недоступен / нет токена — оставляем все навыки в skills, skill_chips пуст
+            logger.debug(f"Резолв skill_chips через hh пропущен (нет токена или ошибка): {e}")
+            unresolved_skills = [str(s).strip() for s in ai_skills if str(s).strip()]
+            skill_chips = []
+
         return {
             "area": response_data["area"],
             "professional_role": response_data["professional_role"],
             "experience": response_data["experience"],
-            "skills": response_data["skills"],
+            "skills": unresolved_skills,
+            "skill_chips": skill_chips,
             # Город/ЗП — прямо из полей вакансии (не LLM). Доп. ключи: hh-ветка их игнорит,
             # ветка «по своей базе» использует для фильтра по candidates.
             "city": vacancy.city or "",
@@ -1882,6 +1993,7 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
             "professional_role": vacancy.name,
             "experience": "",
             "skills": [],
+            "skill_chips": [],
             "city": vacancy.city or "",
             "salary_from": vacancy.salary_from,
             "salary_to": vacancy.salary_to,
@@ -1916,6 +2028,40 @@ async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> l
     except Exception as e:
         # При ЛЮБОЙ ошибке возвращаем пустой список (подсказки не должны ронять форму)
         logger.warning(f"Ошибка получения подсказок регионов hh: {e}")
+        return []
+
+
+async def suggest_skills(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
+    """
+    Получает подсказки навыков из справочника hh.ru (skill_set).
+
+    Args:
+        session: сессия БД
+        company_id: ID компании
+        text: текст для поиска (минимум 2 символа)
+
+    Returns:
+        list[dict]: список навыков [{id: str, text: str}] — только элементы с непустыми id и text.
+        При ошибке или text < 2 символов — [].
+
+    Note:
+        Возвращённые id можно передавать как skill= в запросе поиска резюме (режим exact).
+        При любой ошибке возвращает пустой список — подсказки не должны ронять форму.
+    """
+    if len(text.strip()) < 2:
+        return []
+
+    try:
+        access_token = await hh_service.get_valid_access_token(session, company_id)
+        items = await hh_client.suggest_skill_set(access_token, text)
+        # Нормализуем: оставляем только элементы с непустыми id и text
+        return [
+            {"id": str(item["id"]), "text": str(item["text"])}
+            for item in items
+            if item.get("id") and item.get("text")
+        ]
+    except Exception as exc:
+        logger.warning("Ошибка получения подсказок навыков hh: %s", exc)
         return []
 
 
