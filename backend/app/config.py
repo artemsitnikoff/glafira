@@ -50,10 +50,10 @@ class Settings(BaseSettings):
 
     # Семантический поиск по собственной базе
     GLAFIRA_EMBED_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    # ⚠️ ЗАРЕЗЕРВИРОВАНО: rerank сейчас идёт через общий score_resume_dict (модель GLAFIRA_MODEL).
-    # Подключение отдельной bulk-модели требует параметра model в общем (платном hh-) скорере —
-    # отложено, чтобы не рисковать hh-скорингом. Переменная оставлена под будущую проводку.
-    GLAFIRA_MODEL_BULK: str = ""  # bulk rerank (план: fallback на GLAFIRA_MODEL)
+    # Умный подбор (hh-ветка) и rerank своей базы используют get_company_llm_model — модель компании
+    # из Настройки→AI, с фолбэком на GLAFIRA_MODEL. Переменная GLAFIRA_MODEL_BULK зарезервирована
+    # под будущую отдельную bulk-модель (сейчас не используется).
+    GLAFIRA_MODEL_BULK: str = ""  # зарезервировано; сейчас не используется
     GLAFIRA_RETRIEVE_CAP: int = 150  # Максимум кандидатов в шорт-листе retrieve
     GLAFIRA_RERANK_CAP: int = 24  # Максимум кандидатов для LLM rerank (синхронный HTTP-таймаут)
     # HNSW ef_search параметр для pgvector (должно быть >= GLAFIRA_RETRIEVE_CAP для полного top-k)

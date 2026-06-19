@@ -54,7 +54,7 @@ class _ScoringLLMOutput(BaseModel):
     questions: list[str] = []
 
 
-async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUID, api_key: str) -> dict:
+async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUID, api_key: str, model: str | None = None) -> dict:
     """
     Оценивает резюме из hh.ru БЕЗ персиста в БД (для умного подбора).
 
@@ -62,6 +62,8 @@ async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUI
         hh_resume: Данные резюме от hh.ru API
         vacancy: Модель вакансии
         company_id: ID компании
+        api_key: OpenRouter API-ключ компании
+        model: Модель LLM компании (из get_company_llm_model). None → дефолт env GLAFIRA_MODEL.
 
     Returns:
         dict: {"score": int, "verdict": str, "summary": str}
@@ -141,7 +143,8 @@ async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUI
         system=system_prompt,
         user=user_prompt,
         api_key=api_key,
-        max_tokens=8000
+        max_tokens=8000,
+        model=model
     )
 
     # Строгая валидация (как в score_candidate)

@@ -307,6 +307,16 @@ _OPENROUTER_KEY_SITES = (
     "app.services.settings.glafira.get_company_openrouter_key",
 )
 
+# === Мок get_company_llm_model для smart/base_search ========================
+# Эти сервисы теперь резолвят модель компании через get_company_llm_model.
+# В offline-тестах БД не настроена под GlafiraSettings — без мока они падают.
+# ТОЛЬКО smart_search и base_search: scoring.py (score_candidate) использует
+# реальный get_company_llm_model с db_session и мокать его НЕ нужно.
+_LLM_MODEL_SITES = (
+    "app.services.smart_search.get_company_llm_model",
+    "app.services.base_search.get_company_llm_model",
+)
+
 
 def pytest_configure(config):
     config.addinivalue_line(
@@ -325,6 +335,11 @@ def _default_company_openrouter_key(request, monkeypatch):
         return
     for site in _OPENROUTER_KEY_SITES:
         monkeypatch.setattr(site, AsyncMock(return_value="test-openrouter-key"), raising=False)
+    # Мокаем get_company_llm_model на сайтах smart/base_search — возвращаем дефолтную модель
+    # env (валидна для call_json). Сайт scoring.py НЕ мокаем — там test_ai_model_settings
+    # проверяет реальный get_company_llm_model через db_session.
+    for site in _LLM_MODEL_SITES:
+        monkeypatch.setattr(site, AsyncMock(return_value=settings.GLAFIRA_MODEL), raising=False)
     # create_vacancy авто-генерит рубрику критериев (call_json → OpenRouter) при пустых
     # критериях + наличии description. В офлайн-тестах НЕ ходим в сеть: по умолчанию
     # авто-генерация = no-op (None). Тесты самой авто-генерации (test_scoring_rubric)

@@ -14,7 +14,8 @@ from app.services.base_search import (
     cosine_to_percent,
     vector_retrieve_scored,
     get_base_search_run_status,
-    vector_retrieve
+    vector_retrieve,
+    _rerank_candidates_with_progress,
 )
 from app.models import Candidate, CandidateSkill, BaseSearchRun, Vacancy
 from app.core.errors import GlafiraParseError, NotFoundError
@@ -699,3 +700,135 @@ class TestNewFunctions:
 
             # При отсутствии записей в БД должен вернуться пустой список
             assert result == []
+
+
+# === Тесты передачи модели компании в score_resume_dict (fix v0.9.101) ========
+
+
+@pytest.mark.asyncio
+async def test_score_resume_dict_passes_model_to_call_json():
+    """score_resume_dict передаёт параметр model в call_json — проверяем через мок по import-site."""
+    from app.services.glafira.scoring import score_resume_dict
+    from uuid import uuid4
+
+    marker_model = "openai/gpt-4o-test-marker"
+    dummy_vacancy = type("V", (), {
+        "name": "Python Dev",
+        "city": "Москва",
+        "salary_from": None,
+        "salary_to": None,
+        "currency": "RUR",
+        "description": None,
+        "recruiter_scoring_instructions": None,
+    })()
+    hh_resume = {"first_name": "Иван", "last_name": "Иванов", "experience": [], "skills": []}
+
+    captured_kwargs: dict = {}
+
+    async def _fake_call_json(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {
+            "score": 80,
+            "verdict": "good",
+            "summary": "Хорошо",
+            "strengths": ["Python"],
+            "risks": [],
+            "requirements_match": [],
+            "forecast": "Отлично",
+        }
+
+    with patch("app.services.glafira.scoring.call_json", new=_fake_call_json):
+        await score_resume_dict(
+            hh_resume, dummy_vacancy, uuid4(), "test-api-key", model=marker_model
+        )
+
+    assert captured_kwargs.get("model") == marker_model, (
+        f"Ожидали model={marker_model!r}, получили {captured_kwargs.get('model')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_score_resume_dict_model_none_passthrough():
+    """Если model=None — call_json получает model=None (фолбэк на env в client.py, обратная совместимость)."""
+    from app.services.glafira.scoring import score_resume_dict
+    from uuid import uuid4
+
+    dummy_vacancy = type("V", (), {
+        "name": "QA",
+        "city": None,
+        "salary_from": None,
+        "salary_to": None,
+        "currency": "RUR",
+        "description": None,
+        "recruiter_scoring_instructions": None,
+    })()
+    hh_resume = {"first_name": "А", "last_name": "Б", "experience": [], "skills": []}
+
+    captured_kwargs: dict = {}
+
+    async def _fake_call_json(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {
+            "score": 50,
+            "verdict": "partial",
+            "summary": "OK",
+            "strengths": [],
+            "risks": [],
+            "requirements_match": [],
+            "forecast": "норм",
+        }
+
+    with patch("app.services.glafira.scoring.call_json", new=_fake_call_json):
+        await score_resume_dict(hh_resume, dummy_vacancy, uuid4(), "test-key")
+
+    assert captured_kwargs.get("model") is None, (
+        "Ожидали model=None (обратная совместимость), "
+        f"получили {captured_kwargs.get('model')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rerank_passes_company_model_to_score_resume_dict(db_session, test_company):
+    """_rerank_candidates_with_progress резолвит company_model и передаёт его в score_resume_dict."""
+    from uuid import uuid4
+    from contextlib import asynccontextmanager
+
+    marker_model = "openai/gpt-4o-rerank-marker"
+    run_id = uuid4()
+
+    candidate_stub = type("C", (), {"id": uuid4()})()
+    candidates_data = [{"candidate": candidate_stub}]
+
+    captured_model_arg: dict = {}
+
+    async def _fake_score_resume_dict(hh_resume, vacancy, company_id, api_key, model=None):
+        captured_model_arg["model"] = model
+        return {
+            "score": 75, "verdict": "good", "summary": "OK",
+            "strengths": [], "risks": [], "requirements_match": [], "forecast": "",
+        }
+
+    @asynccontextmanager
+    async def _fake_session_local():
+        yield db_session
+
+    with (
+        patch("app.services.base_search.get_company_llm_model", new=AsyncMock(return_value=marker_model)),
+        patch("app.services.base_search.get_company_openrouter_key", new=AsyncMock(return_value="test-key")),
+        patch("app.services.base_search.score_resume_dict", new=_fake_score_resume_dict),
+        patch("app.services.base_search.AsyncSessionLocal", new=_fake_session_local),
+        patch("app.services.base_search._update_base_search_progress", new=AsyncMock()),
+        patch("app.services.base_search._candidate_to_resume_dict", return_value={}),
+    ):
+        await _rerank_candidates_with_progress(
+            candidates_data=candidates_data,
+            vacancy=None,
+            query_text="Python разработчик",
+            company_id=test_company.id,
+            run_id=run_id,
+            rerank_cap=1,
+        )
+
+    assert captured_model_arg.get("model") == marker_model, (
+        f"Ожидали model={marker_model!r}, получили {captured_model_arg.get('model')!r}"
+    )

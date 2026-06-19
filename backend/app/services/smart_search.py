@@ -24,7 +24,7 @@ from ..services.integrations.hh import service as hh_service
 from ..services.integrations.hh import client as hh_client
 from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
-from ..services.settings.glafira import get_company_openrouter_key
+from ..services.settings.glafira import get_company_openrouter_key, get_company_llm_model
 from ..services.audit import audit
 from ..services.phone import normalize_phone
 from .smart_search_log import log_smart_search, log_and_append_to_run
@@ -811,8 +811,9 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             # Получаем токен, вакансию и API-ключ компании
             access_token = await hh_service.get_valid_access_token(init_session, company_id)
             vacancy = await init_session.get(Vacancy, run.vacancy_id)
-            # Резолвим API-ключ компании один раз для всех LLM-вызовов
+            # Резолвим API-ключ и модель компании один раз для всех LLM-вызовов
             company_api_key = await get_company_openrouter_key(init_session, company_id)
+            company_model = await get_company_llm_model(init_session, company_id)
 
             # Сохраняем нужные данные в локальные переменные до закрытия сессии
             params = run.params
@@ -924,7 +925,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
                 try:
                     # Оцениваем резюме БЕЗ открытой DB сессии с таймаутом
                     score_result = await asyncio.wait_for(
-                        score_resume_dict(full_resume, vacancy_for_scoring, company_id, company_api_key),
+                        score_resume_dict(full_resume, vacancy_for_scoring, company_id, company_api_key, model=company_model),
                         timeout=180  # LLM-вызов может быть долгим с ретраями
                     )
                     score = score_result["score"]

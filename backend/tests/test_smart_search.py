@@ -3058,4 +3058,87 @@ async def test_preview_found_count_hh_error_returns_debug_params(
     assert found is None
     # debug_params строится до вызова hh — поэтому доступен даже при ошибке
     assert isinstance(debug_params, dict)
+
+
+# === Тесты передачи модели компании (fix v0.9.101) ===========================
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.smart_search.hh_client.search_resumes')
+@patch('app.services.smart_search.hh_client.get_resume_by_id')
+@patch('app.services.smart_search.score_resume_dict')
+@patch('app.services.smart_search.get_company_llm_model')
+@patch('app.services.smart_search.get_company_openrouter_key')
+async def test_run_search_inner_passes_company_model_to_score_resume_dict(
+    mock_get_key,
+    mock_get_model,
+    mock_score,
+    mock_get_resume,
+    mock_search,
+    mock_token,
+    db_session,
+    test_company,
+    test_vacancy,
+):
+    """_run_search_inner резолвит company_model один раз и передаёт его в score_resume_dict."""
+    marker_model = "openai/gpt-4o-smart-marker"
+    mock_token.return_value = "test_token"
+    mock_get_key.return_value = "test-api-key"
+    mock_get_model.return_value = marker_model
+
+    # hh search возвращает одно резюме
+    mock_search.return_value = {"found": 1, "items": [{"id": "r1"}]}
+    mock_get_resume.return_value = {
+        "id": "r1", "first_name": "Иван", "last_name": "Тест",
+        "experience": [], "skills": [], "area": {"name": "Москва"},
+    }
+    mock_score.return_value = {
+        "score": 90, "verdict": "good", "summary": "Отлично",
+        "strengths": [], "risks": [], "requirements_match": [], "forecast": "Хорошо",
+    }
+
+    # Создаём SmartSearchRun в тестовой сессии
+    from app.models import SmartSearchRun
+    from contextlib import asynccontextmanager
+
+    run = SmartSearchRun(
+        company_id=test_company.id,
+        vacancy_id=test_vacancy.id,
+        status="pending",
+        params={
+            "scan_n": 1,
+            "invite_m": 0,
+            "threshold": 70,
+            "has_paid_access": False,
+        },
+        log=[],
+        scored_candidates=[],
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    @asynccontextmanager
+    async def _fake_session_local():
+        yield db_session
+
+    with patch("app.services.smart_search.AsyncSessionLocal", new=_fake_session_local):
+        await _run_search_inner(run.id, test_company.id)
+
+    # Проверяем, что get_company_llm_model был вызван
+    mock_get_model.assert_called_once()
+
+    # Проверяем, что score_resume_dict получил model=marker_model
+    assert mock_score.called, "score_resume_dict должен был быть вызван"
+    call_kwargs = mock_score.call_args
+    # Аргумент model может быть positional (5-й) или keyword
+    positional_args = call_kwargs[0] if call_kwargs[0] else ()
+    keyword_args = call_kwargs[1] if call_kwargs[1] else {}
+    received_model = keyword_args.get("model") if "model" in keyword_args else (
+        positional_args[4] if len(positional_args) > 4 else None
+    )
+    assert received_model == marker_model, (
+        f"Ожидали model={marker_model!r} в score_resume_dict, получили {received_model!r}"
+    )
     assert "text" in debug_params

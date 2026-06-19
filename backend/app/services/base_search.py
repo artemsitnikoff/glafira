@@ -20,7 +20,7 @@ from ..models import (
 from ..services.embeddings import build_candidate_text, source_hash, embed_query, embed_texts
 from ..services.glafira.client import call_json
 from ..services.glafira.scoring import score_resume_dict
-from ..services.settings.glafira import get_company_openrouter_key
+from ..services.settings.glafira import get_company_openrouter_key, get_company_llm_model
 from ..services.smart_search import derive_vacancy_filters
 from ..services.candidate_format import _compute_age, _compute_full_name
 
@@ -1197,9 +1197,10 @@ async def _rerank_candidates_with_progress(
 
     logger.info(f"Rerank для {len(rerank_candidates)} кандидатов")
 
-    # Резолвим API-ключ компании один раз для всех LLM-вызовов
+    # Резолвим API-ключ и модель компании один раз для всех LLM-вызовов
     async with AsyncSessionLocal() as key_session:
         api_key = await get_company_openrouter_key(key_session, company_id)
+        company_model = await get_company_llm_model(key_session, company_id)
 
     # Семафор для ограничения конкурентных LLM запросов
     semaphore = asyncio.Semaphore(6)
@@ -1214,13 +1215,13 @@ async def _rerank_candidates_with_progress(
 
                 if vacancy:
                     score_data = await asyncio.wait_for(
-                        score_resume_dict(resume_dict, vacancy, company_id, api_key), timeout=180
+                        score_resume_dict(resume_dict, vacancy, company_id, api_key, model=company_model), timeout=180
                     )
                 else:
                     # Скоринг против query как синтетической вакансии
                     synthetic_vacancy = _create_synthetic_vacancy_for_scoring(query_text or "")
                     score_data = await asyncio.wait_for(
-                        score_resume_dict(resume_dict, synthetic_vacancy, company_id, api_key), timeout=180
+                        score_resume_dict(resume_dict, synthetic_vacancy, company_id, api_key, model=company_model), timeout=180
                     )
 
                 candidate_data["llm_score"] = score_data.get("score", 0)
