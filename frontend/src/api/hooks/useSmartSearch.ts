@@ -223,9 +223,33 @@ export interface SmartCountRequest {
   period?: number;
 }
 
+// Тип debug_params v0.9.96 — новая форма (openapi не регенерён; локальный тип + as-cast)
+export interface SmartDebugTextBlock {
+  text: string;
+  field?: string;    // "everywhere" (роль) | "skills" (навыки)
+  logic?: string;    // "any"
+  period?: string;   // "all_time"
+  label: string;     // "роль" | "навыки"
+}
+
+export interface SmartDebugStructural {
+  area?: string;
+  professional_role?: string;
+  experience?: string;
+  salary_from?: string;
+  salary_to?: string;
+  only_with_salary?: string;
+  period?: string;
+}
+
+export interface SmartDebugParams {
+  structural: SmartDebugStructural;
+  text_blocks: SmartDebugTextBlock[];
+}
+
 export interface SmartCountResponse {
   found: number | null;
-  debug_params: Record<string, unknown> | null;
+  debug_params: SmartDebugParams | null;
 }
 
 export function useSmartCount() {

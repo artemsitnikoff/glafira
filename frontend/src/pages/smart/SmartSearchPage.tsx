@@ -36,6 +36,7 @@ import {
   type BaseSearchCandidate,
   type BaseSearchRequest,
   type BaseSearchRunItem,
+  type SmartDebugParams,
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
 import './smart-search.css';
@@ -92,8 +93,8 @@ export default function SmartSearchPage() {
   const [roleSearchText, setRoleSearchText] = useState('');
   const [period, setPeriod] = useState<number | undefined>(undefined);
 
-  // Дебаг-параметры из preview-count
-  const [debugParams, setDebugParams] = useState<Record<string, unknown> | null>(null);
+  // Дебаг-параметры из preview-count (новая форма v0.9.96)
+  const [debugParams, setDebugParams] = useState<SmartDebugParams | null>(null);
 
   // Step 3 — зарплата
   const [salFrom, setSalFrom] = useState(0);
@@ -680,6 +681,17 @@ export default function SmartSearchPage() {
                 </div>
               </div>
 
+              {/* Диагностика запроса к hh — показываем прямо здесь, рядом с числом */}
+              <SSDebugParams
+                debugParams={debugParams}
+                found={previewFound}
+                hasRoleInput={!!roleSearchText || !!roleLabel}
+                hasAreaInput={!!areaLabel}
+                roleId={roleId}
+                areaId={areaId}
+                isPending={countMut.isPending}
+              />
+
               <div className="ss-cost-hint">
                 <Icon name="alert-triangle" size={15} className="ss-ch-ic" />
                 <span>
@@ -754,17 +766,6 @@ export default function SmartSearchPage() {
             <span className="ss-sum-pill"><span className="k">Приглашаем топ</span><span className="v t-mono">{inviteM}</span></span>
             <span className="ss-sum-pill"><span className="k">Порог</span><span className="v t-mono">≥ {threshold}</span></span>
           </div>
-
-          {/* Дебаг-окно: что реально уходит в hh */}
-          <SSDebugParams
-            debugParams={debugParams}
-            found={previewFound}
-            hasRoleInput={!!roleSearchText || !!roleLabel}
-            hasAreaInput={!!areaLabel}
-            roleId={roleId}
-            areaId={areaId}
-            isPending={countMut.isPending}
-          />
 
           <div className="ss-sum-sentence">
             Найдём {previewFound !== null ? <b>~{ssFmt(previewFound)}</b> : <b>резюме</b>}{previewFound === null && countMut.isPending ? ' (считаем…)' : ''} по фильтрам → оценим первые <span className="hl">{ssFmt(scanN)}</span> AI-матчингом
@@ -2841,7 +2842,25 @@ function SmartRoleSelector({
   );
 }
 
-// Дебаг-окно: что реально ушло в hh и почему «0 найдено»
+// Перевод enum опыта hh → русский
+function formatExpLabel(val: string): string {
+  const map: Record<string, string> = {
+    noExperience: 'без опыта',
+    between1And3: '1–3 года',
+    between3And6: '3–6 лет',
+    moreThan6: 'более 6 лет',
+  };
+  return map[val] ?? val;
+}
+
+// Подпись по label текстового блока
+function textBlockLabel(block: { field?: string; label: string }): string {
+  if (block.field === 'everywhere') return 'По роли / должности';
+  if (block.field === 'skills') return 'По навыкам';
+  return block.label || 'Текстовый блок';
+}
+
+// Дебаг-окно: что реально ушло в hh — понятно рекрутёру (v0.9.97)
 function SSDebugParams({
   debugParams,
   found,
@@ -2851,7 +2870,7 @@ function SSDebugParams({
   areaId,
   isPending,
 }: {
-  debugParams: Record<string, unknown> | null;
+  debugParams: SmartDebugParams | null;
   found: number | null;
   hasRoleInput: boolean;
   hasAreaInput: boolean;
@@ -2864,13 +2883,27 @@ function SSDebugParams({
   // Показываем только когда есть данные или идёт загрузка
   if (!debugParams && !isPending) return null;
 
-  const roleApplied = debugParams && 'professional_role' in debugParams;
-  const areaApplied = debugParams && 'area' in debugParams;
+  const structural = debugParams?.structural ?? {};
+  const textBlocks = debugParams?.text_blocks ?? [];
 
-  // Подсказка: роль или область набраны текстом но не выбраны из справочника
+  const roleApplied = !!structural.professional_role;
+  const areaApplied = !!structural.area;
+
+  // Подсказка: роль или область набраны текстом, но не выбраны из справочника
   const roleNotApplied = hasRoleInput && !roleId && !roleApplied;
   const areaNotApplied = hasAreaInput && !areaId && !areaApplied;
   const showHint = roleNotApplied || areaNotApplied;
+
+  // Структурные фильтры: только непустые
+  const structuralRows: Array<{ label: string; value: string }> = [];
+  if (structural.professional_role) structuralRows.push({ label: 'Проф-роль (фильтр)', value: structural.professional_role });
+  if (structural.area) structuralRows.push({ label: 'Регион', value: structural.area });
+  if (structural.experience) structuralRows.push({ label: 'Опыт', value: formatExpLabel(structural.experience) });
+  if (structural.salary_from) structuralRows.push({ label: 'Зарплата от', value: structural.salary_from + ' ₽' });
+  if (structural.salary_to) structuralRows.push({ label: 'Зарплата до', value: structural.salary_to + ' ₽' });
+  if (structural.only_with_salary !== undefined)
+    structuralRows.push({ label: 'Включая без ЗП', value: structural.only_with_salary === 'false' ? 'да' : 'нет' });
+  if (structural.period) structuralRows.push({ label: 'Свежесть', value: structural.period + ' дней' });
 
   return (
     <div className="ss-debug-panel">
@@ -2896,7 +2929,7 @@ function SSDebugParams({
               {roleNotApplied && (
                 <span>
                   <Icon name="alert-triangle" size={12} />
-                  {' '}Роль введена текстом без выбора из справочника — фильтр <b>professional_role</b> не применился. Выберите роль из подсказок.
+                  {' '}Роль введена текстом без выбора из справочника — структурный фильтр <b>professional_role</b> не применился. Выберите роль из подсказок.
                 </span>
               )}
               {areaNotApplied && (
@@ -2909,22 +2942,45 @@ function SSDebugParams({
           )}
 
           {debugParams && (
-            <table className="ss-debug-table">
-              <tbody>
-                {Object.entries(debugParams).map(([key, val]) => (
-                  <tr key={key}>
-                    <td className="ss-debug-key t-mono">{key}</td>
-                    <td className="ss-debug-val">
-                      {Array.isArray(val)
-                        ? val.join(', ') || '—'
-                        : val === null || val === undefined
-                        ? <span className="ss-debug-null">не задан</span>
-                        : String(val)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              {/* Раздел 1: структурные фильтры */}
+              <div className="ss-debug-section-title">Структурные фильтры</div>
+              {structuralRows.length > 0 ? (
+                <table className="ss-debug-table">
+                  <tbody>
+                    {structuralRows.map(row => (
+                      <tr key={row.label}>
+                        <td className="ss-debug-key">{row.label}</td>
+                        <td className="ss-debug-val">{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="ss-debug-empty">структурные фильтры не заданы</div>
+              )}
+
+              {/* Раздел 2: текстовые блоки */}
+              <div className="ss-debug-section-title" style={{ marginTop: 10 }}>Текстовый поиск</div>
+              {textBlocks.length > 0 ? (
+                <div className="ss-debug-text-blocks">
+                  {textBlocks.map((block, i) => (
+                    <div key={i} className="ss-debug-text-block">
+                      <div className="ss-debug-tb-label">{textBlockLabel(block)}</div>
+                      <div className="ss-debug-tb-text t-mono">{block.text}</div>
+                      {block.logic === 'any' && (
+                        <div className="ss-debug-tb-hint">
+                          <Icon name="info" size={11} />
+                          {' '}Мягкое ИЛИ — достаточно любого из слов, не обязательно всех
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="ss-debug-empty">текстовый поиск не задан</div>
+              )}
+            </>
           )}
         </div>
       )}
