@@ -1031,7 +1031,7 @@ function SSRunning({ runData, vac, onOpenCandidate }: {
               <div style={{ flex: 1 }} />
               <span className="live-dot">оценка в реальном времени</span>
             </div>
-            {runData.scored_candidates.map((c: any, index: number) => (
+            {[...runData.scored_candidates].sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0)).map((c: any, index: number) => (
               <div
                 key={c.candidate_id || index}
                 className="ss-inv-row ss-inv-row-clickable"
@@ -1121,7 +1121,12 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
   if (!runData) return null;
 
   const isPreview = runData.invites_skipped === true;
-  const passedCandidates = (runData.scored_candidates || []).filter((c: SmartCandidate) => c.passed);
+  const passedCandidates = (runData.scored_candidates || [])
+    .filter((c: SmartCandidate) => c.passed)
+    .sort((a: SmartCandidate, b: SmartCandidate) => (b.score ?? 0) - (a.score ?? 0));
+  const notPassedCandidates = (runData.scored_candidates || [])
+    .filter((c: SmartCandidate) => c.passed === false)
+    .sort((a: SmartCandidate, b: SmartCandidate) => (b.score ?? 0) - (a.score ?? 0));
   const noOnePassed = passedCandidates.length === 0;
   const canInvite = !!(accessData?.has_paid_access && vac?.hh_published);
 
@@ -1484,20 +1489,22 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
         </div>
       )}
 
-      {/* Если никто не прошёл порог — показать всех оценённых */}
-      {noOnePassed && runData.scored_candidates && runData.scored_candidates.length > 0 && (
+      {/* Не прошли порог — отображается всегда, когда есть непрошедшие */}
+      {notPassedCandidates.length > 0 && (
         <div className="ss-invited-card">
           <div className="ss-invited-head">
-            <span className="title">Все оценённые кандидаты</span>
-            <span className="count">{runData.scored_candidates.length}</span>
+            <span className="title">Не прошли порог</span>
+            <span className="count">{notPassedCandidates.length}</span>
             <div style={{ flex: 1 }} />
-            <span className="live-dot">порог не пройден</span>
+            <span className="live-dot" style={{ color: 'var(--fg-3)' }}>
+              сохранены все оценённые, отсортированы по AI-баллу
+            </span>
           </div>
-          {runData.scored_candidates.map((c: SmartCandidate, index: number) => (
+          {notPassedCandidates.map((c: SmartCandidate, index: number) => (
             <div
               key={c.candidate_id || index}
               className="ss-inv-row ss-inv-row-clickable"
-              style={{ opacity: c.passed === false ? 0.6 : 1 }}
+              style={{ opacity: 0.6 }}
               onClick={() => onOpenCandidate?.(c)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -1516,12 +1523,25 @@ function SSResult({ runData, vac, threshold, accessData, runId, onNew, onGoFunne
               </div>
               <ScoreLabel value={c.score} size="md" />
               <span className="ss-inv-sent" style={{
-                background: c.passed === false ? 'var(--ark-gray-200)' : 'var(--ark-blue-100)',
-                color: c.passed === false ? 'var(--fg-3)' : 'var(--accent)'
+                background: 'var(--ark-gray-200)',
+                color: 'var(--fg-3)',
               }}>
-                <Icon name={c.passed === false ? 'x' : 'check'} size={12} />
-                {c.passed === false ? 'не прошёл' : `${c.score} баллов`}
+                <Icon name="x" size={12} />
+                не прошёл
               </span>
+              {c.hh_resume_id && (
+                <a
+                  href={`https://hh.ru/resume/${c.hh_resume_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="icon-btn"
+                  onClick={(e) => e.stopPropagation()}
+                  title="Открыть на hh.ru"
+                  style={{ marginLeft: '8px' }}
+                >
+                  <Icon name="open" size={14} />
+                </a>
+              )}
             </div>
           ))}
         </div>
