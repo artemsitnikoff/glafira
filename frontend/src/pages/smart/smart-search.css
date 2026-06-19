@@ -1690,7 +1690,7 @@
 .ss-page .ss-debug-hint {
   display: flex; flex-direction: column; gap: 6px;
   padding: 8px 10px; border-radius: 6px;
-  background: var(--ark-yellow-100); border: 1px solid var(--ark-yellow-400);
+  background: var(--ark-yellow-100); border: 1px solid var(--ark-yellow-500);
   font-size: 12px; color: var(--ark-gray-800);
   margin-bottom: 10px;
 }
