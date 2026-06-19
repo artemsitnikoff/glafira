@@ -1,6 +1,9 @@
+import logging
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
@@ -107,7 +110,13 @@ async def generate_rubric_endpoint(
         raise ForbiddenError("Менеджеры не могут генерировать рубрикатор")
 
     # Снимаем HTML-теги ПЕРЕД проверкой пустоты (RichTextField шлёт '<p><br></p>' и т.п.)
-    if not _strip_html(body.description or "").strip():
+    desc_stripped = _strip_html(body.description or "").strip()
+    logger.info(
+        "[generate-rubric] company=%s name_len=%d desc_raw_len=%d desc_stripped_len=%d",
+        company_id, len(body.name or ""), len(body.description or ""), len(desc_stripped),
+    )
+    if not desc_stripped:
+        logger.info("[generate-rubric] company=%s → generated=false: пустое описание", company_id)
         return GenerateRubricResponse(
             generated=False,
             reason="Заполните описание вакансии",
@@ -117,6 +126,7 @@ async def generate_rubric_endpoint(
     # OpenRouter ключ + модель компании (кидает OpenRouterNotConfiguredError → глобальный хендлер → 400)
     api_key = await get_company_openrouter_key(session, company_id)
     company_model = await get_company_llm_model(session, company_id)
+    logger.info("[generate-rubric] company=%s model=%s", company_id, company_model)
 
     vacancy_fields = {
         "name": body.name,
@@ -130,12 +140,14 @@ async def generate_rubric_endpoint(
 
     rubric = await generate_scoring_rubric(vacancy_fields, api_key, model=company_model)
     if rubric is None:
+        logger.warning("[generate-rubric] company=%s → generated=false: generate_scoring_rubric вернул None", company_id)
         return GenerateRubricResponse(
             generated=False,
             reason="Не удалось сгенерировать рубрикатор (ошибка LLM)",
             rubric=None,
         )
 
+    logger.info("[generate-rubric] company=%s → generated=true (rubric_len=%d)", company_id, len(rubric))
     return GenerateRubricResponse(
         generated=True,
         reason=None,
