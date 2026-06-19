@@ -13,6 +13,7 @@ import {
   useDeriveVacancyFilters,
   useSmartCount,
   useSmartAreaSuggest,
+  useSmartRoleSuggest,
   useSmartInvite,
   useSmartTake,
   useSmartBaseSearch,
@@ -28,6 +29,7 @@ import {
   type SmartSearchRequest,
   type SmartCountRequest,
   type SmartAreaSuggestItem,
+  type SmartRoleSuggestItem,
   type SmartTakeResponse,
   type BaseSearchCandidate,
   type BaseSearchRequest,
@@ -79,12 +81,17 @@ export default function SmartSearchPage() {
 
   // Step 2 — фильтры
   const [skills, setSkills] = useState<string[]>([]);
-  const [role, setRole] = useState('');
   const [exp, setExp] = useState('');
-  const [area, setArea] = useState('');
   const [areaId, setAreaId] = useState<string | null>(null);
   const [areaLabel, setAreaLabel] = useState('');
+  const [roleId, setRoleId] = useState<string | null>(null);
+  const [roleLabel, setRoleLabel] = useState('');
+  // roleSearchText — строка в инпуте SmartRoleSelector (для стартового значения из AI-подбора)
+  const [roleSearchText, setRoleSearchText] = useState('');
   const [period, setPeriod] = useState<number | undefined>(undefined);
+
+  // Дебаг-параметры из preview-count
+  const [debugParams, setDebugParams] = useState<Record<string, unknown> | null>(null);
 
   // Step 3 — зарплата
   const [salFrom, setSalFrom] = useState(0);
@@ -122,8 +129,7 @@ export default function SmartSearchPage() {
     const timer = setTimeout(() => {
       const request: SmartCountRequest = {
         vacancy_id: vac.id,
-        area,
-        professional_role: role,
+        professional_role: roleId ?? undefined,
         experience: exp,
         skills,
         salary_from: salFrom > 0 ? salFrom : undefined,
@@ -134,7 +140,10 @@ export default function SmartSearchPage() {
       };
 
       countMut.mutate(request, {
-        onSuccess: (response) => setPreviewFound(response.found),
+        onSuccess: (response) => {
+          setPreviewFound(response.found);
+          setDebugParams(response.debug_params);
+        },
       });
     }, 500);
 
@@ -142,7 +151,7 @@ export default function SmartSearchPage() {
     // countMut НЕ в deps: объект мутации меняет ссылку каждый рендер → был бы
     // бесконечный цикл вызовов. countMut.mutate стабилен, поэтому безопасно.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vac?.id, area, role, exp, skills, salFrom, salTo, inclNoSalary, areaId, period]);
+  }, [vac?.id, roleId, exp, skills, salFrom, salTo, inclNoSalary, areaId, period]);
 
   const resetAll = () => {
     setPhase('build');
@@ -153,11 +162,12 @@ export default function SmartSearchPage() {
     setShowCostConfirm(false);
     setDetailCandidate(null);
     setSkills([]);
-    setRole('');
     setExp('');
-    setArea('');
     setAreaId(null);
     setAreaLabel('');
+    setRoleId(null);
+    setRoleLabel('');
+    setRoleSearchText('');
     setPeriod(undefined);
     setSalFrom(0);
     setSalTo(0);
@@ -166,6 +176,7 @@ export default function SmartSearchPage() {
     setInviteM(20);
     setThreshold(75);
     setPreviewFound(null);
+    setDebugParams(null);
   };
 
   const selectVacancy = (id: string) => {
@@ -204,18 +215,23 @@ export default function SmartSearchPage() {
         });
     }
 
-    // AI-подбор фильтров area/professional_role/experience/skills
+    // AI-подбор фильтров professional_role/experience/skills
+    // professional_role из AI приходит текстом — кладём в строку поиска селектора,
+    // чтобы юзер выбрал точную роль из справочника hh (roleId)
     deriveFilters.mutate(id, {
       onSuccess: (filters) => {
-        setArea(filters.area);
-        setRole(filters.professional_role);
+        // Сбрасываем предыдущий выбор роли — AI предлагает новый текст для поиска
+        setRoleId(null);
+        setRoleLabel('');
+        setRoleSearchText(filters.professional_role);
         setExp(filters.experience);
         setSkills(filters.skills);
       },
       onError: () => {
         // При ошибке оставляем поля пустыми — пользователь дозаполнит
-        setArea('');
-        setRole('');
+        setRoleId(null);
+        setRoleLabel('');
+        setRoleSearchText('');
         setExp('');
         setSkills([]);
       }
@@ -233,8 +249,7 @@ export default function SmartSearchPage() {
 
     const request: SmartSearchRequest = {
       vacancy_id: vac.id,
-      area,
-      professional_role: role,
+      professional_role: roleId ?? undefined,
       experience: exp,
       skills,
       salary_from: salFrom || undefined,
@@ -446,24 +461,23 @@ export default function SmartSearchPage() {
               </div>
 
               <div className="ss-field-row" style={{ marginBottom: 14 }}>
-                <div className="ss-field">
-                  <div className="ss-field-label">Область / профобласть</div>
-                  <input
-                    className="ss-input"
-                    value={area}
-                    onChange={e => setArea(e.target.value)}
-                    placeholder={deriveFilters.isPending ? 'Глафира подбирает…' : ''}
-                  />
-                </div>
-                <div className="ss-field">
-                  <div className="ss-field-label">Проф-роль</div>
-                  <input
-                    className="ss-input"
-                    value={role}
-                    onChange={e => setRole(e.target.value)}
-                    placeholder={deriveFilters.isPending ? 'Глафира подбирает…' : ''}
-                  />
-                </div>
+                <SmartRoleSelector
+                  roleId={roleId}
+                  roleLabel={roleLabel}
+                  searchText={roleSearchText}
+                  isPending={deriveFilters.isPending}
+                  onSelect={(id, label) => {
+                    setRoleId(id);
+                    setRoleLabel(label);
+                    setRoleSearchText('');
+                  }}
+                  onSearchTextChange={setRoleSearchText}
+                  onClear={() => {
+                    setRoleId(null);
+                    setRoleLabel('');
+                    setRoleSearchText('');
+                  }}
+                />
                 <div className="ss-field" style={{ maxWidth: 160 }}>
                   <div className="ss-field-label">Опыт</div>
                   <input
@@ -716,6 +730,17 @@ export default function SmartSearchPage() {
             <span className="ss-sum-pill"><span className="k">Приглашаем топ</span><span className="v t-mono">{inviteM}</span></span>
             <span className="ss-sum-pill"><span className="k">Порог</span><span className="v t-mono">≥ {threshold}</span></span>
           </div>
+
+          {/* Дебаг-окно: что реально уходит в hh */}
+          <SSDebugParams
+            debugParams={debugParams}
+            found={previewFound}
+            hasRoleInput={!!roleSearchText || !!roleLabel}
+            hasAreaInput={!!areaLabel}
+            roleId={roleId}
+            areaId={areaId}
+            isPending={countMut.isPending}
+          />
 
           <div className="ss-sum-sentence">
             Найдём {previewFound !== null ? <b>~{ssFmt(previewFound)}</b> : <b>резюме</b>}{previewFound === null && countMut.isPending ? ' (считаем…)' : ''} по фильтрам → оценим первые <span className="hl">{ssFmt(scanN)}</span> AI-матчингом
@@ -2687,6 +2712,198 @@ function SSBaseHistory({ history, onPick }: { history: BaseSearchRunItem[]; onPi
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Компонент автокомплита для выбора проф-роли из справочника hh
+function SmartRoleSelector({
+  roleId,
+  roleLabel,
+  searchText,
+  isPending,
+  onSelect,
+  onSearchTextChange,
+  onClear,
+}: {
+  roleId: string | null;
+  roleLabel: string;
+  searchText: string;
+  isPending: boolean;
+  onSelect: (id: string, label: string) => void;
+  onSearchTextChange: (text: string) => void;
+  onClear: () => void;
+}) {
+  const [debouncedValue, setDebouncedValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Debounce для запросов
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(searchText);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const { data: suggestions = [] } = useSmartRoleSuggest(debouncedValue);
+
+  // Когда выбрана роль — показываем её label; иначе — то что юзер набирает
+  const displayValue = roleId ? roleLabel : searchText;
+
+  const handleSelect = (item: SmartRoleSuggestItem) => {
+    onSelect(item.id, item.name);
+    setIsOpen(false);
+  };
+
+  const handleClear = () => {
+    onClear();
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="ss-field" style={{ position: 'relative' }}>
+      <div className="ss-field-label">Проф-роль</div>
+      <div className="ss-area-input-wrap">
+        <input
+          className="ss-input"
+          value={displayValue}
+          onChange={(e) => {
+            onSearchTextChange(e.target.value);
+            setIsOpen(true);
+            // Если юзер начал печатать поверх выбранного — сбрасываем выбор
+            if (roleId) {
+              onClear();
+            }
+          }}
+          onFocus={() => {
+            if (!roleId) setIsOpen(true);
+          }}
+          onBlur={() => {
+            // Небольшая задержка, чтобы клик по пункту успел сработать
+            setTimeout(() => setIsOpen(false), 150);
+          }}
+          placeholder={isPending ? 'Глафира подбирает…' : 'Начните печатать роль…'}
+        />
+        {(roleId || searchText) && (
+          <button className="ss-area-clear" onClick={handleClear} type="button">
+            <Icon name="x" size={14} />
+          </button>
+        )}
+      </div>
+
+      {isOpen && !roleId && searchText.trim().length >= 2 && (
+        <div className="ss-area-dropdown">
+          {suggestions.map((item) => (
+            <div
+              key={item.id}
+              className="ss-area-option"
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(item); }}
+            >
+              <Icon name="briefcase" size={15} className="ss-area-icon" />
+              <span>{item.name}</span>
+              {item.category && (
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-3)', paddingLeft: 8, flexShrink: 0 }}>
+                  {item.category}
+                </span>
+              )}
+            </div>
+          ))}
+          {suggestions.length === 0 && (
+            <div className="ss-area-empty">Ничего не найдено</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Дебаг-окно: что реально ушло в hh и почему «0 найдено»
+function SSDebugParams({
+  debugParams,
+  found,
+  hasRoleInput,
+  hasAreaInput,
+  roleId,
+  areaId,
+  isPending,
+}: {
+  debugParams: Record<string, unknown> | null;
+  found: number | null;
+  hasRoleInput: boolean;
+  hasAreaInput: boolean;
+  roleId: string | null;
+  areaId: string | null;
+  isPending: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  // Показываем только когда есть данные или идёт загрузка
+  if (!debugParams && !isPending) return null;
+
+  const roleApplied = debugParams && 'professional_role' in debugParams;
+  const areaApplied = debugParams && 'area' in debugParams;
+
+  // Подсказка: роль или область набраны текстом но не выбраны из справочника
+  const roleNotApplied = hasRoleInput && !roleId && !roleApplied;
+  const areaNotApplied = hasAreaInput && !areaId && !areaApplied;
+  const showHint = roleNotApplied || areaNotApplied;
+
+  return (
+    <div className="ss-debug-panel">
+      <button
+        className="ss-debug-toggle"
+        onClick={() => setOpen(o => !o)}
+        type="button"
+      >
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} />
+        Диагностика запроса к hh
+        {found !== null && (
+          <span className="ss-debug-found">
+            hh нашёл: <b className="t-mono">{ssFmt(found)}</b>
+          </span>
+        )}
+        {isPending && <span className="ss-debug-pending">считаем…</span>}
+      </button>
+
+      {open && (
+        <div className="ss-debug-body">
+          {showHint && (
+            <div className="ss-debug-hint">
+              {roleNotApplied && (
+                <span>
+                  <Icon name="alert-triangle" size={12} />
+                  {' '}Роль введена текстом без выбора из справочника — фильтр <b>professional_role</b> не применился. Выберите роль из подсказок.
+                </span>
+              )}
+              {areaNotApplied && (
+                <span>
+                  <Icon name="alert-triangle" size={12} />
+                  {' '}Регион введён без выбора из справочника — фильтр <b>area</b> не применился. Выберите регион из подсказок.
+                </span>
+              )}
+            </div>
+          )}
+
+          {debugParams && (
+            <table className="ss-debug-table">
+              <tbody>
+                {Object.entries(debugParams).map(([key, val]) => (
+                  <tr key={key}>
+                    <td className="ss-debug-key t-mono">{key}</td>
+                    <td className="ss-debug-val">
+                      {Array.isArray(val)
+                        ? val.join(', ') || '—'
+                        : val === null || val === undefined
+                        ? <span className="ss-debug-null">не задан</span>
+                        : String(val)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

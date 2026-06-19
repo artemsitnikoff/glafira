@@ -1665,6 +1665,50 @@
   padding: 6px 8px; background: var(--error-bg); border-radius: 4px;
 }
 
+/* ---------- Debug panel (диагностика запроса к hh) ---------- */
+.ss-page .ss-debug-panel {
+  border: 1px solid var(--border-1); border-radius: 8px;
+  background: var(--bg-2); margin-bottom: 16px; overflow: hidden;
+}
+.ss-page .ss-debug-toggle {
+  width: 100%; display: flex; align-items: center; gap: 7px;
+  padding: 9px 12px; background: none; border: 0;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--fg-2);
+  cursor: pointer; text-align: left;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.ss-page .ss-debug-toggle:hover { background: var(--bg-3-hover); }
+.ss-page .ss-debug-found {
+  margin-left: auto; font-size: 12px; font-weight: 500; color: var(--fg-1);
+}
+.ss-page .ss-debug-pending {
+  margin-left: auto; font-size: 12px; color: var(--fg-3); font-style: italic;
+}
+.ss-page .ss-debug-body {
+  padding: 0 12px 12px;
+}
+.ss-page .ss-debug-hint {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--ark-yellow-100); border: 1px solid var(--ark-yellow-400);
+  font-size: 12px; color: var(--ark-gray-800);
+  margin-bottom: 10px;
+}
+.ss-page .ss-debug-hint span { display: flex; align-items: flex-start; gap: 6px; }
+.ss-page .ss-debug-hint svg { flex: none; margin-top: 1px; color: var(--ark-yellow-600); }
+.ss-page .ss-debug-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.ss-page .ss-debug-table tr + tr td { border-top: 1px solid var(--border-1); }
+.ss-page .ss-debug-key {
+  padding: 5px 8px 5px 0; color: var(--fg-3); white-space: nowrap; width: 1%;
+  vertical-align: top;
+}
+.ss-page .ss-debug-val {
+  padding: 5px 0; color: var(--fg-1); word-break: break-word;
+}
+.ss-page .ss-debug-null { color: var(--fg-3); font-style: italic; }
+
 @media (max-width: 720px) {
   .ss-page .ssf-grid { grid-template-columns: 1fr; }
   .ss-page .ssb-actions { flex-direction: column; align-items: stretch; }

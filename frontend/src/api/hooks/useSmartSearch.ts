@@ -24,7 +24,6 @@ export interface SmartVacancy {
 
 export interface SmartSearchRequest {
   vacancy_id: string;
-  area?: string;
   professional_role?: string;
   experience?: string;
   skills: string[];
@@ -132,6 +131,12 @@ export interface SmartAreaSuggestItem {
   text: string;
 }
 
+export interface SmartRoleSuggestItem {
+  id: string;
+  name: string;
+  category: string | null;
+}
+
 export function useSmartAccess() {
   return useQuery({
     queryKey: ['smart', 'access'],
@@ -197,7 +202,6 @@ export function useDeriveVacancyFilters() {
 
 export interface SmartCountRequest {
   vacancy_id: string;
-  area?: string;
   professional_role?: string;
   experience?: string;
   skills: string[];
@@ -210,6 +214,7 @@ export interface SmartCountRequest {
 
 export interface SmartCountResponse {
   found: number | null;
+  debug_params: Record<string, unknown> | null;
 }
 
 export function useSmartCount() {
@@ -227,6 +232,17 @@ export function useSmartAreaSuggest(text: string) {
     queryFn: async (): Promise<SmartAreaSuggestItem[]> => {
       const response = await api.get('/smart/area-suggest', { params: { text } });
       return response.data as SmartAreaSuggestItem[];
+    },
+    enabled: text.trim().length >= 2,
+  });
+}
+
+export function useSmartRoleSuggest(text: string) {
+  return useQuery({
+    queryKey: ['smart', 'role-suggest', text],
+    queryFn: async (): Promise<SmartRoleSuggestItem[]> => {
+      const response = await api.get('/smart/role-suggest', { params: { text } });
+      return response.data as SmartRoleSuggestItem[];
     },
     enabled: text.trim().length >= 2,
   });
