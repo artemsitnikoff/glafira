@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
-from fastapi import APIRouter, Depends
+import types
+from urllib.parse import quote
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -72,6 +74,8 @@ from ...services.base_search import (
     GLAFIRA_MAX_EVALUATE
 )
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
+from ...models.smart_search import SmartSearchRun
+from ...services.resume_export import build_resume_pdf, build_resume_docx
 
 router = APIRouter()
 
@@ -555,3 +559,133 @@ async def get_embeddings_index_status_endpoint(
         status["progress_percent"] = 100
 
     return status
+
+
+@router.get("/runs/{run_id}/candidates/{hh_resume_id}/resume")
+async def export_smart_candidate_resume(
+    run_id: UUID,
+    hh_resume_id: str,
+    format: str = Query("pdf", description="Формат: pdf или docx"),
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Экспорт резюме кандидата из умного подбора (hh) с AI-разбором Глафиры.
+
+    Рендерит данные из SmartSearchRun.scored_candidates (БД не пишет, hh не дёргает).
+    RBAC: manager запрещён (как у invite/take).
+    """
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+
+    if format not in ["pdf", "docx"]:
+        raise ValidationError("Допустимые форматы: pdf, docx")
+
+    # Загружаем run company-scoped
+    result = await session.execute(
+        select(SmartSearchRun).where(
+            SmartSearchRun.id == run_id,
+            SmartSearchRun.company_id == company_id,
+        )
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise NotFoundError("Поиск")
+
+    # Ищем scored_candidate по hh_resume_id
+    scored = None
+    for c in (run.scored_candidates or []):
+        if c.get("hh_resume_id") == hh_resume_id:
+            scored = c
+            break
+    if scored is None:
+        raise NotFoundError("Кандидат")
+
+    # Разбираем сжатое резюме из scored_candidate
+    resume_dict = scored.get("resume") or {}
+    exp_list = resume_dict.get("experience") or []
+    skills_list = resume_dict.get("skills") or []
+
+    # Первая позиция как «желаемая должность»
+    last_position = None
+    if exp_list and isinstance(exp_list[0], dict):
+        last_position = exp_list[0].get("position")
+
+    # Формируем shim-объект (duck-typing, без ORM и без записи в БД)
+    name_raw = scored.get("name") or ""
+    name_tokens = name_raw.strip().split() if name_raw.strip() else []
+    if not name_tokens or name_raw.strip().lower() in ("неизвестно", ""):
+        first_name = ""
+        last_name = "Кандидат"
+    elif len(name_tokens) == 1:
+        first_name = ""
+        last_name = name_tokens[0]
+    else:
+        first_name = name_tokens[0]
+        last_name = " ".join(name_tokens[1:])
+
+    shim_experience = [
+        types.SimpleNamespace(
+            period=e.get("period", "") if isinstance(e, dict) else "",
+            company=e.get("company", "") if isinstance(e, dict) else "",
+            position=e.get("position", "") if isinstance(e, dict) else "",
+            description=e.get("description", "") if isinstance(e, dict) else "",
+        )
+        for e in exp_list
+    ]
+
+    shim_skills = [
+        types.SimpleNamespace(skill=s)
+        for s in skills_list
+        if isinstance(s, str)
+    ]
+
+    shim = types.SimpleNamespace(
+        first_name=first_name,
+        last_name=last_name,
+        middle_name=None,
+        gender=None,
+        phone=None,
+        email=None,
+        city=scored.get("city"),
+        region=None,
+        last_position=last_position,
+        salary_expectation=None,
+        currency="RUB",
+        extra={},
+        resume_summary=None,
+        experience=shim_experience,
+        skills=shim_skills,
+        education=[],
+    )
+
+    # AI-анализ из scored_candidate
+    ai_analysis = {
+        "score": scored.get("score"),
+        "verdict": scored.get("verdict", ""),
+        "summary": scored.get("summary", ""),
+        "strengths": scored.get("strengths") or [],
+        "risks": scored.get("risks") or [],
+        "requirements_match": scored.get("requirements_match") or [],
+        "forecast": scored.get("forecast", ""),
+    }
+
+    # Генерируем файл
+    if format == "pdf":
+        content = build_resume_pdf(shim, ai_analysis=ai_analysis)
+        media_type = "application/pdf"
+        extension = "pdf"
+    else:
+        content = build_resume_docx(shim, ai_analysis=ai_analysis)
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        extension = "docx"
+
+    # Имя файла (ФИО или «Кандидат»), суффикс «_Глафира»
+    display_name = " ".join(filter(None, [first_name, last_name])).strip() or "Кандидат"
+    filename = f"{display_name}_Глафира.{extension}"
+
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+    }
+
+    return Response(content=content, media_type=media_type, headers=headers)

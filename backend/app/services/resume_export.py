@@ -134,7 +134,30 @@ async def load_candidate_for_export(
     return candidate
 
 
-def build_resume_pdf(candidate: Candidate) -> bytes:
+def _format_req_match_item(item) -> str:
+    """Форматирует элемент requirements_match — строка или dict."""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        parts = []
+        if item.get("requirement"):
+            parts.append(str(item["requirement"]))
+        if item.get("matched") is not None:
+            parts.append("✓" if item["matched"] else "✗")
+        if item.get("comment"):
+            parts.append(str(item["comment"]))
+        return " ".join(parts) if parts else str(item)
+    return str(item)
+
+
+_VERDICT_MAP = {
+    "good": "рекомендуется",
+    "partial": "частично подходит",
+    "bad": "не подходит",
+}
+
+
+def build_resume_pdf(candidate: Candidate, ai_analysis: dict | None = None) -> bytes:
     """Создает PDF-резюме кандидата в стиле hh"""
     buffer = BytesIO()
     font_normal, font_bold = _register_fonts()
@@ -356,6 +379,45 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
         story.append(HRFlowable(width="100%", thickness=0.5, color=grey, spaceAfter=8))
         story.append(Paragraph(_safe(candidate.resume_summary), normal_style))
 
+    # Секция «Разбор Глафиры (AI)»
+    if ai_analysis:
+        story.append(Paragraph("РАЗБОР ГЛАФИРЫ (AI)", section_header_style))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=grey, spaceAfter=8))
+
+        score = ai_analysis.get("score")
+        verdict_raw = ai_analysis.get("verdict", "")
+        verdict_ru = _VERDICT_MAP.get(verdict_raw, verdict_raw)
+        if score is not None:
+            score_line = f"Оценка: {score}/100 — {verdict_ru}"
+            story.append(Paragraph(_safe(score_line), bold_style))
+
+        summary = ai_analysis.get("summary", "")
+        if summary:
+            story.append(Paragraph(_safe(summary), normal_style))
+
+        strengths = ai_analysis.get("strengths") or []
+        if strengths:
+            story.append(Paragraph(_safe("Сильные стороны:"), bold_style))
+            for s in strengths:
+                story.append(Paragraph(f"• {_safe(str(s))}", normal_style))
+
+        risks = ai_analysis.get("risks") or []
+        if risks:
+            story.append(Paragraph(_safe("Риски:"), bold_style))
+            for r in risks:
+                story.append(Paragraph(f"• {_safe(str(r))}", normal_style))
+
+        req_match = ai_analysis.get("requirements_match") or []
+        if req_match:
+            story.append(Paragraph(_safe("Соответствие требованиям:"), bold_style))
+            for item in req_match:
+                story.append(Paragraph(f"• {_safe(_format_req_match_item(item))}", normal_style))
+
+        forecast = ai_analysis.get("forecast", "")
+        if forecast:
+            story.append(Paragraph(_safe("Прогноз:"), bold_style))
+            story.append(Paragraph(_safe(forecast), normal_style))
+
     # Генерируем PDF
     doc.build(story)
     buffer.seek(0)
@@ -363,7 +425,7 @@ def build_resume_pdf(candidate: Candidate) -> bytes:
     return buffer.read()
 
 
-def build_resume_docx(candidate: Candidate) -> bytes:
+def build_resume_docx(candidate: Candidate, ai_analysis: dict | None = None) -> bytes:
     """Создает DOCX-резюме кандидата"""
     doc = Document()
 
@@ -478,6 +540,49 @@ def build_resume_docx(candidate: Candidate) -> bytes:
     if candidate.resume_summary:
         doc.add_heading("Обо мне", level=2)
         doc.add_paragraph(_strip_html(candidate.resume_summary))
+
+    # Секция «Разбор Глафиры (AI)»
+    if ai_analysis:
+        doc.add_heading("Разбор Глафиры (AI)", level=2)
+
+        score = ai_analysis.get("score")
+        verdict_raw = ai_analysis.get("verdict", "")
+        verdict_ru = _VERDICT_MAP.get(verdict_raw, verdict_raw)
+        if score is not None:
+            score_para = doc.add_paragraph()
+            score_run = score_para.add_run(f"Оценка: {score}/100 — {verdict_ru}")
+            score_run.bold = True
+
+        summary = ai_analysis.get("summary", "")
+        if summary:
+            doc.add_paragraph(_strip_html(summary))
+
+        strengths = ai_analysis.get("strengths") or []
+        if strengths:
+            strong_para = doc.add_paragraph()
+            strong_para.add_run("Сильные стороны:").bold = True
+            for s in strengths:
+                doc.add_paragraph(f"• {_strip_html(str(s))}")
+
+        risks = ai_analysis.get("risks") or []
+        if risks:
+            risks_para = doc.add_paragraph()
+            risks_para.add_run("Риски:").bold = True
+            for r in risks:
+                doc.add_paragraph(f"• {_strip_html(str(r))}")
+
+        req_match = ai_analysis.get("requirements_match") or []
+        if req_match:
+            req_para = doc.add_paragraph()
+            req_para.add_run("Соответствие требованиям:").bold = True
+            for item in req_match:
+                doc.add_paragraph(f"• {_strip_html(_format_req_match_item(item))}")
+
+        forecast = ai_analysis.get("forecast", "")
+        if forecast:
+            fc_para = doc.add_paragraph()
+            fc_para.add_run("Прогноз:").bold = True
+            doc.add_paragraph(_strip_html(forecast))
 
     # Сохраняем в буфер
     buffer = BytesIO()
