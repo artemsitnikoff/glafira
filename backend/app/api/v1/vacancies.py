@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -138,7 +139,19 @@ async def generate_rubric_endpoint(
         "salary_to": body.salary_to,
     }
 
-    rubric = await generate_scoring_rubric(vacancy_fields, api_key, model=company_model)
+    # Таймаут < nginx proxy_read_timeout (~60с): иначе шлюз отдаёт 504 вместо ответа.
+    try:
+        rubric = await asyncio.wait_for(
+            generate_scoring_rubric(vacancy_fields, api_key, model=company_model),
+            timeout=50,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[generate-rubric] company=%s → таймаут 50с (модель %s медленная)", company_id, company_model)
+        return GenerateRubricResponse(
+            generated=False,
+            reason="Глафира не успела составить критерии — модель долго отвечает. Попробуйте ещё раз или выберите более быструю модель в Настройки → AI.",
+            rubric=None,
+        )
     if rubric is None:
         logger.warning("[generate-rubric] company=%s → generated=false: generate_scoring_rubric вернул None", company_id)
         return GenerateRubricResponse(
