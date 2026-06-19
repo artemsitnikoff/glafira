@@ -14,6 +14,7 @@ import {
   useSmartCount,
   useSmartAreaSuggest,
   useSmartRoleSuggest,
+  useRoleCategories,
   useSmartInvite,
   useSmartTake,
   useSmartBaseSearch,
@@ -30,6 +31,7 @@ import {
   type SmartCountRequest,
   type SmartAreaSuggestItem,
   type SmartRoleSuggestItem,
+  type SmartRoleCategory,
   type SmartTakeResponse,
   type BaseSearchCandidate,
   type BaseSearchRequest,
@@ -460,7 +462,7 @@ export default function SmartSearchPage() {
                   : 'Глафира предложила фильтры из вакансии — можно скорректировать'}
               </div>
 
-              <div className="ss-field-row" style={{ marginBottom: 14 }}>
+              <div className="ss-field-row" style={{ marginBottom: 6 }}>
                 <SmartRoleSelector
                   roleId={roleId}
                   roleLabel={roleLabel}
@@ -489,7 +491,17 @@ export default function SmartSearchPage() {
                 </div>
               </div>
 
-              <div className="ss-field-row" style={{ marginBottom: 14 }}>
+              {/* Двухуровневый выбор профобласти → роли */}
+              <SmartRoleBrowse
+                onSelect={(id, label) => {
+                  setRoleId(id);
+                  setRoleLabel(label);
+                  setRoleSearchText('');
+                }}
+                activeRoleId={roleId}
+              />
+
+              <div className="ss-field-row" style={{ marginBottom: 14, marginTop: 14 }}>
                 <SmartAreaSelector
                   areaId={areaId}
                   areaLabel={areaLabel}
@@ -527,6 +539,18 @@ export default function SmartSearchPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Чипы-отрасли: добавляют слово в ключевые навыки */}
+              <SSIndustriesChips
+                skills={skills}
+                onToggle={(industry) => {
+                  if (skills.includes(industry)) {
+                    setSkills(skills.filter(s => s !== industry));
+                  } else {
+                    setSkills([...skills, industry]);
+                  }
+                }}
+              />
 
               {maxStep === 2 && (
                 <div className="ssm-step-actions">
@@ -2904,6 +2928,141 @@ function SSDebugParams({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ====== Двухуровневый выбор: профобласть → роль ======
+// Загружает справочник hh GET /smart/role-categories, отображает два <select>:
+// первый — категории, второй — роли выбранной категории.
+// При выборе роли вызывает onSelect(id, name) — тот же контракт, что SmartRoleSelector.
+function SmartRoleBrowse({
+  onSelect,
+  activeRoleId,
+}: {
+  onSelect: (id: string, label: string) => void;
+  activeRoleId: string | null;
+}) {
+  const { data: categories = [], isLoading } = useRoleCategories();
+  const [categoryId, setCategoryId] = useState('');
+  const [open, setOpen] = useState(false);
+
+  // Найдём категорию, которой принадлежит текущая активная роль
+  const activeCategoryId = useMemo(() => {
+    if (!activeRoleId) return '';
+    for (const cat of categories) {
+      if (cat.roles.some(r => r.id === activeRoleId)) return cat.category_id;
+    }
+    return '';
+  }, [activeRoleId, categories]);
+
+  // Эффективный categoryId = либо пользователь кликнул, либо пришёл активный
+  const effectiveCatId = categoryId || activeCategoryId;
+
+  const currentCat = useMemo(
+    () => categories.find(c => c.category_id === effectiveCatId) ?? null,
+    [categories, effectiveCatId]
+  );
+
+  if (isLoading) return null;
+  if (categories.length === 0) return null;
+
+  return (
+    <div className="ss-role-browse">
+      <button
+        className="ss-rb-toggle"
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} />
+        или выбрать по профобласти
+      </button>
+
+      {open && (
+        <div className="ss-rb-selects">
+          <div className="ss-field" style={{ minWidth: 220 }}>
+            <div className="ss-field-label">Профобласть</div>
+            <select
+              className="ss-input ss-rb-select"
+              value={effectiveCatId}
+              onChange={(e) => {
+                setCategoryId(e.target.value);
+              }}
+            >
+              <option value="">— выберите профобласть —</option>
+              {categories.map((cat: SmartRoleCategory) => (
+                <option key={cat.category_id} value={cat.category_id}>
+                  {cat.category}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {currentCat && (
+            <div className="ss-field" style={{ minWidth: 220 }}>
+              <div className="ss-field-label">Роль</div>
+              <select
+                className="ss-input ss-rb-select"
+                value={activeRoleId && currentCat.roles.some(r => r.id === activeRoleId) ? activeRoleId : ''}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  if (!selectedId) return;
+                  const role = currentCat.roles.find(r => r.id === selectedId);
+                  if (role) {
+                    onSelect(role.id, role.name);
+                  }
+                }}
+              >
+                <option value="">— выберите роль —</option>
+                {currentCat.roles.map(role => (
+                  <option key={role.id} value={role.id}>
+                    {role.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ====== Чипы-отрасли: добавляют слово в ключевые навыки/поиск ======
+const INDUSTRIES = [
+  'Банк', 'Финтех', 'ИТ', 'Ритейл', 'E-commerce',
+  'Страхование', 'Логистика', 'Производство', 'Телеком',
+  'Госсектор', 'Медицина', 'Образование',
+] as const;
+
+function SSIndustriesChips({
+  skills,
+  onToggle,
+}: {
+  skills: string[];
+  onToggle: (industry: string) => void;
+}) {
+  return (
+    <div className="ss-filter-group" style={{ marginTop: 10 }}>
+      <div className="ss-fg-label">Отрасль</div>
+      <div className="ss-fg-hint">Добавляет отрасль в ключевые слова поиска для сужения выдачи</div>
+      <div className="ss-chip-row ss-industry-chips">
+        {INDUSTRIES.map((ind) => {
+          const active = skills.includes(ind);
+          return (
+            <button
+              key={ind}
+              type="button"
+              className={`ss-industry-chip${active ? ' active' : ''}`}
+              onClick={() => onToggle(ind)}
+              aria-pressed={active}
+            >
+              {ind}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -137,6 +137,17 @@ export interface SmartRoleSuggestItem {
   category: string | null;
 }
 
+export interface SmartRoleCategoryItem {
+  id: string;
+  name: string;
+}
+
+export interface SmartRoleCategory {
+  category_id: string;
+  category: string;
+  roles: SmartRoleCategoryItem[];
+}
+
 export function useSmartAccess() {
   return useQuery({
     queryKey: ['smart', 'access'],
@@ -245,6 +256,18 @@ export function useSmartRoleSuggest(text: string) {
       return response.data as SmartRoleSuggestItem[];
     },
     enabled: text.trim().length >= 2,
+  });
+}
+
+export function useRoleCategories() {
+  return useQuery({
+    queryKey: ['smart', 'role-categories'],
+    queryFn: async (): Promise<SmartRoleCategory[]> => {
+      const response = await api.get('/smart/role-categories');
+      return response.data as SmartRoleCategory[];
+    },
+    staleTime: 24 * 60 * 60 * 1000, // 24ч — справочник статичный
+    gcTime: 48 * 60 * 60 * 1000,
   });
 }
 
