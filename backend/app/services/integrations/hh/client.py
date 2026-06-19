@@ -712,8 +712,68 @@ async def get_payable_api_actions(access_token: str, employer_id: str) -> dict:
 # Кэш справочника профессиональных ролей hh.ru
 # Справочник статичный (~1500 ролей, обновляется крайне редко).
 # Ключ: строка "global" (справочник единый, токен не влияет на состав).
-# Значение: список плоских dict {id, name, category} или None при сбое.
+#
+# _professional_roles_raw_cache — сырые categories из hh (единственный HTTP-запрос).
+# _professional_roles_cache — плоский список {id, name, category}, строится из raw.
+# Оба строятся за один HTTP-вызов; повторные вызовы любого из геттеров → только кэш.
+_professional_roles_raw_cache: dict[str, list[dict] | None] = {}
 _professional_roles_cache: dict[str, list[dict] | None] = {}
+
+
+async def _load_professional_roles_raw(access_token: str) -> list[dict]:
+    """Загружает raw categories из hh (или из кэша) и обновляет оба кэша.
+
+    Возвращает raw categories (list[dict]) или [] при сбое.
+    Никогда не бросает исключение наружу.
+    """
+    cache_key = "global"
+    if cache_key in _professional_roles_raw_cache:
+        return _professional_roles_raw_cache[cache_key] or []
+
+    try:
+        async with _get_client() as client:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/professional_roles",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code >= 400:
+                logger.warning("[hh] _load_professional_roles_raw: HTTP %s", response.status_code)
+                _professional_roles_raw_cache[cache_key] = []
+                _professional_roles_cache[cache_key] = []
+                return []
+
+            data = response.json()
+            if not isinstance(data, dict):
+                logger.warning("[hh] _load_professional_roles_raw: некорректный формат ответа")
+                _professional_roles_raw_cache[cache_key] = []
+                _professional_roles_cache[cache_key] = []
+                return []
+
+            raw_categories: list[dict] = data.get("categories") or []
+
+            # Строим плоский список сразу (чтобы не парсить raw дважды)
+            flat: list[dict] = []
+            for category in raw_categories:
+                cat_name = category.get("name", "")
+                for role in category.get("roles") or []:
+                    role_id = role.get("id")
+                    role_name = role.get("name")
+                    if role_id and role_name:
+                        flat.append({"id": str(role_id), "name": role_name, "category": cat_name})
+
+            _professional_roles_raw_cache[cache_key] = raw_categories
+            _professional_roles_cache[cache_key] = flat
+            logger.info(
+                "[hh] professional_roles: загружено %d категорий, %d ролей в кэш",
+                len(raw_categories), len(flat),
+            )
+            return raw_categories
+
+    except Exception as exc:
+        logger.warning("[hh] _load_professional_roles_raw: сбой загрузки справочника: %s", exc)
+        _professional_roles_raw_cache[cache_key] = []
+        _professional_roles_cache[cache_key] = []
+        return []
 
 
 async def get_professional_roles(access_token: str) -> list[dict]:
@@ -724,45 +784,52 @@ async def get_professional_roles(access_token: str) -> list[dict]:
     Плоский список: [{id: str, name: str, category: str}, ...]
 
     Грейсфул: при ошибке возвращает [], не поднимает исключение.
+    Повторный вызов → только кэш, без HTTP.
     """
     cache_key = "global"
     if cache_key in _professional_roles_cache:
         return _professional_roles_cache[cache_key] or []
 
-    try:
-        async with _get_client() as client:
-            response = await client.get(
-                f"{settings.HH_API_BASE}/professional_roles",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            if response.status_code >= 400:
-                logger.warning("[hh] get_professional_roles: HTTP %s", response.status_code)
-                _professional_roles_cache[cache_key] = []
-                return []
+    # Загружаем через общую функцию (HTTP делается ровно один раз)
+    await _load_professional_roles_raw(access_token)
+    return _professional_roles_cache.get(cache_key) or []
 
-            data = response.json()
-            if not isinstance(data, dict):
-                logger.warning("[hh] get_professional_roles: некорректный формат ответа")
-                _professional_roles_cache[cache_key] = []
-                return []
 
-            flat: list[dict] = []
-            for category in data.get("categories") or []:
-                cat_name = category.get("name", "")
-                for role in category.get("roles") or []:
-                    role_id = role.get("id")
-                    role_name = role.get("name")
-                    if role_id and role_name:
-                        flat.append({"id": str(role_id), "name": role_name, "category": cat_name})
+async def get_professional_roles_grouped(access_token: str) -> list[dict]:
+    """
+    Возвращает справочник профессиональных ролей hh.ru, СГРУППИРОВАННЫЙ по категориям.
 
-            _professional_roles_cache[cache_key] = flat
-            logger.info("[hh] get_professional_roles: загружено %d ролей в кэш", len(flat))
-            return flat
+    Формат: [{"category_id": str, "category": str, "roles": [{"id": str, "name": str}]}]
 
-    except Exception as exc:
-        logger.warning("[hh] get_professional_roles: сбой загрузки справочника: %s", exc)
-        _professional_roles_cache[cache_key] = []
-        return []
+    Переиспользует тот же кэш сырых categories (_professional_roles_raw_cache),
+    что и get_professional_roles — HTTP делается только один раз независимо от порядка вызовов.
+
+    Грейсфул: при ошибке возвращает [], не поднимает исключение.
+    """
+    cache_key = "global"
+    if cache_key not in _professional_roles_raw_cache:
+        await _load_professional_roles_raw(access_token)
+
+    raw_categories = _professional_roles_raw_cache.get(cache_key) or []
+
+    grouped: list[dict] = []
+    for category in raw_categories:
+        cat_id = category.get("id")
+        cat_name = category.get("name", "")
+        roles: list[dict] = []
+        for role in category.get("roles") or []:
+            role_id = role.get("id")
+            role_name = role.get("name")
+            if role_id and role_name:
+                roles.append({"id": str(role_id), "name": role_name})
+        if roles:
+            grouped.append({
+                "category_id": str(cat_id) if cat_id is not None else "",
+                "category": cat_name,
+                "roles": roles,
+            })
+
+    return grouped
 
 
 def suggest_professional_roles_sync(roles: list[dict], text: str, limit: int = 20) -> list[dict]:

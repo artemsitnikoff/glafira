@@ -169,6 +169,19 @@ class SmartRoleSuggestItem(BaseModel):
     category: Optional[str] = None
 
 
+class SmartRoleOption(BaseModel):
+    """Роль внутри категории в сгруппированном справочнике"""
+    id: str
+    name: str
+
+
+class SmartRoleCategory(BaseModel):
+    """Категория (профобласть) со списком ролей — для двухуровневой выпадашки на фронте"""
+    category_id: str
+    category: str
+    roles: list[SmartRoleOption]
+
+
 class SmartCountResponse(BaseModel):
     """Ответ с количеством найденных резюме"""
     found: Optional[int] = None

@@ -1847,6 +1847,24 @@ async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> l
         return []
 
 
+async def get_professional_role_categories(session: AsyncSession, company_id: UUID) -> list[dict]:
+    """
+    Возвращает сгруппированный справочник профессиональных ролей hh.ru.
+
+    Формат: [{"category_id": str, "category": str, "roles": [{"id": str, "name": str}]}]
+
+    Берёт токен компании, зовёт get_professional_roles_grouped (тот же кэш что у
+    get_professional_roles — HTTP делается только один раз).
+    Грейсфул: при любой ошибке (нет токена, hh недоступен) возвращает [] — не роняет форму.
+    """
+    try:
+        access_token = await hh_service.get_valid_access_token(session, company_id)
+        return await hh_client.get_professional_roles_grouped(access_token)
+    except Exception as exc:
+        logger.warning("Ошибка получения категорий ролей hh: %s", exc)
+        return []
+
+
 async def suggest_professional_roles(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
     """
     Подсказки профессиональных ролей из кэшированного справочника hh.ru.

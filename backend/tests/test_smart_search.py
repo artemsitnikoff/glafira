@@ -2253,6 +2253,205 @@ async def test_get_professional_roles_cache(mock_get_client):
 
 
 # ============================================================
+# Тесты get_professional_roles_grouped + get_professional_role_categories
+# ============================================================
+
+FAKE_RAW_CATEGORIES = [
+    {
+        "id": "1",
+        "name": "Разработка",
+        "roles": [
+            {"id": "10", "name": "Python-разработчик"},
+            {"id": "11", "name": "Java-разработчик"},
+        ],
+    },
+    {
+        "id": "2",
+        "name": "Управление",
+        "roles": [
+            {"id": "20", "name": "Менеджер проекта"},
+        ],
+    },
+]
+
+
+@pytest.mark.asyncio
+@patch('app.services.integrations.hh.client._get_client')
+async def test_get_professional_roles_grouped_structure(mock_get_client):
+    """get_professional_roles_grouped возвращает {category_id,category,roles[{id,name}]}"""
+    import app.services.integrations.hh.client as hh_client_module
+
+    # Сбрасываем оба кэша
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"categories": FAKE_RAW_CATEGORIES}
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_get_client.return_value = mock_client
+
+    from app.services.integrations.hh.client import get_professional_roles_grouped
+
+    result = await get_professional_roles_grouped("token_x")
+
+    assert len(result) == 2
+
+    dev_cat = result[0]
+    assert dev_cat["category_id"] == "1"
+    assert dev_cat["category"] == "Разработка"
+    assert len(dev_cat["roles"]) == 2
+    assert dev_cat["roles"][0] == {"id": "10", "name": "Python-разработчик"}
+    assert dev_cat["roles"][1] == {"id": "11", "name": "Java-разработчик"}
+
+    mgmt_cat = result[1]
+    assert mgmt_cat["category_id"] == "2"
+    assert mgmt_cat["category"] == "Управление"
+    assert len(mgmt_cat["roles"]) == 1
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+
+@pytest.mark.asyncio
+@patch('app.services.integrations.hh.client._get_client')
+async def test_get_professional_roles_grouped_shared_cache_no_double_http(mock_get_client):
+    """get_professional_roles и get_professional_roles_grouped используют общий кэш — HTTP делается ровно 1 раз"""
+    import app.services.integrations.hh.client as hh_client_module
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"categories": FAKE_RAW_CATEGORIES}
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_get_client.return_value = mock_client
+
+    from app.services.integrations.hh.client import get_professional_roles, get_professional_roles_grouped
+
+    flat = await get_professional_roles("token_a")
+    assert len(flat) == 3  # 2+1 роли
+
+    # Второй вызов grouped — HTTP НЕ делается (кэш)
+    grouped = await get_professional_roles_grouped("token_b")
+    assert len(grouped) == 2
+
+    # За оба вызова — ровно 1 HTTP-запрос
+    assert mock_get_client.call_count == 1
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.integrations.hh.client._get_client')
+async def test_get_professional_role_categories_service(
+    mock_get_client,
+    mock_token,
+    db_session,
+    test_company,
+):
+    """get_professional_role_categories берёт токен компании и возвращает сгруппированный справочник"""
+    import app.services.integrations.hh.client as hh_client_module
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+    mock_token.return_value = "company_token"
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"categories": FAKE_RAW_CATEGORIES}
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_get_client.return_value = mock_client
+
+    from app.services.smart_search import get_professional_role_categories
+
+    result = await get_professional_role_categories(db_session, test_company.id)
+
+    assert len(result) == 2
+    assert result[0]["category"] == "Разработка"
+    assert result[0]["category_id"] == "1"
+    assert len(result[0]["roles"]) == 2
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+async def test_get_professional_role_categories_graceful_on_token_error(
+    mock_token,
+    db_session,
+    test_company,
+):
+    """get_professional_role_categories возвращает [] при ошибке токена (не роняет форму)"""
+    mock_token.side_effect = Exception("hh не подключён")
+
+    from app.services.smart_search import get_professional_role_categories
+
+    result = await get_professional_role_categories(db_session, test_company.id)
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+@patch('app.services.smart_search.hh_service.get_valid_access_token')
+@patch('app.services.integrations.hh.client._get_client')
+async def test_role_categories_endpoint_returns_grouped_list(
+    mock_get_client,
+    mock_token,
+    db_session,
+    async_client,
+    manager_headers,
+):
+    """GET /smart/role-categories — возвращает сгруппированный список; manager не получает 403"""
+    import app.services.integrations.hh.client as hh_client_module
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+    mock_token.return_value = "tok"
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"categories": FAKE_RAW_CATEGORIES}
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_get_client.return_value = mock_client
+
+    response = await async_client.get("/api/v1/smart/role-categories", headers=manager_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert data[0]["category_id"] == "1"
+    assert data[0]["category"] == "Разработка"
+    assert len(data[0]["roles"]) == 2
+
+    hh_client_module._professional_roles_raw_cache.clear()
+    hh_client_module._professional_roles_cache.clear()
+
+
+# ============================================================
 # Тест preview-count — debug_params в ответе
 # ============================================================
 

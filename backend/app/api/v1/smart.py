@@ -25,6 +25,7 @@ from ...schemas.smart import (
     SmartCountResponse,
     SmartAreaSuggestItem,
     SmartRoleSuggestItem,
+    SmartRoleCategory,
     SmartInviteRequest,
     SmartInviteResponse,
     SmartTakeRequest,
@@ -52,6 +53,7 @@ from ...services.smart_search import (
     preview_found_count,
     suggest_areas,
     suggest_professional_roles,
+    get_professional_role_categories,
     invite_selected,
     take_selected,
 )
@@ -236,6 +238,30 @@ async def smart_role_suggest(
             id=i["id"],
             name=i["name"],
             category=i.get("category"),
+        )
+        for i in items
+    ]
+
+
+@router.get("/role-categories", response_model=list[SmartRoleCategory])
+async def smart_role_categories(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Получить сгруппированный справочник профессиональных ролей hh.ru.
+
+    Возвращает список категорий (профобластей), каждая с вложенными ролями —
+    для двухуровневой выпадашки: категория → роль.
+    Справочник кэшируется на уровне модуля (тот же кэш, что у role-suggest).
+    При ошибке (hh не подключён, недоступен) возвращает [].
+    """
+    items = await get_professional_role_categories(session, company_id)
+    return [
+        SmartRoleCategory(
+            category_id=i["category_id"],
+            category=i["category"],
+            roles=[{"id": r["id"], "name": r["name"]} for r in i["roles"]],
         )
         for i in items
     ]
