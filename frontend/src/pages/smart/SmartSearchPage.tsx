@@ -2947,6 +2947,12 @@ function SmartRoleBrowse({
   const [categoryId, setCategoryId] = useState('');
   const [open, setOpen] = useState(false);
 
+  // Сброс роли извне («Новый поиск») → чистим локальный выбор категории/раскрытие,
+  // иначе при повторном открытии остаётся прежняя категория с пустой ролью.
+  useEffect(() => {
+    if (!activeRoleId) { setCategoryId(''); setOpen(false); }
+  }, [activeRoleId]);
+
   // Найдём категорию, которой принадлежит текущая активная роль
   const activeCategoryId = useMemo(() => {
     if (!activeRoleId) return '';

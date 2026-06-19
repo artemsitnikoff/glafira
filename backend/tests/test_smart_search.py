@@ -2216,6 +2216,7 @@ async def test_get_professional_roles_cache(mock_get_client):
     import app.services.integrations.hh.client as hh_client_module
 
     # Сбрасываем кэш перед тестом
+    hh_client_module._professional_roles_raw_cache.clear()
     hh_client_module._professional_roles_cache.clear()
 
     mock_response = MagicMock()
@@ -2249,6 +2250,7 @@ async def test_get_professional_roles_cache(mock_get_client):
     assert mock_get_client.call_count == 1  # Всё ещё 1 вызов
 
     # Убираем за собой
+    hh_client_module._professional_roles_raw_cache.clear()
     hh_client_module._professional_roles_cache.clear()
 
 

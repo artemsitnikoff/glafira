@@ -738,15 +738,11 @@ async def _load_professional_roles_raw(access_token: str) -> list[dict]:
             )
             if response.status_code >= 400:
                 logger.warning("[hh] _load_professional_roles_raw: HTTP %s", response.status_code)
-                _professional_roles_raw_cache[cache_key] = []
-                _professional_roles_cache[cache_key] = []
-                return []
+                return []  # НЕ кэшируем сбой — следующий вызов повторит (иначе пусто до рестарта)
 
             data = response.json()
             if not isinstance(data, dict):
                 logger.warning("[hh] _load_professional_roles_raw: некорректный формат ответа")
-                _professional_roles_raw_cache[cache_key] = []
-                _professional_roles_cache[cache_key] = []
                 return []
 
             raw_categories: list[dict] = data.get("categories") or []
@@ -771,9 +767,7 @@ async def _load_professional_roles_raw(access_token: str) -> list[dict]:
 
     except Exception as exc:
         logger.warning("[hh] _load_professional_roles_raw: сбой загрузки справочника: %s", exc)
-        _professional_roles_raw_cache[cache_key] = []
-        _professional_roles_cache[cache_key] = []
-        return []
+        return []  # НЕ кэшируем сбой — следующий вызов повторит
 
 
 async def get_professional_roles(access_token: str) -> list[dict]:
