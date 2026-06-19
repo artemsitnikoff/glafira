@@ -1881,3 +1881,48 @@
   .ss-page .ss-rb-selects { flex-direction: column; }
   .ss-page .ss-skill-mode-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* Скачивание резюме из результатов подбора — попап выбора формата.
+   В воронке классы cd-* заскоуплены под .cnd-funnel-wrap и сюда НЕ достают,
+   поэтому дублируем их scoped под .ss-page (работает и в SSResult, и в модале истории). */
+.ss-page .cd-move-wrap { position: relative; display: inline-flex; }
+.ss-page .cd-pop-backdrop { position: fixed; inset: 0; z-index: 30; background: transparent; }
+.ss-page .cd-move-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .06);
+  z-index: 1000;
+  padding: 6px;
+}
+.ss-page .cd-download-pop { min-width: 200px; }
+.ss-page .cd-pop-head {
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  font-weight: 600;
+}
+.ss-page .cd-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg-1);
+  font-size: 13px;
+  border-radius: 6px;
+  transition: background 120ms;
+}
+.ss-page .cd-pop-item:hover { background: var(--bg-3-hover); }
+.ss-page .cd-pop-item:disabled { opacity: .6; cursor: default; }
+.ss-page .cd-pop-label { white-space: nowrap; }
