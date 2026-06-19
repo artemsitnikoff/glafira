@@ -22,6 +22,7 @@ from ..schemas.smart import (
 from ..core.errors import ValidationError, NotFoundError, ConflictError, GlafiraParseError
 from ..services.integrations.hh import service as hh_service
 from ..services.integrations.hh import client as hh_client
+from ..services.integrations.hh.service import build_candidate_resume_sections
 from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
 from ..services.settings.glafira import get_company_openrouter_key, get_company_llm_model
@@ -1113,6 +1114,9 @@ def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:
     Телефон нормализуется в формат хранения (цифры без '+': 79991234567) — E.164-аналог
     для дедупа и Mango-матчинга. source='hh' по умолчанию; caller обязан переопределить
     для других путей (invite → 'hh', take → 'smart').
+
+    Заполняет зарплатную вилку (salary_from/salary_to/salary_expectation/currency)
+    и last_company из первого опыта.
     """
 
     first_name = (resume.get("first_name") or "").strip() or "Неизвестно"
@@ -1120,6 +1124,20 @@ def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:
     middle_name = (resume.get("middle_name") or "").strip() or None
 
     raw_phone = _extract_phone(resume.get("contact", []))
+
+    # Зарплатные ожидания из hh-резюме
+    salary_raw = resume.get("salary") or {}
+    salary_from: Optional[int] = (int(salary_raw["from"]) if salary_raw.get("from") is not None else None)
+    salary_to: Optional[int] = (int(salary_raw["to"]) if salary_raw.get("to") is not None else None)
+    currency: Optional[str] = (str(salary_raw["currency"])[:3] if salary_raw.get("currency") else None)
+
+    # last_company — компания из первого элемента опыта
+    experiences = resume.get("experience") or []
+    last_company: Optional[str] = None
+    if experiences:
+        raw_company = (experiences[0].get("company") or "").strip()
+        if raw_company:
+            last_company = raw_company[:255]
 
     candidate = Candidate(
         company_id=company_id,
@@ -1131,7 +1149,13 @@ def _create_candidate_from_resume(resume: dict, company_id: UUID) -> Candidate:
         phone=normalize_phone(raw_phone),
         email=_extract_email(resume.get("contact", [])),
         last_position=resume.get("title"),
-        resume_text=_build_resume_text(resume)
+        last_company=last_company,
+        resume_text=_build_resume_text(resume),
+        salary_from=salary_from,
+        salary_to=salary_to,
+        # salary_expectation синхронизируется с salary_from (инвариант salary-range-sync)
+        salary_expectation=salary_from,
+        currency=currency,
     )
 
     return candidate
@@ -1427,6 +1451,10 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                     create_session.add(candidate)
                     await create_session.flush()
 
+                    # Опыт / навыки / образование из hh-резюме
+                    for row in build_candidate_resume_sections(candidate.id, company_id, full_resume):
+                        create_session.add(row)
+
                     # Создаём заявку
                     negotiation_id = _extract_negotiation_id(invitation)
                     application = Application(
@@ -1640,6 +1668,10 @@ async def take_selected(
                     }
                     create_session.add(candidate)
                     await create_session.flush()
+
+                    # Опыт / навыки / образование из hh-резюме
+                    for row in build_candidate_resume_sections(candidate.id, company_id, full_resume):
+                        create_session.add(row)
 
                     # Application: этап 'added' (ручное добавление), БЕЗ negotiation
                     application = Application(

@@ -78,6 +78,62 @@ def _hh_period(start, end) -> Optional[str]:
     return f"{s} — {e}"
 
 
+def build_candidate_resume_sections(
+    candidate_id: UUID,
+    company_id: UUID,
+    resume: dict,
+) -> list:
+    """Строит список ORM-объектов секций резюме из hh-резюме.
+
+    Возвращает CandidateExperience / CandidateSkill / CandidateEducation без
+    добавления в сессию — вызывающий сам делает session.add(row).
+
+    Используется совместно с import_response (через рефакторинг) и
+    smart_search (take_selected / invite_selected) для заполнения карточки.
+    Пустые position / skill / institution пропускаются (не создают строк).
+    """
+    rows: list = []
+
+    for idx, exp in enumerate(resume.get("experience") or []):
+        pos = (exp.get("position") or "").strip()
+        if not pos:
+            continue
+        rows.append(CandidateExperience(
+            company_id=company_id,
+            candidate_id=candidate_id,
+            position=pos[:255],
+            company=((exp.get("company") or "")[:255] or None),
+            period=_hh_period(exp.get("start"), exp.get("end")),
+            description=(exp.get("description") or None),
+            order_index=idx,
+        ))
+
+    for idx, sk in enumerate(resume.get("skill_set") or []):
+        s = str(sk).strip()
+        if s:
+            rows.append(CandidateSkill(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                skill=s[:120],
+                order_index=idx,
+            ))
+
+    for idx, ed in enumerate((resume.get("education") or {}).get("primary") or []):
+        inst = (ed.get("name") or ed.get("organization") or "").strip()
+        if not inst:
+            continue
+        rows.append(CandidateEducation(
+            company_id=company_id,
+            candidate_id=candidate_id,
+            institution=inst[:255],
+            specialty=((ed.get("organization") or ed.get("result") or "")[:255] or None),
+            years=(str(ed.get("year"))[:40] if ed.get("year") else None),
+            order_index=idx,
+        ))
+
+    return rows
+
+
 async def get_integration(session: AsyncSession, company_id: UUID) -> Optional[HhIntegration]:
     """Получает интеграцию hh.ru для компании"""
     result = await session.execute(
@@ -918,31 +974,8 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         await session.execute(delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id))
         await session.execute(delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id))
 
-    for idx, exp in enumerate(experiences):
-        pos = (exp.get("position") or "").strip()
-        if not pos:
-            continue
-        session.add(CandidateExperience(
-            company_id=company_id, candidate_id=candidate.id, position=pos[:255],
-            company=((exp.get("company") or "")[:255] or None),
-            period=_hh_period(exp.get("start"), exp.get("end")),
-            description=(exp.get("description") or None), order_index=idx,
-        ))
-    for idx, sk in enumerate(resume.get("skill_set") or []):
-        s = str(sk).strip()
-        if s:
-            session.add(CandidateSkill(
-                company_id=company_id, candidate_id=candidate.id, skill=s[:120], order_index=idx,
-            ))
-    for idx, ed in enumerate((resume.get("education") or {}).get("primary") or []):
-        inst = (ed.get("name") or ed.get("organization") or "").strip()
-        if not inst:
-            continue
-        session.add(CandidateEducation(
-            company_id=company_id, candidate_id=candidate.id, institution=inst[:255],
-            specialty=((ed.get("organization") or ed.get("result") or "")[:255] or None),
-            years=(str(ed.get("year"))[:40] if ed.get("year") else None), order_index=idx,
-        ))
+    for row in build_candidate_resume_sections(candidate.id, company_id, resume):
+        session.add(row)
 
     # Заявка: создать (этап по hh) или оставить как есть (этап не трогаем)
     now = datetime.now(timezone.utc)
