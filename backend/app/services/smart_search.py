@@ -466,76 +466,145 @@ async def start_search(
     return search_run.id
 
 
-def build_search_params(params: dict, vacancy) -> dict:
+def build_search_params(params: dict, vacancy) -> list[tuple[str, str]]:
     """
-    Строит параметры поиска резюме на hh.ru из фильтров умного подбора
+    Строит параметры поиска резюме на hh.ru из фильтров умного подбора.
+
+    Возвращает list[tuple[str, str]] (список пар ключ-значение) — это позволяет
+    передавать несколько text-блоков с повторяющимся ключом «text», что требует
+    hh API для расширенного поиска по нескольким полям одновременно.
+    httpx.get(params=list_of_tuples) корректно сериализует повторяющиеся ключи
+    в query-строку: text=роль&text.field=everywhere&text=навыки&text.field=skills.
 
     Args:
         params: словарь параметров поиска от клиента
         vacancy: объект вакансии
 
     Returns:
-        dict: параметры для hh API БЕЗ page/per_page (их добавляет вызывающий)
+        list[tuple[str, str]]: пары параметров для hh API БЕЗ page/per_page
     """
-    # Собираем text из роли + навыков (осмысленный поиск)
-    text_parts = []
-    professional_role = params.get("professional_role") or vacancy.name
-    if professional_role:
-        text_parts.append(professional_role)
+    result: list[tuple[str, str]] = []
 
-    skills = params.get("skills", [])
-    if skills:
-        text_parts.extend(skills)
+    # --- Структурные фильтры ---
 
-    search_text = " ".join(filter(None, text_parts)).strip()
-
-    base_search_params = {
-        "text": search_text or vacancy.name,  # Fallback на название вакансии
-    }
-
-    # Добавляем структурные фильтры ТОЛЬКО при валидных значениях
+    # area: берём из area_id (числовой ID региона из справочника hh)
     if params.get("area_id"):
-        # area: берём из area_id (ID региона из справочника hh)
         area_id = params["area_id"]
         if str(area_id).strip().isdigit():
-            base_search_params["area"] = area_id
+            result.append(("area", str(area_id)))
 
+    # professional_role: ТОЛЬКО если числовой id из справочника hh
+    # Если текстовое — роль уйдёт в основной text-блок
+    role_is_numeric = False
     if params.get("professional_role"):
-        # professional_role: только если числовое (id роли из справочника hh)
         role_value = params["professional_role"]
         if str(role_value).strip().isdigit():
-            base_search_params["professional_role"] = role_value
-        # Иначе НЕ передаём - роль уже в text
+            result.append(("professional_role", str(role_value)))
+            role_is_numeric = True
 
+    # experience: только валидный enum hh
     if params.get("experience"):
-        # experience: только если валидный enum hh
         exp_value = params["experience"]
         valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
         if exp_value in valid_experience:
-            base_search_params["experience"] = exp_value
-        # Иначе НЕ передаём - опыт может быть в text
+            result.append(("experience", str(exp_value)))
 
-    if params.get("skills") and isinstance(params["skills"], list):
-        # skill: только если все элементы - числовые id навыков
-        skills_list = params["skills"]
-        if all(str(skill).strip().isdigit() for skill in skills_list):
-            base_search_params["skill"] = skills_list
-        # Иначе НЕ передаём - навыки уже в text
-
-    # Зарплатные фильтры - всегда валидны
+    # Зарплатные фильтры
     if params.get("salary_from"):
-        base_search_params["salary_from"] = params["salary_from"]
+        result.append(("salary_from", str(params["salary_from"])))
     if params.get("salary_to"):
-        base_search_params["salary_to"] = params["salary_to"]
+        result.append(("salary_to", str(params["salary_to"])))
     if params.get("include_no_salary"):
-        base_search_params["only_with_salary"] = "false"
+        result.append(("only_with_salary", "false"))
 
     # Фильтр свежести резюме
     period = params.get("period")
     if period is not None and isinstance(period, int) and period > 0:
-        base_search_params["period"] = period
+        result.append(("period", str(period)))
 
-    return base_search_params
+    # --- Текстовые блоки (повторяющийся ключ text) ---
+    # Блок 1: основной — по роли/должности, широко (text.logic=any)
+    # Если роль числовая — используем название вакансии словами.
+    # Если роль текстовая — используем её текст.
+    # Fallback — название вакансии.
+    if role_is_numeric:
+        # professional_role уже в структурном фильтре → берём название вакансии
+        role_text = str(vacancy.name or "").strip()
+    else:
+        role_raw = params.get("professional_role") or ""
+        role_text = str(role_raw).strip() if role_raw else str(vacancy.name or "").strip()
+
+    if role_text:
+        result.append(("text", role_text))
+        result.append(("text.field", "everywhere"))
+        result.append(("text.logic", "any"))
+        result.append(("text.period", "all_time"))
+
+    # Блок 2: навыки — отдельный мягкий блок text.field=skills, text.logic=any
+    # НЕ используем структурный skill= (он принимает только числовые id из справочника hh)
+    skills = params.get("skills", [])
+    if skills and isinstance(skills, list):
+        skills_text = " ".join(str(s).strip() for s in skills if str(s).strip())
+        if skills_text:
+            result.append(("text", skills_text))
+            result.append(("text.field", "skills"))
+            result.append(("text.logic", "any"))
+            result.append(("text.period", "all_time"))
+
+    return result
+
+
+def _build_debug_params(params: dict, search_pairs: list[tuple[str, str]]) -> dict:
+    """
+    Строит структурированное описание параметров запроса к hh для UI-диагностики.
+
+    Формат:
+      {
+        "structural": {ключ: значение, ...},   # area, professional_role, experience, salary_*, period
+        "text_blocks": [
+          {"label": "роль", "text": "...", "field": "everywhere", "logic": "any"},
+          {"label": "навыки", "text": "...",  "field": "skills",     "logic": "any"},
+        ]
+      }
+
+    Это позволяет фронту честно показать оба text-блока и структурные фильтры.
+    """
+    structural_keys = {"area", "professional_role", "experience", "salary_from", "salary_to",
+                       "only_with_salary", "period"}
+    structural: dict[str, str | int | bool | None] = {}
+    text_blocks: list[dict] = []
+
+    # Извлекаем структурные параметры из списка пар (первое вхождение каждого ключа)
+    seen_structural: set[str] = set()
+    for k, v in search_pairs:
+        if k in structural_keys and k not in seen_structural:
+            structural[k] = v
+            seen_structural.add(k)
+
+    # Извлекаем text-блоки: каждый text= сопровождается text.field= text.logic= text.period=
+    # Проходим по парам и собираем блоки группами по 4 (text + 3 атрибута)
+    i = 0
+    while i < len(search_pairs):
+        key, val = search_pairs[i]
+        if key == "text":
+            block: dict[str, str] = {"text": val}
+            # Следующие 3 записи должны быть text.field, text.logic, text.period
+            for attr_key, attr_val in search_pairs[i + 1: i + 4]:
+                if attr_key == "text.field":
+                    block["field"] = attr_val
+                elif attr_key == "text.logic":
+                    block["logic"] = attr_val
+                elif attr_key == "text.period":
+                    block["period"] = attr_val
+            # Определяем метку для UI
+            field = block.get("field", "")
+            block["label"] = "навыки" if field == "skills" else "роль"
+            text_blocks.append(block)
+            i += 4  # пропускаем text + 3 атрибута
+        else:
+            i += 1
+
+    return {"structural": structural, "text_blocks": text_blocks}
 
 
 async def _run_search_background(run_id: UUID, company_id: UUID, user_id: UUID):
@@ -693,8 +762,9 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         await log_smart_search(run_id, f"Вакансия: {vacancy_data['name']}")
 
         # ЭТАП 1: Поиск резюме с пагинацией (БЕЗ открытой DB сессии)
+        # build_search_params возвращает list[tuple] — нельзя добавлять ключи через [],
+        # поэтому per_page/page добавляем конкатенацией списков при каждом запросе.
         base_search_params = build_search_params(params, vacancy_for_scoring)
-        base_search_params["per_page"] = 50
 
         logger.info("[smart] search_params=%s", base_search_params)
         await log_smart_search(run_id, f"Параметры поиска: {base_search_params}")
@@ -705,8 +775,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         scan_n = params.get("scan_n", 50)
 
         for page in range(MAX_PAGES_LIMIT):
-            search_params = base_search_params.copy()
-            search_params["page"] = page
+            search_params = base_search_params + [("per_page", "50"), ("page", str(page))]
 
             # Сетевой вызов БЕЗ открытой DB сессии с таймаутом
             search_result = await asyncio.wait_for(
@@ -1673,12 +1742,15 @@ async def preview_found_count(
         }
 
         # Используем общую функцию построения search_params
-        search_params = build_search_params(params, vacancy)
-        # debug_params — реальные параметры без page/per_page (то, что реально уходит в hh)
-        debug_params = {k: v for k, v in search_params.items() if k not in ("page", "per_page")}
+        # build_search_params возвращает list[tuple] — нельзя делать dict-операции.
+        base_params = build_search_params(params, vacancy)
 
-        search_params["per_page"] = 1  # Минимум для получения found
-        search_params["page"] = 0
+        # debug_params — структурированное описание реальных параметров для UI-диагностики.
+        # Формируем отдельно, до добавления page/per_page.
+        debug_params = _build_debug_params(params, base_params)
+
+        # Добавляем page/per_page для самого запроса (конкатенацией, не dict-мутацией)
+        search_params = base_params + [("per_page", "1"), ("page", "0")]
 
         try:
             # Получаем токен hh

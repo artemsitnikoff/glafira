@@ -182,10 +182,28 @@ class SmartRoleCategory(BaseModel):
     roles: list[SmartRoleOption]
 
 
+class SmartDebugTextBlock(BaseModel):
+    """Один text-блок в расширенном поиске hh (повторяющийся ключ text=)"""
+    label: str          # «роль» | «навыки»
+    text: str           # содержимое блока
+    field: str          # text.field: everywhere | skills | ...
+    logic: str          # text.logic: any | all | phrase | except
+    period: Optional[str] = None  # text.period: all_time | last_year | ...
+
+
+class SmartDebugParams(BaseModel):
+    """
+    Структурированное описание параметров запроса к hh для UI-диагностики.
+    Показывает структурные фильтры и каждый text-блок отдельно.
+    """
+    structural: dict = Field(default_factory=dict)
+    text_blocks: list[SmartDebugTextBlock] = Field(default_factory=list)
+
+
 class SmartCountResponse(BaseModel):
     """Ответ с количеством найденных резюме"""
     found: Optional[int] = None
-    debug_params: Optional[dict] = None  # Реальные параметры, ушедшие в hh (для диагностики)
+    debug_params: Optional[SmartDebugParams] = None  # Параметры, ушедшие в hh (для диагностики)
 
 
 class SmartInviteRequest(BaseModel):

@@ -269,70 +269,103 @@ async def test_get_run_status_with_invites_skipped(db_session, test_company, tes
 
 
 @pytest.mark.asyncio
-async def test_search_params_text_assembly_and_filtering():
-    """Тест сборки search_params: text из роли+навыков, фильтрация невалидных id-параметров"""
-    from app.services.smart_search import SmartSearchRun
+async def test_search_params_multi_block_text():
+    """
+    build_search_params возвращает list[tuple] с двумя text-блоками:
+    1. роль → text.field=everywhere, text.logic=any
+    2. навыки → text.field=skills, text.logic=any
+    Числовая professional_role → только в структурный professional_role, НЕ в text.
+    Текстовая professional_role → в основной text-блок (не в структурный).
+    """
     from app.models import Vacancy
-    from uuid import uuid4
 
-    # Мокаем объекты для тестирования логики сборки search_params
     vacancy = Vacancy()
-    vacancy.name = "Python разработчик"
+    vacancy.name = "Руководитель кредитного офиса"
 
-    # Тест 1: text собирается из роли + навыков
-    params_with_role_and_skills = {
-        "professional_role": "Программист 1С",
+    # --- Сценарий A: роль ТЕКСТОВАЯ + навыки ---
+    params_text_role = {
+        "professional_role": "Программист 1С",  # текст → в text-блок
         "skills": ["Python", "Django", "PostgreSQL"],
-        "area": "Москва",  # Текстовое значение
-        "experience": "2-3 года",  # Невалидный enum
+        "area_id": "Москва",          # нечисловое → НЕ включается как area
+        "experience": "2-3 года",     # невалидный enum → НЕ включается
     }
+    pairs_a = build_search_params(params_text_role, vacancy)
 
-    # Эмулируем логику сборки text (из реального кода)
-    text_parts = []
-    professional_role = params_with_role_and_skills.get("professional_role") or vacancy.name
-    if professional_role:
-        text_parts.append(professional_role)
+    # Результат — список кортежей, НЕ dict
+    assert isinstance(pairs_a, list)
+    assert all(isinstance(p, tuple) and len(p) == 2 for p in pairs_a)
 
-    skills = params_with_role_and_skills.get("skills", [])
-    if skills:
-        text_parts.extend(skills)
+    keys_a = [k for k, v in pairs_a]
 
-    expected_text = " ".join(filter(None, text_parts)).strip()
-    assert expected_text == "Программист 1С Python Django PostgreSQL"
+    # area НЕ должно быть (нечисловое)
+    assert "area" not in keys_a
+    # professional_role (структурный) НЕ должно быть (роль текстовая)
+    assert "professional_role" not in keys_a
+    # experience НЕ должно быть (невалидный enum)
+    assert "experience" not in keys_a
 
-    # Тест 2: area передается только если числовое
-    area_value = params_with_role_and_skills["area"]
-    area_should_be_included = str(area_value).strip().isdigit()
-    assert area_should_be_included is False  # "Москва" не числовое - НЕ включается
+    # Должны быть ДВА text-блока
+    text_values = [v for k, v in pairs_a if k == "text"]
+    assert len(text_values) == 2, f"Ожидаем 2 text-блока, получили {len(text_values)}: {text_values}"
 
-    # Тест 3: professional_role передается только если числовое
-    role_value = params_with_role_and_skills["professional_role"]
-    role_should_be_included = str(role_value).strip().isdigit()
-    assert role_should_be_included is False  # "Программист 1С" не числовое - НЕ включается
+    # Первый text-блок = текст роли
+    assert text_values[0] == "Программист 1С"
+    # Второй text-блок = навыки через пробел
+    assert text_values[1] == "Python Django PostgreSQL"
 
-    # Тест 4: experience передается только если валидный enum
-    exp_value = params_with_role_and_skills["experience"]
-    valid_experience = ["noExperience", "between1And3", "between3And6", "moreThan6"]
-    exp_should_be_included = exp_value in valid_experience
-    assert exp_should_be_included is False  # "2-3 года" не в енуме - НЕ включается
+    # Атрибуты первого блока (everywhere/any)
+    pairs_dict_all = {}
+    for k, v in pairs_a:
+        pairs_dict_all.setdefault(k, []).append(v)
+    text_fields = pairs_dict_all.get("text.field", [])
+    text_logics = pairs_dict_all.get("text.logic", [])
+    assert "everywhere" in text_fields
+    assert "skills" in text_fields
+    assert text_logics.count("any") == 2
 
-    # Тест 5: skills передаются только если все элементы числовые
-    skills_list = params_with_role_and_skills["skills"]
-    skills_should_be_included = all(str(skill).strip().isdigit() for skill in skills_list)
-    assert skills_should_be_included is False  # ["Python", "Django"] не числовые - НЕ включаются
-
-    # Тест 6: валидные параметры проходят
-    valid_params = {
-        "area": "113",  # Числовой area_id
-        "professional_role": "96",  # Числовой role_id
-        "experience": "between1And3",  # Валидный enum
-        "skills": ["9", "108"],  # Числовые skill_id
+    # --- Сценарий B: роль ЧИСЛОВАЯ — только в структурный professional_role, НЕ в text ---
+    params_numeric_role = {
+        "professional_role": "57",  # числовой id → структурный фильтр
+        "skills": ["Excel", "SQL"],
+        "area_id": "1",
+        "experience": "between3And6",
     }
+    pairs_b = build_search_params(params_numeric_role, vacancy)
 
-    assert str(valid_params["area"]).strip().isdigit() is True
-    assert str(valid_params["professional_role"]).strip().isdigit() is True
-    assert valid_params["experience"] in valid_experience
-    assert all(str(skill).strip().isdigit() for skill in valid_params["skills"]) is True
+    keys_b = [k for k, v in pairs_b]
+    vals_b = dict(pairs_b)  # безопасно, т.к. структурные ключи уникальны
+
+    # professional_role в структурном фильтре
+    assert "professional_role" in keys_b
+    assert vals_b["professional_role"] == "57"
+
+    # Первый text-блок = vacancy.name (т.к. роль числовая — берём название вакансии)
+    text_vals_b = [v for k, v in pairs_b if k == "text"]
+    assert len(text_vals_b) == 2
+    assert text_vals_b[0] == "Руководитель кредитного офиса"
+    assert text_vals_b[1] == "Excel SQL"
+
+    # area и experience прошли
+    assert "area" in keys_b
+    assert vals_b["area"] == "1"
+    assert "experience" in keys_b
+    assert vals_b["experience"] == "between3And6"
+
+    # --- Сценарий C: нет навыков → только один text-блок ---
+    params_no_skills = {
+        "professional_role": "Аналитик данных",
+    }
+    pairs_c = build_search_params(params_no_skills, vacancy)
+    text_vals_c = [v for k, v in pairs_c if k == "text"]
+    assert len(text_vals_c) == 1
+    assert text_vals_c[0] == "Аналитик данных"
+
+    # --- Сценарий D: нет роли и нет навыков → один text-блок из vacancy.name ---
+    params_empty = {}
+    pairs_d = build_search_params(params_empty, vacancy)
+    text_vals_d = [v for k, v in pairs_d if k == "text"]
+    assert len(text_vals_d) == 1
+    assert text_vals_d[0] == "Руководитель кредитного офиса"
 
 
 @pytest.mark.asyncio
@@ -819,13 +852,28 @@ async def test_preview_found_count_success(
     assert found == 269
     mock_search_resumes.assert_called_once()
     # hh_client.search_resumes вызывается позиционно: (access_token, search_params)
-    call_args = mock_search_resumes.call_args[0][1]  # search_params - второй позиционный аргумент
-    assert call_args["per_page"] == 1
-    assert call_args["page"] == 0
-    # debug_params содержит реальные hh-параметры без page/per_page
+    # search_params теперь list[tuple] — проверяем что per_page=1 и page=0 туда попали
+    call_params = mock_search_resumes.call_args[0][1]  # второй позиционный аргумент
+    assert isinstance(call_params, list), "search_params должен быть list[tuple], не dict"
+    param_dict_view = dict(call_params)  # dict-вид для структурных (уникальных) ключей
+    assert param_dict_view["per_page"] == "1"
+    assert param_dict_view["page"] == "0"
+
+    # debug_params — новая структурированная форма: structural + text_blocks
     assert isinstance(debug_params, dict)
-    assert "page" not in debug_params
-    assert "per_page" not in debug_params
+    assert "structural" in debug_params
+    assert "text_blocks" in debug_params
+    # page/per_page НЕ должны быть в структурных (они добавляются только к запросу)
+    assert "page" not in debug_params["structural"]
+    assert "per_page" not in debug_params["structural"]
+    # professional_role=96 (числовой) → в structural
+    assert debug_params["structural"].get("professional_role") == "96"
+    # text_blocks: должен быть блок роли (everywhere) и блок навыков (skills)
+    text_blocks = debug_params["text_blocks"]
+    assert len(text_blocks) == 2
+    fields = {b["field"] for b in text_blocks}
+    assert "everywhere" in fields
+    assert "skills" in fields
 
 
 @pytest.mark.asyncio
@@ -867,22 +915,29 @@ async def test_preview_found_count_hh_error_graceful(
     found, debug_params = await preview_found_count(db_session, test_company.id, request)
 
     assert found is None  # НЕ бросает исключение, возвращает None
-    assert isinstance(debug_params, dict)  # debug_params доступен даже при ошибке
+    # debug_params доступен даже при ошибке hh и имеет новую структурированную форму
+    assert isinstance(debug_params, dict)
+    assert "structural" in debug_params
+    assert "text_blocks" in debug_params
 
 
 @pytest.mark.asyncio
-async def test_build_search_params_creates_expected_dict():
-    """Тест что build_search_params создаёт ожидаемую структуру"""
+async def test_build_search_params_returns_list_of_tuples():
+    """
+    build_search_params возвращает list[tuple[str, str]], НЕ dict.
+    Это критично: только список пар позволяет передать два text-блока
+    с повторяющимся ключом text= в query-строку hh API.
+    """
     from app.models import Vacancy
 
     vacancy = Vacancy()
     vacancy.name = "Python Developer"
 
     params = {
-        "area_id": "113",  # Числовое значение - включается как area
-        "professional_role": "Программист",  # Текстовое - НЕ включается как id, но входит в text
-        "experience": "between1And3",  # Валидный enum - включается
-        "skills": ["Python", "Django"],  # Текстовые - НЕ включаются как id, но входят в text
+        "area_id": "113",              # числовое → area
+        "professional_role": "Программист",  # текстовое → в text-блок, НЕ в structural professional_role
+        "experience": "between1And3",  # валидный enum → experience
+        "skills": ["Python", "Django"],  # текстовые → отдельный text-блок field=skills
         "salary_from": 100000,
         "salary_to": 200000,
         "include_no_salary": False
@@ -890,71 +945,137 @@ async def test_build_search_params_creates_expected_dict():
 
     result = build_search_params(params, vacancy)
 
-    # Проверяем что text содержит роль и навыки
-    expected_text = "Программист Python Django"
-    assert result["text"] == expected_text
+    # Тип: список кортежей (НЕ dict — dict сломал бы второй text-блок)
+    assert isinstance(result, list)
+    assert all(isinstance(p, tuple) and len(p) == 2 for p in result)
 
-    # Проверяем что валидные фильтры включены
-    assert result["area"] == "113"
-    assert result["experience"] == "between1And3"
-    assert result["salary_from"] == 100000
-    assert result["salary_to"] == 200000
-    assert "only_with_salary" not in result  # include_no_salary=False → ключ не добавляется
+    keys = [k for k, v in result]
 
-    # Проверяем что невалидные id-фильтры НЕ включены
-    assert "professional_role" not in result
-    assert "skill" not in result
+    # Структурные фильтры присутствуют
+    result_dict = {}
+    for k, v in result:
+        result_dict.setdefault(k, []).append(v)
 
-    # Проверяем что page/per_page НЕ включены (их добавляет вызывающий)
-    assert "page" not in result
-    assert "per_page" not in result
+    assert result_dict.get("area") == ["113"]
+    assert result_dict.get("experience") == ["between1And3"]
+    assert result_dict.get("salary_from") == ["100000"]
+    assert result_dict.get("salary_to") == ["200000"]
+
+    # include_no_salary=False → only_with_salary НЕ добавляется
+    assert "only_with_salary" not in keys
+
+    # professional_role текстовое → НЕ в структурный professional_role
+    assert "professional_role" not in keys
+
+    # skill= (структурный числовой) НЕ используется вообще (навыки → text.field=skills)
+    assert "skill" not in keys
+
+    # page/per_page НЕ в base params (добавляет вызывающий конкатенацией)
+    assert "page" not in keys
+    assert "per_page" not in keys
+
+    # ДВА text-блока
+    text_values = [v for k, v in result if k == "text"]
+    assert len(text_values) == 2
+    assert text_values[0] == "Программист"   # роль
+    assert text_values[1] == "Python Django"  # навыки
+
+    # Блок роли: field=everywhere
+    text_fields = result_dict.get("text.field", [])
+    assert "everywhere" in text_fields
+    # Блок навыков: field=skills
+    assert "skills" in text_fields
+    # Оба с logic=any
+    text_logics = result_dict.get("text.logic", [])
+    assert text_logics.count("any") == 2
 
 
 @pytest.mark.asyncio
 async def test_build_search_params_with_area_id_and_period():
-    """Тест что build_search_params корректно обрабатывает area_id и period"""
+    """build_search_params корректно обрабатывает area_id и period в list[tuple]"""
     from app.models import Vacancy
 
     vacancy = Vacancy()
     vacancy.name = "Python Developer"
 
-    # Тест с валидным area_id (числовое значение)
-    params_valid_area = {
-        "area_id": "1",  # Числовое значение - включается как area
-        "period": 7,     # Валидное значение - включается
-    }
+    def get_val(pairs, key):
+        """Первое значение ключа из списка пар"""
+        return next((v for k, v in pairs if k == key), None)
 
-    result = build_search_params(params_valid_area, vacancy)
-    assert result["area"] == "1"
-    assert result["period"] == 7
+    def has_key(pairs, key):
+        return any(k == key for k, v in pairs)
 
-    # Тест с невалидным area_id (нечисловое значение)
-    params_invalid_area = {
-        "area_id": "Москва",  # Нечисловое значение - НЕ включается
-        "period": None,       # None - НЕ включается
-    }
+    # Тест с валидным area_id и period
+    params_valid = {"area_id": "1", "period": 7}
+    result = build_search_params(params_valid, vacancy)
+    assert get_val(result, "area") == "1"
+    assert get_val(result, "period") == "7"
 
+    # Тест с невалидным area_id (нечисловое)
+    params_invalid_area = {"area_id": "Москва", "period": None}
     result = build_search_params(params_invalid_area, vacancy)
-    assert "area" not in result
-    assert "period" not in result
+    assert not has_key(result, "area")
+    assert not has_key(result, "period")
 
-    # Тест с невалидным period (отрицательное число)
-    params_invalid_period = {
-        "area_id": "113",
-        "period": -5,  # Отрицательное - НЕ включается
-    }
-
-    result = build_search_params(params_invalid_period, vacancy)
-    assert result["area"] == "113"
-    assert "period" not in result
+    # Тест с отрицательным period
+    params_neg_period = {"area_id": "113", "period": -5}
+    result = build_search_params(params_neg_period, vacancy)
+    assert get_val(result, "area") == "113"
+    assert not has_key(result, "period")
 
     # Тест с period = 0 (не включается)
-    params_zero_period = {
-        "period": 0,  # Ноль - НЕ включается
-    }
+    params_zero = {"period": 0}
+    result = build_search_params(params_zero, vacancy)
+    assert not has_key(result, "period")
 
-    result = build_search_params(params_zero_period, vacancy)
-    assert "period" not in result
+
+@pytest.mark.asyncio
+async def test_build_debug_params_structure():
+    """
+    _build_debug_params возвращает структурированный dict с ключами structural и text_blocks.
+    text_blocks честно отражает ОБА text-блока (роль + навыки).
+    """
+    from app.services.smart_search import _build_debug_params
+    from app.models import Vacancy
+
+    vacancy = Vacancy()
+    vacancy.name = "Старший разработчик"
+
+    # Числовая роль: professional_role → structural, vacancy.name → text-блок роли
+    params = {
+        "professional_role": "96",
+        "skills": ["Python", "FastAPI"],
+        "area_id": "1",
+        "experience": "between3And6",
+        "salary_from": 150000,
+        "salary_to": 300000,
+    }
+    pairs = build_search_params(params, vacancy)
+    debug = _build_debug_params(params, pairs)
+
+    assert "structural" in debug
+    assert "text_blocks" in debug
+
+    structural = debug["structural"]
+    assert structural["professional_role"] == "96"
+    assert structural["area"] == "1"
+    assert structural["experience"] == "between3And6"
+    assert structural["salary_from"] == "150000"
+    assert structural["salary_to"] == "300000"
+
+    text_blocks = debug["text_blocks"]
+    assert len(text_blocks) == 2
+
+    role_block = next(b for b in text_blocks if b.get("field") == "everywhere")
+    skills_block = next(b for b in text_blocks if b.get("field") == "skills")
+
+    assert role_block["text"] == "Старший разработчик"  # vacancy.name т.к. роль числовая
+    assert role_block["label"] == "роль"
+    assert role_block["logic"] == "any"
+
+    assert skills_block["text"] == "Python FastAPI"
+    assert skills_block["label"] == "навыки"
+    assert skills_block["logic"] == "any"
 
 
 @pytest.mark.asyncio

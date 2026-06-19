@@ -510,13 +510,16 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
         raise ValidationError(f"hh.ru ошибка отказа отклика (HTTP {response.status_code}): {body}")
 
 
-async def search_resumes(access_token: str, params: dict) -> dict:
+async def search_resumes(access_token: str, params: list[tuple[str, str]]) -> dict:
     """
-    Поиск резюме в базе hh.ru
+    Поиск резюме в базе hh.ru.
 
     Args:
         access_token: access token
-        params: параметры поиска (text, area, professional_role, experience, salary, etc.)
+        params: параметры поиска в виде list[tuple[str, str]].
+            Список пар обязателен (не dict): hh API поддерживает несколько
+            text-блоков через повторение ключа text= в query-строке.
+            httpx корректно сериализует list[tuple] в повторяющиеся параметры.
 
     Returns:
         dict: ответ hh.ru с полями found и items
