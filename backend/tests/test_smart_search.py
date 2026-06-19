@@ -1590,7 +1590,10 @@ async def test_build_debug_params_exact_has_skill_filter():
         "skills": [],
     }
     pairs_soft = build_search_params(params_soft, vacancy)
-    debug_soft = _build_debug_params(params_soft, pairs_soft, skill_chips=None)
+    # Продакшен ВСЕГДА передаёт реальные чипы (skill_chips_raw), даже в soft — проверяем,
+    # что skill_filter ВСЁ РАВНО пуст (в soft навыки уходят текстом, не как skill=).
+    # До гейта по режиму этот ассерт падал (дебаг врал).
+    debug_soft = _build_debug_params(params_soft, pairs_soft, skill_chips=skill_chips)
 
     assert "skill_filter" in debug_soft
     assert debug_soft["skill_filter"] == []

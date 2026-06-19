@@ -669,9 +669,11 @@ def _build_debug_params(
         else:
             i += 1
 
-    # skill_filter: навыки с числовым id, ушедшие как skill= в exact-режиме
+    # skill_filter: навыки с числовым id, ушедшие как skill= в exact-режиме.
+    # ГЕЙТ по режиму: в soft skill= НЕ отправляется (навыки уходят text.field=skills),
+    # поэтому skill_filter обязан быть пуст — иначе дебаг соврёт (§0 «лог=реальность»).
     skill_filter: list[dict] = []
-    if skill_chips:
+    if skill_chips and params.get("skill_mode", "soft") == "exact":
         for chip in skill_chips:
             chip_id = str(chip.get("id", "")).strip() if isinstance(chip, dict) else ""
             chip_text = str(chip.get("text", "")).strip() if isinstance(chip, dict) else ""
@@ -1857,6 +1859,18 @@ async def preview_found_count(
         return None, {}
 
 
+def _skill_name_matches(query: str, candidate: str) -> bool:
+    """True, если подсказка навыка hh разумно соответствует AI-навыку (защита от
+    «не того» структурного навыка при резолве). Регистронезависимо: точное равенство
+    или вхождение одного в другой. Консервативно — лучше уйти в текстовый фолбэк, чем
+    наложить неверный структурный skill=."""
+    q = (query or "").strip().casefold()
+    c = (candidate or "").strip().casefold()
+    if not q or not c:
+        return False
+    return q == c or q in c or c in q
+
+
 async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> dict:
     """
     Извлекает AI-фильтры для умного подбора из вакансии
@@ -1959,8 +1973,14 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
                     continue
                 try:
                     items = await hh_client.suggest_skill_set(access_token, skill_name_str)
-                    if items and items[0].get("id") and items[0].get("text"):
-                        skill_chips.append({"id": str(items[0]["id"]), "text": str(items[0]["text"])})
+                    top = items[0] if items else None
+                    top_id = str(top.get("id", "")).strip() if isinstance(top, dict) else ""
+                    top_text = str(top.get("text", "")).strip() if isinstance(top, dict) else ""
+                    # Берём подсказку как структурный навык ТОЛЬКО при разумном совпадении:
+                    # hh-suggest по общему слову может вернуть смежный навык, а в exact это
+                    # молча сузит поиск «не туда». Что не совпало — в текстовый фолбэк.
+                    if top_id and top_text and _skill_name_matches(skill_name_str, top_text):
+                        skill_chips.append({"id": top_id, "text": top_text})
                     else:
                         unresolved_skills.append(skill_name_str)
                 except Exception:
