@@ -116,7 +116,7 @@ async def generate_scoring_rubric(vacancy_fields: dict, api_key: str, model: str
             user=user_text,
             api_key=api_key,
             model=model,
-            max_tokens=2000,  # рубрике (5–12 кратких критериев) хватает; меньше = быстрее, не упереться в 504
+            max_tokens=3000,  # потолок ВЫХОДА (рубрика ~1.5–2.5k токенов); запас от обрезки JSON на детальных вакансиях
         )
     except Exception as e:
         logger.warning("generate_scoring_rubric: call_json упал: %s", e)
