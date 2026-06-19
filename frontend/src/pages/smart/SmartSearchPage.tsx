@@ -2106,7 +2106,15 @@ function SSHistoryRunDetail({
     );
   }
 
-  const passedCandidates = (runData.scored_candidates || []).filter((c: SmartCandidate) => c.passed);
+  const scoredAll = runData.scored_candidates || [];
+  // Сохраняем и показываем ВСЕХ оценённых, сортировка по AI-баллу убыв.
+  // Прошедшие порог — сверху, непрошедшие — отдельной секцией следом.
+  const passedCandidates = scoredAll
+    .filter((c: SmartCandidate) => c.passed)
+    .sort((a: SmartCandidate, b: SmartCandidate) => (b.score ?? 0) - (a.score ?? 0));
+  const notPassedCandidates = scoredAll
+    .filter((c: SmartCandidate) => c.passed === false)
+    .sort((a: SmartCandidate, b: SmartCandidate) => (b.score ?? 0) - (a.score ?? 0));
 
   return (
     <div className="ss-page-modal-overlay" onClick={onClose}>
@@ -2117,7 +2125,7 @@ function SSHistoryRunDetail({
               Прошли порог: {passedCandidates.length}
             </h2>
             <div className="ss-page-modal-meta">
-              <span>Результаты поиска</span>
+              <span>Результаты поиска · оценено {scoredAll.length}</span>
             </div>
           </div>
           <button
@@ -2130,46 +2138,85 @@ function SSHistoryRunDetail({
         </div>
 
         <div className="ss-page-modal-body">
-          {passedCandidates.length > 0 ? (
-            <div className="ss-invited-card">
-              <div className="ss-invited-head">
-                <span className="title">Прошли порог: {passedCandidates.length}</span>
-                <div style={{ flex: 1 }} />
-                <span className="live-dot">Приглашено: {runData.invited}</span>
-              </div>
-
-              {passedCandidates.map((c: SmartCandidate, index: number) => (
-                <div key={c.candidate_id || index} className="ss-inv-row">
-                  <Avatar name={c.name} size="sm" />
-                  <div className="ss-inv-main">
-                    <div className="ss-inv-name">{c.name}</div>
-                    <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
-                  </div>
-                  <ScoreLabel value={c.score} />
-                  {c.hh_resume_id && (
-                    <a
-                      href={`https://hh.ru/resume/${c.hh_resume_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="icon-btn"
-                      title="Открыть на hh.ru"
-                      style={{ marginLeft: '8px' }}
-                    >
-                      <Icon name="open" size={14} />
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
+          {scoredAll.length === 0 ? (
             <div style={{
               padding: '40px 20px',
               textAlign: 'center',
               color: 'var(--fg-3)',
               fontSize: '14px'
             }}>
-              Никто не прошёл порог
+              Нет оценённых кандидатов
             </div>
+          ) : (
+            <>
+              {passedCandidates.length > 0 && (
+                <div className="ss-invited-card">
+                  <div className="ss-invited-head">
+                    <span className="title">Прошли порог: {passedCandidates.length}</span>
+                    <div style={{ flex: 1 }} />
+                    <span className="live-dot">Приглашено: {runData.invited}</span>
+                  </div>
+
+                  {passedCandidates.map((c: SmartCandidate, index: number) => (
+                    <div key={c.candidate_id || index} className="ss-inv-row">
+                      <Avatar name={c.name} size="sm" />
+                      <div className="ss-inv-main">
+                        <div className="ss-inv-name">{c.name}</div>
+                        <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+                      </div>
+                      <ScoreLabel value={c.score} />
+                      {c.hh_resume_id && (
+                        <a
+                          href={`https://hh.ru/resume/${c.hh_resume_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="icon-btn"
+                          title="Открыть на hh.ru"
+                          style={{ marginLeft: '8px' }}
+                        >
+                          <Icon name="open" size={14} />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {notPassedCandidates.length > 0 && (
+                <div className="ss-invited-card" style={{ marginTop: passedCandidates.length > 0 ? '16px' : 0 }}>
+                  <div className="ss-invited-head">
+                    <span className="title">Не прошли порог</span>
+                    <span className="count">{notPassedCandidates.length}</span>
+                  </div>
+
+                  {notPassedCandidates.map((c: SmartCandidate, index: number) => (
+                    <div key={c.candidate_id || index} className="ss-inv-row" style={{ opacity: 0.6 }}>
+                      <Avatar name={c.name} size="sm" />
+                      <div className="ss-inv-main">
+                        <div className="ss-inv-name">{c.name}</div>
+                        <div className="ss-inv-meta">{c.age} лет · {c.experience_years} лет опыта · {c.last_company} · {c.city}</div>
+                      </div>
+                      <ScoreLabel value={c.score} />
+                      <span className="ss-inv-sent" style={{ background: 'var(--ark-gray-200)', color: 'var(--fg-3)' }}>
+                        <Icon name="x" size={12} /> не прошёл
+                      </span>
+                      {c.hh_resume_id && (
+                        <a
+                          href={`https://hh.ru/resume/${c.hh_resume_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="icon-btn"
+                          title="Открыть на hh.ru"
+                          style={{ marginLeft: '8px' }}
+                        >
+                          <Icon name="open" size={14} />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
