@@ -667,6 +667,16 @@ async def open_habr_contacts(
         if isinstance(msg, dict) and msg.get("value"):
             messengers_extra.append(msg)
 
+    # ⚠️ Защита: контакты получены (лимит УЖЕ списан), но парсер не распознал формат →
+    # логируем КЛЮЧИ ответа (НЕ значения — без PII), чтобы запиннить реальную схему /contacts
+    # до массовых списаний (Хабр публично схему /contacts не уточнил).
+    if contacts_data and not phone and not email and not messengers_extra:
+        logger.warning(
+            "[habr] open_habr_contacts: контакты получены, но не распознаны (лимит списан). "
+            "Ключи ответа: %s — запиньте схему /contacts по реальному ответу.",
+            list(contacts_data.keys()) if isinstance(contacts_data, dict) else type(contacts_data).__name__,
+        )
+
     now = datetime.now(timezone.utc)
 
     # --- audit ПЛАТНОГО открытия (до дедупа, чтобы всегда записать факт вызова) ---
@@ -727,6 +737,13 @@ async def open_habr_contacts(
                 survivor.phone = phone
             if email and not survivor.email:
                 survivor.email = email[:255]
+
+            # Мессенджеры из Хабра → survivor.extra (если у него их ещё нет) — иначе терялись при слиянии
+            if messengers_extra:
+                survivor_extra = dict(survivor.extra or {})
+                if not survivor_extra.get("habr_messengers"):
+                    survivor_extra["habr_messengers"] = messengers_extra
+                    survivor.extra = survivor_extra
 
             # Скопировать секции хабр-кандидата в survivor если у него нет
             survivor_has_exp = (await session.execute(
