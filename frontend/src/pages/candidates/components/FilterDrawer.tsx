@@ -190,6 +190,7 @@ export function FilterDrawer({ onClose }: FilterDrawerProps) {
     { id: 'linkedin', label: 'LinkedIn' },
     { id: 'telegram', label: 'Глафира · Telegram' },
     { id: 'potok', label: 'Поток' },
+    { id: 'habr', label: 'Хабр Карьера' },
     { id: 'referral', label: 'Реферал' },
     { id: 'direct', label: 'Прямое обращение' },
     { id: 'agency', label: 'Агентство' },

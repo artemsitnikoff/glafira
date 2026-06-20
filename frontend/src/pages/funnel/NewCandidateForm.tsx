@@ -71,6 +71,7 @@ const SOURCES = [
   { id: 'avito', name: 'Avito Работа' },
   { id: 'superjob', name: 'SuperJob' },
   { id: 'linkedin', name: 'LinkedIn' },
+  { id: 'habr', name: 'Хабр Карьера' },
   { id: 'telegram', name: 'Telegram-канал' },
   { id: 'referral', name: 'Реферальная программа' },
   { id: 'direct', name: 'Прямой контакт' },

@@ -32,7 +32,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
 
   // Real data mapping for context display
   const getSourceInfo = () => {
-    const source = candidate?.source || (application as any)?.source || 'hh';
+    const source = candidate?.source || 'hh';
 
     const sourceMap: Record<string, string> = {
       'hh': 'hh',
