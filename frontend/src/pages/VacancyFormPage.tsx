@@ -32,6 +32,8 @@ import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
 import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api/mutations/hhIntegration';
 import { useHabrStatus, useHabrVacancies } from '@/api/hooks/useHabrIntegration';
 import { useHabrLinkVacancy, useHabrUnlinkVacancy } from '@/api/mutations/habrIntegration';
+import { useAvitoStatus } from '@/api/hooks/useAvitoIntegration';
+import { useAvitoLinkVacancy, useAvitoUnlinkVacancy } from '@/api/mutations/avitoIntegration';
 import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
 import { useParseVacancyFile } from '@/api/hooks/useParseVacancyFile';
 import { useGenerateRubric } from '@/api/hooks/useGenerateRubric';
@@ -1800,6 +1802,7 @@ function AutomationStep({
 
       <HhPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
       <HabrPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
+      <AvitoPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
     </div>
   );
 }
@@ -2168,6 +2171,163 @@ function HabrPublicationBlock({ editMode, vacancyId, vacancy }: { editMode: bool
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AvitoPublicationBlock({ editMode, vacancyId, vacancy }: { editMode: boolean; vacancyId?: string; vacancy?: any }) {
+  const [avitoError, setAvitoError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [manualAvitoId, setManualAvitoId] = useState('');
+
+  const { data: avitoStatus, isLoading: avitoStatusLoading } = useAvitoStatus();
+  const avitoLinkMutation = useAvitoLinkVacancy();
+  const avitoUnlinkMutation = useAvitoUnlinkVacancy();
+
+  const isConnected = avitoStatus?.connected;
+  // avito_vacancy_id может прийти как новое поле (openapi отстаёт, читаем через any)
+  const isLinked = vacancy && (vacancy as any).avito_vacancy_id;
+  const canManage = editMode && vacancyId;
+
+  const handleLink = async () => {
+    const targetId = manualAvitoId.trim();
+    if (!targetId || !vacancyId) return;
+    setAvitoError(null);
+    try {
+      await avitoLinkMutation.mutateAsync({ vacancyId, avitoVacancyId: targetId });
+      setSuccessMessage('Вакансия успешно привязана к Авито Работа');
+      setManualAvitoId('');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setAvitoError(e.error?.message || 'Ошибка при привязке к Авито Работа');
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!vacancyId) return;
+    setAvitoError(null);
+    try {
+      await avitoUnlinkMutation.mutateAsync(vacancyId);
+      setSuccessMessage('Вакансия отвязана от Авито Работа');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setAvitoError(e.error?.message || 'Ошибка при отвязке от Авито Работа');
+    }
+  };
+
+  return (
+    <div className="nv-hh-block">
+      <div className="nv-h3" style={{ marginBottom: '8px', marginTop: '24px' }}>Привязка к Авито Работа</div>
+
+      {avitoError && (
+        <div className="error-banner" role="alert" style={{ marginBottom: '12px' }}>
+          {avitoError}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="info-banner" style={{
+          marginBottom: '12px',
+          background: 'var(--success-bg)',
+          borderColor: 'var(--success-border)',
+          color: 'var(--success-fg)'
+        }}>
+          <Icon name="check" size={16} />
+          <div>{successMessage}</div>
+        </div>
+      )}
+
+      {avitoStatusLoading ? (
+        <div style={{ padding: '16px', color: 'var(--fg-3)', textAlign: 'center' }}>
+          Загрузка статуса Авито Работа...
+        </div>
+      ) : !isConnected ? (
+        <div className="nv-hh-disabled">
+          <Icon name="x" size={16} style={{ color: 'var(--fg-3)' }} />
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '4px' }}>
+              Авито Работа не подключена
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+              Подключите в <a href="/settings?tab=integrations" style={{ color: 'var(--accent)' }}>Настройках → Интеграции</a>
+            </div>
+          </div>
+        </div>
+      ) : !canManage ? (
+        <div className="nv-hh-disabled">
+          <Icon name="lock" size={16} style={{ color: 'var(--fg-3)' }} />
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '4px' }}>
+              Сначала сохраните вакансию
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+              Привязка к Авито доступна только для сохранённых вакансий
+            </div>
+          </div>
+        </div>
+      ) : isLinked ? (
+        <div className="nv-hh-linked">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Icon name="link" size={16} style={{ color: 'var(--success-fg)' }} />
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                <strong>Привязана к Авито:</strong> {(vacancy as any).avito_vacancy_id}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '2px' }}>
+                Телефон кандидата приходит бесплатно — дополнительных действий не нужно
+              </div>
+            </div>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleUnlink}
+            disabled={avitoUnlinkMutation.isPending}
+          >
+            {avitoUnlinkMutation.isPending ? 'Отвязка...' : 'Отвязать'}
+          </button>
+        </div>
+      ) : (
+        <div className="nv-hh-controls">
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', color: 'var(--fg-2)', marginBottom: '8px' }}>
+              Привязать к вакансии на Авито Работа
+            </label>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '8px' }}>
+              Введите числовой ID вакансии (из URL объявления на Авито)
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={manualAvitoId}
+                onChange={(e) => setManualAvitoId(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="Например: 123456789"
+                style={{
+                  minWidth: '200px',
+                  padding: '6px 8px',
+                  fontSize: '13px',
+                  border: '1px solid var(--border-1)',
+                  borderRadius: '6px',
+                  background: 'var(--bg-1)',
+                  color: 'var(--fg-1)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleLink}
+                disabled={!manualAvitoId.trim() || avitoLinkMutation.isPending}
+              >
+                {avitoLinkMutation.isPending ? 'Привязка...' : 'Привязать'}
+              </button>
+            </div>
+          </div>
+          <div className="info-banner small">
+            <Icon name="alert-triangle" size={14} />
+            <div>
+              ID вакансии — цифры из URL объявления на Авито (например: avito.ru/...</div>
           </div>
         </div>
       )}

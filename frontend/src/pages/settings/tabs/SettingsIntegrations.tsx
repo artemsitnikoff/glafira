@@ -15,6 +15,9 @@ import { useMangoSaveConfig, useMangoTest, useMangoDisconnect } from '@/api/muta
 import { useHabrStatus } from '@/api/hooks/useHabrIntegration';
 import { useHabrAuthorize, useHabrDisconnect, useHabrPollResponses } from '@/api/mutations/habrIntegration';
 import type { HabrPollResult } from '@/api/mutations/habrIntegration';
+import { useAvitoStatus } from '@/api/hooks/useAvitoIntegration';
+import { useAvitoSaveConfig, useAvitoPollResponses, useAvitoDisconnect } from '@/api/mutations/avitoIntegration';
+import type { AvitoPollResult } from '@/api/mutations/avitoIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -501,6 +504,61 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
         type: 'error',
         message: e.error?.message || 'Ошибка при отключении Хабр Карьера',
       });
+    }
+  };
+
+  // ---------------- Авито Работа (client_credentials) ----------------
+  const { data: avitoStatus, isLoading: avitoStatusLoading } = useAvitoStatus();
+  const avitoSaveConfigMutation = useAvitoSaveConfig();
+  const avitoPollMutation = useAvitoPollResponses();
+  const avitoDisconnectMutation = useAvitoDisconnect();
+
+  const [avitoForm, setAvitoForm] = useState({ client_id: '', client_secret: '' });
+  const [avitoPollResult, setAvitoPollResult] = useState<AvitoPollResult | null>(null);
+
+  const handleAvitoSaveConfig = async () => {
+    try {
+      await avitoSaveConfigMutation.mutateAsync({
+        client_id: avitoForm.client_id.trim(),
+        client_secret: avitoForm.client_secret,
+      });
+      setAvitoForm({ client_id: '', client_secret: '' });
+      setNotification({ type: 'success', message: 'Авито Работа подключена. Привяжите вакансии и заберите отклики.' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при сохранении настроек Авито' });
+    }
+  };
+
+  const handleAvitoPollResponses = async () => {
+    setAvitoPollResult(null);
+    try {
+      const res = await avitoPollMutation.mutateAsync();
+      setAvitoPollResult(res);
+      if (res.vacancies === 0) {
+        setNotification({
+          type: 'error',
+          message: 'Нет привязанных вакансий для опроса. Привяжите вакансию к Авито в редакторе вакансии.',
+        });
+      } else {
+        setNotification({
+          type: 'success',
+          message: `Проверено вакансий: ${res.vacancies}. Создано: ${res.imported}, обновлено: ${res.updated ?? 0}, пропущено: ${res.skipped}.`,
+        });
+      }
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось забрать отклики с Авито Работа' });
+    }
+  };
+
+  const handleAvitoDisconnect = async () => {
+    try {
+      await avitoDisconnectMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'Авито Работа отключена' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Авито Работа' });
     }
   };
 
@@ -1460,11 +1518,111 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
             )}
           </div>
         </IntegrationCard>
-      </div>
 
-      <div className="info-banner muted">
-        <Icon name="sparkle" size={14}/>
-        <div>В будущих релизах сюда добавится карточка <b>Авито Работа</b>.</div>
+        {/* АВИТО РАБОТА (client_credentials) */}
+        <IntegrationCard
+          ico={<span style={{ fontWeight: 700, fontSize: 13, color: 'var(--src-avito)', letterSpacing: '-0.02em' }}>Ав</span>}
+          iconBg="var(--ark-blue-50)"
+          name="Авито Работа"
+          desc="Синхронизация откликов кандидатов с Авито Работа"
+          status={avitoStatusLoading ? 'bad' : (avitoStatus?.connected ? 'ok' : 'bad')}>
+          <div className="integ-section">
+            <div className="integ-section-title">Подключение и управление</div>
+
+            {avitoStatusLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : avitoStatus?.connected ? (
+              // Подключено
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <strong>Подключено</strong> — ключи API сохранены.
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleAvitoPollResponses}
+                    disabled={avitoPollMutation.isPending || readOnly}
+                  >
+                    {avitoPollMutation.isPending ? 'Забираем…' : 'Забрать отклики Авито'}
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={readOnly ? undefined : handleAvitoDisconnect}
+                    disabled={avitoDisconnectMutation.isPending || readOnly}
+                  >
+                    {avitoDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+                {avitoPollResult && (
+                  <div className="info-banner small" style={{ marginTop: 10 }}>
+                    <Icon name="check" size={14} />
+                    <div>
+                      Импортировано новых: <strong>{avitoPollResult.imported}</strong>, обновлено:{' '}
+                      <strong>{avitoPollResult.updated ?? 0}</strong>, пропущено (уже были):{' '}
+                      <strong>{avitoPollResult.skipped}</strong>. Проверено вакансий: {avitoPollResult.vacancies}.
+                    </div>
+                  </div>
+                )}
+                <div className="info-banner small" style={{ marginTop: 10 }}>
+                  <Icon name="alert-triangle" size={14} />
+                  <div>
+                    Тянутся отклики на привязанные к Авито вакансии → этап «Отклик».
+                    Телефон кандидата приходит бесплатно в теле отклика — отдельно открывать не нужно.
+                    Привязку вакансии настройте в редакторе вакансии (шаг «Автоматизация»).
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Не подключено — форма client_id + client_secret
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Введите Client ID и Client Secret из личного кабинета разработчика Авито.
+                  Подключение использует OAuth 2.0 Client Credentials — без перенаправления браузера.
+                </div>
+                <div className="form-grid form-grid-2">
+                  <FormRow label="Client ID" required>
+                    <TextInput
+                      value={avitoForm.client_id}
+                      onChange={(v) => setAvitoForm(p => ({ ...p, client_id: v }))}
+                      placeholder="Введите Client ID"
+                      mono
+                    />
+                  </FormRow>
+                  <FormRow label="Client Secret" required>
+                    <TextInput
+                      type="password"
+                      value={avitoForm.client_secret}
+                      onChange={(v) => setAvitoForm(p => ({ ...p, client_secret: v }))}
+                      placeholder="Введите Client Secret"
+                      mono
+                    />
+                  </FormRow>
+                </div>
+                <div className="info-banner small">
+                  <Icon name="alert-triangle" size={14} />
+                  <div>
+                    Получите ключи в личном кабинете Авито:{' '}
+                    <strong>Настройки → API → Мои приложения</strong>. Секрет хранится в зашифрованном виде.
+                  </div>
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleAvitoSaveConfig}
+                    disabled={
+                      avitoSaveConfigMutation.isPending ||
+                      !avitoForm.client_id.trim() ||
+                      !avitoForm.client_secret.trim() ||
+                      readOnly
+                    }
+                  >
+                    {avitoSaveConfigMutation.isPending ? 'Подключение...' : 'Подключить'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </IntegrationCard>
       </div>
     </div>
   );
