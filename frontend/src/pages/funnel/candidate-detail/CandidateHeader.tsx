@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { formatSalaryRange } from '@/lib/format';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
@@ -8,6 +10,8 @@ import { ScoreLabel } from '@/components/ui/ScoreLabel';
 import { PdnBadge } from '@/components/PdnBadge';
 import { CandidateTagPicker } from '@/components/CandidateTagPicker';
 import { SOURCE_CONFIG } from '@/lib/source-colors';
+import { useAuthStore } from '@/store/authStore';
+import { useHabrOpenContacts } from '@/api/mutations/habrIntegration';
 
 type Props = {
   candidateId: string | null | undefined;
@@ -16,6 +20,30 @@ type Props = {
 
 export function CandidateHeader({ candidateId, application }: Props) {
   const { data: candidate, isLoading } = useCandidateDetail(candidateId || null);
+  const navigate = useNavigate();
+  const userRole = useAuthStore((s) => s.user?.role);
+  const isAdmin = userRole === 'admin';
+  const openContactsMutation = useHabrOpenContacts();
+  const [openContactsError, setOpenContactsError] = useState<string | null>(null);
+
+  function handleOpenContacts() {
+    if (!candidateId) return;
+    setOpenContactsError(null);
+    openContactsMutation.mutate(candidateId, {
+      onSuccess: (data) => {
+        if (data.merged) {
+          // Кандидат слит с существующим дублём — переходим на survivor
+          navigate(`/candidates/${data.candidate_id}`);
+        }
+        // Иначе — кэш инвалидирован в мутации, карточка перезагрузится автоматически
+      },
+      onError: (err: unknown) => {
+        const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+        const msg = axiosErr?.response?.data?.error?.message;
+        setOpenContactsError(msg || 'Не удалось открыть контакты. Проверьте лимит Хабра.');
+      },
+    });
+  }
 
   if (isLoading || !candidate) {
     return (
@@ -166,6 +194,33 @@ export function CandidateHeader({ candidateId, application }: Props) {
               </span>
             )}
           </div>
+          {/* Блок «Открыть контакты» — только для хабр-кандидатов без открытых контактов */}
+          {candidate.source === 'habr' && !candidate.habr_contacts_opened && (
+            <div className="cb-row cb-habr-contacts-row">
+              {isAdmin ? (
+                <div className="cb-habr-contacts">
+                  <button
+                    className="cb-habr-btn"
+                    onClick={handleOpenContacts}
+                    disabled={openContactsMutation.isPending}
+                    title="Откроет контакты кандидата на Хабре — спишется лимит открытий компании"
+                  >
+                    <Icon name="open" size={14} />
+                    {openContactsMutation.isPending ? 'Открываем…' : 'Открыть контакты'}
+                  </button>
+                  <span className="cb-habr-hint">Спишется лимит открытий Хабра</span>
+                  {openContactsError && (
+                    <span className="cb-habr-error">{openContactsError}</span>
+                  )}
+                </div>
+              ) : (
+                <span className="cb-habr-locked">
+                  <Icon name="lock" size={13} />
+                  Контакты не открыты (только для администратора)
+                </span>
+              )}
+            </div>
+          )}
           {(candidate as { source_url?: string | null }).source_url && (
             <div className="cb-row">
               <span className="cb-label">Резюме:</span>

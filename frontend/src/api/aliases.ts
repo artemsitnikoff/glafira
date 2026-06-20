@@ -3,9 +3,10 @@ import type { components } from './types';
 
 export type Vacancy = components['schemas']['VacancyDetail'];
 export type VacancySidebarItem = components['schemas']['VacancySidebarItem'];
-export type Candidate = components['schemas']['CandidateDetail'];
+// openapi не регенерён — расширяем CandidateDetail локально (habr_contacts_opened v0.9.120)
+export type Candidate = components['schemas']['CandidateDetail'] & { habr_contacts_opened?: boolean };
 export type CandidateGridItem = components['schemas']['CandidateGridItem'];
-export type CandidateDetail = components['schemas']['CandidateDetail'];
+export type CandidateDetail = components['schemas']['CandidateDetail'] & { habr_contacts_opened?: boolean };
 export type ApplicationHistoryItem = components['schemas']['ApplicationHistoryItem'];
 export type CandidateCardVacancy = components['schemas']['CandidateCardVacancy'];
 

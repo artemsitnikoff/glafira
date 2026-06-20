@@ -90,3 +90,31 @@ export function useHabrUnlinkVacancy() {
     },
   });
 }
+
+// ⚠️ ПЛАТНО: первый вызов списывает лимит открытий Хабра компании.
+// merged===true → кандидат слит с дублём; актуальный candidate_id — из ответа.
+export interface HabrOpenContactsResult {
+  merged: boolean;
+  candidate_id: string;
+  phone: string | null;
+  email: string | null;
+  already_opened: boolean;
+}
+
+export function useHabrOpenContacts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (candidateId: string): Promise<HabrOpenContactsResult> => {
+      const response = await api.post(`/integrations/habr/candidates/${candidateId}/open-contacts`);
+      return response.data as HabrOpenContactsResult;
+    },
+    onSuccess: (data) => {
+      // Инвалидируем карточку актуального кандидата (survivor при merge или текущего)
+      queryClient.invalidateQueries({ queryKey: ['candidates', data.candidate_id] });
+      // На случай merge — инвалидируем также список (дубль мог исчезнуть из пула)
+      if (data.merged) {
+        queryClient.invalidateQueries({ queryKey: ['candidates'] });
+      }
+    },
+  });
+}
