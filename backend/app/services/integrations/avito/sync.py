@@ -313,11 +313,15 @@ async def import_avito_application(
         # Обновление существующего
         cand = await session.get(Candidate, existing_app.candidate_id)
         if cand is None:
+            # Defensive (штатно недостижимо — applications.candidate_id ON DELETE CASCADE):
+            # пересоздаём кандидата И переназначаем на него отклик, чтобы не оставить битую ссылку.
             cand = Candidate(
                 company_id=company_id, source="avito",
                 first_name="Неизвестно", last_name="",
             )
             session.add(cand)
+            await session.flush()
+            existing_app.candidate_id = cand.id
             is_new = True
         else:
             is_new = False

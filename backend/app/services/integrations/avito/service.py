@@ -184,7 +184,7 @@ async def link_avito_vacancy(
     Raises:
         NotFoundError: вакансия не найдена в рамках компании.
     """
-    from ....core.errors import NotFoundError
+    from ....core.errors import NotFoundError, ConflictError
     from ....models import Vacancy
 
     result = await session.execute(
@@ -196,6 +196,18 @@ async def link_avito_vacancy(
     vacancy = result.scalar_one_or_none()
     if not vacancy:
         raise NotFoundError("Вакансия не найдена")
+
+    # Один avito_vacancy_id — не привязывать к двум вакансиям компании
+    # (иначе отклики этой вакансии Авито уедут не в ту воронку: vacancy_map last-wins).
+    dup = await session.execute(
+        select(Vacancy.id).where(
+            Vacancy.company_id == company_id,
+            Vacancy.avito_vacancy_id == avito_vacancy_id,
+            Vacancy.id != vacancy_id,
+        )
+    )
+    if dup.scalar_one_or_none() is not None:
+        raise ConflictError("Эта вакансия Авито уже привязана к другой вакансии Глафиры")
 
     vacancy.avito_vacancy_id = avito_vacancy_id
 
