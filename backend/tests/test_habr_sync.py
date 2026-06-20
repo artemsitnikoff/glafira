@@ -370,6 +370,62 @@ class TestImportHabrResponse:
         assert app.candidate_id == existing.id
 
     @patch("app.services.integrations.habr.sync.habr_client")
+    async def test_dedup_match_does_not_duplicate_sections(
+        self, mock_client, db_session: AsyncSession, admin_user, habr_vacancy
+    ):
+        """Дедуп-матч на НОВОМ отклике НЕ дублирует и НЕ затирает секции существующего кандидата."""
+        from app.models import CandidateExperience, CandidateSkill
+        mock_client.get_resume = AsyncMock(return_value={})
+
+        # Существующий кандидат (другой источник) с УЖЕ заполненными секциями
+        existing = Candidate(
+            company_id=admin_user.company_id,
+            first_name="Был", last_name="Кандидат",
+            phone="79991112233", source="manual",
+        )
+        db_session.add(existing)
+        await db_session.flush()
+        db_session.add(CandidateExperience(
+            company_id=admin_user.company_id, candidate_id=existing.id,
+            position="Старый опыт", order_index=0,
+        ))
+        db_session.add(CandidateSkill(
+            company_id=admin_user.company_id, candidate_id=existing.id,
+            skill="SQL", order_index=0,
+        ))
+        await db_session.flush()
+
+        # Habr-отклик от того же телефона + резюме с секциями
+        item = _make_response_item(
+            response_id="habr-resp-dedup-sections", phone="+79991112233",
+            experience=[{"position": "Dev", "company": "X", "started_at": "2020-01", "description": "D"}],
+            skills=["Python", "FastAPI"],
+        )
+        await import_habr_response(
+            db_session, admin_user.company_id, habr_vacancy, item, access_token="tok"
+        )
+        await db_session.commit()
+
+        app = (await db_session.execute(
+            select(Application).where(Application.habr_response_id == "habr-resp-dedup-sections")
+        )).scalar_one_or_none()
+        assert app is not None and app.candidate_id == existing.id
+
+        # Секции НЕ продублированы и НЕ затёрты — остались исходные 1 опыт + 1 навык
+        exp = (await db_session.execute(
+            select(CandidateExperience).where(CandidateExperience.candidate_id == existing.id)
+        )).scalars().all()
+        skl = (await db_session.execute(
+            select(CandidateSkill).where(CandidateSkill.candidate_id == existing.id)
+        )).scalars().all()
+        assert len(exp) == 1, f"ожидали 1 опыт (без дублей), получили {len(exp)}"
+        assert len(skl) == 1, f"ожидали 1 навык (без дублей), получили {len(skl)}"
+        assert exp[0].position == "Старый опыт", "исходный опыт не должен быть затёрт"
+        # Origin существующего кандидата не переписан на habr
+        await db_session.refresh(existing)
+        assert existing.source == "manual", "origin дедуп-матча не должен меняться на habr"
+
+    @patch("app.services.integrations.habr.sync.habr_client")
     async def test_duplicate_response_not_duplicated(
         self, mock_client, db_session: AsyncSession, admin_user, habr_vacancy
     ):

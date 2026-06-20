@@ -375,21 +375,30 @@ async def import_habr_response(
         candidate.email = email[:255]
     if title:
         candidate.last_position = title[:255]
-    candidate.source = "habr"
-    candidate.external_source = "habr"
-    if resume_ref:
-        candidate.external_id = str(resume_ref)[:120]
+    # Источник/external проставляем ТОЛЬКО НОВОМУ кандидату (созданному из этого Habr-отклика).
+    # Дедуп-матч существующего кандидата из ДРУГОГО источника (hh/ручной) — его origin НЕ переписываем.
+    if is_new:
+        candidate.source = "habr"
+        candidate.external_source = "habr"
+        if resume_ref:
+            candidate.external_id = str(resume_ref)[:120]
 
     await session.flush()
 
-    # --- Секции резюме (при обновлении — заменяем старые) ---
-    if not is_new and existing_app:
+    # --- Секции резюме ---
+    # is_new → добавляем секции из Habr-резюме.
+    # existing_app (ре-полл того же Habr-отклика) → обновляем (delete+add).
+    # дедуп-матч существующего кандидата из ДРУГОГО источника на новом отклике → секции НЕ трогаем
+    # (иначе дубль или затирание чужих данных — баг ревью, фикс v0.9.119).
+    if is_new:
+        for row in _build_habr_resume_sections(candidate.id, company_id, normalized):
+            session.add(row)
+    elif existing_app:
         await session.execute(delete(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id))
         await session.execute(delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id))
         await session.execute(delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id))
-
-    for row in _build_habr_resume_sections(candidate.id, company_id, normalized):
-        session.add(row)
+        for row in _build_habr_resume_sections(candidate.id, company_id, normalized):
+            session.add(row)
 
     # --- Application (создать или оставить) ---
     now = datetime.now(timezone.utc)

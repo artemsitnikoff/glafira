@@ -6,17 +6,16 @@ import type { components } from '@/api/types';
 type MessageResult = components['schemas']['MessageResult'];
 
 // Локальные типы (openapi не регенерён)
+// Соответствует реальному ответу poll_habr_responses_now (бек): {imported, updated, skipped, vacancies, errors}
 export interface HabrPollResult {
   imported: number;
+  updated?: number;
   skipped: number;
   vacancies: number;
-  updated?: number;
-  details?: Array<{
-    name: string;
-    habr_id: string;
-    imported: number;
-    skipped: number;
-    error: string | null;
+  errors?: Array<{
+    vacancy_id?: string;
+    habr_vacancy_id?: string;
+    error: string;
   }>;
 }
 
