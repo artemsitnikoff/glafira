@@ -33,6 +33,7 @@ from .settings import (
     FunnelTemplateStage,
 )
 from .hh_integration import HhIntegration, HhOauthState
+from .habr_integration import HabrIntegration, HabrOauthState
 from .smart_search import SmartSearchRun
 from .candidate_import import CandidateImportJob
 from .base_search import BaseSearchRun
@@ -78,6 +79,8 @@ __all__ = [
     "CompanyDefaultStage",
     "HhIntegration",
     "HhOauthState",
+    "HabrIntegration",
+    "HabrOauthState",
     "SmartSearchRun",
     "CandidateImportJob",
     "BaseSearchRun",

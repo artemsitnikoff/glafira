@@ -75,6 +75,17 @@ class Settings(BaseSettings):
     AVITO_CLIENT_ID: str = ""
     AVITO_CLIENT_SECRET: str = ""
 
+    # Хабр Карьера OAuth — одно приложение Глафиры (один client_id/secret) на все компании.
+    # Каждый арендатор подключает свой Хабр-аккаунт через общий Redirect URI, различаясь по state.
+    HABR_CLIENT_ID: str = ""
+    HABR_CLIENT_SECRET: str = ""
+    HABR_REDIRECT_URI: str = ""  # Заказчик задаёт: https://glafira.dclouds.ru/api/v1/integrations/habr/callback
+    HABR_AUTHORIZE_URL: str = "https://career.habr.com/integrations/oauth/authorize"  # подтверждён
+    # ⚠️ HABR_TOKEN_URL НЕ подтверждён документально — дефолт-догадка.
+    # Пиннинг после одобрения приложения Хабром: задать реальный URL в .env на VPS.
+    HABR_TOKEN_URL: str = "https://career.habr.com/integrations/oauth/token"
+    HABR_SCOPE: str = ""  # scope неизвестен — добавляется в authorize URL ТОЛЬКО если непустой
+
     # Telegram MTProto user-аккаунт (my.telegram.org) — одно приложение на инстанс.
     # TELETHON_* имеют приоритет над TELEGRAM_* (так можно задать любые из двух пар).
     TELEGRAM_API_ID: int = 0

@@ -20,6 +20,7 @@ from ...services.integrations.smtp import service as smtp_service
 from ...services.integrations.bitrix24 import service as b24_service
 from ...services.integrations.telegram import service as tg_service
 from ...services.integrations.mango import service as mango_service
+from ...services.integrations.habr import service as habr_service
 from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixImportRequest, BitrixImportResult
 from ...config import settings
 
@@ -524,3 +525,86 @@ async def disconnect_mango(
     )
     await session.commit()
     return {"message": "Mango Office отключён"}
+
+
+# ---------------------------------------------------------------------------
+# Хабр Карьера — OAuth-подключение (ТОЛЬКО connect; приём откликов/поиск НЕ реализованы)
+# ---------------------------------------------------------------------------
+
+@router.get("/habr/status", dependencies=[Depends(require_settings_read_access)])
+async def get_habr_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Статус OAuth-подключения Хабр Карьера для компании."""
+    return await habr_service.get_status(session, current_user.company_id)
+
+
+@router.get("/habr/authorize", dependencies=[Depends(require_admin)])
+async def start_habr_authorization(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Начать OAuth-флоу Хабр Карьера. Возвращает {authorize_url} для редиректа браузера."""
+    authorize_url = await habr_service.start_oauth(
+        session, current_user.company_id, current_user.id
+    )
+    await session.commit()
+    return {"authorize_url": authorize_url}
+
+
+@router.get("/habr/callback")
+async def habr_oauth_callback(
+    code: str = Query(None),
+    state: str = Query(None),
+    error: str = Query(None),
+    session: AsyncSession = Depends(get_db)
+):
+    """Callback-эндпоинт OAuth Хабр Карьера (ПУБЛИЧНЫЙ — без авторизации, защищён через state).
+
+    Хабр Карьера проверяет этот URL при одобрении приложения.
+    НИКОГДА не возвращает 500 — всегда RedirectResponse на фронт.
+
+    Redirect URI (точный): https://glafira.dclouds.ru/api/v1/integrations/habr/callback
+    """
+    frontend_base = settings.FRONTEND_BASE_URL
+
+    if error:
+        # Пользователь нажал «Отклонить» / «Назад» на странице авторизации Хабра
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?tab=integrations&habr=denied"
+        )
+
+    if not code or not state:
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?tab=integrations&habr=error"
+        )
+
+    try:
+        await habr_service.handle_callback(session, code, state)
+        await session.commit()
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?tab=integrations&habr=connected"
+        )
+
+    except AppError as e:
+        logger.warning("Хабр OAuth callback failed: %s", e.message)
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?tab=integrations&habr=error&habr_msg={quote(e.message)}"
+        )
+    except Exception:
+        logger.exception("Хабр OAuth callback: неожиданная ошибка")
+        return RedirectResponse(
+            url=f"{frontend_base}/settings?tab=integrations&habr=error"
+        )
+
+
+@router.post("/habr/disconnect", dependencies=[Depends(require_admin)])
+async def disconnect_habr(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Отключить интеграцию Хабр Карьера (обнуляет токены)."""
+    await habr_service.disconnect(session, current_user.company_id)
+    await session.commit()
+    return {"message": "Хабр Карьера отключён"}
