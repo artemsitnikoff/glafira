@@ -60,6 +60,7 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     external_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     hh_vacancy_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     habr_vacancy_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    avito_vacancy_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
 
     # Automation fields
     auto_move: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))

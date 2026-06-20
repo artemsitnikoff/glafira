@@ -23,6 +23,8 @@ from ...services.integrations.mango import service as mango_service
 from ...services.integrations.habr import service as habr_service
 from ...services.integrations.habr import sync as habr_sync
 from ...services.integrations.habr import client as habr_client_module
+from ...services.integrations.avito import service as avito_service
+from ...services.integrations.avito import sync as avito_sync
 from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixImportRequest, BitrixImportResult
 from ...config import settings
 
@@ -71,6 +73,18 @@ class MangoConfigRequest(BaseModel):
 class HabrLinkVacancyRequest(BaseModel):
     vacancy_id: str
     habr_vacancy_id: str
+
+
+class AvitoConfigRequest(BaseModel):
+    client_id: str
+    client_secret: str
+    avito_user_id: str | None = None
+
+
+class AvitoLinkVacancyRequest(BaseModel):
+    vacancy_id: str
+    avito_vacancy_id: str
+
 
 router = APIRouter()
 
@@ -749,3 +763,114 @@ async def habr_open_candidate_contacts(
     )
     await session.commit()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Авито Работа — client_credentials, отклики на вакансии работодателя
+# ---------------------------------------------------------------------------
+
+@router.post("/avito/config", dependencies=[Depends(require_admin)])
+async def save_avito_config(
+    data: AvitoConfigRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Сохранить client_id/secret Авито (per-company, Fernet-шифрование).
+
+    OAuth: client_credentials — не нужен браузерный флоу.
+    client_id/secret получают в Кабинете разработчика Авито.
+    ⚠️ client_secret НЕ логируется и НЕ возвращается.
+    """
+    await avito_service.save_config(
+        session,
+        company_id=current_user.company_id,
+        client_id=data.client_id,
+        client_secret=data.client_secret,
+        user_id=current_user.id,
+        avito_user_id=data.avito_user_id,
+    )
+    await session.commit()
+    return {"message": "Авито подключён"}
+
+
+@router.get("/avito/status", dependencies=[Depends(require_settings_read_access)])
+async def get_avito_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Статус интеграции Авито: {connected, avito_user_id}."""
+    return await avito_service.get_status(session, current_user.company_id)
+
+
+@router.post("/avito/poll-responses", dependencies=[Depends(require_admin)])
+async def avito_poll_responses(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Вручную запустить забор откликов Авито для привязанных вакансий.
+
+    ⚠️ Требует подключённого Авито (client_id/secret) + привязанных вакансий (avito_vacancy_id).
+    Телефон кандидата содержится в отклике БЕСПЛАТНО — /contacts НЕ вызывается.
+    Возврат: {imported, updated, skipped, vacancies, errors}
+    """
+    result = await avito_sync.poll_avito_responses_now(session, current_user.company_id)
+    await session.commit()
+    return result
+
+
+@router.post("/avito/link-vacancy", dependencies=[Depends(require_admin)])
+async def avito_link_vacancy(
+    data: AvitoLinkVacancyRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Привязать вакансию Глафиры к вакансии Авито (avito_vacancy_id)."""
+    import uuid as _uuid
+    try:
+        vacancy_id = _uuid.UUID(data.vacancy_id)
+    except ValueError as exc:
+        raise ValidationError("Некорректный vacancy_id") from exc
+
+    await avito_service.link_avito_vacancy(
+        session,
+        vacancy_id=vacancy_id,
+        avito_vacancy_id=data.avito_vacancy_id,
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+    )
+    await session.commit()
+    return {"message": "Вакансия привязана к Авито", "avito_vacancy_id": data.avito_vacancy_id}
+
+
+@router.post("/avito/unlink-vacancy", dependencies=[Depends(require_admin)])
+async def avito_unlink_vacancy(
+    vacancy_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Отвязать вакансию Глафиры от Авито."""
+    import uuid as _uuid
+    try:
+        vid = _uuid.UUID(vacancy_id)
+    except ValueError as exc:
+        raise ValidationError("Некорректный vacancy_id") from exc
+
+    await avito_service.unlink_avito_vacancy(
+        session,
+        vacancy_id=vid,
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+    )
+    await session.commit()
+    return {"message": "Вакансия отвязана от Авито"}
+
+
+@router.post("/avito/disconnect", dependencies=[Depends(require_admin)])
+async def avito_disconnect(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Отключить интеграцию Авито (очистить credentials и кэш токена)."""
+    await avito_service.disconnect(session, current_user.company_id, current_user.id)
+    await session.commit()
+    return {"message": "Авито отключён"}

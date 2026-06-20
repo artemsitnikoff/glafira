@@ -34,6 +34,7 @@ from .settings import (
 )
 from .hh_integration import HhIntegration, HhOauthState
 from .habr_integration import HabrIntegration, HabrOauthState
+from .avito_integration import AvitoIntegration
 from .smart_search import SmartSearchRun
 from .candidate_import import CandidateImportJob
 from .base_search import BaseSearchRun
@@ -81,6 +82,7 @@ __all__ = [
     "HhOauthState",
     "HabrIntegration",
     "HabrOauthState",
+    "AvitoIntegration",
     "SmartSearchRun",
     "CandidateImportJob",
     "BaseSearchRun",

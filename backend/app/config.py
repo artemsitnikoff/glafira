@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     HH_API_BASE: str = "https://api.hh.ru"
     AVITO_CLIENT_ID: str = ""
     AVITO_CLIENT_SECRET: str = ""
+    # Авито Job API (конфигурируемые — для тестов/mock)
+    AVITO_API_BASE: str = "https://api.avito.ru"
+    AVITO_TOKEN_URL: str = "https://api.avito.ru/token"
 
     # Хабр Карьера OAuth — одно приложение Глафиры (один client_id/secret) на все компании.
     # Каждый арендатор подключает свой Хабр-аккаунт через общий Redirect URI, различаясь по state.

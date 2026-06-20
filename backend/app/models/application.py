@@ -48,6 +48,7 @@ class Application(Base, TimestampMixin, CompanyMixin):
     hh_chat_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_discard_synced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     habr_response_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    avito_application_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # Automation tracking fields
     auto_qa_asked_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
