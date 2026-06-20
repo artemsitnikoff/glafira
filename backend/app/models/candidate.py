@@ -71,7 +71,7 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
             name="check_candidate_gender"
         ),
         CheckConstraint(
-            "source IN ('hh', 'avito', 'superjob', 'telegram', 'referral', 'direct', 'agency', 'import', 'manual', 'linkedin', 'potok', 'smart', 'other')",
+            "source IN ('hh', 'avito', 'superjob', 'telegram', 'referral', 'direct', 'agency', 'import', 'manual', 'linkedin', 'potok', 'smart', 'habr', 'other')",
             name="check_candidate_source"
         ),
         CheckConstraint(

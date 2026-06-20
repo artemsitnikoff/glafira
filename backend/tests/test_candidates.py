@@ -388,6 +388,19 @@ async def test_update_candidate_source_linkedin(
     assert r.json()["source"] == "linkedin"
 
 
+async def test_update_candidate_source_habr(
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session: AsyncSession
+):
+    """source='habr' принимается (Literal + CHECK после миграции y4z5a6b7c8d9)."""
+    r = await async_client.patch(
+        f"/api/v1/candidates/{test_candidate.id}",
+        headers=auth_headers,
+        json={"source": "habr"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] == "habr"
+
+
 async def test_update_candidate_invalid_source_422(
     async_client: AsyncClient, auth_headers: dict, test_candidate, db_session: AsyncSession
 ):

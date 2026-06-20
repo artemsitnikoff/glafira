@@ -44,7 +44,6 @@ class Application(Base, TimestampMixin, CompanyMixin):
     reject_reason: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     reject_side: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_repeat: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    source: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_negotiation_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_chat_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     hh_discard_synced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
