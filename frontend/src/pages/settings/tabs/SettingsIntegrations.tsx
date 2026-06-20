@@ -708,6 +708,64 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
           </div>
         </IntegrationCard>
 
+        {/* ХАБР КАРЬЕРА (OAuth, заготовка) */}
+        <IntegrationCard
+          ico={<span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ark-gray-600)', letterSpacing: '-0.03em' }}>ХК</span>}
+          iconBg="var(--ark-gray-100)"
+          name="Хабр Карьера"
+          desc="Подключение аккаунта работодателя на Хабр Карьера по OAuth"
+          status={habrStatusLoading ? 'bad' : (habrStatus?.connected ? 'ok' : 'bad')}>
+          <div className="integ-section">
+            <div className="integ-section-title">Подключение и управление</div>
+
+            <div className="info-banner small" style={{ marginBottom: 14 }}>
+              <Icon name="sparkle" size={14} />
+              <div>
+                <strong>Бета — только подключение.</strong> Приём откликов и поиск появятся после одобрения приложения Глафиры на стороне Хабра.
+              </div>
+            </div>
+
+            {habrStatusLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : habrStatus?.connected ? (
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <strong>Подключено</strong>
+                  {habrStatus.expires_at && (
+                    <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '8px' }}>
+                      токен действует до {new Date(habrStatus.expires_at).toLocaleString('ru')}
+                    </span>
+                  )}
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={readOnly ? undefined : handleHabrDisconnect}
+                    disabled={habrDisconnectMutation.isPending || readOnly}
+                  >
+                    {habrDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Нажмите «Подключить» — вас перенаправят на Хабр Карьера для подтверждения доступа.
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleHabrConnect}
+                    disabled={habrAuthorizeMutation.isPending || readOnly}
+                  >
+                    {habrAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить Хабр Карьера'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </IntegrationCard>
+
         {/* SMTP */}
         <IntegrationCard
           ico={<Icon name="mail" size={18}/>}
@@ -1349,63 +1407,6 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 <div className="info-banner small" style={{ marginTop: 12 }}>
                   <Icon name="alert-triangle" size={14} />
                   <div>⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </IntegrationCard>
-        {/* ХАБР КАРЬЕРА (OAuth, заготовка) */}
-        <IntegrationCard
-          ico={<span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ark-gray-600)', letterSpacing: '-0.03em' }}>ХК</span>}
-          iconBg="var(--ark-gray-100)"
-          name="Хабр Карьера"
-          desc="Подключение аккаунта работодателя на Хабр Карьера по OAuth"
-          status={habrStatusLoading ? 'bad' : (habrStatus?.connected ? 'ok' : 'bad')}>
-          <div className="integ-section">
-            <div className="integ-section-title">Подключение и управление</div>
-
-            <div className="info-banner small" style={{ marginBottom: 14 }}>
-              <Icon name="sparkle" size={14} />
-              <div>
-                <strong>Бета — только подключение.</strong> Приём откликов и поиск появятся после одобрения приложения Глафиры на стороне Хабра.
-              </div>
-            </div>
-
-            {habrStatusLoading ? (
-              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
-            ) : habrStatus?.connected ? (
-              <div>
-                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                  <strong>Подключено</strong>
-                  {habrStatus.expires_at && (
-                    <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '8px' }}>
-                      токен действует до {new Date(habrStatus.expires_at).toLocaleString('ru')}
-                    </span>
-                  )}
-                </div>
-                <div className="integ-actions">
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={readOnly ? undefined : handleHabrDisconnect}
-                    disabled={habrDisconnectMutation.isPending || readOnly}
-                  >
-                    {habrDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                  Нажмите «Подключить» — вас перенаправят на Хабр Карьера для подтверждения доступа.
-                </div>
-                <div className="integ-actions">
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={readOnly ? undefined : handleHabrConnect}
-                    disabled={habrAuthorizeMutation.isPending || readOnly}
-                  >
-                    {habrAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить Хабр Карьера'}
-                  </button>
                 </div>
               </div>
             )}
