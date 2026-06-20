@@ -13,7 +13,8 @@ import { useTgSendCode, useTgResendCode, useTgConnectSession, useTgConfirmCode, 
 import { useMangoStatus } from '@/api/hooks/useMangoIntegration';
 import { useMangoSaveConfig, useMangoTest, useMangoDisconnect } from '@/api/mutations/mangoIntegration';
 import { useHabrStatus } from '@/api/hooks/useHabrIntegration';
-import { useHabrAuthorize, useHabrDisconnect } from '@/api/mutations/habrIntegration';
+import { useHabrAuthorize, useHabrDisconnect, useHabrPollResponses } from '@/api/mutations/habrIntegration';
+import type { HabrPollResult } from '@/api/mutations/habrIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -448,10 +449,34 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     }
   };
 
-  // ---------------- Хабр Карьера (OAuth, заготовка) ----------------
+  // ---------------- Хабр Карьера (OAuth + синхронизация откликов) ----------------
   const { data: habrStatus, isLoading: habrStatusLoading } = useHabrStatus();
   const habrAuthorizeMutation = useHabrAuthorize();
   const habrDisconnectMutation = useHabrDisconnect();
+  const habrPollMutation = useHabrPollResponses();
+  const [habrPollResult, setHabrPollResult] = useState<HabrPollResult | null>(null);
+
+  const handleHabrPollResponses = async () => {
+    setHabrPollResult(null);
+    try {
+      const res = await habrPollMutation.mutateAsync();
+      setHabrPollResult(res);
+      if (res.vacancies === 0) {
+        setNotification({
+          type: 'error',
+          message: 'Нет привязанных активных вакансий для опроса. Проверьте: вакансия привязана к Хабр Карьера.',
+        });
+      } else {
+        setNotification({
+          type: 'success',
+          message: `Проверено вакансий: ${res.vacancies}. Создано: ${res.imported}, пропущено: ${res.skipped}.`,
+        });
+      }
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось забрать отклики с Хабр Карьера' });
+    }
+  };
 
   const handleHabrConnect = async () => {
     try {
@@ -708,12 +733,12 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
           </div>
         </IntegrationCard>
 
-        {/* ХАБР КАРЬЕРА (OAuth, заготовка) */}
+        {/* ХАБР КАРЬЕРА */}
         <IntegrationCard
           ico={<span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ark-gray-600)', letterSpacing: '-0.03em' }}>ХК</span>}
           iconBg="var(--ark-gray-100)"
           name="Хабр Карьера"
-          desc="Подключение аккаунта работодателя на Хабр Карьера по OAuth"
+          desc="Подключение аккаунта работодателя и синхронизация откликов"
           status={habrStatusLoading ? 'bad' : (habrStatus?.connected ? 'ok' : 'bad')}>
           <div className="integ-section">
             <div className="integ-section-title">Подключение и управление</div>
@@ -721,7 +746,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
             <div className="info-banner small" style={{ marginBottom: 14 }}>
               <Icon name="sparkle" size={14} />
               <div>
-                <strong>Бета — только подключение.</strong> Приём откликов и поиск появятся после одобрения приложения Глафиры на стороне Хабра.
+                <strong>Бета.</strong> Синхронизация откликов работает для привязанных вакансий. Список вакансий Хабра появится после одобрения приложения Глафиры на стороне Хабра.
               </div>
             </div>
 
@@ -739,12 +764,35 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 </div>
                 <div className="integ-actions">
                   <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleHabrPollResponses}
+                    disabled={habrPollMutation.isPending || readOnly}
+                  >
+                    {habrPollMutation.isPending ? 'Забираем…' : 'Забрать отклики'}
+                  </button>
+                  <button
                     className="btn btn-secondary btn-sm"
                     onClick={readOnly ? undefined : handleHabrDisconnect}
                     disabled={habrDisconnectMutation.isPending || readOnly}
                   >
                     {habrDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
                   </button>
+                </div>
+                {habrPollResult && (
+                  <div className="info-banner small" style={{ marginTop: 10 }}>
+                    <Icon name="check" size={14} />
+                    <div>
+                      Импортировано новых: <strong>{habrPollResult.imported}</strong>, пропущено (уже были):{' '}
+                      <strong>{habrPollResult.skipped}</strong>. Проверено вакансий: {habrPollResult.vacancies}.
+                    </div>
+                  </div>
+                )}
+                <div className="info-banner small" style={{ marginTop: 10 }}>
+                  <Icon name="alert-triangle" size={14} />
+                  <div>
+                    Тянутся отклики на привязанные к Хабр Карьера вакансии → этап «Отклик».
+                    Привязку вакансии настройте в редакторе вакансии (шаг «Публикация»).
+                  </div>
                 </div>
               </div>
             ) : (

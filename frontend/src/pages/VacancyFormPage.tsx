@@ -30,6 +30,8 @@ import type { components } from '@/api/types';
 import type { ApiError } from '@/api/aliases';
 import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
 import { useHhLinkVacancy, useHhUnlinkVacancy, useHhPublishVacancy } from '@/api/mutations/hhIntegration';
+import { useHabrStatus, useHabrVacancies } from '@/api/hooks/useHabrIntegration';
+import { useHabrLinkVacancy, useHabrUnlinkVacancy } from '@/api/mutations/habrIntegration';
 import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
 import { useParseVacancyFile } from '@/api/hooks/useParseVacancyFile';
 import { useGenerateRubric } from '@/api/hooks/useGenerateRubric';
@@ -1797,6 +1799,7 @@ function AutomationStep({
       </div>
 
       <HhPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
+      <HabrPublicationBlock editMode={editMode} vacancyId={vacancyId} vacancy={vacancy} />
     </div>
   );
 }
@@ -1974,6 +1977,197 @@ function HhPublicationBlock({ editMode, vacancyId, vacancy }: { editMode: boolea
             >
               {hhPublishMutation.isPending ? 'Создание...' : 'Создать на hh.ru'}
             </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HabrPublicationBlock({ editMode, vacancyId, vacancy }: { editMode: boolean; vacancyId?: string; vacancy?: any }) {
+  const [habrError, setHabrError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const { data: habrStatus, isLoading: habrStatusLoading } = useHabrStatus();
+  const { data: habrVacancies, isLoading: habrVacanciesLoading, error: habrVacanciesError } = useHabrVacancies(
+    !!(habrStatus?.connected && editMode && vacancyId)
+  );
+
+  const habrLinkMutation = useHabrLinkVacancy();
+  const habrUnlinkMutation = useHabrUnlinkVacancy();
+
+  const [selectedHabrVacancyId, setSelectedHabrVacancyId] = useState('');
+  const [manualHabrId, setManualHabrId] = useState('');
+
+  const isConnected = habrStatus?.connected;
+  const isLinked = vacancy && vacancy.habr_vacancy_id;
+  const canManage = editMode && vacancyId;
+
+  const handleLink = async () => {
+    const targetId = selectedHabrVacancyId || manualHabrId.trim();
+    if (!targetId || !vacancyId) return;
+    setHabrError(null);
+    try {
+      await habrLinkMutation.mutateAsync({ vacancyId, habrVacancyId: targetId });
+      setSuccessMessage('Вакансия успешно привязана к Хабр Карьера');
+      setSelectedHabrVacancyId('');
+      setManualHabrId('');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setHabrError(e.error?.message || 'Ошибка при привязке к Хабр Карьера');
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!vacancyId) return;
+    setHabrError(null);
+    try {
+      await habrUnlinkMutation.mutateAsync(vacancyId);
+      setSuccessMessage('Вакансия отвязана от Хабр Карьера');
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setHabrError(e.error?.message || 'Ошибка при отвязке от Хабр Карьера');
+    }
+  };
+
+  return (
+    <div className="nv-hh-block">
+      <div className="nv-h3" style={{ marginBottom: '8px', marginTop: '24px' }}>Привязка к Хабр Карьера</div>
+
+      {habrError && (
+        <div className="error-banner" role="alert" style={{ marginBottom: '12px' }}>
+          {habrError}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="info-banner" style={{
+          marginBottom: '12px',
+          background: 'var(--success-bg)',
+          borderColor: 'var(--success-border)',
+          color: 'var(--success-fg)'
+        }}>
+          <Icon name="check" size={16} />
+          <div>{successMessage}</div>
+        </div>
+      )}
+
+      {habrStatusLoading ? (
+        <div style={{ padding: '16px', color: 'var(--fg-3)', textAlign: 'center' }}>
+          Загрузка статуса Хабр Карьера...
+        </div>
+      ) : !isConnected ? (
+        <div className="nv-hh-disabled">
+          <Icon name="x" size={16} style={{ color: 'var(--fg-3)' }} />
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '4px' }}>
+              Хабр Карьера не подключён
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+              Подключите Хабр Карьера в <a href="/settings?tab=integrations" style={{ color: 'var(--accent)' }}>Настройках → Интеграции</a>
+            </div>
+          </div>
+        </div>
+      ) : !canManage ? (
+        <div className="nv-hh-disabled">
+          <Icon name="lock" size={16} style={{ color: 'var(--fg-3)' }} />
+          <div>
+            <div style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '4px' }}>
+              Сначала сохраните вакансию
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>
+              Привязка к Хабр Карьера доступна только для сохранённых вакансий
+            </div>
+          </div>
+        </div>
+      ) : isLinked ? (
+        <div className="nv-hh-linked">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <Icon name="link" size={16} style={{ color: 'var(--success-fg)' }} />
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
+                <strong>Привязана к Хабр Карьера:</strong> {vacancy.habr_vacancy_id}
+              </div>
+            </div>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleUnlink}
+            disabled={habrUnlinkMutation.isPending}
+          >
+            {habrUnlinkMutation.isPending ? 'Отвязка...' : 'Отвязать'}
+          </button>
+        </div>
+      ) : (
+        <div className="nv-hh-controls">
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', color: 'var(--fg-2)', marginBottom: '8px' }}>
+              Привязать к вакансии на Хабр Карьера
+            </label>
+            {habrVacanciesLoading ? (
+              <div style={{ fontSize: '12px', color: 'var(--fg-3)' }}>Загрузка вакансий...</div>
+            ) : habrVacanciesError || !habrVacancies || habrVacancies.length === 0 ? (
+              // Список недоступен (эндпоинт-ASSUMPTION, до одобрения приложения Хабром)
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '8px' }}>
+                  Список вакансий Хабра недоступен — введите ID вручную
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={manualHabrId}
+                    onChange={(e) => setManualHabrId(e.target.value)}
+                    placeholder="ID вакансии на Хабр Карьера"
+                    style={{
+                      minWidth: '200px',
+                      padding: '6px 8px',
+                      fontSize: '13px',
+                      border: '1px solid var(--border-1)',
+                      borderRadius: '6px',
+                      background: 'var(--bg-1)',
+                      color: 'var(--fg-1)',
+                    }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleLink}
+                    disabled={!manualHabrId.trim() || habrLinkMutation.isPending}
+                  >
+                    {habrLinkMutation.isPending ? 'Привязка...' : 'Привязать'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <select
+                  value={selectedHabrVacancyId}
+                  onChange={(e) => setSelectedHabrVacancyId(e.target.value)}
+                  style={{
+                    minWidth: '200px',
+                    padding: '6px 8px',
+                    fontSize: '13px',
+                    border: '1px solid var(--border-1)',
+                    borderRadius: '6px',
+                    background: 'var(--bg-1)',
+                    color: 'var(--fg-1)',
+                  }}
+                >
+                  <option value="">Выберите вакансию...</option>
+                  {habrVacancies.map(hv => (
+                    <option key={hv.id} value={hv.id}>
+                      {hv.title} {hv.city ? `(${hv.city})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleLink}
+                  disabled={!selectedHabrVacancyId || habrLinkMutation.isPending}
+                >
+                  {habrLinkMutation.isPending ? 'Привязка...' : 'Привязать'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
