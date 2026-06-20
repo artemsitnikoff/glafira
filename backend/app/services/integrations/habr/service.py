@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models.habr_integration import HabrIntegration, HabrOauthState
 from ....config import settings
-from ....services.settings.crypto import encrypt_text, decrypt_text
+from ....services.settings.crypto import encrypt_text
 from ....core.errors import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -61,10 +61,11 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
             "Хабр Карьера не настроена: задайте HABR_CLIENT_ID и HABR_REDIRECT_URI в .env"
         )
 
-    # Очистка истёкших state этой компании
+    # Очистка истёкших state этой компании (company-scoped, как hh-идиом)
     await session.execute(
         delete(HabrOauthState).where(
-            HabrOauthState.expires_at < datetime.now(timezone.utc)
+            HabrOauthState.company_id == company_id,
+            HabrOauthState.expires_at < datetime.now(timezone.utc),
         )
     )
 

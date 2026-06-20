@@ -1377,9 +1377,9 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
               <div>
                 <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
                   <strong>Подключено</strong>
-                  {habrStatus.connected_at && (
+                  {habrStatus.expires_at && (
                     <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '8px' }}>
-                      с {new Date(habrStatus.connected_at).toLocaleString('ru')}
+                      токен действует до {new Date(habrStatus.expires_at).toLocaleString('ru')}
                     </span>
                   )}
                 </div>

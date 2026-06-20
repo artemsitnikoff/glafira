@@ -4,7 +4,8 @@ import { api } from '../client';
 // Локальные типы для интеграции с Хабр Карьера (openapi не регенерён)
 export interface HabrStatus {
   connected: boolean;
-  connected_at?: string;
+  habr_login?: string | null;
+  expires_at?: string | null;
 }
 
 export interface HabrAuthorizeResponse {
