@@ -21,6 +21,8 @@ from ...services.integrations.bitrix24 import service as b24_service
 from ...services.integrations.telegram import service as tg_service
 from ...services.integrations.mango import service as mango_service
 from ...services.integrations.habr import service as habr_service
+from ...services.integrations.habr import sync as habr_sync
+from ...services.integrations.habr import client as habr_client_module
 from ...schemas.bitrix24 import BitrixDepartment, BitrixImportCandidate, BitrixImportRequest, BitrixImportResult
 from ...config import settings
 
@@ -64,6 +66,11 @@ class MangoConfigRequest(BaseModel):
     api_key: str | None = None
     api_salt: str | None = None
     vpbx_api_url: str | None = None
+
+
+class HabrLinkVacancyRequest(BaseModel):
+    vacancy_id: str
+    habr_vacancy_id: str
 
 router = APIRouter()
 
@@ -608,3 +615,101 @@ async def disconnect_habr(
     await habr_service.disconnect(session, current_user.company_id)
     await session.commit()
     return {"message": "Хабр Карьера отключён"}
+
+
+# ---------------------------------------------------------------------------
+# Хабр Карьера — синхронизация откликов (новые эндпоинты)
+# ---------------------------------------------------------------------------
+
+@router.post("/habr/poll-responses", dependencies=[Depends(require_admin)])
+async def habr_poll_responses(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Ручной забор откликов с Хабр Карьера (привязанные вакансии → этап «Отклик»).
+
+    ⚠️ Требует подключённого Хабра + привязанных вакансий (habr_vacancy_id).
+    Тратит API-квоту Хабра. Пиннинг эндпоинтов Хабра — после одобрения приложения.
+    """
+    result = await habr_sync.poll_habr_responses_now(session, current_user.company_id)
+    await session.commit()
+    return result
+
+
+@router.get("/habr/vacancies", dependencies=[Depends(require_settings_read_access)])
+async def list_habr_vacancies(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Список вакансий работодателя на Хабр Карьере (для UI-связывания).
+
+    ⚠️ ASSUMPTION — эндпоинт Хабра не подтверждён до одобрения приложения.
+    При ошибке возвращает честный 400 с описанием.
+    """
+    access_token = await habr_sync.get_valid_access_token_habr(session, current_user.company_id)
+    try:
+        data = await habr_client_module.get_employer_vacancies(access_token)
+    except ValueError as exc:
+        from ...core.errors import ValidationError as AppValidationError
+        raise AppValidationError(str(exc)) from exc
+
+    # ⚠️ ASSUMPTION — items содержат {id, title, ...}
+    items = data.get("items") or []
+    return [
+        {
+            "id": str(item.get("id") or ""),
+            "title": item.get("title") or item.get("name") or "",
+            "city": (item.get("city") or {}).get("name") if isinstance(item.get("city"), dict) else item.get("city"),
+        }
+        for item in items
+        if item.get("id")
+    ]
+
+
+@router.post("/habr/link-vacancy", dependencies=[Depends(require_admin)])
+async def habr_link_vacancy(
+    data: HabrLinkVacancyRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Привязать вакансию Глафиры к вакансии Хабр Карьера."""
+    import uuid as _uuid
+    try:
+        vacancy_id = _uuid.UUID(data.vacancy_id)
+    except ValueError as exc:
+        from ...core.errors import ValidationError as AppValidationError
+        raise AppValidationError("Некорректный vacancy_id") from exc
+
+    await habr_sync.link_habr_vacancy(
+        session,
+        vacancy_id=vacancy_id,
+        habr_vacancy_id=data.habr_vacancy_id,
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+    )
+    await session.commit()
+    return {"message": "Вакансия привязана к Хабр Карьере", "habr_vacancy_id": data.habr_vacancy_id}
+
+
+@router.post("/habr/unlink-vacancy", dependencies=[Depends(require_admin)])
+async def habr_unlink_vacancy(
+    vacancy_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Отвязать вакансию Глафиры от Хабр Карьеры."""
+    import uuid as _uuid
+    try:
+        vid = _uuid.UUID(vacancy_id)
+    except ValueError as exc:
+        from ...core.errors import ValidationError as AppValidationError
+        raise AppValidationError("Некорректный vacancy_id") from exc
+
+    await habr_sync.unlink_habr_vacancy(
+        session,
+        vacancy_id=vid,
+        company_id=current_user.company_id,
+        user_id=current_user.id,
+    )
+    await session.commit()
+    return {"message": "Вакансия отвязана от Хабр Карьеры"}

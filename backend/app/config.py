@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     HABR_TOKEN_URL: str = "https://career.habr.com/integrations/oauth/token"
     HABR_SCOPE: str = ""  # scope неизвестен — добавляется в authorize URL ТОЛЬКО если непустой
 
+    # ⚠️ HABR_API_BASE — base URL API Хабр Карьера для получения откликов/резюме.
+    # Дефолт — ASSUMPTION: точный путь НЕ подтверждён документацией (за стеной одобрения).
+    # После одобрения приложения Хабром уточнить реальный base и задать в .env на VPS.
+    HABR_API_BASE: str = "https://career.habr.com/api/v1"
+
     # Telegram MTProto user-аккаунт (my.telegram.org) — одно приложение на инстанс.
     # TELETHON_* имеют приоритет над TELEGRAM_* (так можно задать любые из двух пар).
     TELEGRAM_API_ID: int = 0
