@@ -12,6 +12,8 @@ import { useTelegramStatus, useTelegramQrStart, useTelegramQrStatus } from '@/ap
 import { useTgSendCode, useTgResendCode, useTgConnectSession, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
 import { useMangoStatus } from '@/api/hooks/useMangoIntegration';
 import { useMangoSaveConfig, useMangoTest, useMangoDisconnect } from '@/api/mutations/mangoIntegration';
+import { useHabrStatus } from '@/api/hooks/useHabrIntegration';
+import { useHabrAuthorize, useHabrDisconnect } from '@/api/mutations/habrIntegration';
 import { useAuthStore } from '@/store/authStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -127,6 +129,37 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
         const newParams = new URLSearchParams(searchParams);
         newParams.delete('hh');
         newParams.delete('hh_msg');
+        setSearchParams(newParams);
+      }
+    }
+
+    // Обработка возврата от Хабр Карьера OAuth
+    const habrParam = searchParams.get('habr');
+    const habrMsg = searchParams.get('habr_msg');
+    if (habrParam) {
+      let habrMessage = '';
+      let habrType: 'success' | 'error' = 'success';
+
+      switch (habrParam) {
+        case 'connected':
+          habrMessage = 'Хабр Карьера успешно подключён';
+          habrType = 'success';
+          break;
+        case 'denied':
+          habrMessage = 'Подключение Хабр Карьера отклонено';
+          habrType = 'error';
+          break;
+        case 'error':
+          habrMessage = habrMsg || 'Ошибка при подключении Хабр Карьера';
+          habrType = 'error';
+          break;
+      }
+
+      if (habrMessage) {
+        setNotification({ type: habrType, message: habrMessage });
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('habr');
+        newParams.delete('habr_msg');
         setSearchParams(newParams);
       }
     }
@@ -412,6 +445,37 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     } catch (error) {
       const e = error as unknown as ApiError;
       setNotification({ type: 'error', message: e.error?.message || 'Ошибка при отключении Манго' });
+    }
+  };
+
+  // ---------------- Хабр Карьера (OAuth, заготовка) ----------------
+  const { data: habrStatus, isLoading: habrStatusLoading } = useHabrStatus();
+  const habrAuthorizeMutation = useHabrAuthorize();
+  const habrDisconnectMutation = useHabrDisconnect();
+
+  const handleHabrConnect = async () => {
+    try {
+      const response = await habrAuthorizeMutation.mutateAsync();
+      window.location.href = response.authorize_url;
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({
+        type: 'error',
+        message: e.error?.message || 'Ошибка при подключении к Хабр Карьера',
+      });
+    }
+  };
+
+  const handleHabrDisconnect = async () => {
+    try {
+      await habrDisconnectMutation.mutateAsync();
+      setNotification({ type: 'success', message: 'Хабр Карьера отключён' });
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setNotification({
+        type: 'error',
+        message: e.error?.message || 'Ошибка при отключении Хабр Карьера',
+      });
     }
   };
 
@@ -1285,6 +1349,63 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 <div className="info-banner small" style={{ marginTop: 12 }}>
                   <Icon name="alert-triangle" size={14} />
                   <div>⚠️ Автоматизация аккаунта против правил Telegram — есть риск ограничений/бана.</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </IntegrationCard>
+        {/* ХАБР КАРЬЕРА (OAuth, заготовка) */}
+        <IntegrationCard
+          ico={<span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ark-gray-600)', letterSpacing: '-0.03em' }}>ХК</span>}
+          iconBg="var(--ark-gray-100)"
+          name="Хабр Карьера"
+          desc="Подключение аккаунта работодателя на Хабр Карьера по OAuth"
+          status={habrStatusLoading ? 'bad' : (habrStatus?.connected ? 'ok' : 'bad')}>
+          <div className="integ-section">
+            <div className="integ-section-title">Подключение и управление</div>
+
+            <div className="info-banner small" style={{ marginBottom: 14 }}>
+              <Icon name="sparkle" size={14} />
+              <div>
+                <strong>Бета — только подключение.</strong> Приём откликов и поиск появятся после одобрения приложения Глафиры на стороне Хабра.
+              </div>
+            </div>
+
+            {habrStatusLoading ? (
+              <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
+            ) : habrStatus?.connected ? (
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  <strong>Подключено</strong>
+                  {habrStatus.connected_at && (
+                    <span style={{ fontSize: '12px', color: 'var(--fg-3)', marginLeft: '8px' }}>
+                      с {new Date(habrStatus.connected_at).toLocaleString('ru')}
+                    </span>
+                  )}
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={readOnly ? undefined : handleHabrDisconnect}
+                    disabled={habrDisconnectMutation.isPending || readOnly}
+                  >
+                    {habrDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
+                  Нажмите «Подключить» — вас перенаправят на Хабр Карьера для подтверждения доступа.
+                </div>
+                <div className="integ-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={readOnly ? undefined : handleHabrConnect}
+                    disabled={habrAuthorizeMutation.isPending || readOnly}
+                  >
+                    {habrAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить Хабр Карьера'}
+                  </button>
                 </div>
               </div>
             )}
