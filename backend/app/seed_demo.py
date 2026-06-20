@@ -689,7 +689,8 @@ async def seed_applications_and_move(session: AsyncSession, candidates: list[Can
             vacancy_id=vacancy.id,
             stage="response",
             ai_score=candidate_data.get("ai_score"),
-            source="manual",
+            # источник кандидата хранится на Candidate.source (единый источник истины);
+            # колонка Application.source удалена (v0.9.109) — здесь не пишем
             created_at=response_date,
             updated_at=response_date
         )
