@@ -640,6 +640,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         skills=skills,
         extra=candidate.extra,
         from_smart_search=from_smart_search,
+        habr_contacts_opened=candidate.habr_contacts_opened_at is not None,
         created_at=candidate.created_at
     )
 

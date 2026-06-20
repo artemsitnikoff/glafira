@@ -1,11 +1,20 @@
 """Синхронизация откликов с Хабр Карьера → воронка Глафиры.
 
 Зеркалит паттерн hh-синхронизации (import_response / poll_responses_now / link_vacancy).
-Все вызовы Хабр-API изолированы в client.py и помечены ASSUMPTION.
-Маппинг резюме Хабра → нормализованный dict — в _habr_resume_to_normalized() ниже.
+Маппинг response.user Хабра → нормализованный dict — в _habr_response_user_to_normalized().
 
 ВАЖНО: вся инфраструктура (дедуп, Application, normalize_phone, company-изоляция, audit)
 РЕАЛЬНАЯ и тестируется с мок-клиентом.
+
+Структура отклика (подтверждена документацией Хабр Карьера):
+  response: { id, vacancy_id, body, favorite, archived, created_at, user }
+  response.user: { login, name, avatar, birthday, specialization,
+                   skills[{title, alias_name}], experience_total{month},
+                   relocation, remote, compensation{value, currency},
+                   work_state, age, location{city, country},
+                   experiences[{company, position, period}],
+                   educations[{university, faculty, start_date, end_date}] }
+  NB: phone/email в response.user ОТСУТСТВУЮТ — только через платный /users/{login}/contacts.
 """
 import logging
 from datetime import datetime, timezone
@@ -35,170 +44,135 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Маппер Хабр-резюме → нормализованный dict (ключи как у hh-маппера)
+# Маппер response.user Хабра → нормализованный dict
 # ---------------------------------------------------------------------------
 
-def _habr_resume_to_normalized(raw_resume: dict) -> dict:
-    """Приводит raw-резюме Хабра к нормализованному dict с ключами, совместимыми
-    с hh-маппером: first_name, last_name, middle_name, city, phone, email, title,
-    experience[{position, company, start, end, description}], skill_set[], education.
+def _habr_response_user_to_normalized(user: dict) -> dict:
+    """Приводит response.user из Хабр-отклика к нормализованному dict.
 
-    # ⚠️ ASSUMPTION — имена полей Хабр-резюме НЕ подтверждены документацией.
-    # Все ключи raw_resume.get("...") — предположения на основе типичных REST API.
-    # Пиннинг требуется по реальному ответу с одобренным приложением Хабром.
-    #
-    # Предположения:
-    #   first_name      → raw["first_name"] или raw["name"] split[0]
-    #   last_name       → raw["last_name"] или raw["name"] split[-1]
-    #   city            → raw["city"]["name"] | raw["location"]["name"] | raw["city"]
-    #   phone           → raw["phone"] | raw["contacts"][?]["phone"]
-    #   email           → raw["email"] | raw["contacts"][?]["email"]
-    #   title           → raw["title"] | raw["specialization"] | raw["position"]
-    #   experience      → raw["experience"] | raw["work_experience"]
-    #     position      → exp["position"] | exp["title"]
-    #     company       → exp["company"] | exp["employer"]
-    #     start         → exp["started_at"] | exp["start_date"] | exp["start"]
-    #     end           → exp["finished_at"] | exp["end_date"] | exp["end"]
-    #     description   → exp["description"]
-    #   skill_set       → raw["skills"] | raw["skill_set"] (list[str|dict])
-    #   education       → raw["education"]["primary"] | raw["education"] (list)
+    Поля response.user (подтверждены документацией):
+      login, name, avatar, birthday, specialization,
+      skills[{title, alias_name}], experience_total{month},
+      relocation, remote, compensation{value, currency}, work_state, age,
+      location{city, country},
+      experiences[{company, position, period}],
+      educations[{university, faculty, start_date, end_date}]
 
-    Изолировано в этой функции — при пиннинге править ТОЛЬКО здесь.
+    ⚠️ phone/email в response.user ОТСУТСТВУЮТ (только через платный /contacts).
+    Кандидат создаётся БЕЗ контактов. Для получения контактов — open_habr_contacts().
     """
-    # --- ФИО ---
-    # ⚠️ ASSUMPTION — ключи first_name/last_name/middle_name
-    first_name = (raw_resume.get("first_name") or "").strip()
-    last_name = (raw_resume.get("last_name") or "").strip()
-    middle_name = (raw_resume.get("middle_name") or "").strip() or None
-
-    # Фолбэк: если нет раздельных полей, пробуем "name" (ASSUMPTION)
-    if not first_name and not last_name:
-        full_name = (raw_resume.get("name") or "").strip()
-        parts = full_name.split() if full_name else []
-        last_name = parts[0] if len(parts) >= 1 else ""
-        first_name = parts[1] if len(parts) >= 2 else ""
-        middle_name = parts[2] if len(parts) >= 3 else None
+    # --- ФИО из поля name (формат: «Фамилия Имя» или «Имя Фамилия») ---
+    full_name = (user.get("name") or "").strip()
+    parts = full_name.split() if full_name else []
+    last_name = parts[0] if len(parts) >= 1 else ""
+    first_name = parts[1] if len(parts) >= 2 else ""
+    middle_name = parts[2] if len(parts) >= 3 else None
 
     # --- Город ---
-    # ⚠️ ASSUMPTION — city.name | location.name | city (строка)
-    city_raw = raw_resume.get("city") or raw_resume.get("location") or {}
-    if isinstance(city_raw, dict):
-        city = city_raw.get("name") or None
-    elif isinstance(city_raw, str) and city_raw.strip():
-        city = city_raw.strip()
+    location = user.get("location") or {}
+    if isinstance(location, dict):
+        city = (location.get("city") or "").strip() or None
     else:
         city = None
 
-    # --- Контакты ---
-    # ⚠️ ASSUMPTION — phone/email как прямые поля ИЛИ в contacts[]
-    phone_raw = raw_resume.get("phone")
-    email_raw = raw_resume.get("email")
-
-    # Фолбэк на contacts[] (ASSUMPTION — список dict с type/value)
-    if not phone_raw or not email_raw:
-        for contact in (raw_resume.get("contacts") or []):
-            if not isinstance(contact, dict):
-                continue
-            ctype = (contact.get("type") or "").lower()
-            cval = contact.get("value") or contact.get("phone") or contact.get("email")
-            if not cval:
-                continue
-            if "phone" in ctype and not phone_raw:
-                phone_raw = cval
-            elif "email" in ctype and not email_raw:
-                email_raw = cval
-
-    phone = normalize_phone(str(phone_raw)) if phone_raw else None
-    email = (str(email_raw).strip()[:255] or None) if email_raw else None
-
     # --- Желаемая должность ---
-    # ⚠️ ASSUMPTION — title | specialization | position
-    title = (
-        raw_resume.get("title")
-        or raw_resume.get("specialization")
-        or raw_resume.get("position")
-        or ""
-    ).strip() or None
+    title = (user.get("specialization") or "").strip() or None
 
-    # --- Опыт ---
-    # ⚠️ ASSUMPTION — experience | work_experience (список dict)
-    raw_experience = raw_resume.get("experience") or raw_resume.get("work_experience") or []
-    experience = []
-    for exp in raw_experience:
+    # --- Зарплатные ожидания ---
+    compensation = user.get("compensation") or {}
+    salary_from: Optional[int] = None
+    currency: str = "RUB"
+    if isinstance(compensation, dict):
+        val = compensation.get("value")
+        try:
+            salary_from = int(val) if val is not None else None
+        except (TypeError, ValueError):
+            salary_from = None
+        curr = (compensation.get("currency") or "").upper()
+        if curr:
+            currency = curr
+
+    # --- Опыт (experiences[{company, position, period}]) ---
+    # period — строка (например «Январь 2020 — Декабрь 2023»); храним as-is
+    raw_experiences = user.get("experiences") or []
+    experience: list[dict] = []
+    for exp in raw_experiences:
         if not isinstance(exp, dict):
             continue
-        # ⚠️ ASSUMPTION — position | title; company | employer; started_at | start_date | start
-        pos = (exp.get("position") or exp.get("title") or "").strip()
-        comp = (exp.get("company") or exp.get("employer") or "").strip() or None
-        start = (
-            exp.get("started_at") or exp.get("start_date") or exp.get("start") or None
-        )
-        end = (
-            exp.get("finished_at") or exp.get("end_date") or exp.get("end") or None
-        )
-        desc = exp.get("description") or None
+        pos = (exp.get("position") or "").strip()
+        comp = (exp.get("company") or "").strip() or None
+        period = (exp.get("period") or "").strip() or None
         experience.append({
             "position": pos,
             "company": comp,
-            "start": str(start)[:10] if start else None,
-            "end": str(end)[:10] if end else None,
-            "description": desc,
+            # start/end неизвестны из period-строки → передаём None, period — в company-field
+            "start": None,
+            "end": None,
+            "description": period,  # period-строку сохраняем как description
         })
 
-    # --- Навыки ---
-    # ⚠️ ASSUMPTION — skills | skill_set (список строк или dict с полем name/title)
-    raw_skills = raw_resume.get("skills") or raw_resume.get("skill_set") or []
-    skill_set = []
+    # --- Навыки (skills[{title, alias_name}]) ---
+    raw_skills = user.get("skills") or []
+    skill_set: list[str] = []
     for sk in raw_skills:
-        if isinstance(sk, str) and sk.strip():
-            skill_set.append(sk.strip())
-        elif isinstance(sk, dict):
-            name = (sk.get("name") or sk.get("title") or sk.get("label") or "").strip()
+        if isinstance(sk, dict):
+            name = (sk.get("title") or sk.get("alias_name") or "").strip()
             if name:
                 skill_set.append(name)
+        elif isinstance(sk, str) and sk.strip():
+            skill_set.append(sk.strip())
 
-    # --- Образование ---
-    # ⚠️ ASSUMPTION — education.primary | education (список dict)
-    raw_edu = raw_resume.get("education") or {}
-    if isinstance(raw_edu, dict):
-        edu_list = raw_edu.get("primary") or raw_edu.get("items") or []
-    elif isinstance(raw_edu, list):
-        edu_list = raw_edu
-    else:
-        edu_list = []
-
-    education_primary = []
-    for ed in edu_list:
+    # --- Образование (educations[{university, faculty, start_date, end_date}]) ---
+    raw_educations = user.get("educations") or []
+    education_primary: list[dict] = []
+    for ed in raw_educations:
         if not isinstance(ed, dict):
             continue
-        # ⚠️ ASSUMPTION — name | organization; specialty | faculty; year | graduation_year
-        inst = (ed.get("name") or ed.get("organization") or ed.get("university") or "").strip()
+        inst = (ed.get("university") or "").strip()
         if not inst:
             continue
+        faculty = (ed.get("faculty") or "").strip() or None
+        # Год окончания из end_date (строка «YYYY-MM-DD» или просто «YYYY»)
+        end_date = ed.get("end_date") or ""
+        year: Optional[str] = str(end_date)[:4] if end_date else None
         education_primary.append({
             "name": inst,
-            "organization": (ed.get("faculty") or ed.get("specialty") or "").strip(),
-            "result": (ed.get("degree") or "").strip(),
-            "year": ed.get("year") or ed.get("graduation_year"),
+            "organization": faculty,
+            "result": "",
+            "year": year,
         })
+
+    # --- extra: дополнительные поля из user ---
+    extra_data: dict = {}
+    experience_total = user.get("experience_total") or {}
+    if isinstance(experience_total, dict) and experience_total.get("month") is not None:
+        extra_data["experience_total_month"] = experience_total["month"]
+    work_state = user.get("work_state")
+    if work_state:
+        extra_data["work_state"] = work_state
+    age = user.get("age")
+    if age is not None:
+        extra_data["age"] = age
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "middle_name": middle_name,
         "city": city,
-        "phone": phone,          # уже normalize_phone (цифры без '+' или None)
-        "email": email,
+        "phone": None,           # контактов в отклике НЕТ (только /contacts, платно)
+        "email": None,           # контактов в отклике НЕТ (только /contacts, платно)
         "title": title,
+        "salary_from": salary_from,
+        "currency": currency,
         "experience": experience,
         "skill_set": skill_set,
         "education": {"primary": education_primary},
+        "extra": extra_data,
     }
 
 
 # ---------------------------------------------------------------------------
 # Вспомогательная функция построения секций резюме
-# Переиспользует hh-маппер build_candidate_resume_sections через нормализованный dict
 # ---------------------------------------------------------------------------
 
 def _build_habr_resume_sections(
@@ -206,13 +180,10 @@ def _build_habr_resume_sections(
     company_id: UUID,
     normalized: dict,
 ) -> list:
-    """Строит ORM-объекты секций резюме из нормализованного Хабр-резюме.
+    """Строит ORM-объекты секций резюме из нормализованного dict.
 
-    Формат normalized совместим с hh-маппером — ключи те же:
-    experience[{position, company, start, end, description}], skill_set[], education.primary[].
-    Переиспользует hh-маппер _hh_period, структуры CandidateExperience/Skill/Education.
+    Переиспользует hh-маппер build_candidate_resume_sections.
     """
-    # Импорт локальный — избегаем циклического импорта между habr.sync и hh.service
     from ...integrations.hh.service import build_candidate_resume_sections
     return build_candidate_resume_sections(candidate_id, company_id, normalized)
 
@@ -224,9 +195,7 @@ def _build_habr_resume_sections(
 async def get_valid_access_token_habr(session: AsyncSession, company_id: UUID) -> str:
     """Возвращает расшифрованный access_token из HabrIntegration.
 
-    Хабр: рефреш-флоу неизвестен до одобрения приложения.
-    Если токен протух — возвращает честную ValidationError «переподключите Хабр»,
-    не 500 и не фейк-успех. Рефреш токена НЕ делается (риск ошибки неизвестного API).
+    Если токен истёк — честная ValidationError «переподключите Хабр», не 500.
 
     Raises:
         ValidationError: нет интеграции / токен не установлен / истёк.
@@ -241,18 +210,13 @@ async def get_valid_access_token_habr(session: AsyncSession, company_id: UUID) -
             "Хабр Карьера не подключён: пройдите OAuth-авторизацию в Настройки → Интеграции"
         )
 
-    # Проверяем срок действия (если хранится)
     if integration.expires_at:
-        from datetime import timedelta
         now = datetime.now(timezone.utc)
-        # Если expires_at naive → сделать aware (в БД должно быть timezone-aware, но подстрахуемся)
         expires_at = integration.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
 
         if now >= expires_at:
-            # ⚠️ Рефреш-флоу Хабра неизвестен до одобрения приложения.
-            # Честная ошибка: пользователь должен переподключить Хабр вручную.
             raise ValidationError(
                 "Токен Хабр Карьера истёк. Переподключите интеграцию в Настройки → Интеграции."
             )
@@ -273,69 +237,41 @@ async def import_habr_response(
 ) -> str:
     """Импорт ИЛИ обновление одного отклика Хабр Карьера. Возвращает 'created' | 'updated'.
 
-    # ⚠️ ASSUMPTION — структура response_item (поля id, resume, status...) НЕ подтверждена.
-    # Предположение: response_item содержит:
-    #   id          — идентификатор отклика (habr_response_id для дедупа)
-    #   resume      — dict или {id/url} ссылка на резюме кандидата
-    #   status      — статус отклика (например 'new', 'viewed', 'rejected')
-    # Пиннинг по реальному ответу GET /employer/responses с одобренным приложением.
+    Структура response_item (подтверждена документацией):
+      { id, vacancy_id, body, favorite, archived, created_at, user }
+      response.user содержит профиль кандидата БЕЗ контактов (phone/email отсутствуют).
 
-    Логика (зеркало hh.service.import_response):
-    1. Извлечь habr_response_id из response_item (дедуп).
+    Логика:
+    1. Извлечь habr_response_id = response_item.id.
     2. Если Application с этим id уже есть (company-scoped) → обновить данные кандидата.
-    3. Иначе: получить полное резюме через get_resume, нормализовать.
-    4. Дедуп кандидата find_duplicate_candidates(phone, email) → существующий или новый.
-    5. Создать/обновить Candidate(source='habr', company_id, ...).
+    3. Дедуп кандидата по (external_source='habr', external_id=user.login) — company-scoped.
+    4. Если не найден по login: дедуп по телефону/email (их нет в отклике — всегда None).
+    5. Создать/обновить Candidate(source='habr', external_id=user.login, БЕЗ phone/email).
     6. Секции резюме (опыт/навыки/образование).
-    7. Application(stage='response', habr_response_id, company_id, vacancy_id, ...).
+    7. Application(stage='response', habr_response_id, company_id, vacancy_id).
     8. audit.
     """
     # --- Извлечь habr_response_id ---
-    # ⚠️ ASSUMPTION — поле "id" в response_item
     response_id = str(response_item.get("id") or "").strip()
     if not response_id:
-        raise ValueError("response_item не содержит поле id — пиннинг формата ответа Хабра")
+        raise ValueError("response_item не содержит поле id")
 
-    # --- Полное резюме ---
-    # ⚠️ ASSUMPTION — resume доступно как вложенный dict или ссылка в поле "resume"
-    resume_raw = response_item.get("resume") or {}
-    resume_ref = None
-    if isinstance(resume_raw, dict):
-        # ⚠️ ASSUMPTION — resume в отклике = dict с полями резюме ИЛИ содержит {id/url}
-        resume_ref = resume_raw.get("id") or resume_raw.get("url")
-        # Если resume_raw уже полное резюме (есть поля first_name/name) — используем как есть
-        if not resume_raw.get("first_name") and not resume_raw.get("name") and resume_ref:
-            try:
-                full = await habr_client.get_resume(access_token, str(resume_ref))
-                if isinstance(full, dict):
-                    resume_raw = full
-            except Exception as exc:
-                logger.warning(
-                    "[habr] get_resume failed for ref=%s: %s (used response_item.resume)",
-                    resume_ref, exc,
-                )
-    elif isinstance(resume_raw, str) and resume_raw.strip():
-        # ⚠️ ASSUMPTION — resume может быть URL/ID строкой
-        resume_ref = resume_raw
-        try:
-            full = await habr_client.get_resume(access_token, resume_ref)
-            if isinstance(full, dict):
-                resume_raw = full
-        except Exception as exc:
-            logger.warning(
-                "[habr] get_resume failed for ref=%s: %s (no resume data)",
-                resume_ref, exc,
-            )
-            resume_raw = {}
+    # --- Данные пользователя из отклика ---
+    user = response_item.get("user") or {}
+    login = (user.get("login") or "").strip()
 
-    normalized = _habr_resume_to_normalized(resume_raw)
-    phone = normalized.get("phone")   # уже normalize_phone или None
-    email = normalized.get("email")
+    normalized = _habr_response_user_to_normalized(user)
     first_name = normalized.get("first_name") or ""
     last_name = normalized.get("last_name") or ""
     middle_name = normalized.get("middle_name")
     city = normalized.get("city")
     title = normalized.get("title")
+    salary_from = normalized.get("salary_from")
+    currency = normalized.get("currency") or "RUB"
+    extra_data = normalized.get("extra") or {}
+
+    # phone/email в отклике ОТСУТСТВУЮТ — они None
+    # (контакты открываются отдельно через open_habr_contacts)
 
     # --- Существующая заявка по habr_response_id? ---
     existing_app = (await session.execute(
@@ -345,22 +281,51 @@ async def import_habr_response(
         )
     )).scalar_one_or_none()
 
+    is_new: bool
+    candidate: Candidate
+
     if existing_app:
-        candidate = await session.get(Candidate, existing_app.candidate_id)
-        is_new = candidate is None
-        if candidate is None:
-            candidate = Candidate(company_id=company_id, source="habr", first_name="Неизвестно", last_name="")
-            session.add(candidate)
+        cand = await session.get(Candidate, existing_app.candidate_id)
+        if cand is None:
+            cand = Candidate(
+                company_id=company_id, source="habr",
+                first_name="Неизвестно", last_name="",
+            )
+            session.add(cand)
+            is_new = True
+        else:
+            is_new = False
+        candidate = cand
     else:
-        # --- Дедуп кандидата по телефону/email (company-scoped) ---
-        duplicates = await find_duplicate_candidates(session, company_id, phone, email)
-        if duplicates:
-            candidate = duplicates[0]
+        # --- Дедуп по (external_source='habr', external_id=login) ---
+        candidate_by_login: Optional[Candidate] = None
+        if login:
+            result_login = await session.execute(
+                select(Candidate).where(
+                    Candidate.company_id == company_id,
+                    Candidate.external_source == "habr",
+                    Candidate.external_id == login,
+                    Candidate.deleted_at.is_(None),
+                )
+            )
+            candidate_by_login = result_login.scalar_one_or_none()
+
+        if candidate_by_login:
+            candidate = candidate_by_login
             is_new = False
         else:
-            candidate = Candidate(company_id=company_id, source="habr", first_name="Неизвестно", last_name="")
-            session.add(candidate)
-            is_new = True
+            # Дедуп по телефону/email (при импорте из хабр-отклика оба None)
+            duplicates = await find_duplicate_candidates(session, company_id, None, None)
+            if duplicates:
+                candidate = duplicates[0]
+                is_new = False
+            else:
+                candidate = Candidate(
+                    company_id=company_id, source="habr",
+                    first_name="Неизвестно", last_name="",
+                )
+                session.add(candidate)
+                is_new = True
 
     # --- Обновить поля кандидата (не затираем непустым пустым) ---
     candidate.first_name = first_name or candidate.first_name or "Неизвестно"
@@ -369,36 +334,45 @@ async def import_habr_response(
         candidate.middle_name = middle_name
     if city:
         candidate.city = city[:120]
-    if phone:
-        candidate.phone = phone  # уже нормализован (цифры без '+')
-    if email:
-        candidate.email = email[:255]
     if title:
         candidate.last_position = title[:255]
-    # Источник/external проставляем ТОЛЬКО НОВОМУ кандидату (созданному из этого Habr-отклика).
-    # Дедуп-матч существующего кандидата из ДРУГОГО источника (hh/ручной) — его origin НЕ переписываем.
+    if salary_from is not None:
+        candidate.salary_from = salary_from
+        candidate.salary_expectation = salary_from  # синхронизация по invariant
+        candidate.currency = currency
+
+    # Источник/external проставляем ТОЛЬКО НОВОМУ кандидату
     if is_new:
         candidate.source = "habr"
         candidate.external_source = "habr"
-        if resume_ref:
-            candidate.external_id = str(resume_ref)[:120]
+        if login:
+            candidate.external_id = login[:120]
+        # Обновляем extra
+        if extra_data:
+            current_extra = dict(candidate.extra or {})
+            current_extra.update(extra_data)
+            candidate.extra = current_extra
 
     await session.flush()
 
     # --- Секции резюме ---
-    # is_new → добавляем секции из Habr-резюме.
-    # existing_app (ре-полл того же Habr-отклика) → обновляем (delete+add).
-    # дедуп-матч существующего кандидата из ДРУГОГО источника на новом отклике → секции НЕ трогаем
-    # (иначе дубль или затирание чужих данных — баг ревью, фикс v0.9.119).
     if is_new:
         for row in _build_habr_resume_sections(candidate.id, company_id, normalized):
             session.add(row)
     elif existing_app:
-        await session.execute(delete(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id))
-        await session.execute(delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id))
-        await session.execute(delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id))
+        # Ре-полл того же отклика → обновляем секции
+        await session.execute(
+            delete(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id)
+        )
+        await session.execute(
+            delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id)
+        )
+        await session.execute(
+            delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id)
+        )
         for row in _build_habr_resume_sections(candidate.id, company_id, normalized):
             session.add(row)
+    # дедуп-матч существующего кандидата на НОВОМ отклике → секции НЕ трогаем
 
     # --- Application (создать или оставить) ---
     now = datetime.now(timezone.utc)
@@ -428,6 +402,7 @@ async def import_habr_response(
         after={
             "candidate_name": f"{first_name} {last_name}".strip(),
             "habr_response_id": response_id,
+            "habr_login": login,
             "stage": "response",
         },
         actor_type="system",
@@ -445,19 +420,19 @@ async def import_habr_response(
 async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     """Ручной забор откликов с Хабр Карьера для привязанных вакансий компании.
 
-    Зеркало poll_responses_now (hh). Тот же паттерн:
+    Тот же паттерн, что hh.poll_responses_now:
     - Проверить подключение и получить валидный токен.
     - Найти вакансии с habr_vacancy_id (company-scoped).
     - Собрать set уже импортированных habr_response_id (дедуп без фетча резюме).
     - По каждой вакансии: get_vacancy_responses → import_habr_response для новых.
+
+    Структура ответа Хабра: { responses: [...], pagination: {total, page, per} }
 
     Возврат: {imported, skipped, updated, vacancies, errors}
 
     Raises:
         ValidationError: интеграция не подключена, токен протух.
     """
-    # --- Проверить подключение и получить токен ---
-    # get_valid_access_token_habr кидает ValidationError если нет/истёк
     access_token = await get_valid_access_token_habr(session, company_id)
 
     # --- Найти вакансии с habr_vacancy_id ---
@@ -487,14 +462,13 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
     }
 
     for vacancy in vacancies:
-        page = 0
+        page = 1
         while True:
             try:
                 data = await habr_client.get_vacancy_responses(
                     access_token,
                     vacancy.habr_vacancy_id,
                     page=page,
-                    per_page=50,
                 )
             except Exception as exc:
                 err_msg = str(exc)
@@ -507,15 +481,14 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
                     "habr_vacancy_id": vacancy.habr_vacancy_id,
                     "error": err_msg,
                 })
-                break  # не падаем — продолжаем следующую вакансию
+                break
 
-            # ⚠️ ASSUMPTION — структура ответа: {items: [...], total: N, per_page: N, page: N}
-            items = data.get("items") or []
+            # Структура ответа: { responses: [...], pagination: {total, page, per} }
+            items = data.get("responses") or []
             if not items:
                 break
 
             for item in items:
-                # ⚠️ ASSUMPTION — id отклика в поле "id"
                 rid = str(item.get("id") or "").strip()
                 if not rid:
                     logger.warning("[habr] poll: response_item без id — пропускаем")
@@ -542,14 +515,318 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
                     )
                     stats["skipped"] += 1
 
-            # ⚠️ ASSUMPTION — пагинация: проверяем total и per_page
-            total = data.get("total") or 0
-            per_page = data.get("per_page") or 50
-            if not total or (page + 1) * per_page >= total:
+            # Пагинация: { total, page, per }
+            pagination = data.get("pagination") or {}
+            total = pagination.get("total") or 0
+            per = pagination.get("per") or 50
+            current_page = pagination.get("page") or page
+            if not total or current_page * per >= total:
                 break
             page += 1
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# open_habr_contacts — ПЛАТНОЕ открытие контактов кандидата Хабра
+# ---------------------------------------------------------------------------
+
+async def open_habr_contacts(
+    session: AsyncSession,
+    company_id: UUID,
+    candidate_id: UUID,
+    user_id: UUID,
+) -> dict:
+    """Открыть контакты кандидата Хабра.
+
+    ⚠️ ПЛАТНО: каждый первый вызов списывает лимит компании.
+    ⚠️ ИДЕМПОТЕНТНОСТЬ: если habr_contacts_opened_at уже стоит → вернуть имеющиеся
+       контакты из кандидата, НЕ вызывать /contacts повторно.
+
+    Логика:
+    1. Загрузить кандидата company-scoped; не habr / нет external_id(login) → ValidationError.
+    2. Если habr_contacts_opened_at проставлен → вернуть текущие phone/email, merged=False.
+    3. Иначе: get_user_contacts(token, login).
+    4. Лимит/ошибка → ValidationError (честно, НЕ помечать opened).
+    5. Распарсить phones/emails/messengers.
+    6. ДЕДУП ПОСЛЕ ОТКРЫТИЯ: find_duplicate_candidates(phone, email) ИСКЛЮЧАЯ текущего.
+       Если найден другой кандидат E (тот же человек) → СЛИЯНИЕ:
+         - перенести Application(ы) хабр-кандидата на E (гард уникальности по vacancy);
+         - проставить E.phone/email если пусты;
+         - секции скопировать в E если у E нет;
+         - soft-delete хабр-кандидата;
+         - audit слияния.
+       Вернуть {merged: True, candidate_id: E.id}.
+    7. Если нет дубля → проставить phone/email текущему, habr_contacts_opened_at=now.
+       Вернуть {merged: False, candidate_id}.
+    8. audit ПЛАТНОГО открытия.
+
+    Raises:
+        ValidationError: кандидат не найден/не habr/нет login/лимит исчерпан.
+    """
+    from ....core.errors import NotFoundError
+
+    # --- Загрузить кандидата company-scoped ---
+    cand = (await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+    if cand is None:
+        raise NotFoundError("Кандидат не найден")
+
+    if cand.external_source != "habr" or not cand.external_id:
+        raise ValidationError(
+            "Открытие контактов доступно только для кандидатов, импортированных с Хабра"
+        )
+
+    login = cand.external_id
+
+    # --- Идемпотентность: контакты уже открыты (по ORM-полю, не по extra) ---
+    if cand.habr_contacts_opened_at is not None:
+        return {
+            "merged": False,
+            "candidate_id": str(cand.id),
+            "phone": cand.phone,
+            "email": cand.email,
+            "already_opened": True,
+        }
+
+    # --- Получить токен компании ---
+    access_token = await get_valid_access_token_habr(session, company_id)
+
+    # --- Дёрнуть /contacts (ПЛАТНО) ---
+    try:
+        contacts_data = await habr_client.get_user_contacts(access_token, login)
+    except ValueError as exc:
+        # Честная ошибка: лимит/нет доступа — НЕ помечаем как открытые
+        err_msg = str(exc)
+        if "402" in err_msg or "403" in err_msg or "429" in err_msg:
+            raise ValidationError(
+                "Лимит открытий контактов Хабра исчерпан или нет доступа к базе резюме. "
+                "Проверьте тариф на Хабр Карьере."
+            ) from exc
+        raise ValidationError(
+            f"Ошибка при открытии контактов Хабра: {exc}"
+        ) from exc
+
+    # --- Распарсить контакты ---
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    messengers_extra: list = []
+
+    # contacts_data может быть dict с разными форматами (Хабр не уточнил схему публично)
+    # Пробуем типичные варианты
+    phones_list = contacts_data.get("phones") or []
+    emails_list = contacts_data.get("emails") or []
+    messengers_list = contacts_data.get("messengers") or []
+
+    # Также contacts_data может содержать плоские поля phone/email
+    if not phones_list and contacts_data.get("phone"):
+        phones_list = [contacts_data["phone"]]
+    if not emails_list and contacts_data.get("email"):
+        emails_list = [contacts_data["email"]]
+
+    # Также Хабр может вернуть список contacts[{type, value}]
+    for contact in (contacts_data.get("contacts") or []):
+        if not isinstance(contact, dict):
+            continue
+        ctype = (contact.get("type") or "").lower()
+        cval = contact.get("value") or ""
+        if "phone" in ctype and cval:
+            phones_list.append(cval)
+        elif "email" in ctype and cval:
+            emails_list.append(cval)
+        elif cval:
+            messengers_extra.append({"type": ctype, "value": cval})
+
+    # Нормализуем первый телефон
+    for ph in phones_list:
+        if ph:
+            normalized_ph = normalize_phone(str(ph))
+            if normalized_ph:
+                phone = normalized_ph
+                break
+
+    # Берём первый email
+    for em in emails_list:
+        if em and isinstance(em, str) and em.strip():
+            email = em.strip()[:255]
+            break
+    if not email and isinstance(emails_list, list):
+        for item in emails_list:
+            if isinstance(item, dict) and item.get("value"):
+                email = str(item["value"]).strip()[:255]
+                break
+
+    # Добавляем мессенджеры из Хабра в список + дополнительные
+    for msg in messengers_list:
+        if isinstance(msg, dict) and msg.get("value"):
+            messengers_extra.append(msg)
+
+    now = datetime.now(timezone.utc)
+
+    # --- audit ПЛАТНОГО открытия (до дедупа, чтобы всегда записать факт вызова) ---
+    await audit(
+        session,
+        action="habr_contacts_opened",
+        entity_type="candidate",
+        entity_id=cand.id,
+        after={
+            "habr_login": login,
+            "phone_found": phone is not None,
+            "email_found": email is not None,
+        },
+        actor_type="human",
+        actor_user_id=user_id,
+        company_id=company_id,
+    )
+
+    # --- Дедуп после открытия: ищем ДРУГОГО кандидата с тем же phone/email ---
+    if phone or email:
+        duplicates = await find_duplicate_candidates(session, company_id, phone, email)
+        # Исключаем самого хабр-кандидата из результатов
+        duplicates = [d for d in duplicates if d.id != cand.id]
+
+        if duplicates:
+            # Survivor — существующий кандидат (уже в базе)
+            survivor = duplicates[0]
+
+            # Перенести Application(ы) хабр-кандидата → survivor
+            habr_apps = (await session.execute(
+                select(Application).where(
+                    Application.candidate_id == cand.id,
+                    Application.company_id == company_id,
+                )
+            )).scalars().all()
+
+            for app in habr_apps:
+                # Гард уникальности (candidate, vacancy): если у survivor уже есть такая заявка
+                survivor_app = (await session.execute(
+                    select(Application).where(
+                        Application.candidate_id == survivor.id,
+                        Application.vacancy_id == app.vacancy_id,
+                        Application.company_id == company_id,
+                    )
+                )).scalar_one_or_none()
+
+                if survivor_app is not None:
+                    # Бэкфиллим habr_response_id на survivor_app, дубль-заявку удаляем
+                    if app.habr_response_id and not survivor_app.habr_response_id:
+                        survivor_app.habr_response_id = app.habr_response_id
+                    await session.delete(app)
+                else:
+                    # Переносим заявку на survivor
+                    app.candidate_id = survivor.id
+
+            # Проставить phone/email survivor'у если пусты
+            if phone and not survivor.phone:
+                survivor.phone = phone
+            if email and not survivor.email:
+                survivor.email = email[:255]
+
+            # Скопировать секции хабр-кандидата в survivor если у него нет
+            survivor_has_exp = (await session.execute(
+                select(CandidateExperience.id).where(
+                    CandidateExperience.candidate_id == survivor.id
+                ).limit(1)
+            )).scalar_one_or_none()
+
+            survivor_has_skills = (await session.execute(
+                select(CandidateSkill.id).where(
+                    CandidateSkill.candidate_id == survivor.id
+                ).limit(1)
+            )).scalar_one_or_none()
+
+            if not survivor_has_exp:
+                habr_exps = (await session.execute(
+                    select(CandidateExperience).where(
+                        CandidateExperience.candidate_id == cand.id
+                    )
+                )).scalars().all()
+                for exp in habr_exps:
+                    session.add(CandidateExperience(
+                        company_id=company_id,
+                        candidate_id=survivor.id,
+                        position=exp.position,
+                        company=exp.company,
+                        period=exp.period,
+                        description=exp.description,
+                        order_index=exp.order_index,
+                    ))
+
+            if not survivor_has_skills:
+                habr_skills = (await session.execute(
+                    select(CandidateSkill).where(
+                        CandidateSkill.candidate_id == cand.id
+                    )
+                )).scalars().all()
+                for sk in habr_skills:
+                    session.add(CandidateSkill(
+                        company_id=company_id,
+                        candidate_id=survivor.id,
+                        skill=sk.skill,
+                        order_index=sk.order_index,
+                    ))
+
+            await session.flush()
+
+            # Soft-delete хабр-кандидата
+            cand.deleted_at = now
+
+            await session.flush()
+
+            # audit слияния
+            await audit(
+                session,
+                action="habr_candidate_merged",
+                entity_type="candidate",
+                entity_id=survivor.id,
+                after={
+                    "merged_habr_candidate_id": str(cand.id),
+                    "habr_login": login,
+                    "survivor_id": str(survivor.id),
+                },
+                actor_type="human",
+                actor_user_id=user_id,
+                company_id=company_id,
+            )
+
+            return {
+                "merged": True,
+                "candidate_id": str(survivor.id),
+                "phone": survivor.phone,
+                "email": survivor.email,
+                "already_opened": False,
+            }
+
+    # --- Нет дубля → проставить контакты хабр-кандидату ---
+    if phone:
+        cand.phone = phone
+    if email:
+        cand.email = email
+
+    # Мессенджеры: добавляем в extra
+    if messengers_extra:
+        current_extra = dict(cand.extra or {})
+        current_extra["habr_messengers"] = messengers_extra
+        cand.extra = current_extra
+
+    # Пометить контакты как открытые (ORM-поле)
+    cand.habr_contacts_opened_at = now
+
+    await session.flush()
+
+    return {
+        "merged": False,
+        "candidate_id": str(cand.id),
+        "phone": cand.phone,
+        "email": cand.email,
+        "already_opened": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -563,9 +840,7 @@ async def link_habr_vacancy(
     company_id: UUID,
     user_id: UUID,
 ) -> None:
-    """Привязывает вакансию Глафиры к вакансии Хабр Карьера.
-
-    Зеркало hh.service.link_vacancy. company-scoped.
+    """Привязывает вакансию Глафиры к вакансии Хабр Карьера. company-scoped.
 
     Raises:
         NotFoundError: вакансия не найдена в рамках компании.

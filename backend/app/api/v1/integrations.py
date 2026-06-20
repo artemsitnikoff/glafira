@@ -643,7 +643,7 @@ async def list_habr_vacancies(
 ):
     """Список вакансий работодателя на Хабр Карьере (для UI-связывания).
 
-    ⚠️ ASSUMPTION — эндпоинт Хабра не подтверждён до одобрения приложения.
+    Эндпоинт: GET {HABR_API_BASE}/vacancies
     При ошибке возвращает честный 400 с описанием.
     """
     access_token = await habr_sync.get_valid_access_token_habr(session, current_user.company_id)
@@ -653,8 +653,8 @@ async def list_habr_vacancies(
         from ...core.errors import ValidationError as AppValidationError
         raise AppValidationError(str(exc)) from exc
 
-    # ⚠️ ASSUMPTION — items содержат {id, title, ...}
-    items = data.get("items") or []
+    # Структура ответа GET /vacancies — список вакансий (точный формат уточняется при первом prod-запуске)
+    items = data.get("items") or data.get("vacancies") or []
     return [
         {
             "id": str(item.get("id") or ""),
@@ -713,3 +713,39 @@ async def habr_unlink_vacancy(
     )
     await session.commit()
     return {"message": "Вакансия отвязана от Хабр Карьеры"}
+
+
+@router.post(
+    "/habr/candidates/{candidate_id}/open-contacts",
+    dependencies=[Depends(require_admin)],
+)
+async def habr_open_candidate_contacts(
+    candidate_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Открыть контакты кандидата Хабра (phone/email).
+
+    ⚠️ ПЛАТНО: каждый первый вызов списывает лимит открытий контактов компании на Хабре.
+    Повторный вызов (если контакты уже открыты) — БЕСПЛАТНО, возвращает имеющиеся данные.
+
+    Требует: кандидат source='habr' + external_id(login) + подключённый Хабр.
+    Ошибки: 400 если лимит исчерпан / нет доступа (НЕ 500, НЕ фейк-успех).
+
+    После открытия контактов: дедуп с базой (phone/email) → при совпадении слияние кандидатов.
+    Возврат: { merged, candidate_id, phone, email, already_opened }
+    """
+    import uuid as _uuid
+    try:
+        cid = _uuid.UUID(candidate_id)
+    except ValueError as exc:
+        raise ValidationError("Некорректный candidate_id") from exc
+
+    result = await habr_sync.open_habr_contacts(
+        session,
+        company_id=current_user.company_id,
+        candidate_id=cid,
+        user_id=current_user.id,
+    )
+    await session.commit()
+    return result

@@ -1,8 +1,8 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Boolean, ForeignKey, CheckConstraint, Date, Text, text, UniqueConstraint
+from sqlalchemy import String, Integer, Boolean, ForeignKey, CheckConstraint, Date, Text, text, UniqueConstraint, TIMESTAMP
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -62,6 +62,11 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     # Ссылка на резюме/профиль кандидата у источника (страница резюме на hh.ru и т.п.).
     # Заполняется вручную в форме ИЛИ автоматически при импорте с hh (alternate_url).
     source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Момент первого платного открытия контактов Хабра (per-company, списывает лимит).
+    # NULL = контакты не открыты; NOT NULL = открыты, повторный вызов не тратит лимит.
+    habr_contacts_opened_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     # Constraints

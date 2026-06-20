@@ -1,14 +1,7 @@
 """HTTP-клиент Хабр Карьера (изолированный модуль).
 
-⚠️⚠️ ВСЕ эндпоинты/поля API Хабра в этом файле являются ASSUMPTION (предположением):
-документация API Хабр Карьера находится за стеной одобрения приложения и НЕ подтверждена.
-Метки «# ⚠️ ASSUMPTION» проставлены на каждом вызове и описании полей.
-
-ПОСЛЕ получения одобрения приложения Хабром:
-1. Запросить реальную документацию API у Хабр Карьера.
-2. Проверить каждый эндпоинт/поле, помеченный ASSUMPTION.
-3. Пинить реальные значения в .env (HABR_API_BASE) и обновить константы ниже.
-4. Убрать/скорректировать пометки ASSUMPTION.
+Эндпоинты подтверждены документацией API Хабр Карьера:
+  BASE = https://career.habr.com/v1/integrations  (конфигурируемый HABR_API_BASE)
 
 Секреты (access_token) НЕ логируются нигде в этом модуле.
 """
@@ -20,19 +13,6 @@ import httpx
 from ....config import settings
 
 logger = logging.getLogger(__name__)
-
-# ⚠️ ASSUMPTION — ПУТЬ /employer/responses — типичное соглашение
-# для откликов на вакансию работодателя. Реальный path НЕ подтверждён.
-# Пиннинг по реальному ответу с одобренным приложением.
-_PATH_VACANCY_RESPONSES = "/employer/responses"
-
-# ⚠️ ASSUMPTION — ПУТЬ /resumes/{resume_ref} — типичный REST-идиом.
-# Реальный path (и имя поля-ссылки на резюме в отклике) НЕ подтверждены.
-_PATH_RESUME = "/resumes/{resume_ref}"
-
-# ⚠️ ASSUMPTION — ПУТЬ /employer/vacancies — типичный REST-идиом
-# для списка вакансий работодателя. Реальный path НЕ подтверждён.
-_PATH_EMPLOYER_VACANCIES = "/employer/vacancies"
 
 _DEFAULT_TIMEOUT = 30.0
 
@@ -54,7 +34,6 @@ def _check_response(resp: httpx.Response, context: str) -> dict[str, Any]:
     Токен/секрет НЕ включается в сообщение об ошибке.
     """
     if resp.status_code >= 400:
-        # Ограничиваем длину тела, чтобы не логировать потенциально большой HTML
         body_preview = resp.text[:300] if resp.text else "(пустой ответ)"
         logger.warning(
             "[habr] %s: HTTP %d — %.300s",
@@ -63,50 +42,39 @@ def _check_response(resp: httpx.Response, context: str) -> dict[str, Any]:
             body_preview,
         )
         raise ValueError(
-            f"Хабр Карьера вернул HTTP {resp.status_code} при {context}. "
-            f"Возможно, токен протух или приложение не одобрено Хабром. "
-            f"Пиннинг эндпоинтов требует одобренного приложения."
+            f"Хабр Карьера вернул HTTP {resp.status_code} при {context}."
         )
 
     try:
         return resp.json()
     except Exception as exc:
-        logger.warning("[habr] %s: не-JSON ответ (возможно HTML) — %s", context, exc)
+        logger.warning("[habr] %s: не-JSON ответ — %s", context, exc)
         raise ValueError(
-            f"Хабр Карьера вернул непarseable ответ при {context}. "
-            f"Скорее всего, это HTML-страница ошибки, а не JSON API. "
-            f"Эндпоинты требуют пиннинга с одобренным приложением."
+            f"Хабр Карьера вернул непarseable ответ при {context}."
         ) from exc
 
 
 async def get_vacancy_responses(
     access_token: str,
-    habr_vacancy_id: str,
-    page: int = 0,
-    per_page: int = 50,
+    vacancy_id: str,
+    page: int = 1,
 ) -> dict[str, Any]:
-    """Отклики работодателя на конкретную вакансию Хабр Карьера.
+    """Отклики работодателя на конкретную вакансию.
 
-    # ⚠️ ASSUMPTION — эндпоинт, параметры пагинации и структура ответа НЕ подтверждены.
-    # Предположение: GET {HABR_API_BASE}/employer/responses?vacancy_id={id}&page={p}&per_page={n}
-    # Ожидаемый ответ: {items: [...отклики...], total: N, page: P, per_page: N}
-    # Пиннинг по реальному ответу с одобренным приложением.
+    GET {BASE}/vacancies/{vacancy_id}/responses?page={page}
+
+    Ответ: { responses: [...], pagination: {total, page, per} }
 
     Returns:
-        dict: raw ответ Хабра (items, total, ...). Пустой items[] = откликов нет.
+        dict: raw ответ Хабра (responses, pagination).
 
     Raises:
         ValueError: HTTP >= 400, не-JSON, сетевая ошибка.
     """
     base = settings.HABR_API_BASE
-    url = f"{base}{_PATH_VACANCY_RESPONSES}"
+    url = f"{base}/vacancies/{vacancy_id}/responses"
 
-    # ⚠️ ASSUMPTION — имена query-параметров: vacancy_id, page, per_page
-    params = {
-        "vacancy_id": habr_vacancy_id,
-        "page": page,
-        "per_page": per_page,
-    }
+    params: dict[str, Any] = {"page": page}
 
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
@@ -115,76 +83,86 @@ async def get_vacancy_responses(
         logger.warning("[habr] get_vacancy_responses network error — %s", exc)
         raise ValueError(f"Сетевая ошибка при получении откликов Хабра: {exc}") from exc
 
-    return _check_response(resp, f"получение откликов вакансии {habr_vacancy_id}")
+    return _check_response(resp, f"получение откликов вакансии {vacancy_id}")
 
 
-async def get_resume(
-    access_token: str,
-    resume_ref: str,
-) -> dict[str, Any]:
-    """Полное резюме кандидата по ссылке/идентификатору из отклика.
+async def get_employer_vacancies(access_token: str) -> dict[str, Any]:
+    """Список вакансий работодателя.
 
-    # ⚠️ ASSUMPTION — resume_ref может быть как числовым ID, так и URL.
-    # Предположение: GET {HABR_API_BASE}/resumes/{resume_ref}
-    # Пиннинг: проверить поле в response_item, указывающее на резюме (url? id?).
-    # Ожидаемый ответ: dict с полями резюме (имя, опыт, навыки, город, контакты, ...).
+    GET {BASE}/vacancies
 
     Returns:
-        dict: raw резюме. Маппинг полей — в _habr_resume_to_normalized() в sync.py.
+        dict: raw ответ Хабра.
 
     Raises:
         ValueError: HTTP >= 400, не-JSON, сетевая ошибка.
     """
     base = settings.HABR_API_BASE
-
-    # ⚠️ ASSUMPTION — resume_ref — ID резюме (число или slug), подставляется в путь.
-    # Если Хабр использует абсолютный URL в отклике — нужно дёргать напрямую,
-    # а не строить из base+path. Пиннинг после одобрения.
-    if resume_ref.startswith("http"):
-        # Если ссылка абсолютная — используем как есть (ASSUMPTION)
-        url = resume_ref
-    else:
-        url = f"{base}{_PATH_RESUME.format(resume_ref=resume_ref)}"
+    url = f"{base}/vacancies"
 
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             resp = await client.get(url, headers=_make_headers(access_token))
     except httpx.HTTPError as exc:
-        logger.warning("[habr] get_resume network error — %s", exc)
-        raise ValueError(f"Сетевая ошибка при получении резюме Хабра: {exc}") from exc
+        logger.warning("[habr] get_employer_vacancies network error — %s", exc)
+        raise ValueError(f"Сетевая ошибка при получении вакансий Хабра: {exc}") from exc
 
-    return _check_response(resp, f"получение резюме {resume_ref}")
+    return _check_response(resp, "получение вакансий работодателя")
 
 
-async def get_employer_vacancies(
-    access_token: str,
-    page: int = 0,
-    per_page: int = 50,
-) -> dict[str, Any]:
-    """Список вакансий работодателя на Хабр Карьере (для UI-связывания).
+async def get_user_profile(access_token: str, login: str) -> dict[str, Any]:
+    """Полный профиль пользователя (БЕСПЛАТНО).
 
-    # ⚠️ ASSUMPTION — эндпоинт, параметры и структура ответа НЕ подтверждены.
-    # Предположение: GET {HABR_API_BASE}/employer/vacancies?page={p}&per_page={n}
-    # Ожидаемый ответ: {items: [{id, title, city, ...}, ...], total: N}
-    # Пиннинг по реальному ответу с одобренным приложением.
+    GET {BASE}/users/{login}
+
+    Богаче, чем данные в response.user: содержит experiences[], university_educations[],
+    salary{from,currency}, resume_headline, skills[], contacts{} (если открыты).
 
     Returns:
-        dict: raw ответ Хабра (items, total, ...).
+        dict: raw профиль пользователя.
 
     Raises:
         ValueError: HTTP >= 400, не-JSON, сетевая ошибка.
     """
     base = settings.HABR_API_BASE
-    url = f"{base}{_PATH_EMPLOYER_VACANCIES}"
-
-    # ⚠️ ASSUMPTION — имена query-параметров: page, per_page
-    params = {"page": page, "per_page": per_page}
+    url = f"{base}/users/{login}"
 
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
-            resp = await client.get(url, headers=_make_headers(access_token), params=params)
+            resp = await client.get(url, headers=_make_headers(access_token))
     except httpx.HTTPError as exc:
-        logger.warning("[habr] get_employer_vacancies network error — %s", exc)
-        raise ValueError(f"Сетевая ошибка при получении вакансий Хабра: {exc}") from exc
+        logger.warning("[habr] get_user_profile network error — %s", exc)
+        raise ValueError(f"Сетевая ошибка при получении профиля Хабра: {exc}") from exc
 
-    return _check_response(resp, "получение вакансий работодателя")
+    return _check_response(resp, f"получение профиля пользователя {login}")
+
+
+async def get_user_contacts(access_token: str, login: str) -> dict[str, Any]:
+    """Контакты пользователя.
+
+    ⚠️ ПЛАТНО: каждый вызов = открытие контактов, списывается лимит компании.
+    Вызывать ТОЛЬКО явно по действию пользователя (кнопка «Открыть контакты»).
+    НЕ вызывать автоматически в poll/sync.
+
+    GET {BASE}/users/{login}/contacts
+
+    При ошибке/исчерпанном лимите — кидает ValueError наверх для честной обработки
+    (НЕ глотать ошибку, НЕ помечать контакты как открытые).
+
+    Returns:
+        dict: raw контакты пользователя.
+
+    Raises:
+        ValueError: HTTP >= 400 (включая лимит), не-JSON, сетевая ошибка.
+    """
+    base = settings.HABR_API_BASE
+    url = f"{base}/users/{login}/contacts"
+
+    try:
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
+            resp = await client.get(url, headers=_make_headers(access_token))
+    except httpx.HTTPError as exc:
+        logger.warning("[habr] get_user_contacts network error — %s", exc)
+        raise ValueError(f"Сетевая ошибка при получении контактов Хабра: {exc}") from exc
+
+    return _check_response(resp, f"открытие контактов пользователя {login}")

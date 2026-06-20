@@ -119,6 +119,9 @@ class CandidateDetail(ORMBase):
     skills: list[str] = []
     extra: dict | None = None
     from_smart_search: bool = False  # резюме найдено через «Умный подбор» (по scored_candidates)
+    # Хабр: True если контакты уже открыты (платный запрос /contacts был совершён)
+    # Фронт использует для показа/скрытия кнопки «Открыть контакты Хабра»
+    habr_contacts_opened: bool = False
     created_at: datetime
 
 
