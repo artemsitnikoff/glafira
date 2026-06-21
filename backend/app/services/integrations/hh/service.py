@@ -993,11 +993,17 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         )
         session.add(application)
         try:
-            await session.flush()
+            # Savepoint: при гонке откатывается ТОЛЬКО этот INSERT, а не вся сессия.
+            # poll коммитит батч целиком — голый session.rollback() сметал бы уже
+            # импортированных в этом прогоне кандидатов/секции/audit_log.
+            async with session.begin_nested():
+                await session.flush()
         except IntegrityError:
-            # Гонка: параллельный крон/клик успел INSERT раньше — откатываем savepoint,
-            # перечитываем существующую запись и трактуем как «уже импортировано».
-            await session.rollback()
+            # Параллельный крон/клик успел INSERT раньше. После отката savepoint
+            # неудавшийся объект восстановлен в session.new — убираем его, иначе
+            # autoflush на ближайшем select пере-вставит его → снова IntegrityError.
+            if application in session:
+                session.expunge(application)
             existing = (await session.execute(
                 select(Application).where(
                     Application.hh_negotiation_id == nid,

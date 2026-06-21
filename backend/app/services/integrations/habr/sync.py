@@ -390,10 +390,17 @@ async def import_habr_response(
         )
         session.add(application)
         try:
-            await session.flush()
+            # Savepoint: при гонке откатывается ТОЛЬКО этот INSERT, а не вся сессия.
+            # poll коммитит батч целиком — голый session.rollback() сметал бы уже
+            # импортированных в этом прогоне кандидатов/секции/audit_log.
+            async with session.begin_nested():
+                await session.flush()
         except IntegrityError:
-            # Гонка: параллельный крон/клик успел INSERT раньше — перечитываем.
-            await session.rollback()
+            # Параллельный крон/клик успел INSERT раньше. После отката savepoint
+            # неудавшийся объект восстановлен в session.new — убираем его, иначе
+            # autoflush на ближайшем select пере-вставит его → снова IntegrityError.
+            if application in session:
+                session.expunge(application)
             existing_app = (await session.execute(
                 select(Application).where(
                     Application.habr_response_id == response_id,
