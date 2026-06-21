@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from ..config import settings
 from ..models import Application, Vacancy
-from ..services.glafira.scoring import score_pending_applications
+from ..services.glafira.scoring import score_pending_applications, MAX_SCORE_ATTEMPTS
 from ..services.glafira.auto_qa import ask_auto_qa_questions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -45,6 +45,7 @@ async def main():
                 .where(
                     Application.ai_score.is_(None),
                     Application.stage.notin_(("rejected", "hired")),
+                    Application.ai_score_attempts < MAX_SCORE_ATTEMPTS,
                 )
                 .distinct()
             )

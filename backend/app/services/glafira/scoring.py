@@ -7,7 +7,7 @@ from uuid import UUID
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -40,6 +40,8 @@ from ...services.audit import audit
 from ...services.application import move_application  # П.1 авто-перевод (цикла нет: application не тянет scoring)
 
 logger = logging.getLogger(__name__)
+
+MAX_SCORE_ATTEMPTS = int(getattr(settings, "GLAFIRA_MAX_SCORE_ATTEMPTS", 3))
 
 
 class _ScoringLLMOutput(BaseModel):
@@ -623,6 +625,7 @@ async def score_pending_applications(
             # по ним принято, оценивать = трата токенов впустую.
             Application.stage.notin_(("rejected", "hired")),
             Application.ai_score.is_(None),
+            Application.ai_score_attempts < MAX_SCORE_ATTEMPTS,
             ~already_scored,
             Candidate.company_id == company_id,
             Candidate.deleted_at.is_(None),
@@ -707,5 +710,20 @@ async def score_pending_applications(
                 "Авто-скоринг пропущен candidate=%s vacancy=%s: %s",
                 candidate_id, vacancy_id, e,
             )
+            try:
+                await session.execute(
+                    update(Application)
+                    .where(
+                        Application.candidate_id == candidate_id,
+                        Application.vacancy_id == vacancy_id,
+                        Application.company_id == company_id,
+                        Application.ai_score.is_(None),
+                    )
+                    .values(ai_score_attempts=Application.ai_score_attempts + 1)
+                )
+                await session.commit()
+            except Exception as inc_err:
+                await session.rollback()
+                logger.warning("Не удалось увеличить ai_score_attempts candidate=%s: %s", candidate_id, inc_err)
 
     return {"scored": scored, "failed": failed, "skipped_no_key": False}

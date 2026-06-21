@@ -35,6 +35,7 @@ class Application(Base, TimestampMixin, CompanyMixin):
     )
     stage: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'response'"))
     ai_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ai_score_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     selected_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
