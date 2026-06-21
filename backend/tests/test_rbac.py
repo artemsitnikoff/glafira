@@ -689,7 +689,7 @@ class TestApplicationWriteAccess:
 
         response = await async_client.post(
             f"/api/v1/applications/{application.id}/move",
-            json={"stage": "selected"},
+            json={"to_stage": "selected"},
             headers=headers,
         )
         assert response.status_code == 200
@@ -726,7 +726,7 @@ class TestApplicationWriteAccess:
         headers = await get_auth_headers(async_client, manager_user)
         response = await async_client.post(
             f"/api/v1/applications/{other_app.id}/move",
-            json={"stage": "selected"},
+            json={"to_stage": "selected"},
             headers=headers,
         )
         assert response.status_code == 403
@@ -761,7 +761,7 @@ class TestApplicationWriteAccess:
         headers = await get_auth_headers(async_client, manager_user)
         response = await async_client.post(
             f"/api/v1/applications/{other_app.id}/reject",
-            json={"reason_id": None, "comment": ""},
+            json={"reason": "Не подходит", "side": "company"},
             headers=headers,
         )
         assert response.status_code == 403
@@ -801,7 +801,7 @@ class TestApplicationWriteAccess:
             "/api/v1/applications/bulk/move",
             json={
                 "application_ids": [str(own_app.id), str(foreign_app.id)],
-                "stage": "selected",
+                "to_stage": "selected",
             },
             headers=headers,
         )
@@ -820,7 +820,7 @@ class TestApplicationWriteAccess:
             "/api/v1/applications/bulk/move",
             json={
                 "application_ids": [str(application.id)],
-                "stage": "selected",
+                "to_stage": "selected",
             },
             headers=headers,
         )
@@ -869,7 +869,7 @@ class TestCandidateSubresourceWriteAccess:
         headers = await get_auth_headers(async_client, manager_user)
         response = await async_client.post(
             f"/api/v1/candidates/{test_candidate.id}/messages",
-            json={"text": "Привет", "channel": "hh"},
+            json={"body": "Привет", "channel": "hh"},
             headers=headers,
         )
         assert response.status_code == 403
@@ -885,7 +885,7 @@ class TestCandidateSubresourceWriteAccess:
         # Ответ 201 или бизнес-ошибка (нет интеграции) — главное не 403
         response = await async_client.post(
             f"/api/v1/candidates/{test_candidate.id}/messages",
-            json={"text": "Привет", "channel": "hh"},
+            json={"body": "Привет", "channel": "hh"},
             headers=headers,
         )
         assert response.status_code != 403
@@ -914,7 +914,7 @@ class TestCandidateSubresourceWriteAccess:
         headers = await get_auth_headers(async_client, manager_user)
         response = await async_client.post(
             f"/api/v1/candidates/{test_candidate.id}/comments",
-            json={"text": "Заметка"},
+            json={"body": "Заметка"},
             headers=headers,
         )
         assert response.status_code == 403

@@ -286,7 +286,7 @@ class TestFillCandidateOsintConsentGuard:
             _scalar_result(None),       # нет согласия
         ])
 
-        with patch("app.services.glafira.verify.AsyncSessionLocal", return_value=mock_session_ctx), \
+        with patch("app.database.AsyncSessionLocal", return_value=mock_session_ctx), \
              patch("app.services.glafira.verify._build_osint_blocks", new_callable=AsyncMock) as mock_osint:
 
             await fill_candidate_osint(test_candidate.id, test_candidate.company_id)
@@ -324,7 +324,7 @@ class TestFillCandidateOsintConsentGuard:
              "sources": [], "status": "info", "data": {"mentions": [], "found": 0}},
         ]
 
-        with patch("app.services.glafira.verify.AsyncSessionLocal", return_value=mock_session_ctx), \
+        with patch("app.database.AsyncSessionLocal", return_value=mock_session_ctx), \
              patch("app.services.glafira.verify._build_osint_blocks",
                    new_callable=AsyncMock, return_value=stub_osint) as mock_osint:
 

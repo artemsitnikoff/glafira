@@ -14,7 +14,7 @@
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from cryptography.fernet import Fernet
 
 from app.services.integrations.habr import service as habr_service
@@ -156,7 +156,8 @@ async def test_handle_callback_success_saves_token(
     ) as mock_client_cls:
         mock_resp = AsyncMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = token_response
+        # httpx Response.json() — синхронный: возвращает dict, НЕ корутину
+        mock_resp.json = MagicMock(return_value=token_response)
         mock_client_cls.return_value.__aenter__.return_value.post = AsyncMock(
             return_value=mock_resp
         )
@@ -196,7 +197,8 @@ async def test_handle_callback_success_deletes_state(
     ) as mock_client_cls:
         mock_resp = AsyncMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = token_response
+        # httpx Response.json() — синхронный: возвращает dict, НЕ корутину
+        mock_resp.json = MagicMock(return_value=token_response)
         mock_client_cls.return_value.__aenter__.return_value.post = AsyncMock(
             return_value=mock_resp
         )
@@ -260,7 +262,7 @@ async def test_callback_endpoint_error_redirects_to_denied(
         params={"error": "access_denied"},
         follow_redirects=False,
     )
-    assert resp.status_code == 302
+    assert resp.status_code == 307
     location = resp.headers["location"]
     assert "habr=denied" in location
 
@@ -274,7 +276,7 @@ async def test_callback_endpoint_no_code_redirects_to_error(
         "/api/v1/integrations/habr/callback",
         follow_redirects=False,
     )
-    assert resp.status_code == 302
+    assert resp.status_code == 307
     assert "habr=error" in resp.headers["location"]
 
 
@@ -288,7 +290,7 @@ async def test_callback_endpoint_invalid_state_redirects_to_error(
         params={"code": "some_code", "state": "totally_invalid_state"},
         follow_redirects=False,
     )
-    assert resp.status_code == 302
+    assert resp.status_code == 307
     location = resp.headers["location"]
     assert "habr=error" in location
     assert "habr=connected" not in location
@@ -332,7 +334,7 @@ async def test_callback_endpoint_token_exchange_400_redirects_to_error(
             follow_redirects=False,
         )
 
-    assert resp.status_code == 302
+    assert resp.status_code == 307
     assert "habr=error" in resp.headers["location"]
     assert "habr=connected" not in resp.headers["location"]
 
@@ -375,7 +377,7 @@ async def test_callback_endpoint_no_access_token_in_response_redirects_to_error(
             follow_redirects=False,
         )
 
-    assert resp.status_code == 302
+    assert resp.status_code == 307
     assert "habr=error" in resp.headers["location"]
 
     result = await db_session.execute(
@@ -415,7 +417,8 @@ async def test_company_isolation_state_belongs_to_correct_company(
     ) as mock_client_cls:
         mock_resp = AsyncMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = token_response
+        # httpx Response.json() — синхронный: возвращает dict, НЕ корутину
+        mock_resp.json = MagicMock(return_value=token_response)
         mock_client_cls.return_value.__aenter__.return_value.post = AsyncMock(
             return_value=mock_resp
         )
@@ -549,7 +552,7 @@ async def test_callback_endpoint_never_returns_500(async_client):
     )
     # Никогда не 500
     assert resp.status_code != 500
-    assert resp.status_code == 302
+    assert resp.status_code == 307
 
 
 @pytest.mark.asyncio
@@ -562,4 +565,4 @@ async def test_callback_endpoint_is_public_no_auth_required(async_client):
         follow_redirects=False,
     )
     # 302 (не 401) — публичный
-    assert resp.status_code == 302
+    assert resp.status_code == 307

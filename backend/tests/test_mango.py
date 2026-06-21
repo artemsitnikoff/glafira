@@ -64,19 +64,21 @@ async def test_save_config_write_only_secrets(db_session, admin_user, fernet_key
     await _save(db_session, admin_user)
 
     # Второе сохранение без api_key (должно сохранить старое значение)
+    # URL — легитимный хост из whitelist Mango (custom.mango.ru правильно режется SSRF-гардом);
+    # *.mango-office.ru проходит как host == "app.mango-office.ru".
     row = await mango_service.save_config(
         db_session,
         admin_user.company_id,
         api_key=None,  # пустой
         api_salt="newsalt",
-        vpbx_api_url="https://custom.mango.ru/vpbx/",
+        vpbx_api_url="https://app.mango-office.ru/vpbx2/",
         actor_user_id=admin_user.id,
     )
 
     # Старый api_key сохранен, новый api_salt
     assert decrypt_text(row.config["api_key"]) == API_KEY
     assert decrypt_text(row.config["api_salt"]) == "newsalt"
-    assert row.config["vpbx_api_url"] == "https://custom.mango.ru/vpbx/"
+    assert row.config["vpbx_api_url"] == "https://app.mango-office.ru/vpbx2/"
 
 
 @pytest.mark.asyncio

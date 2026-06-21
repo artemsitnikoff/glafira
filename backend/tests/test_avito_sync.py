@@ -624,11 +624,23 @@ class TestPollAvitoResponsesNow:
         await db_session.commit()
         assert r1["imported"] == 1
 
-        # Второй poll — тот же id уже в existing_aids
+        # Сколько заявок в БД после первого poll
+        count_after_first = len((await db_session.execute(
+            select(Application).where(Application.company_id == admin_user.company_id)
+        )).scalars().all())
+
+        # Второй poll — тот же id уже в existing_aids → отсекается ДО батча
+        # (sync.py:546: `aid not in existing_aids`), поэтому резюме повторно не фетчится
+        # и новых заявок не создаётся. Прод-корректный сигнал дедупа: imported == 0
+        # и общее число заявок в БД не изменилось.
         r2 = await poll_avito_responses_now(db_session, admin_user.company_id)
         await db_session.commit()
-        assert r2["skipped"] == 1
         assert r2["imported"] == 0
+
+        count_after_second = len((await db_session.execute(
+            select(Application).where(Application.company_id == admin_user.company_id)
+        )).scalars().all())
+        assert count_after_second == count_after_first  # дедуп: новых заявок нет
 
     @patch("app.services.integrations.avito.sync.avito_client")
     async def test_no_vacancies_returns_zero(

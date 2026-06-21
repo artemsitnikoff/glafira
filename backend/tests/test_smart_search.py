@@ -2927,9 +2927,9 @@ async def test_role_categories_endpoint_returns_grouped_list(
     mock_token,
     db_session,
     async_client,
-    manager_headers,
+    auth_headers,
 ):
-    """GET /smart/role-categories — возвращает сгруппированный список; manager не получает 403"""
+    """GET /smart/role-categories — возвращает сгруппированный список (admin/recruiter, не manager)"""
     import app.services.integrations.hh.client as hh_client_module
 
     hh_client_module._professional_roles_raw_cache.clear()
@@ -2947,7 +2947,7 @@ async def test_role_categories_endpoint_returns_grouped_list(
     mock_client.get = AsyncMock(return_value=mock_response)
     mock_get_client.return_value = mock_client
 
-    response = await async_client.get("/api/v1/smart/role-categories", headers=manager_headers)
+    response = await async_client.get("/api/v1/smart/role-categories", headers=auth_headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -2993,18 +2993,26 @@ async def test_preview_found_count_returns_debug_params(
     assert found == 42
     assert isinstance(debug_params, dict)
 
-    # Реальные hh-параметры должны быть в debug_params
-    assert "text" in debug_params
-    assert "area" in debug_params        # area_id числовой → попал
-    assert debug_params["area"] == "113"
-    assert "professional_role" in debug_params   # числовой → попал
-    assert debug_params["professional_role"] == "96"
-    assert "experience" in debug_params
-    assert debug_params["experience"] == "between1And3"
+    # Новая структурированная форма: {structural, text_blocks, skill_filter}
+    assert "structural" in debug_params
+    assert "text_blocks" in debug_params
+    structural = debug_params["structural"]
 
-    # page/per_page НЕ должны быть в debug_params (их убирает функция)
-    assert "page" not in debug_params
-    assert "per_page" not in debug_params
+    # Числовые фильтры → в structural
+    assert structural.get("area") == "113"               # area_id числовой → попал
+    assert structural.get("professional_role") == "96"   # числовой → попал
+    assert structural.get("experience") == "between1And3"
+
+    # page/per_page НЕ должны быть в structural (добавляются только к запросу)
+    assert "page" not in structural
+    assert "per_page" not in structural
+
+    # text_blocks: блок роли (everywhere) и блок навыков (skills)
+    text_blocks = debug_params["text_blocks"]
+    assert len(text_blocks) >= 1
+    fields = {b.get("field") for b in text_blocks}
+    assert "everywhere" in fields   # текстовый блок роли
+    assert "skills" in fields       # текстовый блок навыков (skills=["Python"])
 
 
 @pytest.mark.asyncio
@@ -3029,9 +3037,14 @@ async def test_preview_found_count_debug_params_text_role(
     found, debug_params = await preview_found_count(db_session, test_company.id, request)
 
     assert found == 10
-    # Текстовая роль попала в text, но НЕ в professional_role hh-фильтр
-    assert "professional_role" not in debug_params
-    assert "Программист" in debug_params.get("text", "")
+    # Новая структурированная форма
+    structural = debug_params["structural"]
+    text_blocks = debug_params["text_blocks"]
+    # Текстовая роль НЕ попала в структурный professional_role hh-фильтр
+    assert "professional_role" not in structural
+    # ...но попала в текстовый блок роли (field=everywhere)
+    role_texts = [b.get("text", "") for b in text_blocks if b.get("field") == "everywhere"]
+    assert any("Программист" in t for t in role_texts)
 
 
 @pytest.mark.asyncio
