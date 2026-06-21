@@ -40,21 +40,25 @@ def encrypt_config(config: dict) -> dict:
     return {k: (encrypt_text(str(v)) if _is_sensitive_key(k) and v is not None else v) for k, v in config.items()}
 
 
+# Ключи, безопасные к показу в GET-ответах (несекретные/непарольные/не-PII display-поля).
+# Всё, чего здесь НЕТ, маскируется в "••••" (включая session/tg_user/phone/пароли/токены).
+_SAFE_DISPLAY_KEYS = frozenset({
+    "vpbx_api_url", "client_id", "employer_id", "employer_name",
+    "host", "port", "from_email", "from_name", "use_tls", "use_ssl",
+    "enabled", "state", "last_test_at", "last_test_status",
+    "last_sync_at", "last_error",
+})
+
+
 def mask_config(config: dict) -> dict:
-    """For GET responses: shows ••••LAST4 for sensitive keys (only when len>=8; shorter → ••••)."""
+    """For GET responses: только whitelist-ключи отдаются как есть; всё остальное → "••••"
+    (индикатор наличия). Секреты/сессии/PII НИКОГДА не расшифровываются и не раскрываются."""
     result = {}
     for k, v in config.items():
-        if _is_sensitive_key(k) and v is not None:
-            try:
-                decrypted = decrypt_text(v)
-                if len(decrypted) >= 8:
-                    # Показываем последние 4 символа только для длинных секретов
-                    result[k] = f"••••{decrypted[-4:]}"
-                else:
-                    # Короткие (< 8) — никогда не раскрываем символы
-                    result[k] = "••••"
-            except Exception:
-                result[k] = "••••"
-        else:
+        if v is None:
+            result[k] = None
+        elif k in _SAFE_DISPLAY_KEYS:
             result[k] = v
+        else:
+            result[k] = "••••"
     return result
