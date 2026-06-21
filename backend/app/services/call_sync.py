@@ -10,6 +10,7 @@ from typing import Optional, Dict, List, Any
 from uuid import UUID
 
 from sqlalchemy import select, func, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 
@@ -192,7 +193,11 @@ async def create_call_sync_job(
         status="running"
     )
     session.add(job)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise ConflictError("Синхронизация звонков уже выполняется для этой компании")
 
     # Аудит запуска
     await audit(

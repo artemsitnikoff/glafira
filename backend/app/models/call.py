@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID
 from typing import Optional
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, CHAR, UniqueConstraint
+from sqlalchemy import Column, String, Integer, DateTime, Text, CHAR, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.sql import text
 
@@ -83,3 +83,7 @@ class CallSyncJob(TimestampMixin, Base):
     created = Column(Integer, nullable=False, server_default=text("0"), comment="Создано записей")
     error = Column(Text, nullable=True, comment="Ошибка выполнения")
     finished_at = Column(DateTime, nullable=True, comment="Время завершения")
+
+    __table_args__ = (
+        Index("uq_call_sync_job_active", "company_id", unique=True, postgresql_where=text("status = 'running'")),
+    )

@@ -452,7 +452,16 @@ async def get_valid_access_token(session: AsyncSession, company_id: UUID) -> str
     expires_soon = integration.expires_at - timedelta(minutes=5)
 
     if now >= expires_soon:
-        # Токен истек или истечет скоро, обновляем
+        # Сериализуем конкурентный рефреш: блокируем строку интеграции (FOR UPDATE),
+        # чтобы параллельные потребители (cron-джобы + фоновые задачи + запросы) не
+        # дёргали refresh_tokens одновременно одним и тем же ротируемым refresh-токеном.
+        await session.refresh(integration, with_for_update=True)
+        now = datetime.now(timezone.utc)
+        # Пока ждали блокировку — сосед мог уже обновить токен. Перепроверяем.
+        if integration.access_token and integration.expires_at and now < integration.expires_at - timedelta(minutes=5):
+            await session.commit()  # освобождаем блокировку, отдаём свежий токен соседа
+            return decrypt_text(integration.access_token)
+        # Токен всё ещё истёк/истекает (блокировку держим мы) — обновляем.
         try:
             # Refresh ключом приложения Глафиры: env (.env), fallback на legacy DB-колонки
             # (тот же app, что подключал работодателя).
