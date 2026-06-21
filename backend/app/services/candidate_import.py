@@ -34,6 +34,9 @@ _active_tasks: dict = {}
 # Потолок размера загружаемого файла (защита воркера от OOM на гигантском .xlsx).
 MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024
 
+# Потолок строк против zip-bomb/OOM: сжатый .xlsx из 20 001 строки → отказ с ошибкой.
+MAX_IMPORT_ROWS = 20000
+
 
 def _fit(value, maxlen: int):
     """Обрезает строковое значение под лимит колонки БД (иначе StringDataRightTruncation
@@ -86,6 +89,9 @@ def _parse_excel_sync(content: bytes) -> tuple[list[str], dict[str, list[str]], 
             continue  # Пропускаем пустые строки
 
         data_rows.append(row)
+
+        if len(data_rows) > MAX_IMPORT_ROWS:
+            raise ValidationError(f"Файл превышает лимит {MAX_IMPORT_ROWS} строк — разбейте на части")
 
         # Собираем примеры для каждой колонки
         for i, cell in enumerate(row):
@@ -411,6 +417,9 @@ async def preview_import(session: AsyncSession, company_id: UUID, content: bytes
                 row_dict[columns[i]] = cell
         rows.append(row_dict)
 
+        if len(rows) > MAX_IMPORT_ROWS:
+            raise ValidationError(f"Файл превышает лимит {MAX_IMPORT_ROWS} строк — разбейте на части")
+
     workbook.close()
 
     # Собираем все контакты для проверки дедупликации
@@ -578,6 +587,14 @@ async def _run_import(job_id: UUID, company_id: UUID, user_id: UUID,
                 if i < len(columns):
                     row_dict[columns[i]] = cell
             all_rows.append(row_dict)
+
+            if len(all_rows) > MAX_IMPORT_ROWS:
+                workbook.close()
+                await _finalize_job(
+                    job_id, "error",
+                    f"Файл превышает лимит {MAX_IMPORT_ROWS} строк — разбейте на части"
+                )
+                return
 
         workbook.close()
 
