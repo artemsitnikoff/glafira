@@ -814,7 +814,7 @@ async def seed_extras(session: AsyncSession, candidates: list[Candidate]):
             company_id=COMPANY_ID,
             candidate_id=candidate.id,
             filename=f"resume_{candidate_name}.pdf",
-            storage_path=f"/demo/resumes/{candidate_name}.pdf",
+            storage_path=f"demo/resumes/{candidate_name}.pdf",
             size_bytes=250000 + i*10000,  # 250-290KB
             file_type="pdf",
             source="manual",

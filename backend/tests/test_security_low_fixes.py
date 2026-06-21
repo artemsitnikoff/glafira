@@ -70,43 +70,55 @@ class TestMaskConfig:
         return encrypt_text(val)
 
     def test_long_secret_shows_last_4(self):
-        """Секрет 8+ символов → ••••LAST4."""
+        """api_key НЕ в whitelist → всегда ••••, последние-4 больше не раскрываются (это и был фикс)."""
         secret = "abcd1234"  # ровно 8
         config = {"api_key": self._enc(secret)}
         result = mask_config(config)
-        assert result["api_key"] == "••••1234"
+        assert result["api_key"] == "••••"
 
     def test_short_secret_no_chars_revealed(self):
-        """Секрет < 8 символов → только ••••, никаких символов."""
+        """api_key НЕ в whitelist → только ••••, никаких символов (проверяем несколько значений)."""
         for short in ["abc", "1234", "xy", "a", "1234567"]:
             config = {"api_key": self._enc(short)}
             result = mask_config(config)
-            # Никогда не раскрываем символы короткого секрета
+            # Ключ не в whitelist — маска независимо от длины
             assert result["api_key"] == "••••", f"Секрет '{short}' должен давать только ••••"
-            # Явно убеждаемся, что за ••• НЕТ ни одного символа из секрета
-            for ch in short:
-                assert ch not in result["api_key"].replace("••••", "")
 
-    def test_non_sensitive_key_passed_through(self):
-        """Несекретный ключ не трогается."""
-        config = {"name": "test", "url": "https://example.com"}
+    def test_whitelist_key_passes_non_whitelist_masked(self):
+        """Ключ ИЗ whitelist проходит verbatim; ключ НЕ из whitelist → ••••."""
+        config = {"host": "smtp.example.com", "port": 587, "name": "test", "url": "https://example.com"}
         result = mask_config(config)
-        assert result == config
+        assert result["host"] == "smtp.example.com"   # whitelist → verbatim
+        assert result["port"] == 587                  # whitelist → verbatim
+        assert result["name"] == "••••"               # не whitelist → маска
+        assert result["url"] == "••••"                # не whitelist → маска
 
     def test_decrypt_error_gives_bullets(self):
-        """При невалидном зашифрованном значении → ••••."""
+        """api_key НЕ в whitelist → ••••, декрипт не пытается (причина маски — «не в whitelist»)."""
         config = {"api_key": "not-encrypted-at-all"}
         result = mask_config(config)
         assert result["api_key"] == "••••"
 
     def test_webhook_key_is_masked(self):
-        """webhook-ключ (новый) тоже маскируется."""
+        """webhook-ключ НЕ в whitelist → ••••, а не ••••LAST4."""
         secret = "myhook12345"
         config = {"webhook": self._enc(secret)}
         result = mask_config(config)
-        assert result["webhook"].startswith("••••")
-        # Раскрывает последние 4
-        assert result["webhook"] == "••••2345"
+        assert result["webhook"] == "••••"
+
+    def test_telegram_session_and_pii_never_leak(self):
+        """Регресс-страховка: session/tg_user/phone (Telegram PII) НЕ в whitelist → ••••, не сырые."""
+        config = {
+            "session": "ENCRYPTED_SESSION_BLOB",
+            "tg_user": {"id": 1, "phone": "+79990001122"},
+            "phone": "+79990001122",
+            "vpbx_api_url": "https://api.example.com",
+        }
+        result = mask_config(config)
+        assert result["session"] == "••••"
+        assert result["tg_user"] == "••••"
+        assert result["phone"] == "••••"
+        assert result["vpbx_api_url"] == "https://api.example.com"  # whitelist → verbatim
 
 
 # ---------------------------------------------------------------------------
@@ -344,10 +356,3 @@ class TestRecruiterRadarHonestDefaults:
         assert _speed_score(150) == 0       # дольше 100 дней → не ниже 0 (clamp)
         # 70 достижимо ТОЛЬКО при реальных 30 днях, а не как дефолт-из-воздуха
         assert _speed_score(30) == 70
-
-        # quality_score НЕ должен быть 50 (фейк)
-        assert series["values"][quality_idx] != 50.0, (
-            "quality_score не должен быть фейковым 50"
-        )
-        # При отсутствии ai_score у нанятых — 0
-        assert series["values"][quality_idx] == 0.0

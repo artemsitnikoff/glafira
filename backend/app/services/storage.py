@@ -3,11 +3,15 @@ from pathlib import Path
 import asyncio
 import uuid
 
+from ..core.errors import ValidationError
+
 
 def _safe_filename(filename: str) -> str:
     """Отбрасывает любые директорные компоненты из client-filename → безопасное базовое имя."""
     name = Path(filename or "").name          # для '../../etc/passwd' вернёт 'passwd'
-    name = name.replace("/", "").replace("\\", "").strip()
+    name = name.replace("/", "").replace("\\", "")
+    name = "".join(c for c in name if c.isprintable())  # убираем control/NUL-символы
+    name = name.strip()
     if not name or name in (".", ".."):
         name = "file"
     return name[:200]
@@ -40,7 +44,7 @@ class LocalStorageService(StorageService):
         full = self.root / rel
         # Defense-in-depth: итоговый путь обязан лежать внутри storage root.
         if not full.resolve().is_relative_to(self.root.resolve()):
-            raise ValueError("Invalid storage path")
+            raise ValidationError("Invalid storage path")
 
         # Синхронный дисковый I/O (до 10 МБ) выносим в поток, чтобы не блокировать event loop.
         def _write() -> None:
@@ -53,7 +57,7 @@ class LocalStorageService(StorageService):
     def get_path(self, storage_path: str) -> Path:
         full = self.root / storage_path
         if not full.resolve().is_relative_to(self.root.resolve()):
-            raise ValueError("Invalid storage path")
+            raise ValidationError("Invalid storage path")
         return full
 
     async def delete(self, storage_path: str) -> None:

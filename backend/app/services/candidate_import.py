@@ -116,6 +116,8 @@ async def parse_excel_file(content: bytes, filename: str) -> dict:
 
     try:
         columns, samples, row_count = await asyncio.to_thread(_parse_excel_sync, content)
+    except ValidationError:
+        raise
     except Exception as e:
         logger.error(f"Ошибка парсинга Excel файла {filename}: {e}")
         raise ValidationError("Не удалось прочитать файл. Поддерживаются только .xlsx файлы")
