@@ -14,6 +14,7 @@ from typing import Optional
 import httpx
 
 from ....core.errors import AppError
+from ..net_guard import validate_outbound_url
 
 
 class MangoClient:
@@ -313,9 +314,13 @@ class MangoClient:
                 status_code=502
             )
 
-        # Шаг 2: Скачиваем файл по одноразовой ссылке
+        # SSRF-защита: блокируем редирект на внутренние/приватные адреса
+        await validate_outbound_url(download_url)
+
+        # Шаг 2: Скачиваем файл по одноразовой ссылке (follow_redirects=False —
+        # повторный редирект на внутренний адрес не отрабатывает автоматически)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
                 file_response = await client.get(download_url)
         except httpx.TimeoutException:
             raise AppError(

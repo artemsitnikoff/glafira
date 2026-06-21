@@ -56,7 +56,7 @@ async def call(webhook_url: str, method: str, params: dict | None = None) -> dic
             code="B24_BAD_RESPONSE",
             message="Битрикс24 вернул не-JSON ответ",
             status_code=400,
-            details={"status": resp.status_code, "body": resp.text[:300]},
+            details={"status": resp.status_code},
         )
 
     if isinstance(data, dict) and data.get("error"):
@@ -74,7 +74,7 @@ async def call(webhook_url: str, method: str, params: dict | None = None) -> dic
             code="B24_API_ERROR",
             message=f"Битрикс24 вернул HTTP {resp.status_code}",
             status_code=400,
-            details={"body": resp.text[:300]},
+            details={"status": resp.status_code},
         )
 
     return data

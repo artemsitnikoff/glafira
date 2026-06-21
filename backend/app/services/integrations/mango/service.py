@@ -17,6 +17,7 @@ from ....models import Integration
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError
+from ..net_guard import validate_outbound_url
 from .client import MangoClient
 
 PROVIDER = "mango"
@@ -47,6 +48,8 @@ async def save_config(
     vpbx_api_url = (vpbx_api_url or "").strip()
     if not vpbx_api_url:
         vpbx_api_url = DEFAULT_BASE_URL
+
+    await validate_outbound_url(vpbx_api_url, allowed_domains=("mango-office.ru",))
 
     row = await _get_row(session, company_id)
     old_config = dict(row.config) if row and row.config else {}

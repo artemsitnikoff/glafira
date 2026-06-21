@@ -19,6 +19,7 @@ from ....schemas.user import UserCreate
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....core.errors import ValidationError
+from ..net_guard import validate_outbound_url
 from ...user import create_user
 from ...integrations.smtp.service import send_credentials_email
 from . import client as b24_client
@@ -26,7 +27,7 @@ from . import client as b24_client
 PROVIDER = "bitrix24"
 
 # https://портал.bitrix24.ru/rest/<user_id>/<secret_code>/
-WEBHOOK_RE = re.compile(r"^https?://[^/\s]+/rest/\d+/[^/\s]+/?$")
+WEBHOOK_RE = re.compile(r"^https://[^/\s]+/rest/\d+/[^/\s]+/?$")
 
 
 def _portal_from_url(webhook_url: str) -> Optional[str]:
@@ -132,6 +133,9 @@ async def save_config(
             "Неверный формат URL вебхука. Ожидается "
             "https://портал.bitrix24.ru/rest/<id>/<код>/"
         )
+
+    # SSRF-защита: блокируем сохранение URL с внутренними/приватными адресами
+    await validate_outbound_url(webhook_url)
 
     portal = _portal_from_url(webhook_url)
     encrypted_url = encrypt_text(webhook_url)
