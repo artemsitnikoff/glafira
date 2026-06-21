@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from ...core.errors import NotFoundError
-from ...models import PulseAlert
+from ...models import Employee, PulseAlert
 from ...services.audit import audit
 
 
@@ -15,10 +15,24 @@ async def list_alerts(
     company_id: UUID,
     dismissed: bool | None = None,
     period_days: int | None = None,
+    manager_user_id: UUID | None = None,
 ) -> list[PulseAlert]:
-    """Получает список алертов"""
+    """Получает список алертов.
+
+    Параметр manager_user_id (опциональный): если задан — возвращает только алерты
+    сотрудников, у которых Employee.manager_user_id == manager_user_id.
+    Используется для RBAC-скоупа роли manager.
+    """
 
     query = select(PulseAlert).where(PulseAlert.company_id == company_id)
+
+    if manager_user_id is not None:
+        # Подзапрос: id сотрудников этого менеджера в рамках компании
+        allowed_ids_sq = select(Employee.id).where(
+            Employee.manager_user_id == manager_user_id,
+            Employee.company_id == company_id,
+        ).scalar_subquery()
+        query = query.where(PulseAlert.employee_id.in_(allowed_ids_sq))
 
     if dismissed is not None:
         query = query.where(PulseAlert.is_dismissed == dismissed)

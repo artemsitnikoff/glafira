@@ -20,18 +20,39 @@ from ...services.pulse import alerts as alerts_svc
 from ...services.pulse import plan as plan_svc
 from ...services.pulse import surveys as surveys_svc
 from ...services.glafira.employee_summary import generate_employee_summary
+from ...core.errors import ForbiddenError
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Вспомогательная проверка: может ли текущий пользователь (manager) работать
+# с конкретным сотрудником. admin/recruiter — без ограничений.
+# ---------------------------------------------------------------------------
+
+async def _assert_employee_access(
+    session,
+    employee_id: UUID,
+    current_user: User,
+    company_id: UUID,
+) -> None:
+    """Бросает ForbiddenError, если manager пытается обратиться к чужому сотруднику."""
+    if current_user.role == "manager" and not await employee_svc.is_employee_managed_by(
+        session, employee_id, current_user.id, company_id
+    ):
+        raise ForbiddenError("Нет доступа к этому сотруднику")
 
 
 @router.get("/kpi", response_model=PulseKPI)
 async def get_kpi(
     period: str = Query("30d"),  # 7d|30d|90d|all
     company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Получить KPI пульса"""
-    return await kpi_svc.compute_pulse_kpi(session, company_id, period)
+    manager_user_id = current_user.id if current_user.role == "manager" else None
+    return await kpi_svc.compute_pulse_kpi(session, company_id, period, manager_user_id=manager_user_id)
 
 
 @router.get("/alerts", response_model=list[AlertOut])
@@ -39,11 +60,14 @@ async def list_alerts(
     dismissed: bool | None = Query(None),
     period_days: int | None = Query(None),
     company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Получить список алертов"""
+    manager_user_id = current_user.id if current_user.role == "manager" else None
     return await alerts_svc.list_alerts(
-        session, company_id, dismissed=dismissed, period_days=period_days
+        session, company_id, dismissed=dismissed, period_days=period_days,
+        manager_user_id=manager_user_id,
     )
 
 
@@ -55,6 +79,24 @@ async def dismiss_alert(
     session: AsyncSession = Depends(get_db),
 ):
     """Отметить алерт как просмотренный"""
+    # Для manager: проверяем, что алерт принадлежит одному из его сотрудников.
+    if current_user.role == "manager":
+        from sqlalchemy import select
+        from ...models import PulseAlert
+        alert_row = (await session.execute(
+            select(PulseAlert).where(
+                PulseAlert.id == alert_id,
+                PulseAlert.company_id == company_id,
+            )
+        )).scalar_one_or_none()
+        if alert_row is not None:
+            # Алерт существует — проверяем доступ по employee_id
+            if not await employee_svc.is_employee_managed_by(
+                session, alert_row.employee_id, current_user.id, company_id
+            ):
+                raise ForbiddenError("Нет доступа к этому сотруднику")
+        # Если alert_row is None — штатный NotFoundError выбросит сервис
+
     await alerts_svc.dismiss_alert(
         session,
         alert_id=alert_id,
@@ -74,6 +116,23 @@ async def patch_plan_item(
     session: AsyncSession = Depends(get_db),
 ):
     """Обновить пункт плана адаптации"""
+    # Для manager: проверяем, что план-айтем принадлежит его сотруднику.
+    if current_user.role == "manager":
+        from sqlalchemy import select
+        from ...models import PulsePlanItem
+        item_row = (await session.execute(
+            select(PulsePlanItem).where(
+                PulsePlanItem.id == item_id,
+                PulsePlanItem.company_id == company_id,
+            )
+        )).scalar_one_or_none()
+        if item_row is not None:
+            if not await employee_svc.is_employee_managed_by(
+                session, item_row.employee_id, current_user.id, company_id
+            ):
+                raise ForbiddenError("Нет доступа к этому сотруднику")
+        # Если item_row is None — штатный NotFoundError выбросит сервис
+
     result = await plan_svc.patch_plan_item(
         session,
         item_id=item_id,
@@ -96,15 +155,18 @@ async def list_employees(
     survey_overdue_days: int | None = Query(None),
     q: str | None = Query(None),
     company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Получить список сотрудников с фильтрацией и пагинацией"""
+    # Для manager — принудительно подставляем его id, игнорируя query-параметр.
+    effective_manager_id = current_user.id if current_user.role == "manager" else manager_user_id
     return await employee_svc.list_employees_paginated(
         session,
         company_id,
         page=page,
         page_size=page_size,
-        manager_user_id=manager_user_id,
+        manager_user_id=effective_manager_id,
         department=department,
         risk_level=risk_level,
         status_filter=status_filter,
@@ -117,9 +179,12 @@ async def list_employees(
 async def get_employee(
     employee_id: UUID,
     company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Получить подробную информацию о сотруднике"""
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     employee = await employee_svc.get_employee(session, employee_id, company_id)
 
     # Compute dynamic fields
@@ -171,6 +236,8 @@ async def update_employee_status(
     session: AsyncSession = Depends(get_db),
 ):
     """Обновить статус сотрудника"""
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     employee = await employee_svc.update_employee_status(
         session, employee_id, data, company_id, current_user.id
     )
@@ -220,9 +287,12 @@ async def update_employee_status(
 async def get_employee_plan(
     employee_id: UUID,
     company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Получить план адаптации сотрудника"""
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     employee = await employee_svc.get_employee(session, employee_id, company_id)
     return [PlanItemOut.model_validate(item) for item in employee.plan_items]
 
@@ -231,9 +301,12 @@ async def get_employee_plan(
 async def list_employee_surveys(
     employee_id: UUID,
     company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Получить список опросов сотрудника"""
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     surveys = await surveys_svc.list_employee_surveys(session, employee_id, company_id)
     return [SurveyOut.model_validate(survey) for survey in surveys]
 
@@ -251,6 +324,8 @@ async def launch_employee_survey(
     Снапшотит вопросы шаблона и генерит публичный токен (ссылку для респондента).
     Реальной отправки пока нет — HR копирует ссылку из ответа (public_token) вручную.
     """
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     survey = await surveys_svc.launch_survey(
         session, employee_id, data.template_id, company_id, current_user.id
     )
@@ -266,6 +341,21 @@ async def bulk_run_survey(
     session: AsyncSession = Depends(get_db),
 ):
     """Запуск опросов для группы сотрудников"""
+    # Для manager: все запрошенные employee_ids должны принадлежать ему (fail-closed).
+    if current_user.role == "manager" and data.employee_ids:
+        from sqlalchemy import select
+        allowed_ids_result = await session.execute(
+            select(employee_svc.Employee.id).where(
+                employee_svc.Employee.id.in_(data.employee_ids),
+                employee_svc.Employee.manager_user_id == current_user.id,
+                employee_svc.Employee.company_id == company_id,
+            )
+        )
+        allowed_ids = {row[0] for row in allowed_ids_result.all()}
+        requested_ids = set(data.employee_ids)
+        if not requested_ids.issubset(allowed_ids):
+            raise ForbiddenError("Нет доступа к одному или нескольким из указанных сотрудников")
+
     result = await surveys_svc.bulk_run_survey(
         session, data, company_id, current_user.id
     )
@@ -282,6 +372,8 @@ async def add_employee_note(
     session: AsyncSession = Depends(get_db),
 ):
     """Добавить заметку к сотруднику"""
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     employee = await employee_svc.add_note(
         session,
         employee_id=employee_id,
@@ -334,6 +426,9 @@ async def regenerate_summary(
     session: AsyncSession = Depends(get_db),
 ):
     """Регенерировать AI-сводку для сотрудника"""
+    # Проверяем ПЕРЕД вызовом AI, чтобы менеджер не жёг токены на чужом сотруднике.
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
     await generate_employee_summary(
         session=session,
         employee_id=employee_id,

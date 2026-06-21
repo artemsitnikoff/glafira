@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 import json
 
-from sqlalchemy import select, func, update
+from sqlalchemy import select, exists, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +15,23 @@ from ...schemas.base import Paginated
 from ...schemas.pulse import EmployeeListItem
 from ...core.errors import NotFoundError
 from .plan import generate_plan_items
+
+
+async def is_employee_managed_by(
+    session: AsyncSession,
+    employee_id: UUID,
+    user_id: UUID,
+    company_id: UUID,
+) -> bool:
+    """True, если сотрудник принадлежит менеджеру (его manager_user_id) в этой компании."""
+    res = await session.execute(
+        select(exists().where(
+            (Employee.id == employee_id)
+            & (Employee.manager_user_id == user_id)
+            & (Employee.company_id == company_id)
+        ))
+    )
+    return bool(res.scalar())
 
 
 def compute_adapt_day(start_date: date, today: date | None = None) -> int:

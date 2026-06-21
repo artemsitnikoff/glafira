@@ -13,8 +13,17 @@ from ...schemas.pulse import PulseKPI
 PERIOD_DAYS = {'7d': 7, '30d': 30, '90d': 90, 'all': None}
 
 
-async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str = '30d') -> PulseKPI:
-    """Вычисляет KPI пульса за указанный период"""
+async def compute_pulse_kpi(
+    session: AsyncSession,
+    company_id: UUID,
+    period: str = '30d',
+    manager_user_id: UUID | None = None,
+) -> PulseKPI:
+    """Вычисляет KPI пульса за указанный период.
+
+    Параметр manager_user_id (опциональный): если задан — считает KPI только по
+    сотрудникам этого менеджера. Используется для RBAC-скоупа роли manager.
+    """
 
     if period not in PERIOD_DAYS:
         raise ValidationError(f"Недопустимый период: {period}")
@@ -22,11 +31,32 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     days = PERIOD_DAYS[period]
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days else None
 
-    # Количество сотрудников на адаптации.
+    # Базовые фильтры для сотрудников — применяются ко всем Employee-запросам.
     # external_source IS NULL: Б24-импортированные сотрудники в Пульс/KPI не входят.
+    def _emp_base_filters():
+        filters = [
+            Employee.company_id == company_id,
+            Employee.external_source.is_(None),
+        ]
+        if manager_user_id is not None:
+            filters.append(Employee.manager_user_id == manager_user_id)
+        return filters
+
+    # Подзапрос id сотрудников менеджера — нужен для фильтрации PulseSurvey (eNPS).
+    def _allowed_survey_filter():
+        """Возвращает условие для PulseSurvey по менеджерскому скоупу (или None)."""
+        if manager_user_id is None:
+            return None
+        return PulseSurvey.employee_id.in_(
+            select(Employee.id).where(
+                Employee.company_id == company_id,
+                Employee.manager_user_id == manager_user_id,
+            ).scalar_subquery()
+        )
+
+    # Количество сотрудников на адаптации.
     onboarding_query = select(func.count(Employee.id)).where(
-        Employee.company_id == company_id,
-        Employee.external_source.is_(None),
+        *_emp_base_filters(),
         Employee.status == 'onboarding'
     )
     if cutoff:
@@ -37,8 +67,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
 
     # Прошли испытательный срок в текущем периоде
     passed_query = select(func.count(Employee.id)).where(
-        Employee.company_id == company_id,
-        Employee.external_source.is_(None),
+        *_emp_base_filters(),
         Employee.status == 'passed'
     )
     if cutoff:
@@ -52,8 +81,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     if days:
         prev_cutoff = cutoff - timedelta(days=days)
         prev_passed_query = select(func.count(Employee.id)).where(
-            Employee.company_id == company_id,
-            Employee.external_source.is_(None),
+            *_emp_base_filters(),
             Employee.status == 'passed',
             Employee.updated_at >= prev_cutoff,
             Employee.updated_at < cutoff
@@ -64,8 +92,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
 
     # Ушли в первые 90 дней
     left_90d_query = select(func.count(Employee.id)).where(
-        Employee.company_id == company_id,
-        Employee.external_source.is_(None),
+        *_emp_base_filters(),
         Employee.status == 'left',
         Employee.left_at.is_not(None),
         # left_at и start_date — DATE; в Postgres (date - date) = целое число дней,
@@ -79,10 +106,7 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     left_in_90d = left_90d_result.scalar() or 0
 
     # Общее количество нанятых в периоде (для расчёта процента)
-    total_hired_query = select(func.count(Employee.id)).where(
-        Employee.company_id == company_id,
-        Employee.external_source.is_(None)
-    )
+    total_hired_query = select(func.count(Employee.id)).where(*_emp_base_filters())
     if cutoff:
         total_hired_query = total_hired_query.where(Employee.start_date >= cutoff.date())
 
@@ -92,11 +116,15 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
     left_in_90d_pct = (left_in_90d / total_hired * 100) if total_hired > 0 else 0.0
 
     # eNPS - процент промоутеров (9-10) минус процент детракторов (0-6) по опросам типа 'enps'
+    survey_scope = _allowed_survey_filter()
+
     promoters_query = select(func.count(PulseSurvey.id)).where(
         PulseSurvey.company_id == company_id,
         PulseSurvey.type == 'enps',
         PulseSurvey.overall_score >= 9
     )
+    if survey_scope is not None:
+        promoters_query = promoters_query.where(survey_scope)
     if cutoff:
         promoters_query = promoters_query.where(PulseSurvey.answered_at >= cutoff)
 
@@ -108,6 +136,8 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
         PulseSurvey.type == 'enps',
         PulseSurvey.overall_score <= 6
     )
+    if survey_scope is not None:
+        detractors_query = detractors_query.where(survey_scope)
     if cutoff:
         detractors_query = detractors_query.where(PulseSurvey.answered_at >= cutoff)
 
@@ -119,6 +149,8 @@ async def compute_pulse_kpi(session: AsyncSession, company_id: UUID, period: str
         PulseSurvey.type == 'enps',
         PulseSurvey.answered_at.is_not(None)
     )
+    if survey_scope is not None:
+        total_enps_query = total_enps_query.where(survey_scope)
     if cutoff:
         total_enps_query = total_enps_query.where(PulseSurvey.answered_at >= cutoff)
 
