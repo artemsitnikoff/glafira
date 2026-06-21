@@ -47,7 +47,7 @@ class BulkMoveRequest(BaseModel):
 class BulkRejectRequest(BaseModel):
     application_ids: list[UUID]
     reason: str
-    side: str
+    side: Literal['candidate', 'company']
 
 
 class StageHistoryItem(ORMBase):

@@ -166,7 +166,7 @@ class CandidateCreate(BaseModel):
     source: CandidateSource
     phone: str | None = None
     email: str | None = None
-    gender: str | None = None
+    gender: Literal["male", "female"] | None = None
     birth_date: date | None = None
     city: str | None = None
     region: str | None = None
@@ -197,7 +197,7 @@ class CandidateUpdate(BaseModel):
     middle_name: str | None = None
     phone: str | None = None
     email: str | None = None
-    gender: str | None = None
+    gender: Literal["male", "female"] | None = None
     birth_date: date | None = None
     city: str | None = None
     region: str | None = None
@@ -210,7 +210,7 @@ class CandidateUpdate(BaseModel):
     last_position: str | None = None
     last_company: str | None = None
     last_period: str | None = None
-    preferred_channel: str | None = None
+    preferred_channel: Literal["telegram", "email", "phone"] | None = None
     resume_text: str | None = None
     resume_summary: str | None = None
     # Редактирование мессенджеров из карточки. None — не трогать (сохраняет существующие,

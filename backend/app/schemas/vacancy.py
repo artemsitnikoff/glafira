@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from .base import ORMBase
@@ -127,7 +128,7 @@ class VacancyCreate(BaseModel):
     description: str | None = None
     recruiter_scoring_instructions: str | None = None
     funnel_template: str = "default"
-    glafira_mode: str = "A"
+    glafira_mode: Literal["A", "B", "C"] = "A"
     team: list[UUID] = []
     auto_move: bool = False
     auto_move_threshold: int = Field(default=80, ge=0, le=100)
@@ -162,7 +163,7 @@ class VacancyUpdate(BaseModel):
     description: str | None = None
     recruiter_scoring_instructions: str | None = None
     status: str | None = None
-    glafira_mode: str | None = None
+    glafira_mode: Literal["A", "B", "C"] | None = None
     team: list[UUID] | None = None
     auto_move: bool | None = None
     auto_move_threshold: int | None = Field(default=None, ge=0, le=100)
