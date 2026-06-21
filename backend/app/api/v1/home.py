@@ -48,7 +48,8 @@ async def get_events(
     current_user=Depends(get_current_user)
 ):
     """Получить ленту событий"""
-    events = await list_recent_events(session, company_id, limit, candidate_id)
+    manager_user_id = current_user.id if current_user.role == "manager" else None
+    events = await list_recent_events(session, company_id, limit, candidate_id, manager_user_id=manager_user_id)
 
     # JSONResponse keeps Cache-Control for the 15s polling loop; response_model on
     # the decorator is needed so openapi-typescript can generate EventOut for the frontend.
@@ -87,4 +88,5 @@ async def get_dialogs(
     current_user=Depends(get_current_user)
 ):
     """Получить последние диалоги (чаты) на главной"""
-    return await list_recent_dialogs(session, company_id)
+    manager_user_id = current_user.id if current_user.role == "manager" else None
+    return await list_recent_dialogs(session, company_id, manager_user_id=manager_user_id)

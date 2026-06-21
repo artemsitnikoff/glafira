@@ -1,15 +1,15 @@
 """Сервис для получения последних диалогов (чатов) главной страницы"""
 
-from sqlalchemy import select
+from sqlalchemy import select, or_, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from uuid import UUID
 
-from ...models import Message, Application
+from ...models import Message, Application, VacancyTeam, Vacancy
 from ...schemas.home import HomeDialogOut
 
 
-async def list_recent_dialogs(session: AsyncSession, company_id: UUID, limit: int = 12) -> list[HomeDialogOut]:
+async def list_recent_dialogs(session: AsyncSession, company_id: UUID, limit: int = 12, manager_user_id: UUID | None = None) -> list[HomeDialogOut]:
     """Получает последнее сообщение на каждого кандидата, company-scoped"""
 
     # Используем DISTINCT ON для получения последнего сообщения на каждого кандидата
@@ -26,6 +26,27 @@ async def list_recent_dialogs(session: AsyncSession, company_id: UUID, limit: in
         )
         .distinct(Message.candidate_id)
     )
+
+    if manager_user_id is not None:
+        allowed_candidate_ids = (
+            select(Application.candidate_id)
+            .where(
+                Application.company_id == company_id,
+                or_(
+                    exists().select_from(VacancyTeam).where(
+                        (VacancyTeam.vacancy_id == Application.vacancy_id)
+                        & (VacancyTeam.user_id == manager_user_id)
+                        & (VacancyTeam.company_id == company_id)
+                    ),
+                    exists().select_from(Vacancy).where(
+                        (Vacancy.id == Application.vacancy_id)
+                        & (Vacancy.responsible_user_id == manager_user_id)
+                        & (Vacancy.company_id == company_id)
+                    ),
+                ),
+            )
+        )
+        query = query.where(Message.candidate_id.in_(allowed_candidate_ids))
 
     result = await session.execute(query)
     messages = result.scalars().all()

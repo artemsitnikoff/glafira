@@ -149,6 +149,10 @@ async def get_call(
     if not call:
         raise NotFoundError("Звонок не найден")
 
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(db, current_user.id, call.candidate_id, current_user.company_id):
+            raise ForbiddenError("Нет доступа к данному звонку")
+
     return CallOut.from_call(call)
 
 
@@ -171,6 +175,10 @@ async def download_call_recording(
     call = result.scalar_one_or_none()
     if not call:
         raise NotFoundError("Звонок не найден")
+
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(db, current_user.id, call.candidate_id, current_user.company_id):
+            raise ForbiddenError("Нет доступа к данному звонку")
 
     if not call.recording_id:
         raise NotFoundError("Запись звонка не найдена")
