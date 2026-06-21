@@ -376,6 +376,22 @@ async def fill_candidate_osint(candidate_id: UUID, company_id: UUID) -> None:
             if not candidate:
                 return
 
+            # Defense-in-depth (152-ФЗ): проверяем наличие подписанного согласия
+            # независимо от того, через какой путь вызвана эта функция.
+            # ПдН кандидата не должны уходить во внешний поиск без его явного согласия.
+            consent_res = await session.execute(
+                select(Consent).where(
+                    Consent.candidate_id == candidate_id,
+                    Consent.company_id == company_id,
+                    Consent.status == "signed",
+                ).limit(1)
+            )
+            if not consent_res.scalar_one_or_none():
+                logger.warning(
+                    "[osint] нет подписанного согласия — OSINT отменён candidate=%s", candidate_id
+                )
+                return
+
             osint = await _build_osint_blocks(candidate)  # медленно (WebSearch)
 
             # Заменить pending-блоки результатами, остальные сохранить

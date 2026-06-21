@@ -15,7 +15,6 @@ from .client import call_json
 from .prompts import build_scoring_system_prompt, SCORING_USER_TEMPLATE, SCORING_SYSTEM_PROMPT_BASE
 from .scoring_log import log_scoring
 from .verify import verify_candidate, fill_candidate_osint
-from ...core.errors import ConsentRequiredError
 from ...config import settings
 from ...core.errors import NotFoundError, GlafiraParseError, OpenRouterNotConfiguredError
 from ..settings.glafira import get_company_llm_model, get_company_openrouter_key
@@ -680,10 +679,10 @@ async def score_pending_applications(
                         # Разведка инлайн (крон — без HTTP-таймаута; своя сессия внутри)
                         await fill_candidate_osint(candidate_id, company_id)
 
-            except (ConsentRequiredError, Exception) as verify_error:
-                # Изолируем ошибки верификации - не ломаем скоринг
+            except Exception as verify_error:  # включает ConsentRequiredError (подкласс)
+                # Изолируем ошибки верификации — не ломаем скоринг.
+                # ConsentRequiredError — штатный случай (нет согласия), остальное — сбои.
                 await session.rollback()
-                # Восстанавливаем коммит скоринга, если он был успешен
                 logger.warning(
                     "Автоматическая верификация candidate=%s пропущена: %s",
                     candidate_id, verify_error

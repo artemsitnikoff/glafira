@@ -3,7 +3,7 @@
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -24,14 +24,54 @@ _osint_bg_tasks: set = set()
 @router.post("/candidates/{candidate_id}/verify", response_model=VerificationOut, status_code=201)
 async def verify_candidate_endpoint(
     candidate_id: UUID,
+    force: bool = Query(False, description="Пересоздать верификацию даже если уже существует (тратит DaData + OSINT)"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db)
 ):
-    """Verify candidate using Glafira"""
+    """Verify candidate using Glafira.
+
+    По умолчанию (force=false) возвращает существующую верификацию, если она уже есть —
+    чтобы повторный клик/запрос не вызывал повторное списание DaData и OSINT-разведку.
+    С force=true всегда запускает полную проверку заново.
+    """
 
     # RBAC: менеджеры не могут запускать платную верификацию (DaData + OSINT)
     if current_user.role == "manager":
         raise ForbiddenError("Менеджеры не могут запускать верификацию")
+
+    # Идемпотентность: если верификация уже есть и force не задан — возвращаем существующую
+    # без повторного списания DaData×3 и спавна OSINT-фона.
+    if not force:
+        existing = await get_candidate_verification(session, candidate_id, current_user.company_id)
+        if existing:
+            verification = existing
+            # Получаем consent для ответа
+            consent_result = await session.execute(
+                select(Consent).where(Consent.id == verification.consent_id)
+            )
+            consent = consent_result.scalar_one()
+            if isinstance(verification.blocks, dict):
+                blocks = []
+                for key, block_data in verification.blocks.items():
+                    blocks.append(VerifyBlock(
+                        key=key,
+                        title=f"Block {key}",
+                        sources=[{"name": "Mock", "type": "api"}],
+                        status=block_data.get("status", "clean"),
+                        data=block_data.get("details", {})
+                    ))
+            else:
+                blocks = [VerifyBlock(**block) for block in verification.blocks]
+            return VerificationOut(
+                id=verification.id,
+                candidate_id=verification.candidate_id,
+                consent_id=verification.consent_id,
+                consent_number=consent.number,
+                status=verification.status,
+                blocks=blocks,
+                is_mock=verification.is_mock,
+                created_at=verification.created_at
+            )
 
     verification = await verify_candidate(
         session,

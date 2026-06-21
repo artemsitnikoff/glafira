@@ -279,13 +279,15 @@ async def _build_radar_chart(session: AsyncSession, company_id: UUID, window: tu
         )
 
         speed_result = await session.execute(speed_query)
-        avg_time = speed_result.scalar() or 30  # default 30 дней
-        speed_score = max(0, 100 - avg_time)  # Чем меньше дней, тем лучше
+        avg_time = speed_result.scalar()
+        # Если нет данных по времени найма — ось «скорость» исключается из расчёта (0).
+        # Фронт ожидает number[], ?? 0 на клиенте тоже даёт 0 — поведение согласовано.
+        speed_score = max(0, 100 - avg_time) if avg_time is not None else 0
 
         # Объём (количество найма)
         volume_score = min(100, hires * 10)  # нормализация
 
-        # Качество: средний AI-скоринг нанятых
+        # Качество: средний AI-скоринг нанятых; без данных — 0 (нет фейк-50)
         quality_query = select(func.avg(Application.ai_score)).select_from(
             Application.__table__.join(Vacancy.__table__, Application.vacancy_id == Vacancy.id)
         ).where(
@@ -296,7 +298,7 @@ async def _build_radar_chart(session: AsyncSession, company_id: UUID, window: tu
         )
 
         quality_result = await session.execute(quality_query)
-        quality_score = quality_result.scalar() or 50  # default 50
+        quality_score = quality_result.scalar() or 0  # 0 = нет данных, не фейк-50
 
         # Автономия Глафиры
         autonomy_query = select(

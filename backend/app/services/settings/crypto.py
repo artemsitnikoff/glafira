@@ -2,7 +2,18 @@ from cryptography.fernet import Fernet, InvalidToken
 from ...config import settings
 from ...core.errors import ValidationError
 
-SENSITIVE_KEYS = ("api_key", "secret", "token", "password", "client_secret", "access_token", "refresh_token")
+# Токены-подстроки для определения чувствительных ключей (регистронезависимо, по вхождению).
+# Расширен по сравнению с исходным точным списком — ловит webhook/salt/bearer/auth и т.п.
+_SENSITIVE_SUBSTRINGS = (
+    "secret", "token", "key", "password", "salt", "webhook",
+    "auth", "bearer", "private", "credential", "signature", "pwd",
+)
+
+
+def _is_sensitive_key(k: str) -> bool:
+    """Ключ считается секретным, если его lower() содержит хотя бы одну из чувствительных подстрок."""
+    lower = k.lower()
+    return any(sub in lower for sub in _SENSITIVE_SUBSTRINGS)
 
 
 def _get_fernet() -> Fernet:
@@ -26,27 +37,22 @@ def decrypt_text(token: str) -> str:
 
 
 def encrypt_config(config: dict) -> dict:
-    return {k: (encrypt_text(str(v)) if k in SENSITIVE_KEYS and v is not None else v) for k, v in config.items()}
-
-
+    return {k: (encrypt_text(str(v)) if _is_sensitive_key(k) and v is not None else v) for k, v in config.items()}
 
 
 def mask_config(config: dict) -> dict:
-    """For GET responses: shows ••••LAST4 for sensitive keys."""
+    """For GET responses: shows ••••LAST4 for sensitive keys (only when len>=8; shorter → ••••)."""
     result = {}
     for k, v in config.items():
-        if k in SENSITIVE_KEYS and v is not None:
+        if _is_sensitive_key(k) and v is not None:
             try:
                 decrypted = decrypt_text(v)
                 if len(decrypted) >= 8:
-                    # Show last 4 chars for long strings
+                    # Показываем последние 4 символа только для длинных секретов
                     result[k] = f"••••{decrypted[-4:]}"
-                elif len(decrypted) >= 4:
-                    # Show last 2 chars for medium strings
-                    result[k] = f"••••{decrypted[-2:]}"
                 else:
-                    # Show full string for very short strings
-                    result[k] = f"••••{decrypted}"
+                    # Короткие (< 8) — никогда не раскрываем символы
+                    result[k] = "••••"
             except Exception:
                 result[k] = "••••"
         else:
