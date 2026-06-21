@@ -34,7 +34,12 @@ api_router.include_router(vacancies_router, prefix="/vacancies", tags=["vacancie
 api_router.include_router(applications_router, tags=["applications"])
 api_router.include_router(candidates_router, prefix="/candidates", tags=["candidates"])
 api_router.include_router(candidate_import_router, prefix="/candidates/import", tags=["candidate_import"])
-api_router.include_router(clients_router, prefix="/clients", tags=["clients"])
+api_router.include_router(
+    clients_router,
+    prefix="/clients",
+    tags=["clients"],
+    dependencies=[Depends(require_recruiter_or_admin)],
+)
 api_router.include_router(consents_router, tags=["consents"])
 api_router.include_router(messages_router, tags=["messages"])
 api_router.include_router(documents_router, tags=["documents"])
@@ -46,7 +51,12 @@ api_router.include_router(pulse_router, prefix="/pulse", tags=["pulse"])
 # Публичные опросы — БЕЗ авторизации (доступ по секретному токену). См. public_surveys.py
 api_router.include_router(public_surveys_router, prefix="/public", tags=["public"])
 api_router.include_router(home_router, prefix="/home", tags=["home"])
-api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(
+    analytics_router,
+    prefix="/analytics",
+    tags=["analytics"],
+    dependencies=[Depends(require_recruiter_or_admin)],
+)
 api_router.include_router(
     settings_router,
     prefix="/settings",
