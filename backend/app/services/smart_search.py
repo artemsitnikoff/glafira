@@ -1591,6 +1591,16 @@ async def take_selected(
             "Нет платного доступа к базе резюме hh — открытие контактов недоступно."
         )
 
+    # Whitelist: открываем платный контакт ТОЛЬКО для резюме ИЗ ЭТОГО прогона.
+    # Произвольные resume_ids (не из run) отсекаем ДО платного get_resume_by_id.
+    # NB: в отличие от invite_selected, БЕЗ фильтра c.get("passed") — «забрать» можно
+    # любого кандидата прогона (в т.ч. не прошедшего скоринг), но не постороннего.
+    allowed = {
+        c.get("hh_resume_id") for c in (run.scored_candidates or [])
+        if c.get("hh_resume_id")
+    }
+    resume_ids = [rid for rid in resume_ids if rid in allowed]
+
     # Сохраняем данные для использования вне сессии запроса
     vacancy_id = vacancy.id
 

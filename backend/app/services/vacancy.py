@@ -359,6 +359,18 @@ async def create_vacancy(
 
     # Set responsible user (first in team list)
     if vacancy_data.team:
+        # Все user_id команды обязаны принадлежать этой компании (анти-кросс-тенант).
+        valid_ids = set(
+            (await session.execute(
+                select(User.id).where(
+                    User.id.in_(vacancy_data.team),
+                    User.company_id == company_id,
+                )
+            )).scalars().all()
+        )
+        invalid = [str(uid) for uid in vacancy_data.team if uid not in valid_ids]
+        if invalid:
+            raise ValidationError(f"Пользователи не найдены в компании: {', '.join(invalid)}")
         vacancy.responsible_user_id = vacancy_data.team[0]
 
     # Create team members
@@ -567,6 +579,18 @@ async def update_vacancy(
 
         # Add new team members
         if vacancy_data.team:
+            # Все user_id команды обязаны принадлежать этой компании (анти-кросс-тенант).
+            valid_ids = set(
+                (await session.execute(
+                    select(User.id).where(
+                        User.id.in_(vacancy_data.team),
+                        User.company_id == company_id,
+                    )
+                )).scalars().all()
+            )
+            invalid = [str(uid) for uid in vacancy_data.team if uid not in valid_ids]
+            if invalid:
+                raise ValidationError(f"Пользователи не найдены в компании: {', '.join(invalid)}")
             vacancy.responsible_user_id = vacancy_data.team[0]
             for i, user_id in enumerate(vacancy_data.team):
                 team_member = VacancyTeam(

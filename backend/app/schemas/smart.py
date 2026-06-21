@@ -234,7 +234,7 @@ class SmartCountResponse(BaseModel):
 
 class SmartInviteRequest(BaseModel):
     """Запрос на ручное приглашение выбранных кандидатов"""
-    resume_ids: list[str] = Field(description="Список hh_resume_id для приглашения")
+    resume_ids: list[str] = Field(max_length=500, description="Список hh_resume_id для приглашения")
 
 
 class SmartInviteResultItem(BaseModel):
@@ -254,7 +254,7 @@ class SmartInviteResponse(BaseModel):
 
 class SmartTakeRequest(BaseModel):
     """Запрос на «Забрать к себе» — открыть контакт и создать кандидата без negotiation"""
-    resume_ids: list[str] = Field(description="Список hh_resume_id для забирания")
+    resume_ids: list[str] = Field(max_length=500, description="Список hh_resume_id для забирания")
 
 
 class SmartTakeResultItem(BaseModel):
