@@ -290,6 +290,11 @@ async def update_vacancy_by_id(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Update vacancy"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     vacancy = await update_vacancy(session, vacancy_id, vacancy_data, company_id, current_user.id)
     await session.commit()
 
@@ -311,6 +316,11 @@ async def archive_vacancy_by_id(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Archive vacancy"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     vacancy = await archive_vacancy(session, vacancy_id, archive_data, company_id, current_user.id)
     await session.commit()
 
@@ -348,6 +358,11 @@ async def add_stage_to_vacancy(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Add new stage to vacancy"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await add_vacancy_stage(session, vacancy_id, stage_data, company_id, current_user.id)
     await session.commit()
     return {"message": "Этап создан"}
@@ -363,6 +378,11 @@ async def rename_stage(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Rename stage (update only label)"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await rename_vacancy_stage(session, vacancy_id, stage_key, stage_data, company_id, current_user.id)
     await session.commit()
     return {"message": "Этап переименован"}
@@ -377,6 +397,11 @@ async def delete_stage_from_vacancy(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Delete stage (only if not protected and empty)"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await delete_vacancy_stage(session, vacancy_id, stage_key, company_id, current_user.id)
     await session.commit()
 
@@ -390,6 +415,11 @@ async def reorder_stages(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Reorder stages"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await reorder_vacancy_stages(session, vacancy_id, reorder_data, company_id, current_user.id)
     await session.commit()
     return {"message": "Этапы переупорядочены"}
@@ -426,6 +456,11 @@ async def add_vacancy_reject_reason(
     company_id: UUID = Depends(get_current_company_id),
 ):
     """Добавить причину отказа в вакансию"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await get_vacancy(session, vacancy_id, company_id)
     reason = await create_reject_reason(session, company_id, data, current_user.id, vacancy_id=vacancy_id)
     out = RejectReasonOut.model_validate(reason)
@@ -443,6 +478,11 @@ async def update_vacancy_reject_reason(
     company_id: UUID = Depends(get_current_company_id),
 ):
     """Переименовать причину отказа вакансии"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await get_vacancy(session, vacancy_id, company_id)
     reason = await update_reject_reason(session, reason_id, company_id, data, current_user.id, vacancy_id=vacancy_id)
     out = RejectReasonOut.model_validate(reason)
@@ -459,6 +499,11 @@ async def delete_vacancy_reject_reason(
     company_id: UUID = Depends(get_current_company_id),
 ):
     """Удалить причину отказа вакансии (системную нельзя)"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await get_vacancy(session, vacancy_id, company_id)
     await delete_reject_reason(session, reason_id, company_id, current_user.id, vacancy_id=vacancy_id)
     await session.commit()
@@ -480,6 +525,11 @@ async def link_vacancy_to_hh(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Привязать вакансию Глафиры к вакансии hh.ru"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await hh_service.link_vacancy(
         session, vacancy_id, data.hh_vacancy_id, company_id, current_user.id
     )
@@ -496,6 +546,11 @@ async def unlink_vacancy_from_hh(
     company_id: UUID = Depends(get_current_company_id)
 ):
     """Отвязать вакансию Глафиры от hh.ru"""
+    # Менеджер: только свои вакансии
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     await hh_service.unlink_vacancy(session, vacancy_id, company_id, current_user.id)
     await session.commit()
 
@@ -515,6 +570,11 @@ async def publish_vacancy_to_hh(
     ⚠️  НЕ проверено без реального токена hh.ru
     ⚠️  Требует маппинга города → hh area_id (TODO)
     """
+    # Менеджер: только свои вакансии (платное действие!)
+    if current_user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     hh_vacancy_id = await hh_service.publish_vacancy_to_hh(
         session, vacancy_id, company_id, current_user.id
     )

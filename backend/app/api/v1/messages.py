@@ -5,6 +5,8 @@ from typing import Annotated
 from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...core.pagination import PageParams
+from ...core.errors import ForbiddenError
+from ...core.permissions import can_manager_access_candidate
 from ...database import get_db
 from ...schemas.message import MessageOut, MessageCreate
 from ...schemas.base import Paginated
@@ -21,9 +23,15 @@ async def get_messages(
     page_params: Annotated[PageParams, Depends(PageParams)] = ...,
     channel: str | None = None,
     application_id: UUID | None = None,
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Менеджер: только кандидаты из своих вакансий
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
     return await get_messages_paginated(
         session=session,
         candidate_id=candidate_id,
@@ -43,6 +51,11 @@ async def send_message_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Менеджер: только кандидаты из своих вакансий
+    if user.role == "manager":
+        if not await can_manager_access_candidate(session, user.id, candidate_id, company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
     result = await send_message(session, candidate_id, data, company_id, user.id)
     await session.commit()
     return result
@@ -54,6 +67,7 @@ async def send_message_route(
 )
 async def sync_telegram_messages(
     candidate_id: UUID = Path(...),
+    current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -63,6 +77,11 @@ async def sync_telegram_messages(
     Если интеграция не подключена — {"imported": 0, "connected": false} (без ошибки).
     Идемпотентен: повторный вызов с теми же данными вернёт imported=0 (дедуп).
     """
+    # Менеджер: только кандидаты из своих вакансий
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
     result = await tg_service.sync_inbound(
         session,
         company_id,

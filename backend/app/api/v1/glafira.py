@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...deps import get_current_user, get_db
 from ...core.errors import NotFoundError, ValidationError, ForbiddenError
+from ...core.permissions import can_manager_access_candidate
 from ...models import User, AiEvaluation, Application
 from ...schemas.glafira import (
     ScoreRequest,
@@ -193,6 +194,10 @@ async def get_candidate_evaluation(
     session: AsyncSession = Depends(get_db)
 ):
     """Get evaluation for candidate"""
+    # Менеджер: только кандидаты из своих вакансий
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(session, current_user.id, candidate_id, current_user.company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
 
     if application_id is not None and vacancy_id is not None:
         raise ValidationError("Укажите либо application_id, либо vacancy_id, но не оба")

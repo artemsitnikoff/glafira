@@ -12,9 +12,9 @@ from sqlalchemy import select, update, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ...deps import get_current_user
-from ...core.permissions import require_recruiter_or_admin
-from ...core.errors import ValidationError, ConflictError, NotFoundError
+from ...deps import get_current_user, get_current_company_id
+from ...core.permissions import require_recruiter_or_admin, can_manager_access_candidate
+from ...core.errors import ValidationError, ConflictError, NotFoundError, ForbiddenError
 from ...database import get_db, AsyncSessionLocal
 from ...models import User, Call, CallSyncJob, Candidate, Integration
 from ...schemas.call import CallOut, CallSyncJobOut, CallSyncStartResponse
@@ -39,8 +39,14 @@ async def get_candidate_calls(
     candidate_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
 ) -> List[CallOut]:
     """Получить звонки кандидата"""
+    # Менеджер: только кандидаты из своих вакансий
+    if current_user.role == "manager":
+        if not await can_manager_access_candidate(db, current_user.id, candidate_id, current_user.company_id):
+            raise ForbiddenError("Нет доступа к данному кандидату")
+
     # Company-scoped доступ
     result = await db.execute(
         select(Call)

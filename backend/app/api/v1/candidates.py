@@ -7,7 +7,7 @@ from ...deps import get_current_user, get_current_company_id
 from ...models import User
 from ...core.pagination import PageParams
 from ...core.errors import ForbiddenError, ValidationError
-from ...core.permissions import can_manager_access_candidate
+from ...core.permissions import can_manager_access_candidate, is_user_assigned_to_vacancy
 from ...database import get_db
 from ...schemas.candidate import (
     CandidateCreate,
@@ -281,6 +281,11 @@ async def assign_to_vacancy_route(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
+    # Менеджер: только в свою назначенную вакансию
+    if user.role == "manager":
+        if not await is_user_assigned_to_vacancy(session, user.id, data.vacancy_id, company_id):
+            raise ForbiddenError("Нет доступа к данной вакансии")
+
     result = await assign_candidate_to_vacancy(
         session, candidate_id, data.vacancy_id, data.stage, company_id, user.id
     )
