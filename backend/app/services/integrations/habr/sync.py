@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import (
@@ -388,9 +389,23 @@ async def import_habr_response(
             selected_at=now,
         )
         session.add(application)
+        try:
+            await session.flush()
+        except IntegrityError:
+            # Гонка: параллельный крон/клик успел INSERT раньше — перечитываем.
+            await session.rollback()
+            existing_app = (await session.execute(
+                select(Application).where(
+                    Application.habr_response_id == response_id,
+                    Application.company_id == company_id,
+                )
+            )).scalar_one_or_none()
+            if existing_app is None:
+                raise
+            application = existing_app
     else:
         application = existing_app
-    await session.flush()
+        await session.flush()
 
     # --- Аудит ---
     action = "habr_response_imported" if existing_app is None else "habr_response_updated"
@@ -595,14 +610,53 @@ async def open_habr_contacts(
             "already_opened": True,
         }
 
+    # --- Атомарный захват слота (защита от двойного платного вызова при гонке) ---
+    # UPDATE ... WHERE habr_contacts_opened_at IS NULL RETURNING id
+    # Если вернул строку — захватили и идём в платный вызов.
+    # Если НЕ вернул — параллельный запрос уже захватил; перечитываем и возвращаем already_opened.
+    slot_result = await session.execute(
+        update(Candidate)
+        .where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.habr_contacts_opened_at.is_(None),
+        )
+        .values(habr_contacts_opened_at=datetime.now(timezone.utc))
+        .returning(Candidate.id)
+    )
+    slot_captured = slot_result.scalar_one_or_none()
+
+    if slot_captured is None:
+        # Другой воркер/запрос уже захватил слот — перечитываем актуальные контакты.
+        await session.refresh(cand)
+        return {
+            "merged": False,
+            "candidate_id": str(cand.id),
+            "phone": cand.phone,
+            "email": cand.email,
+            "already_opened": True,
+        }
+
+    # Синхронизируем ORM-объект с тем, что записали в БД через UPDATE (без expire)
+    cand.habr_contacts_opened_at = datetime.now(timezone.utc)
+
     # --- Получить токен компании ---
     access_token = await get_valid_access_token_habr(session, company_id)
 
     # --- Дёрнуть /contacts (ПЛАТНО) ---
+    # ⚠️ Если вызов УПАЛ — откатываем захват (habr_contacts_opened_at → NULL),
+    # чтобы повтор был возможен (слот не занят навсегда, а контактов нет).
     try:
         contacts_data = await habr_client.get_user_contacts(access_token, login)
     except ValueError as exc:
-        # Честная ошибка: лимит/нет доступа — НЕ помечаем как открытые
+        # Честная ошибка: лимит/нет доступа — сбрасываем флаг захвата
+        await session.execute(
+            update(Candidate)
+            .where(Candidate.id == candidate_id, Candidate.company_id == company_id)
+            .values(habr_contacts_opened_at=None)
+        )
+        cand.habr_contacts_opened_at = None
+        await session.flush()
         err_msg = str(exc)
         if "402" in err_msg or "403" in err_msg or "429" in err_msg:
             raise ValidationError(
@@ -832,8 +886,7 @@ async def open_habr_contacts(
         current_extra["habr_messengers"] = messengers_extra
         cand.extra = current_extra
 
-    # Пометить контакты как открытые (ORM-поле)
-    cand.habr_contacts_opened_at = now
+    # habr_contacts_opened_at уже выставлен атомарным UPDATE-захватом выше.
 
     await session.flush()
 

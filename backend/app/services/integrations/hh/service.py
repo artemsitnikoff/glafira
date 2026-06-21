@@ -6,6 +6,7 @@ from uuid import UUID
 from typing import Optional
 
 from sqlalchemy import select, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import (
@@ -991,9 +992,24 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
             created_at=now, selected_at=now,
         )
         session.add(application)
+        try:
+            await session.flush()
+        except IntegrityError:
+            # Гонка: параллельный крон/клик успел INSERT раньше — откатываем savepoint,
+            # перечитываем существующую запись и трактуем как «уже импортировано».
+            await session.rollback()
+            existing = (await session.execute(
+                select(Application).where(
+                    Application.hh_negotiation_id == nid,
+                    Application.company_id == company_id,
+                )
+            )).scalar_one_or_none()
+            if existing is None:
+                raise  # непредвиденная ошибка целостности — пробрасываем
+            application = existing
     else:
         application = existing
-    await session.flush()
+        await session.flush()
 
     # Единообразно пишем hh_resume_id в extra (как в smart_search.invite_selected)
     if resume_id:

@@ -33,6 +33,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import (
@@ -407,6 +408,20 @@ async def import_avito_application(
             selected_at=now,
         )
         session.add(application)
+        try:
+            await session.flush()
+        except IntegrityError:
+            # Гонка: параллельный крон/клик успел INSERT раньше — перечитываем.
+            await session.rollback()
+            existing_app = (await session.execute(
+                select(Application).where(
+                    Application.avito_application_id == avito_app_id,
+                    Application.company_id == company_id,
+                )
+            )).scalar_one_or_none()
+            if existing_app is None:
+                raise
+            application = existing_app
     else:
         application = existing_app
 
