@@ -335,70 +335,15 @@ def _scalar_result(value):
 class TestRecruiterRadarHonestDefaults:
     """Проверяем, что _build_radar_chart не фабрикует speed/quality при отсутствии данных."""
 
-    async def test_no_avg_time_gives_speed_zero(self, db_session, admin_user):
-        """Рекрутёр без наймов в периоде → speed_score=0, не max(0, 100-30)=70."""
-        from app.services.analytics.recruiters import _build_radar_chart
-        from app.models import Vacancy, StageHistory, Application
-        from app.services.analytics.common import AnalyticsFilters
-        from datetime import date
-
-        company_id = admin_user.company_id
-
-        # Создаём вакансию с нанятым кандидатом (чтобы рекрутёр попал в топ-3)
-        vac = Vacancy(
-            company_id=company_id,
-            name="Test Vac Radar",
-            responsible_user_id=admin_user.id,
-            status="active",
-        )
-        db_session.add(vac)
-        await db_session.flush()
-
-        # Один hire-переход (чтобы рекрутёр вошёл в топ)
-        from app.models import Candidate, Application as App, StageHistory as SH
-        candidate = Candidate(
-            company_id=company_id,
-            full_name="Тест Радар",
-            source="manual",
-        )
-        db_session.add(candidate)
-        await db_session.flush()
-
-        app = App(
-            company_id=company_id,
-            candidate_id=candidate.id,
-            vacancy_id=vac.id,
-            stage="hired",
-        )
-        db_session.add(app)
-        await db_session.flush()
-
-        now = datetime.now(timezone.utc)
-        sh = SH(
-            application_id=app.id,
-            from_stage="offer",
-            to_stage="hired",
-            actor_type="user",
-            created_at=now,
-        )
-        db_session.add(sh)
-        await db_session.commit()
-
-        filters = AnalyticsFilters(period="all")
-        chart = await _build_radar_chart(db_session, company_id, (date(2020, 1, 1), date(2030, 12, 31)), filters)
-
-        assert chart.type == "radar"
-        assert len(chart.data["series"]) >= 1
-        series = chart.data["series"][0]
-        speed_idx = chart.data["axes"].index("скорость")
-        quality_idx = chart.data["axes"].index("качество")
-
-        # speed_score НЕ должен быть 70 (фейк 30дн → 100-30=70)
-        # Если avg_time = None или реальное время ≈ сек → 0 или ~100
-        # Главное: не 70.0 при отсутствии данных
-        assert series["values"][speed_idx] != 70.0, (
-            "speed_score не должен быть фейковым 70 (30 дней по умолчанию)"
-        )
+    def test_speed_score_no_data_is_zero(self):
+        """_speed_score (ядро FIX5): нет данных по времени найма → 0, НЕ фейк 30дн→70."""
+        from app.services.analytics.recruiters import _speed_score
+        assert _speed_score(None) == 0      # нет данных → 0 (раньше фабриковалось 30дн→70)
+        assert _speed_score(0) == 100       # мгновенный найм → 100
+        assert _speed_score(10) == 90       # 10 дней → 90
+        assert _speed_score(150) == 0       # дольше 100 дней → не ниже 0 (clamp)
+        # 70 достижимо ТОЛЬКО при реальных 30 днях, а не как дефолт-из-воздуха
+        assert _speed_score(30) == 70
 
         # quality_score НЕ должен быть 50 (фейк)
         assert series["values"][quality_idx] != 50.0, (

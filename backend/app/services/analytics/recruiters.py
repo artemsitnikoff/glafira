@@ -13,6 +13,17 @@ from ...schemas.analytics import AnalyticsResponse, ChartData, TableData, TableC
 from .common import AnalyticsFilters, apply_vacancy_filter
 
 
+def _speed_score(avg_time: float | None) -> int:
+    """Ось «скорость» radar-чарта рекрутёра из среднего времени найма (дней).
+
+    Нет данных (avg_time is None) → 0 (без фейк-дефолта 30дн→70). Иначе чем меньше дней,
+    тем выше балл, не ниже 0. Возвращает int для контракта values: number[].
+    """
+    if avg_time is None:
+        return 0
+    return int(max(0, 100 - avg_time))
+
+
 async def _build_leaderboard_table(session: AsyncSession, company_id: UUID, window: tuple, filters: AnalyticsFilters) -> TableData:
     """Таблица лидерборда рекрутёров"""
     start_date, end_date = window
@@ -280,9 +291,8 @@ async def _build_radar_chart(session: AsyncSession, company_id: UUID, window: tu
 
         speed_result = await session.execute(speed_query)
         avg_time = speed_result.scalar()
-        # Если нет данных по времени найма — ось «скорость» исключается из расчёта (0).
-        # Фронт ожидает number[], ?? 0 на клиенте тоже даёт 0 — поведение согласовано.
-        speed_score = max(0, 100 - avg_time) if avg_time is not None else 0
+        # Нет данных по времени найма → 0 (без фейк-дефолта 30дн→70). Фронт ждёт number[].
+        speed_score = _speed_score(avg_time)
 
         # Объём (количество найма)
         volume_score = min(100, hires * 10)  # нормализация
