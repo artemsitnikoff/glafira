@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
     DEFAULT_COMPANY_ID: str = "00000000-0000-0000-0000-000000000001"
 
+    # Защита от брутфорса пароля (account lockout через БД)
+    LOGIN_MAX_ATTEMPTS: int = 5   # неудачных попыток до блокировки
+    LOGIN_LOCKOUT_MINUTES: int = 15  # длительность блокировки в минутах
+
     ANTHROPIC_API_KEY: str = ""
     GLAFIRA_MODEL: str = "anthropic/claude-sonnet-4-6"
     GLAFIRA_VERIFY_MODE: str = "mock"

@@ -83,7 +83,17 @@ async def login(
     username: str = Form(...),
     password: str = Form(...)
 ):
-    if auth_service.verify_credentials(username, password):
+    try:
+        ok = auth_service.verify_credentials(username, password)
+    except HTTPException as exc:
+        # Lockout 429 — показываем HTML с сообщением
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"request": request, "error": exc.detail, "username": username},
+            status_code=exc.status_code,
+        )
+    if ok:
         token = auth_service.create_token()
         return auth_service.create_cookie_response(token)
     else:

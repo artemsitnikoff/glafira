@@ -41,6 +41,19 @@ class UserInactiveError(AppError):
         )
 
 
+class AccountLockedError(AppError):
+    def __init__(self, minutes_left: int = 0):
+        if minutes_left > 0:
+            message = f"Слишком много неудачных попыток входа. Попробуйте через {minutes_left} мин."
+        else:
+            message = "Слишком много неудачных попыток входа. Повторите позже."
+        super().__init__(
+            code="ACCOUNT_LOCKED",
+            message=message,
+            status_code=429
+        )
+
+
 class NotFoundError(AppError):
     def __init__(self, entity: str = "Объект"):
         super().__init__(

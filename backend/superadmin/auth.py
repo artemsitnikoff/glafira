@@ -10,6 +10,46 @@ from pydantic import BaseModel
 from app.core.security import verify_password
 from .config import config
 
+# In-memory lockout для суперадминки.
+# ⚠️ Ограничение: при 2+ воркерах счётчик не шарится между процессами.
+# Суперадминка используется редко (администратор сервиса) и обычно 1 воркер,
+# поэтому in-memory достаточно как базовая защита.
+_MAX_ATTEMPTS = 5
+_LOCKOUT_MINUTES = 15
+# Структура: {username: {"fails": int, "locked_until": datetime | None}}
+_lockout_state: dict[str, dict] = {}
+
+
+def _check_and_record_lockout(username: str, success: bool) -> None:
+    """
+    Регистрирует результат попытки входа.
+    При success=True — сбрасывает счётчик.
+    Raise HTTPException 429 если аккаунт залочен (вызывается ДО verify_credentials).
+    """
+    state = _lockout_state.setdefault(username, {"fails": 0, "locked_until": None})
+    now = datetime.now(timezone.utc)
+
+    if state["locked_until"] is not None:
+        if state["locked_until"] > now:
+            remaining = state["locked_until"] - now
+            minutes_left = max(1, int(remaining.total_seconds() // 60) + 1)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Слишком много неудачных попыток. Повторите через {minutes_left} мин."
+            )
+        else:
+            # Окно истекло — сбрасываем
+            state["fails"] = 0
+            state["locked_until"] = None
+
+    if success:
+        state["fails"] = 0
+        state["locked_until"] = None
+    else:
+        state["fails"] += 1
+        if state["fails"] >= _MAX_ATTEMPTS:
+            state["locked_until"] = now + timedelta(minutes=_LOCKOUT_MINUTES)
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -24,18 +64,34 @@ class SuperAdminAuth:
     TOKEN_EXPIRE_HOURS = 12
 
     def verify_credentials(self, username: str, password: str) -> bool:
-        """Verify superadmin credentials"""
+        """Verify superadmin credentials with in-memory lockout.
+
+        Сначала проверяет lockout (кидает 429 если залочен), затем проверяет
+        учётные данные и обновляет счётчик.
+        """
+        # Проверяем lockout ДО проверки пароля (fail-fast)
+        # Флаг success выставим после реальной проверки
+        _check_and_record_lockout(username, success=False)
+
         if not config.is_configured:
+            # Не можем проверить — засчитываем как неудачу (уже записана выше)
             return False
 
         if username != config.SUPERADMIN_USER:
+            # Неверный username — неудача уже записана
             return False
 
         # Кривой (не-bcrypt) SUPERADMIN_PASSWORD_HASH не должен валить 500 — это «неверно».
         try:
-            return verify_password(password, config.SUPERADMIN_PASSWORD_HASH)
+            ok = verify_password(password, config.SUPERADMIN_PASSWORD_HASH)
         except Exception:
-            return False
+            ok = False
+
+        if ok:
+            # Пароль верный — сбрасываем счётчик
+            _check_and_record_lockout(username, success=True)
+
+        return ok
 
     def create_token(self) -> str:
         """Create JWT token for authenticated session"""

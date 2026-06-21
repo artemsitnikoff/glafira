@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Boolean, ForeignKey, CheckConstraint, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Boolean, ForeignKey, CheckConstraint, Integer, text
+from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, CompanyMixin
@@ -51,6 +52,14 @@ class User(Base, TimestampMixin, CompanyMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     # Откуда заведён пользователь: 'manual' (создан вручную) | 'b24' (импортирован из Битрикс24)
     source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'manual'"))
+
+    # Защита от брутфорса пароля (account lockout через БД, работает при 2+ воркерах)
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    locked_until: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     # Constraints
     __table_args__ = (
