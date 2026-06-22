@@ -23,6 +23,7 @@ from docx import Document
 
 from ..models.candidate import Candidate
 from ..core.errors import NotFoundError
+from .candidate import _exp_recency_key
 
 
 class PageNumCanvas(canvas.Canvas):
@@ -125,7 +126,9 @@ async def load_candidate_for_export(
 
     # Сортируем relations по order_index
     if candidate.experience:
-        candidate.experience.sort(key=lambda x: x.order_index)
+        candidate.experience.sort(
+            key=lambda x: _exp_recency_key(getattr(x, "period", None)), reverse=True
+        )
     if candidate.skills:
         candidate.skills.sort(key=lambda x: x.order_index)
     if candidate.education:

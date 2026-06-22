@@ -5,6 +5,7 @@ from app.services.candidate import (
     format_duration,
     _period_to_months,
     total_experience,
+    _exp_recency_key,
 )
 
 
@@ -63,3 +64,25 @@ def test_total_experience_sums():
     exps = [_Exp("A", "2018-2019"), _Exp("B", "2020-2022"), _Exp("C", "2022-2024")]
     # 12 + 24 + 24 = 60 мес = 5 лет
     assert total_experience(exps) == "5 лет"
+
+
+def test_period_to_months_hh_yyyy_mm():
+    assert _period_to_months("2005-04 — 2005-10") == 6
+    assert _period_to_months("2020-01 — 2021-07") == 18
+    assert _period_to_months("2003-07 — 2005-03") == 20
+
+
+def test_period_to_months_present_hh():
+    from datetime import date
+    months = _period_to_months("2024-01 — по наст. время")
+    assert months == (date.today().year - 2024) * 12 + (date.today().month - 1)
+
+
+def test_recency_key_month_granularity():
+    # обе заканчиваются в 2018 — новее та, что позже по месяцу
+    assert _exp_recency_key("2018-07 — 2018-08") > _exp_recency_key("2018-03 — 2018-06")
+
+
+def test_pick_latest_present_hh_wins():
+    exps = [_Exp("Old", "2005-04 — 2005-10"), _Exp("Cur", "2025-03 — по наст. время")]
+    assert pick_latest_experience(exps).company == "Cur"

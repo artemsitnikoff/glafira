@@ -108,15 +108,18 @@ _STAGE_COLORS = {key: stage.color for key, stage in STAGES.items()}
 import re as _re
 
 
-def _exp_recency_key(period: str | None) -> tuple[int, int]:
-    """Ключ свежести записи опыта: (текущая работа?, последний год периода). Больше = новее."""
+def _exp_recency_key(period: str | None) -> tuple[int, int, int]:
+    """Ключ свежести: (текущая работа?, год конца, месяц конца). Больше = новее."""
     if not period:
-        return (0, 0)
+        return (0, 0, 0)
     p = period.lower()
-    ongoing = 1 if any(k in p for k in ("наст", "н.в", "present", "current", "сейчас")) else 0
+    ongoing = 1 if any(k in p for k in ("наст", "н.в", "present", "current", "сейчас", "текущ")) else 0
+    parts = _split_period_range(period)
+    end_pt = _parse_period_point(parts[-1], is_end=True) if parts else None
+    if end_pt:
+        return (ongoing, end_pt[0], end_pt[1])
     years = _re.findall(r"(?:19|20)\d{2}", period)
-    last_year = int(years[-1]) if years else 0
-    return (ongoing, last_year)
+    return (ongoing, int(years[-1]) if years else 0, 0)
 
 
 def pick_latest_experience(experiences):
@@ -138,18 +141,39 @@ _RU_MONTHS = {
 }
 
 
+def _split_period_range(period: str) -> list[str]:
+    """Разбить период на [начало, конец] по разделителю ДИАПАЗОНА.
+    Приоритет: em/en-тире и « по » (однозначны) → пробельный дефис → голый «YYYY-YYYY».
+    Внутренний дефис в «2005-04» (YYYY-MM) разделителем НЕ считается."""
+    parts = _re.split(r"\s*[—–]\s*|\s+по\s+", period, maxsplit=1)
+    if len(parts) == 2:
+        return parts
+    parts = _re.split(r"\s+-\s+", period, maxsplit=1)
+    if len(parts) == 2:
+        return parts
+    m = _re.match(r"^\s*((?:19|20)\d{2})\s*-\s*((?:19|20)\d{2})\s*$", period)
+    if m:
+        return [m.group(1), m.group(2)]
+    return [period]
+
+
 def _parse_period_point(s: str, *, is_end: bool):
-    """'Мар 2024' / '2024' / 'наст. время' → (year, month). None если не распознано."""
+    """'2005-04' / 'Мар 2024' / '2024' / 'наст. время' → (year, month). None если не распознано."""
     s = s.strip().lower()
     if any(k in s for k in ("наст", "present", "сейчас", "н.в", "текущ")):
         t = date.today()
         return (t.year, t.month)
-    m = _re.search(r"([а-яё]{3,})\.?\s*(\d{4})", s)
+    m = _re.match(r"\s*((?:19|20)\d{2})\s*[-./]\s*(\d{1,2})\b", s)  # YYYY-MM (формат hh)
+    if m:
+        mon = int(m.group(2))
+        if 1 <= mon <= 12:
+            return (int(m.group(1)), mon)
+    m = _re.search(r"([а-яё]{3,})\.?\s*(\d{4})", s)  # «Мар 2024»
     if m and (mon := _RU_MONTHS.get(m.group(1)[:3])):
         return (int(m.group(2)), mon)
-    y = _re.search(r"(19|20)\d{2}", s)
+    y = _re.search(r"(?:19|20)\d{2}", s)  # голый год
     if y:
-        return (int(y.group(0)), 1)  # год без месяца → январь (чтобы «2020-2022» = 2 года)
+        return (int(y.group(0)), 1)
     return None
 
 
@@ -157,7 +181,7 @@ def _period_to_months(period: str | None) -> int:
     """Длительность периода в месяцах (0 если не распарсилось)."""
     if not period:
         return 0
-    parts = _re.split(r"\s*[—–-]\s*|\s+по\s+", period, maxsplit=1)
+    parts = _split_period_range(period)
     if len(parts) < 2:
         return 0
     start = _parse_period_point(parts[0], is_end=False)
