@@ -1806,6 +1806,18 @@
   white-space: nowrap;
 }
 
+.cnd-funnel-wrap .cand-detail .job-period-col {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cnd-funnel-wrap .cand-detail .job-duration {
+  font-size: 11px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
 .cnd-funnel-wrap .cand-detail .job-desc {
   font-size: 13px;
   color: var(--fg-1);

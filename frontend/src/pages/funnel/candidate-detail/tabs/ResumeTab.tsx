@@ -5,6 +5,70 @@ import { useEvaluation } from '@/api/hooks/useEvaluation';
 import { useUploadDocument } from '@/api/mutations/candidateDetail';
 import { AIVerdictCard } from '@/components/candidates/AIVerdictCard';
 
+// Разбор периодов опыта (перенос проверенной логики бэка app/services/candidate.py).
+// Сортировка свежих позиций сверху + расчёт длительности каждой позиции и общего стажа,
+// чтобы заголовок совпадал с суммой длительностей (бэковый total_experience теряет месяцы).
+const PRESENT_RE = /наст|present|сейчас|н\.?\s?в|текущ/i;
+const RU_MONTHS: Record<string, number> = {
+  янв: 1, фев: 2, мар: 3, апр: 4, май: 5, мая: 5, июн: 6,
+  июл: 7, авг: 8, сен: 9, окт: 10, ноя: 11, дек: 12,
+};
+type ExpPt = { y: number; m: number } | null;
+
+function parseExpPoint(raw: string): ExpPt {
+  const s = (raw || '').trim().toLowerCase();
+  if (!s) return null;
+  if (PRESENT_RE.test(s)) {
+    const t = new Date();
+    return { y: t.getFullYear(), m: t.getMonth() + 1 };
+  }
+  let m = s.match(/(\d{4})\s*[-./]\s*(\d{1,2})/); // YYYY-MM (формат hh)
+  if (m) return { y: +m[1], m: Math.min(12, Math.max(1, +m[2])) };
+  m = s.match(/([а-яё]{3,})\.?\s*(\d{4})/); // «Апрель 2005»
+  if (m) { const mo = RU_MONTHS[m[1].slice(0, 3)]; if (mo) return { y: +m[2], m: mo }; }
+  m = s.match(/(?:19|20)\d{2}/); // голый год
+  if (m) return { y: +m[0], m: 1 };
+  return null;
+}
+
+function parseExpPeriod(period?: string | null): { start: ExpPt; end: ExpPt } {
+  if (!period) return { start: null, end: null };
+  // делим ТОЛЬКО по разделителю диапазона: тире в ОКРУЖЕНИИ пробелов или « по »
+  // (внутренний дефис в «2005-04» не трогаем — у него нет пробелов вокруг)
+  const parts = period.split(/\s+[—–-]\s+|\s+по\s+/i);
+  const start = parseExpPoint(parts[0] ?? '');
+  const end = parts.length > 1 ? parseExpPoint(parts[1] ?? '') : null;
+  return { start, end };
+}
+
+function expMonths(period?: string | null): number {
+  const { start, end } = parseExpPeriod(period);
+  if (!start || !end) return 0;
+  return Math.max(0, (end.y - start.y) * 12 + (end.m - start.m));
+}
+
+function expRecencyKey(period?: string | null): number {
+  const { start, end } = parseExpPeriod(period);
+  const pt = end || start;
+  return pt ? pt.y * 12 + pt.m : -1; // непарсибельные — вниз
+}
+
+function pluralYears(n: number): string {
+  const a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return 'год';
+  if (a >= 2 && a <= 4 && !(b >= 12 && b <= 14)) return 'года';
+  return 'лет';
+}
+
+function formatExpDuration(months: number): string | null {
+  if (months <= 0) return null;
+  const y = Math.floor(months / 12), mo = months % 12;
+  const parts: string[] = [];
+  if (y) parts.push(`${y} ${pluralYears(y)}`);
+  if (mo) parts.push(`${mo} мес`);
+  return parts.join(' ') || null;
+}
+
 type Props = {
   candidateId?: string;
   candidate?: any;
@@ -57,6 +121,14 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
     );
   }
 
+  // Опыт: копия (НЕ мутируем данные React Query), свежие позиции сверху,
+  // общий стаж тем же парсером (совпадает с суммой длительностей позиций).
+  const sortedExperience = [...(candidate.experience || [])].sort(
+    (a: any, b: any) => expRecencyKey(b.period) - expRecencyKey(a.period)
+  );
+  const totalMonths = sortedExperience.reduce((sum: number, e: any) => sum + expMonths(e.period), 0);
+  const totalExpLabel = formatExpDuration(totalMonths) || (candidate as any).total_experience || null;
+
   return (
     <div className="resume-single">
       {/* Hidden upload input - preserve upload functionality */}
@@ -85,20 +157,25 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
         <>
           <h3 className="cc-sec-title">
             Опыт работы
-            {(candidate as any).total_experience && (
+            {totalExpLabel && (
               <span style={{ color: 'var(--fg-3)', fontWeight: 400, fontSize: '13px' }}>
-                {' · '}общий стаж {(candidate as any).total_experience}
+                {' · '}общий стаж {totalExpLabel}
               </span>
             )}
           </h3>
-          {candidate.experience.map((exp: any, index: number) => (
+          {sortedExperience.map((exp: any, index: number) => {
+            const dur = formatExpDuration(expMonths(exp.period));
+            return (
             <div key={index} className="job">
               <div className="job-header">
                 <div>
                   <div className="job-title">{exp.position}</div>
                   <div className="job-co">{exp.company}</div>
                 </div>
-                <div className="job-period">{exp.period}</div>
+                <div className="job-period-col">
+                  <div className="job-period">{exp.period}</div>
+                  {dur && <div className="job-duration">{dur}</div>}
+                </div>
               </div>
               {exp.description && (
                 <div className="job-desc">
@@ -108,7 +185,8 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </>
       )}
 
