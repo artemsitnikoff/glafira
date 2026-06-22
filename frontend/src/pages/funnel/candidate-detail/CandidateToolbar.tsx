@@ -106,6 +106,7 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   }
 
   const availableStages = stages?.filter(stage => !stage.is_terminal) || [];
+  const hiredStage = stages?.find((s) => s.stage_key === 'hired');
   const curStageIdx = availableStages.findIndex(s => s.stage_key === application?.stage);
   const candidateReasons = rejectReasons?.filter(r => r.side === 'candidate') || [];
   const companyReasons = rejectReasons?.filter(r => r.side === 'company') || [];
@@ -151,6 +152,17 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
                     {i === curStageIdx + 1 && <span className="cd-pop-tag cd-pop-tag-next">далее</span>}
                   </button>
                 ))}
+                {hiredStage && (
+                  <button
+                    className="cd-pop-item cd-pop-hire"
+                    onClick={() => handleMoveToStage('hired')}
+                    disabled={moveMutation.isPending}
+                  >
+                    <span className="stage-dot" style={{ background: hiredStage.color }} />
+                    <span className="cd-pop-label">{hiredStage.label}</span>
+                    <span className="cd-pop-tag cd-pop-tag-hire">наём</span>
+                  </button>
+                )}
               </div>
             </>
           )}
