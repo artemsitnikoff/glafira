@@ -69,6 +69,15 @@ function formatExpDuration(months: number): string | null {
   return parts.join(' ') || null;
 }
 
+// Разбор свободного описания позиции на пункты: каждая непустая строка — пункт,
+// строки-заголовки (оканчивающиеся на ':') рендерятся жирным подзаголовком.
+type JobItem = string | { h: string };
+function parseJobItems(description?: string | null): JobItem[] {
+  if (!description) return [];
+  return description.split('\n').map((l) => l.trim()).filter(Boolean)
+    .map((l) => (l.endsWith(':') ? { h: l } : l));
+}
+
 type Props = {
   candidateId?: string;
   candidate?: any;
@@ -141,7 +150,7 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
       />
 
       {/* AI Verdict Card */}
-      {evaluation && <AIVerdictCard evaluation={evaluation} onOpenAI={onOpenAI} />}
+      {evaluation && <AIVerdictCard evaluation={evaluation} mini onOpenAI={onOpenAI} />}
 
       {/* About Me Section */}
       {(candidate as any).resume_summary && (
@@ -165,26 +174,28 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
           </h3>
           {sortedExperience.map((exp: any, index: number) => {
             const dur = formatExpDuration(expMonths(exp.period));
+            const items = parseJobItems(exp.description);
             return (
-            <div key={index} className="job">
-              <div className="job-header">
-                <div>
-                  <div className="job-title">{exp.position}</div>
-                  <div className="job-co">{exp.company}</div>
+              <div key={index} className="job">
+                <div className="job-when">
+                  {exp.period && <div className="job-period">{exp.period}</div>}
+                  {dur && <div className="job-dur">{dur}</div>}
                 </div>
-                <div className="job-period-col">
-                  <div className="job-period">{exp.period}</div>
-                  {dur && <div className="job-duration">{dur}</div>}
+                <div className="job-main">
+                  {exp.company && <div className="job-co">{exp.company}</div>}
+                  {exp.sphere && <div className="job-sphere">{exp.sphere}</div>}
+                  {exp.position && <div className="job-title">{exp.position}</div>}
+                  {items.length > 0 && (
+                    <ul className="job-bullets">
+                      {items.map((it: JobItem, i: number) =>
+                        typeof it === 'string'
+                          ? <li key={i}>{it}</li>
+                          : <li key={i} className="job-subhead">{it.h}</li>
+                      )}
+                    </ul>
+                  )}
                 </div>
               </div>
-              {exp.description && (
-                <div className="job-desc">
-                  {exp.description.split('\n\n').filter((para: string) => para.trim()).map((paragraph: string, pIndex: number) => (
-                    <p key={pIndex} className="job-desc-p">{paragraph.trim()}</p>
-                  ))}
-                </div>
-              )}
-            </div>
             );
           })}
         </>
@@ -207,12 +218,14 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
         <>
           <h3 className="cc-sec-title">Образование</h3>
           {candidate.education.map((edu: any, index: number) => (
-            <div key={index} className="edu-row">
-              <div>
-                <div className="job-title">{edu.institution}</div>
-                <div className="job-co">{edu.specialty}</div>
+            <div key={index} className="job">
+              <div className="job-when">
+                {edu.years && <div className="job-period">{edu.years}</div>}
               </div>
-              <div className="job-period">{edu.years}</div>
+              <div className="job-main">
+                <div className="job-co">{edu.institution}</div>
+                {edu.specialty && <div className="job-title">{edu.specialty}{edu.city ? ` · ${edu.city}` : ''}</div>}
+              </div>
             </div>
           ))}
         </>

@@ -4,10 +4,11 @@ import { ScoreLabel } from '@/components/ui/ScoreLabel';
 type Props = {
   evaluation: any;
   hideLink?: boolean;
+  mini?: boolean;
   onOpenAI?: () => void;
 };
 
-export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
+export function AIVerdictCard({ evaluation, hideLink, mini, onOpenAI }: Props) {
   if (!evaluation) return null;
 
   // Use real AI summary or fallback based on score (единый порог через scoreBand)
@@ -22,6 +23,43 @@ export function AIVerdictCard({ evaluation, hideLink, onOpenAI }: Props) {
       ? 'Не подходит. Опыт не совпадает с требованиями вакансии.'
       : 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.';
   };
+
+  if (mini) {
+    const band = scoreBand(evaluation.score);
+    const miniVerdict =
+      band === 'green'
+        ? 'Хорошо подходит — релевантный опыт и ключевые навыки совпадают.'
+        : band === 'red'
+        ? 'Не подходит — опыт не совпадает с требованиями.'
+        : 'Подходит частично — не хватает части ключевых навыков.';
+
+    return (
+      <div className="filo-card filo-card-mini">
+        <div className="filo-head">
+          <div className="filo-ai-mark filo-glafira" aria-label="Глафира">
+            <span className="glafira-emoji">👩🏻</span>
+          </div>
+          <div className="filo-head-body">
+            <div className="filo-title-row">
+              <span className="filo-title">Оценка от Глафиры</span>
+              <a
+                className="filo-link"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpenAI?.();
+                }}
+              >
+                Подробнее →
+              </a>
+            </div>
+            <div className="filo-sub">{miniVerdict}</div>
+          </div>
+          <ScoreLabel value={evaluation.score} size="lg" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="filo-card filo-card-compact">
