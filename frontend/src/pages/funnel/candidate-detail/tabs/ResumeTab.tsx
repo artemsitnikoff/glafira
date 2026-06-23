@@ -74,7 +74,10 @@ function formatExpDuration(months: number): string | null {
 type JobItem = string | { h: string };
 function parseJobItems(description?: string | null): JobItem[] {
   if (!description) return [];
-  return description.split('\n').map((l) => l.trim()).filter(Boolean)
+  return description
+    .split('\n')
+    .map((l) => l.trim().replace(/^[-–—•*·▪●‣◦]+\s*/, '').trim())
+    .filter(Boolean)
     .map((l) => (l.endsWith(':') ? { h: l } : l));
 }
 
