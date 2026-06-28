@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
+import { Avatar } from '@/components/ui/Avatar';
 import { formatSalaryRange } from '@/lib/format';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import type { ApplicationRow } from '@/api/aliases';
@@ -125,6 +126,9 @@ export function CandidateHeader({ candidateId, application }: Props) {
       </div>
 
       <div className="cd-h-main">
+        <div className="cd-h-avatar">
+          <Avatar name={candidate.full_name} size="lg" src={(candidate as any).avatar_url} />
+        </div>
         <div className="cd-h-left">
           <div className="cd-name-row">
             <h1 className="cd-name">{candidate.full_name}</h1>

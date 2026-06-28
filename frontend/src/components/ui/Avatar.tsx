@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react';
+
 const PALETTE = [
   '#F2A2A2', '#A2E8A3', '#A2C8F2', '#F2C2A2',
   '#C2A2F2', '#A2F2E8', '#F2E8A2', '#E8A2F2'
@@ -27,12 +29,18 @@ interface AvatarProps {
 export function Avatar({ name, size = 'md', src }: AvatarProps) {
   const px = size === 'xs' ? 16 : size === 'sm' ? 22 : size === 'lg' ? 64 : 28;
   const bg = PALETTE[hashName(name) % PALETTE.length];
+  const [errored, setErrored] = useState(false);
 
-  if (src) {
+  useEffect(() => {
+    setErrored(false);
+  }, [src]);
+
+  if (src && !errored) {
     return (
       <img
         src={src}
         alt={name}
+        onError={() => setErrored(true)}
         style={{
           width: px,
           height: px,

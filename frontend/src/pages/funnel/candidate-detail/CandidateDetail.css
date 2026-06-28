@@ -246,6 +246,11 @@
   gap: 18px;
 }
 
+.cnd-funnel-wrap .cand-detail .cd-h-avatar {
+  flex-shrink: 0;
+  margin-top: var(--space-1);
+}
+
 .cnd-funnel-wrap .cand-detail .cd-h-left {
   flex: 1;
   min-width: 0;

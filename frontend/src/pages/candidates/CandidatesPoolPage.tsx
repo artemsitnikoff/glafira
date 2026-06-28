@@ -421,7 +421,7 @@ const PoolCard = React.memo(function PoolCard({
       onClick={handleCardClick}
     >
       <div className="pc-head">
-        <Avatar name={candidate.full_name} size="sm"/>
+        <Avatar name={candidate.full_name} size="sm" src={candidate.avatar_url} />
         <div className="pc-name-wrap">
           <div className="pc-name" title={candidate.full_name}>
             {candidate.full_name}
