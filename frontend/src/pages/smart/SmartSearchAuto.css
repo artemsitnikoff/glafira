@@ -50,6 +50,11 @@
 .ssa-page .ssa-sb-sync { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--fg-3); }
 .ssa-page .ssa-sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ark-green-500); box-shadow: 0 0 0 3px var(--ark-green-100); }
 
+/* кнопка ручной синхронизации списка автопоисков с hh */
+.ssa-page .ssa-sync-btn { flex: none; gap: 6px; white-space: nowrap; }
+.ssa-page .ssa-sync-btn .ssa-spin { width: 13px; height: 13px; }
+.ssa-page .ssa-sync-btn:disabled { opacity: .6; cursor: not-allowed; }
+
 .ssa-page .ssa-search-list { display: flex; flex-direction: column; gap: 12px; }
 .ssa-page .ssa-search-card {
   display: flex; align-items: stretch;

@@ -433,6 +433,19 @@ function SSAutoSearchesView({ searches, onOpen }: {
   onOpen: (id: string) => void;
 }) {
   const totalNew = searches.reduce((s, x) => s + (x.new_count ?? 0), 0);
+
+  // Ручная синхронизация автопоисков с hh (список кэшируется на 1ч —
+  // даёт обновить сразу, без ожидания). Хук сам инвалидирует кэш в onSuccess.
+  const syncMutation = useSyncAutoSearches();
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  function handleSync() {
+    setSyncError(null);
+    syncMutation.mutate(undefined, {
+      onError: (e) => setSyncError(e?.message || 'Не удалось синхронизировать с hh'),
+    });
+  }
+
   return (
     <div className="ssa-searches">
       <div className="ssa-searches-bar">
@@ -444,7 +457,29 @@ function SSAutoSearchesView({ searches, onOpen }: {
         <div className="ssa-sb-sync">
           <span className="ssa-sync-dot" /> синхронизировано с hh
         </div>
+        <button
+          className="btn btn-secondary btn-sm ssa-sync-btn"
+          onClick={handleSync}
+          disabled={syncMutation.isPending}
+          title="Подтянуть свежий список автопоисков с hh"
+        >
+          {syncMutation.isPending ? (
+            <><span className="ssa-spin" /> Синхронизирую…</>
+          ) : (
+            <><Icon name="refresh-cw" size={14} /> Синхронизировать</>
+          )}
+        </button>
       </div>
+
+      {syncError && (
+        <div className="ssa-eval-err">
+          <Icon name="alert-circle" size={14} />
+          <span>{syncError}</span>
+          <button className="icon-btn" onClick={() => setSyncError(null)} title="Закрыть">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+      )}
 
       <div className="ssa-search-list">
         {searches.map((s) => (
