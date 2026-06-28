@@ -144,6 +144,7 @@ class AutoCandidateDetail(BaseModel):
     total_experience: Optional[str] = None
     anonymous: bool = False
     photo_url: Optional[str] = None
+    photo_keys: Optional[list[str]] = None  # ВРЕМЕННО (диаг): ключи объекта photo, не URL/PII
     hh_url: Optional[str] = None
     about: Optional[str] = None
     skills: list[str] = Field(default_factory=list)

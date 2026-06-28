@@ -53,6 +53,28 @@ def _utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _extract_photo_url(photo) -> str | None:
+    """Достаёт URL фото из hh-объекта photo, устойчиво к разным структурам:
+    dict {medium/small} ИЛИ {'500','100','40',...} ИЛИ плоская строка-URL."""
+    if not photo:
+        return None
+    if isinstance(photo, str):
+        return photo if photo.startswith("http") else None
+    if isinstance(photo, dict):
+        # приоритет по убыванию размера/предпочтения
+        for k in ("medium", "500", "100", "small", "40"):
+            v = photo.get(k)
+            if isinstance(v, str) and v.startswith("http"):
+                return v
+        # фолбэк: первое строковое значение-URL (кроме id)
+        for k, v in photo.items():
+            if k == "id":
+                continue
+            if isinstance(v, str) and v.startswith("http"):
+                return v
+    return None
+
+
 def parse_saved_search_url(url: str) -> list[tuple[str, str]]:
     """Разбирает query-строку saved_search-URL в список пар (без page/per_page).
 
@@ -251,6 +273,11 @@ async def get_auto_candidates(
     if items and isinstance(items[0], dict):
         logger.info("[auto] resume item keys=%s", list(items[0].keys()))
         logger.info("[auto] resume item has_photo=%s", bool((items[0].get("photo") or {})) if isinstance(items[0], dict) else False)
+        # ДИАГ (PII-безопасно): СТРУКТУРА photo первого item — только ключи/тип, БЕЗ URL (URL фото = лицо, PII).
+        logger.info(
+            "[auto] photo struct=%s",
+            (list(p.keys()) if isinstance((p := items[0].get("photo")), dict) else type(items[0].get("photo")).__name__),
+        )
 
     # БАТЧ-дедуп: один запрос по всем валидным hh_resume_id страницы.
     resume_ids = [str(item.get("id")) for item in items
@@ -291,8 +318,7 @@ async def get_auto_candidates(
                 last_job = " · ".join(parts) if parts else None
                 break
 
-        photo = item.get("photo") or {}
-        real_photo_url = (photo.get("medium") or photo.get("small")) if isinstance(photo, dict) else None
+        real_photo_url = _extract_photo_url(item.get("photo"))
         photo_url = f"/api/v1/smart/auto/photo?src={quote(real_photo_url, safe='')}" if real_photo_url else None
 
         items_mapped.append({
@@ -384,18 +410,25 @@ async def get_auto_candidate_detail(
     # ДИАГ-ЛОГ (один раз): только КЛЮЧИ полного резюме, без PII — для пиннинга имён полей.
     if isinstance(full, dict):
         logger.info("[auto] resume detail keys=%s", list(full.keys()))
+        # ДИАГ (PII-безопасно): СТРУКТУРА photo полного резюме — только ключи/тип, БЕЗ URL (PII).
+        logger.info(
+            "[auto] detail photo struct=%s",
+            (list(p.keys()) if isinstance((p := full.get("photo")), dict) else type(full.get("photo")).__name__),
+        )
 
     # Защитный маппинг (паттерн build_candidate_resume_sections / get_auto_candidates)
     area = full.get("area") or {}
     salary_obj = full.get("salary") or {}
     total_exp = full.get("total_experience") or {}
-    photo = full.get("photo") or {}
+    photo = full.get("photo")
 
-    real_photo_url = (photo.get("medium") or photo.get("small")) if isinstance(photo, dict) else None
+    real_photo_url = _extract_photo_url(photo)
     photo_url = (
         f"/api/v1/smart/auto/photo?src={quote(real_photo_url, safe='')}"
         if real_photo_url else None
     )
+    # ВРЕМЕННО (диаг): ключи объекта photo (НЕ URL, не PII) — для пиннинга структуры curl'ом.
+    photo_keys = list(photo.keys()) if isinstance(photo, dict) else None
 
     # Навыки: skill_set — список строк ИЛИ объектов {name} (защитно)
     skills: list[str] = []
@@ -461,6 +494,7 @@ async def get_auto_candidate_detail(
         "total_experience": format_duration((total_exp.get("months") if isinstance(total_exp, dict) else None) or 0),
         "anonymous": bool(full.get("hidden_fields")),
         "photo_url": photo_url,
+        "photo_keys": photo_keys,  # ВРЕМЕННО (диаг): ключи объекта photo, не URL/PII
         "hh_url": full.get("alternate_url"),
         "about": full.get("skills"),  # в hh-резюме «о себе» лежит в поле skills (ТЕКСТ)
         "skills": skills,
