@@ -12,6 +12,7 @@ from .services.smart_search import sweep_orphaned_runs
 from .services.base_search import sweep_orphaned_base_search_runs
 from .services.embeddings import warmup_embedding_model
 from .services.call_sync import sweep_orphaned_call_sync_jobs
+from .services.auto_search import sweep_orphaned_auto_runs
 
 # Фоновые задачи для защиты от GC
 _bg_tasks: set = set()
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     await sweep_orphaned_runs()
     await sweep_orphaned_base_search_runs()
     await sweep_orphaned_call_sync_jobs()
+    await sweep_orphaned_auto_runs()
 
     # Прогрев эмбеддинг-модели в фоне (НЕ блокируя старт)
     _warmup_task = asyncio.create_task(warmup_embedding_model())

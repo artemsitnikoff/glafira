@@ -7,24 +7,34 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit, parse_qsl
 from uuid import UUID
 
-from sqlalchemy import select, desc, nullslast
+from sqlalchemy import select, desc, nullslast, update, and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.errors import NotFoundError
-from ..models.auto_search import AutoSearch
+from ..core.errors import NotFoundError, ValidationError, ConflictError, GlafiraParseError
+from ..database import AsyncSessionLocal
+from ..models.auto_search import AutoSearch, AutoSearchRun
 from ..models.candidate import Candidate
+from ..models import Vacancy
 from .candidate import format_duration
 from .integrations.hh import client as hh_client
 from .integrations.hh.service import get_valid_access_token
-from .smart_search import check_access, _parse_api_quota
+from .smart_search import check_access, _parse_api_quota, _is_ai_credits_error
+from .base_search import _create_synthetic_vacancy_for_scoring, GLAFIRA_MAX_EVALUATE
+from .glafira.scoring import score_resume_dict
+from .settings.glafira import get_company_openrouter_key, get_company_llm_model
 
 logger = logging.getLogger(__name__)
+
+_auto_active_tasks: dict = {}
+AUTO_STUCK_RECONCILE_SECONDS = 270
 
 
 def _utc_naive_now() -> datetime:
@@ -274,6 +284,32 @@ async def get_auto_candidates(
         auto_search.last_seen_at = _utc_naive_now()
         await session.commit()
 
+    # Инжектируем score из последнего завершённого прогона
+    last_run_result = await session.execute(
+        select(AutoSearchRun)
+        .where(
+            AutoSearchRun.company_id == company_id,
+            AutoSearchRun.auto_search_id == auto_search_id,
+            AutoSearchRun.status == "done",
+        )
+        .order_by(desc(AutoSearchRun.created_at))
+        .limit(1)
+    )
+    last_run = last_run_result.scalar_one_or_none()
+    if last_run and last_run.scored_candidates:
+        score_map = {
+            str(c.get("hh_resume_id")): c.get("score")
+            for c in last_run.scored_candidates
+            if isinstance(c, dict) and c.get("score") is not None
+        }
+        for it in items_mapped:
+            if str(it.get("hh_resume_id", "")) in score_map:
+                it["score"] = score_map[str(it["hh_resume_id"])]
+    if sort == "score":
+        items_mapped.sort(
+            key=lambda x: (x.get("score") is None, -(x.get("score") or 0))
+        )
+
     return {
         "items": items_mapped,
         "total": total,
@@ -281,3 +317,447 @@ async def get_auto_candidates(
         "pages": pages,
         "per_page": 10,
     }
+
+
+# === ФАЗА 3: Основа оценки + AI-оценка в фоне ===
+
+async def set_basis(session: AsyncSession, company_id: UUID, auto_search_id: UUID, basis: dict) -> AutoSearch:
+    """Задать основу оценки для автопоиска (vacancy или prompt)."""
+    from uuid import UUID as _UUID
+
+    result = await session.execute(
+        select(AutoSearch).where(
+            AutoSearch.company_id == company_id,
+            AutoSearch.id == auto_search_id,
+        )
+    )
+    auto_search = result.scalar_one_or_none()
+    if auto_search is None:
+        raise NotFoundError("Автопоиск")
+
+    kind = basis.get("kind")
+    if kind == "vacancy":
+        vacancy_id_raw = basis.get("vacancy_id")
+        try:
+            vacancy_uuid = _UUID(str(vacancy_id_raw))
+        except Exception:
+            raise NotFoundError("Вакансия")
+        vacancy_result = await session.execute(
+            select(Vacancy).where(
+                Vacancy.id == vacancy_uuid,
+                Vacancy.company_id == company_id,
+                Vacancy.deleted_at.is_(None),
+            )
+        )
+        if vacancy_result.scalar_one_or_none() is None:
+            raise NotFoundError("Вакансия")
+    elif kind == "prompt":
+        prompt = (basis.get("prompt") or "").strip()
+        if len(prompt) < 3:
+            raise ValidationError("Укажите промпт не короче 3 символов")
+    else:
+        raise ValidationError("Некорректная основа оценки")
+
+    auto_search.basis = basis
+    await session.commit()
+    return auto_search
+
+
+async def set_auto_eval(session: AsyncSession, company_id: UUID, auto_search_id: UUID, enabled: bool) -> AutoSearch:
+    """Включить/выключить AI-оценку для автопоиска."""
+    result = await session.execute(
+        select(AutoSearch).where(
+            AutoSearch.company_id == company_id,
+            AutoSearch.id == auto_search_id,
+        )
+    )
+    auto_search = result.scalar_one_or_none()
+    if auto_search is None:
+        raise NotFoundError("Автопоиск")
+    if enabled and auto_search.basis is None:
+        raise ValidationError("Сначала задайте основу оценки")
+    auto_search.auto_eval = enabled
+    await session.commit()
+    return auto_search
+
+
+async def start_auto_evaluate(
+    session: AsyncSession,
+    company_id: UUID,
+    auto_search_id: UUID,
+    segment: str = "all",
+    n: int | None = None,
+) -> UUID:
+    """TOCTOU-безопасный старт фонового прогона AI-оценки."""
+    result = await session.execute(
+        select(AutoSearch).where(
+            AutoSearch.company_id == company_id,
+            AutoSearch.id == auto_search_id,
+        )
+    )
+    auto_search = result.scalar_one_or_none()
+    if auto_search is None:
+        raise NotFoundError("Автопоиск")
+    if auto_search.basis is None:
+        raise ValidationError("Сначала задайте основу оценки")
+
+    to_eval = min(n or GLAFIRA_MAX_EVALUATE, GLAFIRA_MAX_EVALUATE)
+    run = AutoSearchRun(
+        company_id=company_id,
+        auto_search_id=auto_search_id,
+        status="running",
+        stage="evaluating",
+        basis=dict(auto_search.basis),
+        to_evaluate=to_eval,
+        evaluated=0,
+        scored_candidates=[],
+    )
+    session.add(run)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise ConflictError("Оценка уже идёт")
+
+    run_id = run.id
+    task = asyncio.create_task(
+        _run_auto_evaluate(run_id, company_id, auto_search_id, segment, n)
+    )
+    _auto_active_tasks[run_id] = task
+    task.add_done_callback(lambda t: _auto_active_tasks.pop(run_id, None))
+    return run_id
+
+
+async def _run_auto_evaluate(
+    run_id: UUID,
+    company_id: UUID,
+    auto_search_id: UUID,
+    segment: str,
+    n: int | None,
+) -> None:
+    """Фоновая AI-оценка кандидатов автопоиска ТОЛЬКО по бесплатным полям hh (без get_resume_by_id)."""
+
+    async def _inner() -> None:
+        token = None
+        basis: dict = {}
+        vacancy_proxy = None
+        url = None
+        api_key = None
+        model = None
+
+        # INIT: короткая сессия
+        async with AsyncSessionLocal() as session:
+            run = await session.get(AutoSearchRun, run_id)
+            if run is None:
+                return
+            basis = run.basis or {}
+
+            try:
+                token = await get_valid_access_token(session, company_id)
+            except Exception as e:
+                run.status = "error"
+                run.error = f"Ошибка hh-токена: {str(e)[:300]}"
+                run.finished_at = _utc_naive_now()
+                await session.commit()
+                return
+
+            as_result = await session.execute(
+                select(AutoSearch).where(
+                    AutoSearch.company_id == company_id,
+                    AutoSearch.id == auto_search_id,
+                )
+            )
+            auto_search = as_result.scalar_one_or_none()
+            if auto_search is None:
+                run.status = "error"
+                run.error = "Автопоиск не найден"
+                run.finished_at = _utc_naive_now()
+                await session.commit()
+                return
+
+            url = auto_search.new_items_url if segment == "new" else auto_search.items_url
+
+            try:
+                api_key = await get_company_openrouter_key(session, company_id)
+            except Exception as e:
+                run.status = "error"
+                run.error = f"OpenRouter не настроен: {str(e)[:300]}"
+                run.finished_at = _utc_naive_now()
+                await session.commit()
+                return
+
+            model = await get_company_llm_model(session, company_id)
+
+            kind = basis.get("kind")
+            if kind == "vacancy":
+                from uuid import UUID as _UUID
+                try:
+                    vacancy_uuid = _UUID(str(basis.get("vacancy_id")))
+                except Exception:
+                    run.status = "error"
+                    run.error = "Некорректный ID вакансии-основы"
+                    run.finished_at = _utc_naive_now()
+                    await session.commit()
+                    return
+                vac_result = await session.execute(
+                    select(Vacancy).where(
+                        Vacancy.id == vacancy_uuid,
+                        Vacancy.company_id == company_id,
+                        Vacancy.deleted_at.is_(None),
+                    )
+                )
+                vacancy = vac_result.scalar_one_or_none()
+                if vacancy is None:
+                    run.status = "error"
+                    run.error = "Вакансия-основа удалена"
+                    run.finished_at = _utc_naive_now()
+                    await session.commit()
+                    return
+                vacancy_data = {
+                    "name": getattr(vacancy, "name", None),
+                    "city": getattr(vacancy, "city", None),
+                    "salary_from": getattr(vacancy, "salary_from", None),
+                    "salary_to": getattr(vacancy, "salary_to", None),
+                    "currency": getattr(vacancy, "currency", None),
+                    "description": getattr(vacancy, "description", None),
+                    "recruiter_scoring_instructions": getattr(
+                        vacancy, "recruiter_scoring_instructions", None
+                    ),
+                    "glafira_mode": getattr(vacancy, "glafira_mode", "A"),
+                    "auto_move": getattr(vacancy, "auto_move", False),
+                    "auto_move_threshold": getattr(vacancy, "auto_move_threshold", None),
+                }
+                vacancy_proxy = type("AutoVacancyProxy", (), vacancy_data)()
+            elif kind == "prompt":
+                vacancy_proxy = _create_synthetic_vacancy_for_scoring(
+                    basis.get("prompt", "")
+                )
+            else:
+                run.status = "error"
+                run.error = "Некорректная основа оценки"
+                run.finished_at = _utc_naive_now()
+                await session.commit()
+                return
+        # INIT-сессия закрыта
+
+        if not url:
+            try:
+                async with AsyncSessionLocal() as session:
+                    run = await session.get(AutoSearchRun, run_id)
+                    if run:
+                        run.status = "done"
+                        run.stage = "done"
+                        run.note = "Нет кандидатов в автопоиске"
+                        run.finished_at = _utc_naive_now()
+                        await session.commit()
+            except Exception as e:
+                logger.error("[auto_eval] Не удалось финализировать пустой прогон: %s", e)
+            return
+
+        cap = min(n or GLAFIRA_MAX_EVALUATE, GLAFIRA_MAX_EVALUATE)
+        accumulated: list[dict] = []
+        for page in range(20):
+            try:
+                params = parse_saved_search_url(url) + [
+                    ("per_page", "50"),
+                    ("page", str(page)),
+                ]
+                res = await asyncio.wait_for(
+                    hh_client.search_resumes(token, params), timeout=45
+                )
+                page_items = res.get("items") or []
+                if not page_items:
+                    break
+                accumulated.extend(page_items)
+                if len(accumulated) >= cap:
+                    break
+            except asyncio.TimeoutError:
+                logger.warning("[auto_eval] Таймаут пагинации на странице %d", page)
+                break
+            except Exception as e:
+                logger.warning("[auto_eval] Ошибка пагинации: %s", e)
+                break
+
+        items = accumulated[:cap]
+
+        if not items:
+            try:
+                async with AsyncSessionLocal() as session:
+                    run = await session.get(AutoSearchRun, run_id)
+                    if run:
+                        run.status = "done"
+                        run.stage = "done"
+                        run.note = "Нет кандидатов для оценки"
+                        run.finished_at = _utc_naive_now()
+                        await session.commit()
+            except Exception as e:
+                logger.error("[auto_eval] Не удалось финализировать пустой список: %s", e)
+            return
+
+        # Обновить to_evaluate реальным числом
+        try:
+            async with AsyncSessionLocal() as session:
+                run = await session.get(AutoSearchRun, run_id)
+                if run:
+                    run.to_evaluate = len(items)
+                    await session.commit()
+        except Exception as e:
+            logger.warning("[auto_eval] Не удалось обновить to_evaluate: %s", e)
+
+        scored_candidates: list[dict] = []
+        evaluated = 0
+        credits_note: str | None = None
+
+        for item in items:
+            try:
+                result = await asyncio.wait_for(
+                    score_resume_dict(item, vacancy_proxy, company_id, api_key, model),
+                    timeout=180,
+                )
+                record = {
+                    "hh_resume_id": str(item.get("id")),
+                    "title": item.get("title"),
+                    "score": result.get("score"),
+                    "verdict": result.get("verdict"),
+                    "summary": result.get("summary"),
+                }
+                scored_candidates.append(record)
+                evaluated += 1
+                try:
+                    async with AsyncSessionLocal() as session:
+                        run = await session.get(AutoSearchRun, run_id)
+                        if run:
+                            run.scored_candidates = list(scored_candidates)
+                            run.evaluated = evaluated
+                            await session.commit()
+                except Exception as e:
+                    logger.warning("[auto_eval] Не удалось обновить прогресс: %s", e)
+            except asyncio.TimeoutError:
+                logger.warning("[auto_eval] Таймаут оценки резюме %s", item.get("id"))
+                continue
+            except Exception as e:
+                reason = str(e)
+                if _is_ai_credits_error(reason, None):
+                    credits_note = "AI-кредиты исчерпаны"
+                    break
+                else:
+                    logger.warning(
+                        "[auto_eval] Ошибка оценки резюме %s: %s", item.get("id"), e
+                    )
+                    continue
+
+        # ФИНАЛ
+        try:
+            async with AsyncSessionLocal() as session:
+                run = await session.get(AutoSearchRun, run_id)
+                if run:
+                    run.status = "done"
+                    run.stage = "done"
+                    run.scored_candidates = list(scored_candidates)
+                    run.evaluated = evaluated
+                    run.finished_at = _utc_naive_now()
+                    if credits_note:
+                        run.note = credits_note
+                    await session.commit()
+        except Exception as e:
+            logger.error("[auto_eval] Не удалось сохранить финал: %s", e)
+
+    try:
+        timeout_s = max(900, (n or GLAFIRA_MAX_EVALUATE) * 200)
+        await asyncio.wait_for(_inner(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        try:
+            async with AsyncSessionLocal() as s:
+                run = await s.get(AutoSearchRun, run_id)
+                if run and run.status == "running":
+                    run.status = "error"
+                    run.error = "timeout"
+                    run.finished_at = _utc_naive_now()
+                    await s.commit()
+        except Exception as e:
+            logger.error("[auto_eval] Финал по таймауту: %s", e)
+    except Exception as e:
+        try:
+            async with AsyncSessionLocal() as s:
+                run = await s.get(AutoSearchRun, run_id)
+                if run and run.status == "running":
+                    run.status = "error"
+                    run.error = str(e)[:500]
+                    run.finished_at = _utc_naive_now()
+                    await s.commit()
+        except Exception as fe:
+            logger.error("[auto_eval] Двойной сбой: %s", fe)
+    finally:
+        _auto_active_tasks.pop(run_id, None)
+
+
+async def get_auto_run_status(session: AsyncSession, company_id: UUID, run_id: UUID) -> AutoSearchRun:
+    """Статус прогона AI-оценки с reconcile застрявших."""
+    result = await session.execute(
+        select(AutoSearchRun).where(
+            AutoSearchRun.id == run_id,
+            AutoSearchRun.company_id == company_id,
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise NotFoundError("Прогон")
+
+    # Reconcile застрявших
+    if run.status == "running" and run.updated_at is not None:
+        updated = run.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - updated).total_seconds()
+        scored = run.scored_candidates or []
+        if age >= AUTO_STUCK_RECONCILE_SECONDS and scored:
+            run_pk = run.id
+            run.status = "done"
+            run.stage = "done"
+            run.evaluated = len(scored)
+            run.finished_at = _utc_naive_now()
+            if not run.note:
+                run.note = (
+                    "Авто-финализация при чтении: фоновая задача не обновила статус"
+                )
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                re_result = await session.execute(
+                    select(AutoSearchRun).where(AutoSearchRun.id == run_pk)
+                )
+                run = re_result.scalar_one_or_none()
+
+    return run
+
+
+async def sweep_orphaned_auto_runs() -> None:
+    """Закрывает зависшие прогоны AI-оценки при старте сервера."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=60)
+        async with AsyncSessionLocal() as session:
+            stmt = (
+                update(AutoSearchRun)
+                .where(
+                    AutoSearchRun.status == "running",
+                    AutoSearchRun.updated_at < cutoff,
+                )
+                .values(
+                    status="error",
+                    error="Прервано (зависание/перезапуск)",
+                    finished_at=_utc_naive_now(),
+                )
+                .returning(AutoSearchRun.id)
+            )
+            result = await session.execute(stmt)
+            ids = result.scalars().all()
+            if ids:
+                await session.commit()
+                logger.info(
+                    "[auto_eval] sweep: закрыто %d зависших прогонов: %s",
+                    len(ids),
+                    ids,
+                )
+    except Exception as e:
+        logger.error("[auto_eval] sweep_orphaned_auto_runs ошибка: %s", e)

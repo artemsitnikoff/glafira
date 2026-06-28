@@ -77,8 +77,26 @@ from ...services.base_search import (
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
 from ...models.smart_search import SmartSearchRun
 from ...services.resume_export import build_resume_pdf, build_resume_docx
-from ...schemas.auto_search import AutoSearchItem, AutoAccessResponse, AutoCandidatesResponse
-from ...services.auto_search import get_auto_access, sync_saved_searches, list_auto_searches, get_auto_candidates
+from ...schemas.auto_search import (
+    AutoSearchItem,
+    AutoAccessResponse,
+    AutoCandidatesResponse,
+    AutoBasisRequest,
+    AutoEvaluateRequest,
+    AutoRunStatus,
+    AutoEvaluateResponse,
+    AutoEvalToggleRequest,
+)
+from ...services.auto_search import (
+    get_auto_access,
+    sync_saved_searches,
+    list_auto_searches,
+    get_auto_candidates,
+    set_basis,
+    set_auto_eval,
+    start_auto_evaluate,
+    get_auto_run_status,
+)
 
 router = APIRouter()
 
@@ -764,3 +782,80 @@ async def get_auto_search_candidates(
         segment = "all"
     data = await get_auto_candidates(session, company_id, auto_search_id, segment=segment, page=page, sort=sort)
     return AutoCandidatesResponse(**data)
+
+
+@router.post(
+    "/auto/searches/{auto_search_id}/basis",
+    response_model=AutoSearchItem,
+    summary="Задать основу оценки автопоиска",
+)
+async def set_auto_basis(
+    auto_search_id: UUID,
+    request: AutoBasisRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Задать основу оценки (vacancy по company-scoped ID или prompt ≥3 символов)."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    basis = request.model_dump(mode="json", exclude_none=True)
+    return await set_basis(session, company_id, auto_search_id, basis)
+
+
+@router.patch(
+    "/auto/searches/{auto_search_id}/auto-eval",
+    response_model=AutoSearchItem,
+    summary="Включить/выключить AI-оценку автопоиска",
+)
+async def patch_auto_eval(
+    auto_search_id: UUID,
+    request: AutoEvalToggleRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Включить/выключить флаг auto_eval для автопоиска."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    return await set_auto_eval(session, company_id, auto_search_id, request.enabled)
+
+
+@router.post(
+    "/auto/searches/{auto_search_id}/evaluate",
+    response_model=AutoEvaluateResponse,
+    summary="Запустить AI-оценку кандидатов автопоиска",
+    status_code=202,
+)
+async def evaluate_auto_search(
+    auto_search_id: UUID,
+    request: AutoEvaluateRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Запустить фоновую AI-оценку кандидатов автопоиска по бесплатным полям hh."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    run_id = await start_auto_evaluate(
+        session, company_id, auto_search_id, segment=request.segment, n=request.n
+    )
+    return AutoEvaluateResponse(run_id=run_id)
+
+
+@router.get(
+    "/auto/runs/{run_id}",
+    response_model=AutoRunStatus,
+    summary="Статус прогона AI-оценки автопоиска",
+)
+async def get_auto_run(
+    run_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Поллинг статуса прогона AI-оценки автопоиска."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    run = await get_auto_run_status(session, company_id, run_id)
+    return AutoRunStatus.model_validate(run)

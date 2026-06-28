@@ -84,3 +84,23 @@ class AutoAccessResponse(BaseModel):
     has_paid_access: bool
     reason: Optional[str] = None
     pool_left: Optional[int] = None
+
+
+class AutoRunStatus(BaseModel):
+    id: UUID
+    status: str
+    stage: Optional[str] = None
+    to_evaluate: int = 0
+    evaluated: int = 0
+    scored_candidates: list[dict] = Field(default_factory=list)
+    note: Optional[str] = None
+    error: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AutoEvaluateResponse(BaseModel):
+    run_id: UUID
+
+
+class AutoEvalToggleRequest(BaseModel):
+    enabled: bool
