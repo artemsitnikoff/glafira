@@ -11,7 +11,6 @@ import type { EmployeeListItem } from '@/api/aliases';
 export function PulsePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [period, setPeriod] = useState('30d');
   const [segment, setSegment] = useState('all');
 
   // Управление табами через URL
@@ -22,7 +21,7 @@ export function PulsePage() {
     setSearchParams(newParams);
   };
 
-  const { data: kpi } = usePulseKpi(period);
+  const { data: kpi } = usePulseKpi('all');
   const { data: employeesData } = usePulseEmployees();
   const { data: alerts } = usePulseAlerts({ dismissed: false });
   const { data: surveyTemplates = [] } = useSurveyTemplates();
@@ -159,14 +158,6 @@ export function PulsePage() {
               <div className="sub">
                 Обновлено несколько минут назад · последний сбор данных: сейчас · Сегмент: {segment === 'all' ? 'все' : segment}
               </div>
-            </div>
-            <div className="pulse-header-actions">
-              <select className="dropdown" value={period} onChange={(e) => setPeriod(e.target.value)}>
-                <option value="7d">Неделя</option>
-                <option value="30d">Месяц</option>
-                <option value="90d">Квартал</option>
-                <option value="all">Всё время</option>
-              </select>
             </div>
           </div>
 
