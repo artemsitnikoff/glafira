@@ -422,6 +422,7 @@ async def get_candidates_paginated(
             Candidate.last_period,
             Candidate.ai_score,
             Candidate.is_duplicate,
+            Candidate.extra,
             has_pdn_subq.label("has_pdn")
         )
         .where(and_(*base_filters))
@@ -541,7 +542,7 @@ async def get_candidates_paginated(
             last_period=row_last_period,
             last_tenure=row_last_tenure,
             ai_score=row.ai_score,
-            avatar_url=None,  # No avatar_url field in Candidate model
+            avatar_url=(row.extra or {}).get("photo_url"),  # прокси-URL фото (extra.photo_url)
             is_duplicate=row.is_duplicate,
             has_pdn=bool(row.has_pdn),
             last_vacancy=last_vacancy,
@@ -631,6 +632,7 @@ async def get_candidate_detail(session: AsyncSession, candidate_id: UUID, compan
         first_name=candidate.first_name,
         middle_name=candidate.middle_name,
         full_name=full_name,
+        avatar_url=(candidate.extra or {}).get("photo_url"),
         age=age,
         birth_date=candidate.birth_date,
         gender=candidate.gender,
@@ -1383,7 +1385,7 @@ async def assign_candidate_to_vacancy(
         candidate_id=candidate_id,
         display_number=candidate.display_number,
         full_name=full_name,
-        avatar_url=None,  # No avatar field in candidate model
+        avatar_url=(candidate.extra or {}).get("photo_url"),  # прокси-URL фото (extra.photo_url)
         age=age,
         last_position=candidate.last_position,
         ai_score=candidate.ai_score,

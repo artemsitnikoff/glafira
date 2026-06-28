@@ -174,6 +174,7 @@ async def get_applications_for_vacancy_paginated(
             Candidate.last_position,
             Candidate.birth_date,
             Candidate.messengers,
+            Candidate.extra,
             has_pdn_subq.label("has_pdn"),
         )
         .select_from(Application)
@@ -223,7 +224,7 @@ async def get_applications_for_vacancy_paginated(
             candidate_id=row.candidate_id,
             display_number=row.display_number,
             full_name=" ".join(p for p in (row.last_name, row.first_name, row.middle_name) if p),
-            avatar_url=None,
+            avatar_url=(row.extra or {}).get("photo_url"),
             age=_compute_age(row.birth_date),
             last_position=row.last_position,
             ai_score=row.ai_score,

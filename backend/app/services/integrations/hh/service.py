@@ -22,6 +22,7 @@ from ....services.chat_log import log_chat
 from ....services.storage import storage_service
 from ....core.errors import ValidationError, NotFoundError
 from ....services.phone import normalize_phone
+from ....services.photo_proxy import build_photo_proxy_url
 from . import client as hh_client
 
 import logging
@@ -1026,11 +1027,15 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         application = existing
         await session.flush()
 
-    # Единообразно пишем hh_resume_id в extra (как в smart_search.invite_selected)
-    if resume_id:
+    # Единообразно пишем hh_resume_id + photo_url в extra (JSONB переприсваиваем
+    # для dirty-tracking). Фото берём из УЖЕ полученного резюме — доп. сетевых
+    # вызовов НЕТ; прокси-URL заполнит аватар в воронке/пуле/карточке.
+    _photo_url = build_photo_proxy_url(resume.get("photo"))
+    if resume_id or _photo_url:
         candidate.extra = {
             **(candidate.extra or {}),
-            "hh_resume_id": resume_id,
+            **({"hh_resume_id": resume_id} if resume_id else {}),
+            **({"photo_url": _photo_url} if _photo_url else {}),
         }
 
     # Best-effort скачивание PDF резюме hh в раздел «Документы» кандидата.

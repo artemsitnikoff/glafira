@@ -84,6 +84,7 @@ class CandidateDetail(ORMBase):
     first_name: str
     middle_name: str | None = None
     full_name: str
+    avatar_url: str | None = None  # прокси-URL фото кандидата (из extra.photo_url)
     age: int | None = None
     birth_date: date | None = None
     gender: str | None = None

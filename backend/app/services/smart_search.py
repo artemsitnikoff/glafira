@@ -28,6 +28,7 @@ from ..services.glafira.client import call_json
 from ..services.settings.glafira import get_company_openrouter_key, get_company_llm_model
 from ..services.audit import audit
 from ..services.phone import normalize_phone
+from ..services.photo_proxy import build_photo_proxy_url
 from .smart_search_log import log_smart_search, log_and_append_to_run
 
 logger = logging.getLogger(__name__)
@@ -1446,7 +1447,10 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                     candidate.extra = {
                         "smart_search": True,
                         "run_id": str(run_id),
-                        "hh_resume_id": str(resume_id)
+                        "hh_resume_id": str(resume_id),
+                        # Фото из УЖЕ полученного резюме (без доп. сетевых вызовов) →
+                        # публичный прокси-URL для аватара в воронке/пуле/карточке.
+                        **({"photo_url": _photo_url} if (_photo_url := build_photo_proxy_url(full_resume.get("photo"))) else {}),
                     }
                     create_session.add(candidate)
                     await create_session.flush()
@@ -1675,6 +1679,9 @@ async def take_selected(
                         "smart_search": True,
                         "run_id": str(run_id),
                         "hh_resume_id": str(resume_id),
+                        # Фото из УЖЕ полученного резюме (без доп. сетевых вызовов) →
+                        # публичный прокси-URL для аватара в воронке/пуле/карточке.
+                        **({"photo_url": _photo_url} if (_photo_url := build_photo_proxy_url(full_resume.get("photo"))) else {}),
                     }
                     create_session.add(candidate)
                     await create_session.flush()
