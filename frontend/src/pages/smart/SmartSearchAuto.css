@@ -1,0 +1,140 @@
+/* ============================================================
+   Глафира — «Автоподбор» (ветка В), ЧАНК A.
+   Шапка ветки + список автопоисков. CSS scoped под .ssa-page
+   (карточка развилки .ssf-auto — в общий контекст .ss-page,
+   как .ssf-hh / .ssf-base в smart-search.css).
+   Токены — только реальные из tokens.css (карта подмен применена:
+   --border-strong → --ark-gray-400, --bg-hover → --bg-3-hover).
+   ============================================================ */
+
+/* ---------- Карточка источника «Автоподбор» на развилке ---------- */
+.ss-page .ssf-card-ic.ic-auto { background: var(--ark-blue-50); color: var(--accent); }
+.ss-page .ssf-tag.auto { background: var(--ark-green-100); color: var(--ark-green-600); }
+.ss-page .ssf-auto:hover { border-color: var(--ark-blue-100); }
+.ss-page .ssf-auto .ssf-card-list li svg { color: var(--accent); }
+.ss-page .ssf-auto .ssf-go { color: var(--accent); }
+
+/* ---------- Ширина страницы ---------- */
+.ssa-page { max-width: 1000px; }
+
+/* ---------- Шапка ---------- */
+.ssa-page .ss-head-mark.ssa-mark {
+  background: linear-gradient(135deg, var(--ark-blue-100) 0%, var(--ark-blue-50) 100%);
+}
+.ssa-page .ssa-hh-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 20px; padding: 0 9px; border-radius: var(--radius-full);
+  background: var(--ark-blue-50); color: var(--accent);
+  font-size: 11px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; margin-left: 8px;
+}
+.ssa-page .ss-head .ssa-pool {
+  flex: none; align-self: flex-start;
+  display: flex; align-items: center; gap: 9px;
+  background: var(--ark-white); border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  padding: 8px 14px 8px 12px; box-shadow: var(--shadow-1);
+}
+.ssa-page .ssa-pool-num { font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; }
+.ssa-page .ssa-pool-cap { font-size: 10px; color: var(--fg-3); line-height: 1.2; }
+
+/* ---------- Список автопоисков ---------- */
+.ssa-page .ssa-searches { margin-top: 22px; }
+.ssa-page .ssa-searches-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.ssa-page .ssa-sb-left { display: flex; align-items: center; gap: 9px; }
+.ssa-page .ssa-sb-title { font-size: 15px; font-weight: 600; }
+.ssa-page .ssa-sb-count { font-size: 12px; color: var(--fg-3); }
+.ssa-page .ssa-sb-new {
+  font-size: 11px; font-weight: 700; color: var(--ark-green-600);
+  background: var(--ark-green-100); padding: 2px 9px; border-radius: var(--radius-full);
+}
+.ssa-page .ssa-sb-sync { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--fg-3); }
+.ssa-page .ssa-sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ark-green-500); box-shadow: 0 0 0 3px var(--ark-green-100); }
+
+.ssa-page .ssa-search-list { display: flex; flex-direction: column; gap: 12px; }
+.ssa-page .ssa-search-card {
+  display: flex; align-items: stretch;
+  background: var(--ark-white); border: 1px solid var(--border-1); border-radius: var(--radius-lg); overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.ssa-page .ssa-search-card:hover { border-color: var(--ark-gray-400); box-shadow: var(--shadow-1); }
+.ssa-page .ssa-sc-main { flex: 1; min-width: 0; padding: 16px 18px; }
+.ssa-page .ssa-sc-head { display: flex; align-items: center; gap: 9px; }
+.ssa-page .ssa-sc-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.ssa-page .ssa-sc-edit { width: 24px; height: 24px; border-radius: var(--radius-md); flex: none; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; cursor: pointer; color: var(--fg-3); }
+.ssa-page .ssa-sc-edit:hover { background: var(--bg-3-hover); color: var(--fg-1); }
+.ssa-page .ssa-sc-region { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--fg-2); }
+.ssa-page .ssa-sc-region svg { color: var(--fg-3); }
+.ssa-page .ssa-sc-date { font-size: 12px; color: var(--fg-3); flex: none; }
+
+.ssa-page .ssa-sc-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 11px 0 13px; }
+.ssa-page .ssa-sub { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 3px 10px 3px 9px; border-radius: var(--radius-full); user-select: none; }
+.ssa-page .ssa-sub.on { background: var(--ark-green-100); color: var(--ark-green-600); }
+.ssa-page .ssa-sub.off { background: var(--bg-panel-2); color: var(--fg-3); border: 1px solid var(--border-2); }
+.ssa-page .ssa-sub-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.ssa-page .ssa-sc-foot { display: flex; align-items: center; gap: 18px; }
+.ssa-page .ssa-sc-link { background: none; border: 0; cursor: pointer; font: inherit; padding: 2px 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.ssa-page .ssa-sc-link.all { color: var(--accent); }
+.ssa-page .ssa-sc-link.all:hover { text-decoration: underline; }
+.ssa-page .ssa-sc-link.new { color: var(--ark-green-600); }
+.ssa-page .ssa-sc-link.new:hover { text-decoration: underline; }
+.ssa-page .ssa-new-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ark-green-600); box-shadow: 0 0 0 3px var(--ark-green-100); flex: none; }
+.ssa-page .ssa-sc-nonew { font-size: 12.5px; color: var(--fg-3); }
+
+.ssa-page .ssa-sc-aside {
+  flex: none; width: 220px; border-left: 1px solid var(--border-2);
+  background: var(--bg-panel-2); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px; justify-content: center;
+}
+.ssa-page .ssa-autoeval { display: flex; align-items: center; gap: 10px; }
+.ssa-page .ssa-ae-text { flex: 1; min-width: 0; }
+.ssa-page .ssa-ae-title { font-size: 12.5px; font-weight: 600; }
+.ssa-page .ssa-ae-sub { font-size: 11px; color: var(--fg-3); margin-top: 1px; line-height: 1.3; }
+
+/* основа оценки — чип «против вакансии / по промту» (read-only в этом чанке) */
+.ssa-page .ssa-basis {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  background: var(--ark-white); border: 1px solid var(--border-1); border-radius: var(--radius-md);
+  padding: 6px 9px; text-align: left;
+}
+.ssa-page .ssa-basis > svg { color: var(--accent); flex: none; }
+.ssa-page .ssa-basis-text { flex: 1; min-width: 0; line-height: 1.25; }
+.ssa-page .ssa-basis-k { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-3); }
+.ssa-page .ssa-basis-v { display: block; font-size: 12px; font-weight: 600; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Spinner ---------- */
+.ssa-page .ssa-spin { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 2px solid var(--ark-gray-400); border-top-color: var(--accent); animation: ssaSpin 0.7s linear infinite; display: inline-block; }
+.ssa-page .ssa-spin.dark { border-color: rgba(255,255,255,.45); border-top-color: var(--ark-white); }
+@keyframes ssaSpin { to { transform: rotate(360deg); } }
+
+/* ---------- Состояния: loading / empty / error / no-access ---------- */
+.ssa-page .ssa-state {
+  margin-top: 22px; padding: 36px 24px; text-align: center;
+  background: var(--bg-panel-2); border: 1px solid var(--border-2); border-radius: var(--radius-lg);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.ssa-page .ssa-state-loading { flex-direction: row; justify-content: center; gap: 10px; padding: 22px; font-size: 13px; color: var(--fg-2); }
+.ssa-page .ssa-state-error { flex-direction: row; justify-content: center; gap: 10px; padding: 16px; font-size: 13px; color: var(--ark-red-600); }
+.ssa-page .ssa-state-error svg { flex: none; }
+.ssa-page .ssa-state-ic { color: var(--fg-3); margin-bottom: 6px; }
+.ssa-page .ssa-state-title { font-size: 16px; font-weight: 600; }
+.ssa-page .ssa-state-sub { font-size: 13px; color: var(--fg-2); line-height: 1.5; max-width: 440px; margin-bottom: 10px; }
+
+/* ---------- Плейсхолдер «кандидаты — следующий чанк» ---------- */
+.ssa-page .ssa-cands-soon { margin-top: 18px; }
+.ssa-page .ssa-crumb { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; cursor: pointer; font: inherit; font-size: 13px; color: var(--fg-2); padding: 4px 8px 4px 4px; border-radius: var(--radius-md); }
+.ssa-page .ssa-crumb:hover { background: var(--bg-3-hover); color: var(--fg-1); }
+.ssa-page .ssa-cands-soon-body {
+  margin-top: 14px; padding: 40px 24px; text-align: center;
+  background: var(--bg-panel-2); border: 1px solid var(--border-2); border-radius: var(--radius-lg);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.ssa-page .ssa-cands-soon-ic { color: var(--fg-3); margin-bottom: 6px; }
+.ssa-page .ssa-cands-soon-title { font-size: 16px; font-weight: 600; }
+.ssa-page .ssa-cands-soon-sub { font-size: 13px; color: var(--fg-2); }
+
+/* ---------- Адаптив ---------- */
+@media (max-width: 980px) {
+  .ssa-page .ssa-search-card { flex-direction: column; }
+  .ssa-page .ssa-sc-aside { width: auto; border-left: 0; border-top: 1px solid var(--border-2); flex-direction: row; flex-wrap: wrap; }
+}

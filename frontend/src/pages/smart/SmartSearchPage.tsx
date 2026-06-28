@@ -25,6 +25,7 @@ import {
   useMarkBaseRunAdded,
   useSmartBaseRun,
   useSmartBaseIndexStatus,
+  useAutoSearches,
   type SmartVacancy,
   type SmartCandidate,
   type SmartScoredResume,
@@ -42,6 +43,7 @@ import {
 } from '@/api/hooks/useSmartSearch';
 import { AssignToVacancyModal } from '../candidates/components/AssignToVacancyModal';
 import { useSmartResumeDownload } from '@/api/hooks/useSmartResumeDownload';
+import { SmartSearchAuto } from './SmartSearchAuto';
 import './smart-search.css';
 
 // Форматирование чисел с разделителями
@@ -119,7 +121,7 @@ function ssThrColor(v: number) {
 
 type Phase = 'build' | 'running' | 'done';
 
-type Mode = 'hh' | 'base' | null;
+type Mode = 'hh' | 'base' | 'auto' | null;
 
 export default function SmartSearchPage() {
   const navigate = useNavigate();
@@ -132,6 +134,8 @@ export default function SmartSearchPage() {
   const { data: vacancies = [] } = useSmartVacancies();
   const { data: history = [] } = useSmartHistory();
   const { data: baseCount = { count: 0 } } = useSmartBaseCount();
+  // Автопоиски (ветка В) — только для бейджа «+N новых» на карточке развилки
+  const { data: autoSearches = [] } = useAutoSearches();
   const startSearch = useStartSmartSearch();
   const deriveFilters = useDeriveVacancyFilters();
   const countMut = useSmartCount();
@@ -389,16 +393,23 @@ export default function SmartSearchPage() {
     );
   }
 
+  // Рендер ветки В (автоподбор — сохранённые автопоиски hh)
+  if (mode === 'auto') {
+    return <SmartSearchAuto onBack={() => setMode(null)} />;
+  }
+
   // Рендер развилки (вход в раздел)
   if (mode === null) {
+    const autoNew = autoSearches.reduce((sum, s) => sum + (s.new_count ?? 0), 0);
     return (
       <div className="ss-page">
         <SSHeader
-          sub={<>С чего начнём? Глафира умеет искать кандидатов <b>снаружи</b> — в базе резюме hh.ru — и <b>внутри</b>, по вашей собственной базе кандидатов.</>}
+          sub={<>С чего начнём? Глафира ищет <b>снаружи</b> — в базе резюме hh.ru, ведёт ваши <b>автопоиски</b> на hh и ищет <b>внутри</b> — по вашей базе кандидатов.</>}
         />
         <SSFork
           hasHhAccess={accessData?.has_access ?? false}
           poolCount={baseCount.count}
+          autoNew={autoNew}
           onPick={setMode}
         />
       </div>
@@ -2314,9 +2325,10 @@ function SSHistoryRunDetail({
 }
 
 // ====== Развилка: выбор источника подбора ======
-function SSFork({ hasHhAccess, poolCount, onPick }: {
+function SSFork({ hasHhAccess, poolCount, autoNew, onPick }: {
   hasHhAccess: boolean;
   poolCount: number;
+  autoNew: number;
   onPick: (mode: Mode) => void;
 }) {
   return (
@@ -2357,6 +2369,27 @@ function SSFork({ hasHhAccess, poolCount, onPick }: {
           <li><Icon name="message-circle" size={14} /> Поиск промтом — «напишите, кто нужен»</li>
           <li><Icon name="briefcase" size={14} /> Или поиск под открытую вакансию</li>
           <li><Icon name="filter" size={14} /> Автофильтры как на hh — по базе</li>
+        </ul>
+        <span className="ssf-go">Выбрать <Icon name="arrow-right" size={15} /></span>
+      </button>
+
+      {/* Автоподбор — сохранённые автопоиски hh */}
+      <button className="ssf-card ssf-auto" onClick={() => onPick('auto')}>
+        <div className="ssf-card-top">
+          <div className="ssf-card-ic ic-auto"><Icon name="radio" size={22} /></div>
+          {autoNew > 0
+            ? <span className="ssf-tag auto"><Icon name="bell" size={11} /> +{autoNew} новых</span>
+            : <span className="ssf-tag neutral">автопоиски hh</span>}
+        </div>
+        <div className="ssf-card-title">Автоподбор</div>
+        <div className="ssf-card-desc">
+          Ваши автопоиски на hh.ru: настроили фильтры и подписались — новые резюме приходят в поток.
+          Глафира забирает и оценивает их сразу. <b>Пока через hh.</b>
+        </div>
+        <ul className="ssf-card-list">
+          <li><Icon name="radio" size={14} /> Готовые автопоиски hh — по названиям</li>
+          <li><Icon name="sparkles" size={14} /> Авто-оценка новых резюме</li>
+          <li><Icon name="key" size={14} /> Забрать контакт → в воронку / пул</li>
         </ul>
         <span className="ssf-go">Выбрать <Icon name="arrow-right" size={15} /></span>
       </button>

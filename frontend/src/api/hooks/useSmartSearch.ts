@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../client';
 
 // Локальные типы для умного подбора (openapi не регенерён — skill_chips/skill_mode добавлены
@@ -547,6 +547,70 @@ export function useSmartTake(runId: string) {
     mutationFn: async (resumeIds): Promise<SmartTakeResponse> => {
       const response = await api.post(`/smart/runs/${runId}/take`, { resume_ids: resumeIds });
       return response.data as SmartTakeResponse;
+    },
+  });
+}
+
+// === ВЕТКА В: Автоподбор (сохранённые автопоиски hh) ===
+// Бек /smart/auto/* готов и проверен на живом hh; openapi не регенерён — локальные типы + as-cast.
+
+export interface AutoAccess {
+  has_access: boolean;
+  has_paid_access: boolean;
+  reason: string | null;
+  pool_left: number | null;
+}
+
+export interface AutoSearchBasis {
+  kind: 'vacancy' | 'prompt';
+  vacancy_id?: string;
+  prompt?: string;
+}
+
+export interface AutoSearch {
+  id: string;
+  hh_saved_search_id: string;
+  name: string;
+  region: string | null;
+  subscribed: boolean;
+  auto_eval: boolean;
+  total: number | null;
+  new_count: number | null;
+  basis: AutoSearchBasis | null;
+  updated_at: string | null;
+}
+
+// Доступ к автопоискам hh (платный доступ + остаток пула контактов)
+export function useAutoAccess() {
+  return useQuery({
+    queryKey: ['smart', 'auto', 'access'],
+    queryFn: async (): Promise<AutoAccess> => {
+      const response = await api.get('/smart/auto/access');
+      return response.data as AutoAccess;
+    },
+  });
+}
+
+// Список автопоисков из hh (синхронизированные сохранённые поиски)
+export function useAutoSearches() {
+  return useQuery({
+    queryKey: ['smart', 'auto', 'searches'],
+    queryFn: async (): Promise<AutoSearch[]> => {
+      const response = await api.get('/smart/auto/searches');
+      return response.data as AutoSearch[];
+    },
+  });
+}
+
+// Принудительная синхронизация автопоисков с hh
+export function useSyncAutoSearches() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, void>({
+    mutationFn: async (): Promise<void> => {
+      await api.post('/smart/auto/searches/sync', {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['smart', 'auto', 'searches'] });
     },
   });
 }
