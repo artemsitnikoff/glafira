@@ -4,6 +4,7 @@
 //   + нижняя bottom-sheet превью-карточка (своя вёрстка на классах .cand-detail).
 // ЧАНК C: основа оценки (vacancy/промт) + AI-оценка в фоне (поллинг) + реальный разбор в табе Оценка AI.
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Icon } from '@/components/ui/Icon';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
@@ -17,11 +18,14 @@ import {
   useToggleAutoEval,
   useRunAutoEval,
   useAutoEvalRun,
+  useAutoTake,
   type AutoCandidate,
   type AutoSearch,
   type AutoSearchBasis,
   type AutoScored,
+  type AutoTakeResp,
 } from '@/api/hooks/useSmartSearch';
+import type { components } from '@/api/types';
 import './SmartSearchAuto.css';
 // CSS-классы карточки соискателя (.cd-toolbar/.cd-header/.resume-single/.ai-single/...)
 // переиспользуем в bottom-sheet — как в CandidatePoolDetailPage. Сам компонент
@@ -57,6 +61,28 @@ function plural(n: number, one: string, few: string, many: string): string {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
 }
+
+// Локальный тип ответа с ошибкой (ApiError envelope)
+interface ApiErrEnvelope {
+  error?: { code?: string; message?: string };
+}
+
+// Хелпер текста ошибки для тоста (учитывает ApiError envelope из client.ts)
+function takeErrorText(e: unknown): string {
+  const env = e as ApiErrEnvelope;
+  const code = env?.error?.code;
+  const msg = env?.error?.message;
+  if (code === 'SUBSCRIPTION_EXPIRED' || code === '402') return 'Нет платного доступа к базе hh';
+  if (code === '429' || (typeof msg === 'string' && msg.toLowerCase().includes('pool'))) {
+    return 'Пул контактов исчерпан. Пополните в кабинете hh';
+  }
+  if (msg) return msg;
+  if (e instanceof Error) return e.message;
+  return 'Не удалось забрать контакт';
+}
+
+// Тип вакансии для поповера «Перевести»
+type VacItem = Pick<components['schemas']['VacancyDetail'], 'id' | 'name'>;
 
 // windowed список страниц: [1, '…', 4, 5, 6, '…', 65] (порт saPager из прототипа).
 // Возвращает позиции 1-based; '…' — разделитель.
@@ -470,6 +496,21 @@ function SSAutoCandidatesView({
   const [evalError, setEvalError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | { confirmLabel: string; after: (basis: AutoSearchBasis) => void }>(null);
 
+  // Стейт чанка C2: забор контакта / тосты / локальный трекер взятых
+  type Toast = { kind: 'ok' | 'err'; text: string; action?: { label: string; to: string } } | null;
+  const [toast, setToast] = useState<Toast>(null);
+  const navigate = useNavigate();
+  const takeMutation = useAutoTake(search.id);
+  const [takenLocal, setTakenLocal] = useState<Record<string, 'pool' | 'vacancy'>>({});
+  const { data: takeVacData } = useVacancies({ status: 'active', page_size: 100 });
+
+  // Авто-скрытие тоста через 4000мс
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const qc = useQueryClient();
   const setBasis = useSetAutoBasis(search.id);
   const toggleEval = useToggleAutoEval(search.id);
@@ -522,6 +563,51 @@ function SSAutoCandidatesView({
 
   function openBasisDialog(confirmLabel: string, after: (basis: AutoSearchBasis) => void) {
     setDialog({ confirmLabel, after });
+  }
+
+  // doTake — забор контакта (⚠️ ПЛАТНО: списывает 1 контакт из пула hh)
+  function doTake(
+    c: AutoCandidate,
+    target: 'pool' | 'vacancy',
+    opts?: { vacancyId?: string; vacName?: string },
+  ) {
+    if (poolLeft === 0) {
+      setToast({ kind: 'err', text: 'Пул контактов исчерпан. Пополните в кабинете hh.' });
+      return; // БЕЗ запроса к беку
+    }
+    takeMutation.mutate(
+      { resume_ids: [c.hh_resume_id], target, vacancy_id: opts?.vacancyId },
+      {
+        onSuccess: (resp: AutoTakeResp) => {
+          const r = resp.results?.[0];
+          if (r && r.status === 'error') {
+            setToast({ kind: 'err', text: r.error || 'Не удалось забрать контакт' });
+            return;
+          }
+          setTakenLocal((prev) => ({ ...prev, [c.hh_resume_id]: target }));
+          const alreadyNote = r?.status === 'already' ? ' (уже в базе)' : '';
+          if (target === 'pool') {
+            setToast({
+              kind: 'ok',
+              text: `Кандидат добавлен в пул${alreadyNote}`,
+              action: { label: 'Открыть базу', to: '/candidates' },
+            });
+          } else {
+            setToast({
+              kind: 'ok',
+              text: `Кандидат в воронке «${opts?.vacName ?? ''}»${alreadyNote}`,
+              action: {
+                label: 'Открыть воронку',
+                to: opts?.vacancyId ? `/vacancies/${opts.vacancyId}` : '/vacancies',
+              },
+            });
+          }
+        },
+        onError: (e: unknown) => {
+          setToast({ kind: 'err', text: takeErrorText(e) });
+        },
+      },
+    );
   }
 
   function startEval() {
@@ -789,7 +875,31 @@ function SSAutoCandidatesView({
           onRunScoring={startEval}
           running={isEvalRunning}
           onClose={() => setOpenId(null)}
+          onTake={doTake}
+          vacancies={(takeVacData?.items ?? []).map((v) => ({ id: v.id, name: v.name }))}
+          takenTarget={takenLocal[openCand.hh_resume_id] ?? (openCand.taken ? 'pool' : undefined)}
+          takePending={takeMutation.isPending}
         />
+      )}
+
+      {/* Тост (чанк C2) */}
+      {toast && (
+        <div className={`ssa-toast ssa-toast-${toast.kind}`}>
+          <Icon name={toast.kind === 'ok' ? 'check' : 'alert-circle'} size={15} />
+          <span>{toast.text}</span>
+          {toast.action && (
+            <button
+              className="ssa-toast-act"
+              onClick={() => {
+                const to = toast.action!.to;
+                setToast(null);
+                navigate(to);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -879,6 +989,10 @@ function SSAutoSheet({
   onRunScoring,
   running,
   onClose,
+  onTake,
+  vacancies,
+  takenTarget,
+  takePending,
 }: {
   c: AutoCandidate;
   searchName: string;
@@ -889,9 +1003,17 @@ function SSAutoSheet({
   onRunScoring: () => void;
   running: boolean;
   onClose: () => void;
+  onTake: (c: AutoCandidate, target: 'pool' | 'vacancy', opts?: { vacancyId?: string; vacName?: string }) => void;
+  vacancies: VacItem[];
+  takenTarget?: 'pool' | 'vacancy';
+  takePending: boolean;
 }) {
   const [tab, setTab] = useState<'resume' | 'ai'>('resume');
   const [shown, setShown] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const isTaken = !!takenTarget;
 
   // Приоритет: scored.score > c.score
   const displayScore = scored?.score ?? c.score;
@@ -916,14 +1038,68 @@ function SSAutoSheet({
         <div className="ssa-sheet-grip" />
         <div className="cnd-funnel-wrap">
           <div className="cand-detail ssa-cd">
-            {/* Тулбар — «Забрать контакт»/«Перевести» disabled до чанка C2 */}
+            {/* Тулбар — чанк C2: кнопки «Забрать контакт» / «Перевести» */}
             <div className="cd-toolbar">
-              <button className="btn btn-primary btn-sm" disabled title="Подключаем">
-                <Icon name="external-link" size={14} /> Забрать контакт
-              </button>
-              <button className="btn btn-success btn-sm" disabled title="Подключаем">
-                <Icon name="arrow-right" size={14} /> Перевести <Icon name="chevron-down" size={12} />
-              </button>
+              {/* «Забрать контакт» — только если ещё не взяли */}
+              {!isTaken && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => onTake(c, 'pool')}
+                  disabled={poolLeft === 0 || takePending}
+                  title="Списать 1 контакт из пула hh"
+                >
+                  <Icon name="external-link" size={14} /> Забрать контакт
+                </button>
+              )}
+              {/* «Перевести» — поповер с выбором пул/вакансия */}
+              <div className="cd-move-wrap">
+                <button
+                  className={`btn btn-sm ${isTaken ? 'btn-secondary' : 'btn-success'}`}
+                  onClick={() => setMoveOpen((o) => !o)}
+                >
+                  <Icon name="arrow-right" size={14} />
+                  {isTaken ? (takenTarget === 'pool' ? 'В пуле' : 'В воронке') : 'Перевести'}
+                  <Icon name="chevron-down" size={12} />
+                </button>
+                {moveOpen && (
+                  <>
+                    <div className="cd-pop-backdrop" onClick={() => setMoveOpen(false)} />
+                    <div className="cd-move-pop" role="menu">
+                      <div className="cd-pop-head">Куда перенести кандидата?</div>
+                      <button
+                        className="cd-pop-item"
+                        disabled={takePending}
+                        onClick={() => { onTake(c, 'pool'); setMoveOpen(false); }}
+                      >
+                        <span className="cd-pop-num"><Icon name="users" size={14} /></span>
+                        <span className="cd-pop-label">В пул кандидатов</span>
+                        {takenTarget === 'pool' && <span className="cd-pop-tag">сейчас</span>}
+                      </button>
+                      <div className="cd-pop-group">В воронку вакансии</div>
+                      {vacancies.map((v) => (
+                        <button
+                          key={v.id}
+                          className="cd-pop-item"
+                          disabled={takePending}
+                          onClick={() => { onTake(c, 'vacancy', { vacancyId: v.id, vacName: v.name }); setMoveOpen(false); }}
+                        >
+                          <span className="cd-pop-num"><Icon name="briefcase" size={14} /></span>
+                          <span className="cd-pop-label">{v.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Чип «Контакт открыт» */}
+              {isTaken && (
+                <span className="cd-pdn-confirmed" title="Контакт списан из пула hh">
+                  Контакт открыт
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              )}
               <div style={{ flex: 1 }} />
               <button className="icon-btn" onClick={onClose} title="Закрыть (Esc)">
                 <Icon name="x" size={18} />
@@ -973,37 +1149,64 @@ function SSAutoSheet({
                   )}
                 </div>
 
-                <div className="cd-contact-box ssa-cb-locked">
-                  <div className="cb-row">
-                    <span className="cb-label">Контакты:</span>
-                    <span className="ssa-locked">
-                      <Icon name="lock" size={12} /> закрыты на hh
-                    </span>
-                  </div>
-                  <div className="cb-row">
-                    <span className="cb-label">Телефон:</span>
-                    <span className="ssa-mask">+7 ••• ••• •• ••</span>
-                  </div>
-                  {c.city && (
+                {/* Контакт-бокс: разные версии для взятого/невзятого */}
+                {isTaken ? (
+                  <div className="cd-contact-box ssa-cb-opened">
                     <div className="cb-row">
-                      <span className="cb-label">Город:</span>
-                      <span>{c.city}</span>
+                      <span className="cb-label">Контакт:</span>
+                      <span className="ssa-opened">
+                        <Icon name="check" size={12} /> открыт — кандидат {takenTarget === 'vacancy' ? 'в воронке' : 'в пуле'}
+                      </span>
                     </div>
-                  )}
-                  <div className="ssa-cb-note">
-                    Откроется после списания 1 контакта из пула
-                    {poolLeft != null && (
-                      <>
-                        {' '}
-                        (осталось <span className="t-mono">{poolLeft}</span>)
-                      </>
+                    {c.city && (
+                      <div className="cb-row">
+                        <span className="cb-label">Город:</span>
+                        <span>{c.city}</span>
+                      </div>
                     )}
-                    .
-                    {c.anonymous && (
-                      <span className="ssa-cb-warn"> Резюме анонимное — ФИО и телефон могут не прийти.</span>
-                    )}
+                    <div className="ssa-cb-note">
+                      Реальные контакты (телефон, e-mail) видны в карточке кандидата.{' '}
+                      <button
+                        className="ssa-open-card"
+                        onClick={() => navigate(takenTarget === 'vacancy' ? '/vacancies' : '/candidates')}
+                      >
+                        Открыть карточку
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="cd-contact-box ssa-cb-locked">
+                    <div className="cb-row">
+                      <span className="cb-label">Контакты:</span>
+                      <span className="ssa-locked">
+                        <Icon name="lock" size={12} /> закрыты на hh
+                      </span>
+                    </div>
+                    <div className="cb-row">
+                      <span className="cb-label">Телефон:</span>
+                      <span className="ssa-mask">+7 ••• ••• •• ••</span>
+                    </div>
+                    {c.city && (
+                      <div className="cb-row">
+                        <span className="cb-label">Город:</span>
+                        <span>{c.city}</span>
+                      </div>
+                    )}
+                    <div className="ssa-cb-note">
+                      Откроется после списания 1 контакта из пула
+                      {poolLeft != null && (
+                        <>
+                          {' '}
+                          (осталось <span className="t-mono">{poolLeft}</span>)
+                        </>
+                      )}
+                      .
+                      {c.anonymous && (
+                        <span className="ssa-cb-warn"> Резюме анонимное — ФИО и телефон могут не прийти.</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

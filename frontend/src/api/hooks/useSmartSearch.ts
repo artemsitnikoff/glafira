@@ -738,3 +738,39 @@ export function useAutoEvalRun(runId: string | null, enabled: boolean) {
     },
   });
 }
+
+// === ЗАБОР КОНТАКТА / ПЕРЕВОД (чанк C2) ===
+// ⚠️ ПЛАТНО — списывает контакт из пула hh. Бек гейтит has_paid_access; пул 0 → 429/ошибка.
+
+export interface AutoTakeResult {
+  hh_resume_id: string;
+  status: 'created' | 'already' | 'error';
+  candidate_id?: string | null;
+  error?: string | null;
+}
+
+export interface AutoTakeResp {
+  results: AutoTakeResult[];
+  taken: number;
+  pool_left: number | null;
+}
+
+export interface AutoTakeRequest {
+  resume_ids: string[];
+  target: 'pool' | 'vacancy';
+  vacancy_id?: string;
+}
+
+export function useAutoTake(searchId: string) {
+  const qc = useQueryClient();
+  return useMutation<AutoTakeResp, unknown, AutoTakeRequest>({
+    mutationFn: async (body): Promise<AutoTakeResp> => {
+      const response = await api.post(`/smart/auto/searches/${searchId}/take`, body);
+      return response.data as AutoTakeResp;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'candidates', searchId] });
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'access'] });
+    },
+  });
+}

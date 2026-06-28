@@ -374,10 +374,47 @@
 .ssa-vac-check { color: var(--accent); flex: none; }
 .ssa-vac-loading { padding: 12px; font-size: 13px; color: var(--fg-3); text-align: center; }
 
+/* ---------- cd-pop-num (нет в CandidateDetail.css) ---------- */
+.ssa-page .ssa-sheet .cd-pop-num {
+  flex: none; width: 24px; min-width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--fg-3);
+}
+.ssa-page .ssa-sheet .cd-pop-num svg { color: var(--fg-3); }
+
+/* ---------- Открытый контакт-бокс (чанк C2) ---------- */
+.ssa-page .ssa-cb-opened .ssa-opened { display: inline-flex; align-items: center; gap: 5px; color: var(--ark-green-600); font-weight: 600; }
+.ssa-page .ssa-cb-opened .ssa-opened svg { flex: none; }
+.ssa-page .ssa-cb-opened .ssa-cb-note { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-2); font-size: 11.5px; color: var(--fg-2); line-height: 1.45; }
+.ssa-page .ssa-open-card { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.ssa-page .ssa-open-card:hover { text-decoration: underline; }
+
+/* ---------- Тосты (чанк C2; --shadow-3→--shadow-lg) ---------- */
+.ssa-page .ssa-toast {
+  position: fixed; left: calc(var(--sidebar-width) + 50%); transform: translateX(-50%);
+  bottom: 26px; z-index: 80;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--ark-gray-900); color: #fff;
+  padding: 11px 16px; border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); font-size: 13px; font-weight: 500; max-width: 560px;
+  animation: ssaToastIn 240ms var(--ease-out);
+}
+@keyframes ssaToastIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.ssa-page .ssa-toast-ok svg { color: var(--ark-green-500); flex: none; }
+.ssa-page .ssa-toast-err { background: var(--ark-red-600); }
+.ssa-page .ssa-toast-err svg { color: #fff; flex: none; }
+.ssa-page .ssa-toast-act {
+  background: rgba(255,255,255,.16); border: 0; cursor: pointer; color: #fff;
+  font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 11px;
+  border-radius: var(--radius-md); margin-left: 4px;
+}
+.ssa-page .ssa-toast-act:hover { background: rgba(255,255,255,.28); }
+
 /* ---------- Адаптив ---------- */
 @media (max-width: 980px) {
   .ssa-page .ssa-search-card { flex-direction: column; }
   .ssa-page .ssa-sc-aside { width: auto; border-left: 0; border-top: 1px solid var(--border-2); flex-direction: row; flex-wrap: wrap; }
   .ssa-page .ssa-sheet, .ssa-page .ssa-sheet-backdrop { left: 0; }
   .ssa-page .ssa-sheet-backdrop { inset: 0; }
+  .ssa-page .ssa-toast { left: 50%; }
 }
