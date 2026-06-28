@@ -547,6 +547,39 @@ async def search_resumes(access_token: str, params: list[tuple[str, str]]) -> di
             raise ValidationError(f"Ошибка поиска резюме hh.ru: {e}")
 
 
+async def list_saved_resume_searches(access_token: str) -> dict:
+    """GET /saved_searches/resumes — список сохранённых автопоисков резюме работодателя."""
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/saved_searches/resumes",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=[("page", "0"), ("per_page", "10")],
+            )
+            if response.status_code == 403:
+                raise ValidationError(
+                    "Нет доступа к сохранённым поискам резюме hh — нужна услуга «доступ к базе резюме»"
+                )
+            response.raise_for_status()
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValidationError("Некорректный формат ответа hh.ru /saved_searches/resumes")
+            # ДИАГ-ЛОГ сырого ответа (только метаданные поисков, PII нет) — чтобы запиннить
+            # точные имена полей на живом токене. Образец стиля: [smart] payable_api_actions raw=
+            _items = result.get("items") or []
+            logger.info(
+                "[auto] saved_searches raw keys=%s count=%s first_item_keys=%s",
+                list(result.keys()),
+                len(_items),
+                list(_items[0].keys()) if _items and isinstance(_items[0], dict) else None,
+            )
+            return result
+        except httpx.HTTPStatusError as e:
+            raise ValidationError(f"hh.ru ошибка сохранённых поисков (HTTP {e.response.status_code})")
+        except httpx.HTTPError as e:
+            raise ValidationError(f"Ошибка получения сохранённых поисков резюме hh.ru: {e}")
+
+
 async def download_resume_file(access_token: str, url: str) -> bytes | None:
     """Скачивает сгенерированный PDF резюме hh по прямой ссылке из поля download.pdf.url.
 

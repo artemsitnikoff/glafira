@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import types
+from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select, update
@@ -76,6 +77,8 @@ from ...services.base_search import (
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
 from ...models.smart_search import SmartSearchRun
 from ...services.resume_export import build_resume_pdf, build_resume_docx
+from ...schemas.auto_search import AutoSearchItem, AutoAccessResponse
+from ...services.auto_search import get_auto_access, sync_saved_searches, list_auto_searches
 
 router = APIRouter()
 
@@ -689,3 +692,56 @@ async def export_smart_candidate_resume(
     }
 
     return Response(content=content, media_type=media_type, headers=headers)
+
+
+# === АВТОПОДБОР (saved searches hh) ===
+
+@router.get("/auto/access", response_model=AutoAccessResponse)
+async def get_auto_search_access(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Доступ к Автоподбору (hh подключён + остаток пула)."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    data = await get_auto_access(session, company_id)
+    return AutoAccessResponse(**data)
+
+
+@router.get("/auto/searches", response_model=list[AutoSearchItem])
+async def get_auto_searches(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Список сохранённых автопоисков hh. Свежий кэш (<1ч) отдаём без обращения к hh."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    cached = await list_auto_searches(session, company_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    fresh = any(
+        s.last_synced_at is not None and (now - s.last_synced_at) < timedelta(hours=1)
+        for s in cached
+    )
+    if fresh:
+        return cached
+    try:
+        return await sync_saved_searches(session, company_id)
+    except Exception as e:
+        if cached:
+            logger.warning("[auto] sync failed, serving cache: %s", e)
+            return cached
+        raise
+
+
+@router.post("/auto/searches/sync", response_model=list[AutoSearchItem])
+async def sync_auto_searches(
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Принудительная синхронизация автопоисков с hh."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    return await sync_saved_searches(session, company_id)
