@@ -310,6 +310,7 @@ async def get_auto_candidates(
             "score": None,
             "taken": hh_resume_id in taken_ids,
             "photo_url": photo_url,
+            "hh_url": item.get("alternate_url"),
         })
 
     total = min(raw.get("found", 0) or 0, 2000)

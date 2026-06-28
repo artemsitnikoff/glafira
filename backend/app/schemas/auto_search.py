@@ -43,6 +43,7 @@ class AutoSearchCandidate(BaseModel):
     score: Optional[int] = None
     taken: bool = False
     photo_url: Optional[str] = None
+    hh_url: Optional[str] = None
 
 
 class AutoCandidatesResponse(BaseModel):
