@@ -256,6 +256,12 @@
 .ssa-page .ssa-unscored-note { display: flex; align-items: center; gap: 8px; background: var(--ark-violet-100); color: var(--ark-violet-500); border-radius: var(--radius-lg); padding: 10px 13px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.4; }
 .ssa-page .ssa-unscored-note svg { flex: none; color: var(--ark-violet-500); }
 
+/* загрузка полного резюме с hh */
+.ssa-page .ssa-resume-loading { display: flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: 12.5px; padding: 8px 0 14px; }
+/* нотис «полное резюме недоступно» (квота просмотров hh) — фолбэк на открытые поля */
+.ssa-page .ssa-resume-notice { display: flex; align-items: center; gap: 8px; background: var(--ark-yellow-100); color: var(--ark-yellow-600); border-radius: var(--radius-lg); padding: 10px 13px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.4; }
+.ssa-page .ssa-resume-notice svg { flex: none; color: var(--ark-yellow-600); }
+
 /* пустой AI-таб */
 .ssa-page .ssa-ai-empty { text-align: center; padding: 36px 20px; }
 .ssa-page .ssa-ai-empty-ic { width: 56px; height: 56px; border-radius: var(--radius-lg); margin: 0 auto 14px; background: var(--ark-violet-100); color: var(--ark-violet-500); display: flex; align-items: center; justify-content: center; }

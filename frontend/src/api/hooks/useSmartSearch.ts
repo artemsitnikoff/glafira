@@ -646,6 +646,58 @@ export interface AutoCandidatesResp {
   per_page: number;
 }
 
+// === ПОЛНОЕ РЕЗЮМЕ КАНДИДАТА АВТОПОИСКА (без контактов) ===
+// Бек: GET /smart/auto/candidate/{hh_resume_id}/detail → AutoCandidateDetail.
+// ⚠️ 1 запрос = 1 «просмотр» резюме на hh (НЕ списание контакта). Кэшируем на сессию
+// (staleTime Infinity), чтобы повторное открытие карточки не тратило квоту просмотров.
+
+export interface AutoExpItem {
+  position?: string | null;
+  company?: string | null;
+  period?: string | null;
+  description?: string | null;
+}
+
+export interface AutoEduItem {
+  name?: string | null;
+  organization?: string | null;
+  year?: number | null;
+  result?: string | null;
+}
+
+export interface AutoCandidateDetail {
+  hh_resume_id: string;
+  title?: string | null;
+  age?: number | null;
+  city?: string | null;
+  salary?: number | null;
+  total_experience?: string | null;
+  anonymous?: boolean;
+  photo_url?: string | null;
+  hh_url?: string | null;
+  about?: string | null;
+  skills: string[];
+  experience: AutoExpItem[];
+  education: AutoEduItem[];
+  languages: string[];
+}
+
+// Полное резюме кандидата автопоиска. Кэш на сессию (staleTime Infinity / retry false)
+// — экономит квоту просмотров hh: одно открытие карточки = один реальный запрос.
+export function useAutoCandidateDetail(hhResumeId: string | null) {
+  return useQuery({
+    queryKey: ['smart', 'auto', 'detail', hhResumeId],
+    queryFn: async (): Promise<AutoCandidateDetail> => {
+      const response = await api.get(`/smart/auto/candidate/${hhResumeId}/detail`);
+      return response.data as AutoCandidateDetail;
+    },
+    enabled: hhResumeId !== null,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+    retry: false,
+  });
+}
+
 // Кандидаты выбранного автопоиска: пагинация + сегмент (all|new) + сортировка.
 // keepPreviousData (placeholderData) — чтобы при смене страницы не мигало в пустоту.
 export function useAutoCandidates(

@@ -13,6 +13,7 @@ import { useVacancies } from '@/api/hooks/useVacancies';
 import {
   useAutoAccess,
   useAutoCandidates,
+  useAutoCandidateDetail,
   useAutoSearches,
   useSyncAutoSearches,
   useSetAutoBasis,
@@ -21,6 +22,7 @@ import {
   useAutoEvalRun,
   useAutoTake,
   type AutoCandidate,
+  type AutoCandidateDetail,
   type AutoSearch,
   type AutoSearchBasis,
   type AutoScored,
@@ -61,6 +63,19 @@ function plural(n: number, one: string, few: string, many: string): string {
   if (m10 === 1 && m100 !== 11) return one;
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
+}
+
+// Разбор свободного описания позиции на пункты (порт логики из ResumeTab):
+// каждая непустая строка → буллет; ведущий маркер (-–—•*·) срезаем; строка,
+// оканчивающаяся на ':' → жирный подзаголовок.
+type AutoJobItem = string | { h: string };
+function parseJobItems(description?: string | null): AutoJobItem[] {
+  if (!description) return [];
+  return description
+    .split('\n')
+    .map((l) => l.trim().replace(/^[-–—•*·▪●‣◦]+\s*/, '').trim())
+    .filter(Boolean)
+    .map((l) => (l.endsWith(':') ? { h: l } : l));
 }
 
 // Локальный тип ответа с ошибкой (ApiError envelope)
@@ -1111,6 +1126,15 @@ function SSAutoSheet({
   const [moveOpen, setMoveOpen] = useState(false);
   const navigate = useNavigate();
 
+  // Полное резюме с hh (опыт/образование/навыки/о себе) — кэш на сессию (1 запрос =
+  // 1 просмотр hh). Ошибка (квота просмотров/нет доступа) → фолбэк на компактную сводку.
+  const {
+    data: detail,
+    isLoading: detailLoading,
+    isError: detailError,
+    error: detailErrObj,
+  } = useAutoCandidateDetail(c.hh_resume_id);
+
   const isTaken = !!takenTarget;
 
   // Приоритет: scored.score > c.score
@@ -1337,7 +1361,13 @@ function SSAutoSheet({
 
             <div className="cc-content">
               {tab === 'resume' ? (
-                <SSAutoResume c={c} />
+                <SSAutoResume
+                  c={c}
+                  detail={detail ?? null}
+                  loading={detailLoading}
+                  errored={detailError}
+                  errorMsg={detailErrObj?.message ?? null}
+                />
               ) : (
                 <SSAutoAI scored={scored} basis={basis} onRunScoring={onRunScoring} running={running} />
               )}
@@ -1349,8 +1379,171 @@ function SSAutoSheet({
   );
 }
 
-// Таб Резюме — компактная сводка по ДОСТУПНЫМ полям (полное резюме — после «Забрать контакт»)
-function SSAutoResume({ c }: { c: AutoCandidate }) {
+// Таб Резюме. Пока полное резюме грузится с hh — компактная сводка по открытым полям
+// (как в списке). Пришло detail → рендерим ПОЛНОЕ резюме (опыт/образование/навыки/о себе),
+// как на hh. Ошибка (квота просмотров/нет доступа) → НЕ падаем: компактная сводка + нотис.
+function SSAutoResume({
+  c,
+  detail,
+  loading,
+  errored,
+  errorMsg,
+}: {
+  c: AutoCandidate;
+  detail: AutoCandidateDetail | null;
+  loading: boolean;
+  errored: boolean;
+  errorMsg: string | null;
+}) {
+  // Полное резюме доступно → рендерим его.
+  if (detail && !errored) {
+    return <SSAutoFullResume detail={detail} />;
+  }
+  // Иначе — компактная сводка по открытым полям + (если грузится) спиннер /
+  // (если ошибка) нотис о недоступности полного резюме.
+  return (
+    <SSAutoCompactResume
+      c={c}
+      loading={loading}
+      errored={errored}
+      errorMsg={errorMsg}
+    />
+  );
+}
+
+// Полное резюме из detail (опыт/образование/навыки/о себе). Пустых секций нет.
+function SSAutoFullResume({ detail }: { detail: AutoCandidateDetail }) {
+  const ageStr = detail.age != null ? `${detail.age} ${plural(detail.age, 'год', 'года', 'лет')}` : null;
+
+  // Блок «Дополнительно» — только непустые поля.
+  const extra: { k: string; v: string }[] = [];
+  if (detail.city) extra.push({ k: 'Город', v: detail.city });
+  if (ageStr) extra.push({ k: 'Возраст', v: ageStr });
+  if (detail.total_experience) extra.push({ k: 'Опыт', v: detail.total_experience });
+  if (detail.languages.length > 0) extra.push({ k: 'Языки', v: detail.languages.join(' · ') });
+  extra.push({ k: 'Источник', v: 'hh.ru · автопоиск' });
+
+  // Образование с хоть одним непустым полем (не рендерим пустые блоки).
+  const education = detail.education.filter(
+    (e) => e.organization || e.name || e.result || e.year != null,
+  );
+  // Опыт с хоть одним непустым полем.
+  const experience = detail.experience.filter(
+    (e) => e.position || e.company || e.period || e.description,
+  );
+
+  return (
+    <div className="resume-single">
+      {/* О себе */}
+      {detail.about && (
+        <>
+          <h3 className="cc-sec-title">Обо мне</h3>
+          <div className="job-desc" style={{ whiteSpace: 'pre-line' }}>
+            {detail.about}
+          </div>
+        </>
+      )}
+
+      {/* Опыт работы */}
+      {experience.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">
+            Опыт работы
+            {detail.total_experience && (
+              <span style={{ color: 'var(--fg-3)', fontWeight: 400, fontSize: '13px' }}>
+                {' · '}общий стаж {detail.total_experience}
+              </span>
+            )}
+          </h3>
+          {experience.map((exp, index) => {
+            const items = parseJobItems(exp.description);
+            return (
+              <div key={index} className="job">
+                <div className="job-when">
+                  {exp.period && <div className="job-period">{exp.period}</div>}
+                </div>
+                <div className="job-main">
+                  {exp.company && <div className="job-co">{exp.company}</div>}
+                  {exp.position && <div className="job-title">{exp.position}</div>}
+                  {items.length > 0 && (
+                    <ul className="job-bullets">
+                      {items.map((it, i) =>
+                        typeof it === 'string' ? (
+                          <li key={i}>{it}</li>
+                        ) : (
+                          <li key={i} className="job-subhead">
+                            {it.h}
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {/* Навыки */}
+      {detail.skills.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">Навыки</h3>
+          <div className="skill-row">
+            {detail.skills.map((s, i) => (
+              <span key={i} className="skill-chip">
+                {s}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Образование */}
+      {education.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">Образование</h3>
+          {education.map((edu, index) => (
+            <div key={index} className="job">
+              <div className="job-when">
+                {edu.year != null && <div className="job-period">{edu.year}</div>}
+              </div>
+              <div className="job-main">
+                {(edu.organization || edu.name) && (
+                  <div className="job-co">{edu.organization || edu.name}</div>
+                )}
+                {edu.result && <div className="job-title">{edu.result}</div>}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Дополнительно */}
+      <h3 className="cc-sec-title">Дополнительно</h3>
+      <div className="extra-grid">
+        {extra.map((e, i) => (
+          <div key={i}>
+            <span className="extra-k">{e.k}:</span> {e.v}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Компактная сводка по открытым полям резюме (пока полное грузится / при ошибке).
+function SSAutoCompactResume({
+  c,
+  loading,
+  errored,
+  errorMsg,
+}: {
+  c: AutoCandidate;
+  loading: boolean;
+  errored: boolean;
+  errorMsg: string | null;
+}) {
   const ageStr = c.age != null ? `${c.age} ${plural(c.age, 'год', 'года', 'лет')}` : null;
   const extra: { k: string; v: string }[] = [];
   if (c.city) extra.push({ k: 'Город', v: c.city });
@@ -1360,10 +1553,16 @@ function SSAutoResume({ c }: { c: AutoCandidate }) {
 
   return (
     <div className="resume-single">
-      <div className="ssa-unscored-note">
-        <Icon name="sparkles" size={15} />
-        Показаны открытые поля резюме. Полное резюме и контакты — после «Забрать контакт».
-      </div>
+      {loading ? (
+        <div className="ssa-resume-loading">
+          <span className="ssa-spin" /> Загружаю резюме с hh…
+        </div>
+      ) : errored ? (
+        <div className="ssa-resume-notice">
+          <Icon name="alert-circle" size={15} />
+          <span>Полное резюме недоступно{errorMsg ? `: ${errorMsg}` : ' (возможно, исчерпан лимит просмотров hh)'}. Показаны открытые поля.</span>
+        </div>
+      ) : null}
 
       <h3 className="cc-sec-title">Последнее место</h3>
       {c.last_job || c.experience ? (
