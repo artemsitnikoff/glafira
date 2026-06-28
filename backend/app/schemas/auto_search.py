@@ -79,6 +79,19 @@ class AutoTakeRequest(BaseModel):
     vacancy_id: Optional[UUID] = None
 
 
+class AutoTakeResultItem(BaseModel):
+    hh_resume_id: str
+    status: Literal["created", "already", "error"]
+    candidate_id: Optional[UUID] = None
+    error: Optional[str] = None
+
+
+class AutoTakeResponse(BaseModel):
+    results: list[AutoTakeResultItem]
+    taken: int
+    pool_left: Optional[int] = None
+
+
 class AutoAccessResponse(BaseModel):
     has_access: bool
     has_paid_access: bool

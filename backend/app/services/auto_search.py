@@ -22,14 +22,26 @@ from ..core.errors import NotFoundError, ValidationError, ConflictError, Glafira
 from ..database import AsyncSessionLocal
 from ..models.auto_search import AutoSearch, AutoSearchRun
 from ..models.candidate import Candidate
-from ..models import Vacancy
+from ..models import Vacancy, Application
+from .audit import audit
 from .candidate import format_duration
 from .integrations.hh import client as hh_client
-from .integrations.hh.service import get_valid_access_token
-from .smart_search import check_access, _parse_api_quota, _is_ai_credits_error
+from .integrations.hh import service as hh_service
+from .integrations.hh.service import get_valid_access_token, build_candidate_resume_sections
+from .smart_search import (
+    check_access,
+    _parse_api_quota,
+    _is_ai_credits_error,
+    _create_candidate_from_resume,
+)
 from .base_search import _create_synthetic_vacancy_for_scoring, GLAFIRA_MAX_EVALUATE
 from .glafira.scoring import score_resume_dict
 from .settings.glafira import get_company_openrouter_key, get_company_llm_model
+
+# Денежный бэкстоп: максимум резюме за один запрос «забрать контакт» — чтобы клиент
+# не слил весь платный пул контактов одним вызовом (полноценный whitelist как в
+# take_selected невозможен: кандидаты автопоиска не персистятся до оценки).
+AUTO_TAKE_BATCH_CAP = 25
 
 logger = logging.getLogger(__name__)
 
@@ -761,3 +773,287 @@ async def sweep_orphaned_auto_runs() -> None:
                 )
     except Exception as e:
         logger.error("[auto_eval] sweep_orphaned_auto_runs ошибка: %s", e)
+
+
+# === ФАЗА 4: «Забрать контакт / Перевести» (ПЛАТНО) ===
+
+async def _auto_pool_left(session: AsyncSession, company_id: UUID) -> int | None:
+    """Best-effort остаток платных API-действий hh после открытия контактов.
+
+    Тот же приблизительный показатель, что и в get_auto_access (limited_remaining).
+    Точное поле контактного пула пиннится на живом токене.
+    """
+    try:
+        token = await get_valid_access_token(session, company_id)
+        me = await hh_client.get_me(token)
+        employer_id = (me.get("employer") or {}).get("id")
+        if not employer_id:
+            return None
+        quota = await hh_client.get_payable_api_actions(token, str(employer_id))
+        _u, limited_remaining, _h = _parse_api_quota(quota)
+        return limited_remaining
+    except Exception as e:
+        logger.warning("[auto] pool_left best-effort failed: %s", e)
+        return None
+
+
+async def take_auto_contact(
+    session: AsyncSession,
+    company_id: UUID,
+    actor_user_id: UUID,
+    auto_search_id: UUID,
+    resume_ids: list[str],
+    target: str = "pool",
+    vacancy_id: UUID | None = None,
+) -> dict:
+    """«Забрать контакт / Перевести» — открыть контакт hh (ПЛАТНО, get_resume_by_id даёт
+    ФИО+контакты), создать Candidate в базе компании. target:
+      - 'pool'   → только Candidate (общая база, БЕЗ Application);
+      - 'vacancy'→ Candidate + Application(stage='added') в воронке указанной вакансии.
+
+    По образцу smart_search.take_selected:
+    - Гейт has_paid_access ДО любого платного вызова (get_resume_by_id тратит контакт).
+    - Дедуп по extra->>'hh_resume_id' (company-scoped, deleted_at IS NULL) — существующий
+      кандидат НЕ открывает контакт повторно (платный API не дёргается).
+    - 429/квота на get_resume_by_id → ValidationError «Пул контактов исчерпан», прерывает
+      дальнейшие платные вызовы в этом запросе.
+    - Денежный бэкстоп: кап размера батча (AUTO_TAKE_BATCH_CAP).
+    - source='smart', extra.auto_search=True (extra критичен для дедупа), audit actor_type='human'.
+
+    Returns: {'results': list[dict], 'taken': int, 'pool_left': int|None}.
+    """
+    from .candidate import assign_candidate_to_vacancy
+
+    # Денежный бэкстоп: кап размера батча ДО любого платного вызова
+    if len(resume_ids) > AUTO_TAKE_BATCH_CAP:
+        raise ValidationError(
+            f"Слишком много резюме за один раз (максимум {AUTO_TAKE_BATCH_CAP})"
+        )
+
+    # Загружаем автопоиск company-scoped (нужен hh_saved_search_id для extra)
+    auto_search = (
+        await session.execute(
+            select(AutoSearch).where(
+                AutoSearch.company_id == company_id,
+                AutoSearch.id == auto_search_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if auto_search is None:
+        raise NotFoundError("Автопоиск")
+    saved_search_id = auto_search.hh_saved_search_id
+
+    # target='vacancy' → vacancy_id обязателен + company-scoped существует
+    target_vacancy_id: UUID | None = None
+    if target == "vacancy":
+        if vacancy_id is None:
+            raise ValidationError("Для перевода в воронку укажите вакансию")
+        vacancy = (
+            await session.execute(
+                select(Vacancy).where(
+                    Vacancy.id == vacancy_id,
+                    Vacancy.company_id == company_id,
+                    Vacancy.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if vacancy is None:
+            raise NotFoundError("Вакансия")
+        target_vacancy_id = vacancy.id
+
+    # Гейт: платный доступ обязателен ДО get_resume_by_id (тратит контакт)
+    has_access, has_paid_access, _ = await check_access(session, company_id)
+    if not has_paid_access:
+        raise ValidationError(
+            "Нет платного доступа к базе резюме hh — открытие контактов недоступно."
+        )
+
+    # Снимаем токен и освобождаем request-сессию перед сетевым циклом
+    access_token = await get_valid_access_token(session, company_id)
+    await session.commit()
+
+    results: list[dict] = []
+    taken = 0
+
+    for resume_id in resume_ids:
+        try:
+            # Дедуп: кандидат уже в базе по hh_resume_id (company-scoped, не удалён)?
+            async with AsyncSessionLocal() as check_session:
+                existing = (
+                    await check_session.execute(
+                        select(Candidate).where(
+                            Candidate.company_id == company_id,
+                            Candidate.extra["hh_resume_id"].astext == str(resume_id),
+                            Candidate.deleted_at.is_(None),
+                        )
+                    )
+                ).scalar_one_or_none()
+
+            if existing is not None:
+                # Контакт уже открыт ранее — платный API НЕ дёргаем.
+                if target == "vacancy":
+                    try:
+                        async with AsyncSessionLocal() as assign_session:
+                            await assign_candidate_to_vacancy(
+                                assign_session,
+                                existing.id,
+                                target_vacancy_id,
+                                "added",
+                                company_id,
+                                actor_user_id,
+                            )
+                            await assign_session.commit()
+                    except ConflictError:
+                        # уже привязан к этой вакансии — не ошибка
+                        pass
+                results.append({
+                    "hh_resume_id": str(resume_id),
+                    "status": "already",
+                    "candidate_id": existing.id,
+                    "error": None,
+                })
+                continue
+
+            # Открываем контакт — get_resume_by_id (ПЛАТНО)
+            try:
+                full_resume = await asyncio.wait_for(
+                    hh_client.get_resume_by_id(access_token, resume_id),
+                    timeout=25,
+                )
+            except asyncio.TimeoutError:
+                results.append({
+                    "hh_resume_id": str(resume_id),
+                    "status": "error",
+                    "candidate_id": None,
+                    "error": "Таймаут получения резюме (25с)",
+                })
+                continue
+            except ValidationError as e:
+                msg = str(e)
+                # 429/квота → дальше платные вызовы бессмысленны: прерываем цикл
+                if "квота" in msg.lower():
+                    results.append({
+                        "hh_resume_id": str(resume_id),
+                        "status": "error",
+                        "candidate_id": None,
+                        "error": "Пул контактов исчерпан",
+                    })
+                    break
+                results.append({
+                    "hh_resume_id": str(resume_id),
+                    "status": "error",
+                    "candidate_id": None,
+                    "error": f"Резюме недоступно: {msg[:120]}",
+                })
+                continue
+            except Exception as e:
+                results.append({
+                    "hh_resume_id": str(resume_id),
+                    "status": "error",
+                    "candidate_id": None,
+                    "error": f"Ошибка получения резюме: {str(e)[:100]}",
+                })
+                continue
+
+            # Создаём кандидата (+ Application для vacancy) короткой сессией
+            try:
+                async with AsyncSessionLocal() as create_session:
+                    candidate = _create_candidate_from_resume(full_resume, company_id)
+                    candidate.source = "smart"
+                    candidate.extra = {
+                        "smart_search": True,
+                        "auto_search": True,
+                        "saved_search_id": saved_search_id,
+                        "hh_resume_id": str(resume_id),
+                    }
+                    create_session.add(candidate)
+                    await create_session.flush()
+
+                    # Опыт / навыки / образование из hh-резюме
+                    for row in build_candidate_resume_sections(
+                        candidate.id, company_id, full_resume
+                    ):
+                        create_session.add(row)
+
+                    # target='vacancy' → Application(stage='added'); 'pool' → НЕ создавать
+                    if target == "vacancy":
+                        application = Application(
+                            company_id=company_id,
+                            candidate_id=candidate.id,
+                            vacancy_id=target_vacancy_id,
+                            stage="added",
+                            hh_negotiation_id=None,
+                        )
+                        create_session.add(application)
+
+                    # Audit: actor_type='human' (действие рекрутёра)
+                    after = {
+                        "target": target,
+                        "saved_search_id": saved_search_id,
+                        "hh_resume_id": str(resume_id),
+                        "source": "smart",
+                    }
+                    if target == "vacancy":
+                        after["vacancy_id"] = str(target_vacancy_id)
+                    await audit(
+                        create_session,
+                        action="auto_search_take",
+                        entity_type="candidate",
+                        entity_id=candidate.id,
+                        after=after,
+                        actor_type="human",
+                        actor_user_id=actor_user_id,
+                        company_id=company_id,
+                    )
+
+                    # Best-effort PDF резюме в «Документы» (как при invite)
+                    await hh_service.save_hh_resume_document(
+                        session=create_session,
+                        company_id=company_id,
+                        candidate=candidate,
+                        full_resume=full_resume,
+                        access_token=access_token,
+                        actor_user_id=actor_user_id,
+                    )
+
+                    await create_session.commit()
+                    candidate_id = candidate.id
+
+                taken += 1
+                results.append({
+                    "hh_resume_id": str(resume_id),
+                    "status": "created",
+                    "candidate_id": candidate_id,
+                    "error": None,
+                })
+            except Exception as e:
+                logger.error("[auto] Ошибка создания кандидата (take) %s: %s", resume_id, e)
+                results.append({
+                    "hh_resume_id": str(resume_id),
+                    "status": "error",
+                    "candidate_id": None,
+                    "error": f"Ошибка создания кандидата: {str(e)[:100]}",
+                })
+                continue
+
+        except (ValidationError, NotFoundError):
+            raise
+        except Exception as e:
+            logger.error("[auto] Ошибка при «забирании» контакта %s: %s", resume_id, e)
+            results.append({
+                "hh_resume_id": str(resume_id),
+                "status": "error",
+                "candidate_id": None,
+                "error": f"Внутренняя ошибка: {str(e)[:100]}",
+            })
+            continue
+
+    # pool_left — best-effort после открытия контактов (новой короткой сессией)
+    pool_left: int | None = None
+    try:
+        async with AsyncSessionLocal() as quota_session:
+            pool_left = await _auto_pool_left(quota_session, company_id)
+    except Exception as e:
+        logger.warning("[auto] pool_left после take failed: %s", e)
+
+    return {"results": results, "taken": taken, "pool_left": pool_left}

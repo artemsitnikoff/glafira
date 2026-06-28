@@ -86,6 +86,8 @@ from ...schemas.auto_search import (
     AutoRunStatus,
     AutoEvaluateResponse,
     AutoEvalToggleRequest,
+    AutoTakeRequest,
+    AutoTakeResponse,
 )
 from ...services.auto_search import (
     get_auto_access,
@@ -96,6 +98,7 @@ from ...services.auto_search import (
     set_auto_eval,
     start_auto_evaluate,
     get_auto_run_status,
+    take_auto_contact,
 )
 
 router = APIRouter()
@@ -859,3 +862,34 @@ async def get_auto_run(
         raise ForbiddenError("Доступ запрещён")
     run = await get_auto_run_status(session, company_id, run_id)
     return AutoRunStatus.model_validate(run)
+
+
+@router.post(
+    "/auto/searches/{auto_search_id}/take",
+    response_model=AutoTakeResponse,
+    summary="Забрать контакт / Перевести (ПЛАТНО открыть контакт hh)",
+)
+async def take_auto_search(
+    auto_search_id: UUID,
+    request: AutoTakeRequest,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Открыть контакт hh (ПЛАТНО) и создать кандидата:
+    target='pool' → только в общую базу; target='vacancy' → + в воронку вакансии.
+
+    Требует платного доступа к базе резюме hh. Дедуп не списывает контакт повторно.
+    """
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    data = await take_auto_contact(
+        session,
+        company_id,
+        current_user.id,
+        auto_search_id,
+        request.resume_ids,
+        target=request.target,
+        vacancy_id=request.vacancy_id,
+    )
+    return AutoTakeResponse(**data)
