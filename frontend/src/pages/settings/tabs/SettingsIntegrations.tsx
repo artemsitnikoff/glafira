@@ -19,6 +19,7 @@ import { useAvitoStatus } from '@/api/hooks/useAvitoIntegration';
 import { useAvitoSaveConfig, useAvitoPollResponses, useAvitoDisconnect } from '@/api/mutations/avitoIntegration';
 import type { AvitoPollResult } from '@/api/mutations/avitoIntegration';
 import { useAuthStore } from '@/store/authStore';
+import { useBackfillPhotos } from '@/api/hooks/useCandidatePhotos';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -81,6 +82,12 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const hhDisconnectMutation = useHhDisconnect();
   const hhPollMutation = useHhPollResponses();
   const [hhPollResult, setHhPollResult] = useState<HhPollResult | null>(null);
+
+  // Бэкфилл фото кандидатов с hh (admin-only)
+  const backfillPhotosMutation = useBackfillPhotos();
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const handleHhPollResponses = async () => {
     setHhPollResult(null);
@@ -198,6 +205,39 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     }
   };
 
+  const handleBackfillPhotos = async () => {
+    if (photoBusy || readOnly) return;
+    setPhotoBusy(true);
+    setPhotoError(null);
+    setPhotoProgress('Подтягиваем фото…');
+    let totalUpdated = 0;
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await backfillPhotosMutation.mutateAsync();
+        totalUpdated += res.updated;
+        if (res.quota_exhausted) {
+          setPhotoProgress(
+            `Суточный лимит просмотров hh исчерпан. Подтянуто ${totalUpdated}, осталось ~${res.remaining} — продолжите завтра.`
+          );
+          break;
+        }
+        if (res.remaining <= 0) {
+          setPhotoProgress(`Готово: подтянуто ${totalUpdated} фото.`);
+          break;
+        }
+        setPhotoProgress(`Подтянуто ${totalUpdated} фото… осталось ~${res.remaining}`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    } catch (error) {
+      const e = error as unknown as ApiError;
+      setPhotoError(e.error?.message || 'Не удалось подтянуть фото с hh');
+      setPhotoProgress(null);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
   // ---------------- SMTP (почтовый сервер) ----------------
   const { data: smtpStatus, isLoading: smtpLoading } = useSmtpStatus();
   const smtpSaveMutation = useSmtpSaveConfig();
@@ -205,6 +245,7 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const smtpDisconnectMutation = useSmtpDisconnect();
 
   const currentUserEmail = useAuthStore(s => s.user?.email) ?? '';
+  const currentUser = useAuthStore(s => s.user);
 
   const [smtpForm, setSmtpForm] = useState({
     host: '',
@@ -762,6 +803,33 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                     Авто-забор — каждые ~5 мин (если на сервере настроен cron), либо вручную кнопкой выше.
                   </div>
                 </div>
+                {currentUser?.role === 'admin' && (
+                  <div className="integ-section" style={{ marginTop: 16 }}>
+                    <div className="integ-section-title">Фото кандидатов с hh</div>
+                    <p style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '12px' }}>
+                      Подтянуть фотографии для уже имеющихся откликов с hh. Каждый кандидат расходует 1 просмотр из суточного лимита hh.
+                    </p>
+                    <div className="integ-actions">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={handleBackfillPhotos}
+                        disabled={photoBusy || readOnly}
+                      >
+                        {photoBusy ? 'Подтягиваем…' : 'Подтянуть фото с hh'}
+                      </button>
+                    </div>
+                    {photoProgress && (
+                      <div className="info-banner small" style={{ marginTop: 10 }}>
+                        {photoProgress}
+                      </div>
+                    )}
+                    {photoError && (
+                      <div className="error-banner" role="alert" style={{ marginTop: 10 }}>
+                        {photoError}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               // Не подключено: ключ приложения Глафиры — в .env на сервере, вводить
