@@ -40,6 +40,7 @@ from .candidate_import import CandidateImportJob
 from .base_search import BaseSearchRun
 from .candidate_embedding import CandidateEmbedding
 from .call import Call, CallSyncJob
+from .auto_search import AutoSearch, AutoSearchRun
 
 __all__ = [
     "Base",
@@ -89,4 +90,6 @@ __all__ = [
     "CandidateEmbedding",
     "Call",
     "CallSyncJob",
+    "AutoSearch",
+    "AutoSearchRun",
 ]
