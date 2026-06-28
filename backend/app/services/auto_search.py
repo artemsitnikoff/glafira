@@ -11,7 +11,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlsplit, parse_qsl
+from urllib.parse import urlsplit, parse_qsl, quote
 from uuid import UUID
 
 from sqlalchemy import select, desc, nullslast, update, and_
@@ -250,6 +250,7 @@ async def get_auto_candidates(
     # ДИАГ-ЛОГ: только КЛЮЧИ первого item (структура ответа), НЕ значения (PII).
     if items and isinstance(items[0], dict):
         logger.info("[auto] resume item keys=%s", list(items[0].keys()))
+        logger.info("[auto] resume item has_photo=%s", bool((items[0].get("photo") or {})) if isinstance(items[0], dict) else False)
 
     # БАТЧ-дедуп: один запрос по всем валидным hh_resume_id страницы.
     resume_ids = [str(item.get("id")) for item in items
@@ -290,6 +291,10 @@ async def get_auto_candidates(
                 last_job = " · ".join(parts) if parts else None
                 break
 
+        photo = item.get("photo") or {}
+        real_photo_url = (photo.get("medium") or photo.get("small")) if isinstance(photo, dict) else None
+        photo_url = f"/api/v1/smart/auto/photo?src={quote(real_photo_url, safe='')}" if real_photo_url else None
+
         items_mapped.append({
             "hh_resume_id": hh_resume_id,
             "title": item.get("title"),
@@ -304,6 +309,7 @@ async def get_auto_candidates(
             "is_new": segment == "new",
             "score": None,
             "taken": hh_resume_id in taken_ids,
+            "photo_url": photo_url,
         })
 
     total = min(raw.get("found", 0) or 0, 2000)
