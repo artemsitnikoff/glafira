@@ -73,9 +73,26 @@ async def sync_saved_searches(session: AsyncSession, company_id: UUID) -> list[A
     пользовательские поля basis/auto_eval/last_seen_at — только то, что приходит из hh.
     """
     token = await get_valid_access_token(session, company_id)
-    raw = await hh_client.list_saved_resume_searches(token)
 
-    items = raw.get("items") or [] if isinstance(raw, dict) else []
+    items: list[dict] = []
+    page = 0
+    while True:
+        raw = await hh_client.list_saved_resume_searches(token, page=page)
+        page_items = (raw.get("items") or []) if isinstance(raw, dict) else []
+        items.extend(page_items)
+        # определить, есть ли ещё страницы
+        pages = raw.get("pages") if isinstance(raw, dict) else None
+        if isinstance(pages, int):
+            page += 1
+            if page >= pages:
+                break
+        else:
+            # фолбэк, если hh не вернул pages: остановиться, если страница неполная
+            if len(page_items) < 10:
+                break
+            page += 1
+        if page >= 50:  # предохранитель (макс 500 автопоисков), не зациклиться
+            break
 
     for item in items:
         if not isinstance(item, dict):
