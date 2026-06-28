@@ -5,7 +5,8 @@
 // ЧАНК C: основа оценки (vacancy/промт) + AI-оценка в фоне (поллинг) + реальный разбор в табе Оценка AI.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/api/client';
 import { Icon } from '@/components/ui/Icon';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
 import { useVacancies } from '@/api/hooks/useVacancies';
@@ -949,7 +950,7 @@ function SSAutoRow({ c, score, onOpen }: { c: AutoCandidate; score?: number | nu
   return (
     <div className={`ssa-row ${c.is_new ? 'is-new' : ''} ${c.taken ? 'is-taken' : ''}`} onClick={onOpen}>
       <div className="ssa-row-av">
-        <SSAAnonAvatar />
+        <CandidatePhoto photoUrl={c.photo_url} name={c.title} size={44} />
         {c.is_new && <span className="ssa-row-newpip" title="Новое резюме" />}
       </div>
       <div className="ssa-row-main">
@@ -1003,12 +1004,62 @@ function SSAutoRow({ c, score, onOpen }: { c: AutoCandidate; score?: number | nu
   );
 }
 
-// Анонимный аватар (контакты закрыты на hh — силуэт всегда)
-function SSAAnonAvatar({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const px = size === 'sm' ? 28 : size === 'lg' ? 44 : 38;
+// Фото кандидата. photoUrl — прокси-путь "/api/v1/smart/auto/photo?src=…" под Bearer:
+// <img src> напрямую НЕ работает (img не шлёт Authorization), поэтому тянем blob через api
+// и подставляем object-URL. Нет фото / ошибка (404) → силуэт (.ssa-anon-av + Icon user).
+function CandidatePhoto({
+  photoUrl,
+  size,
+}: {
+  photoUrl?: string | null;
+  name?: string | null;
+  size: number;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const { data: objUrl, isError } = useQuery({
+    queryKey: ['smart', 'auto', 'photo', photoUrl],
+    enabled: !!photoUrl,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+    retry: false,
+    queryFn: async (): Promise<string> => {
+      // baseURL клиента УЖЕ '…/api/v1' → срезаем дублирующий префикс перед запросом.
+      const path = photoUrl!.replace(/^\/api\/v1/, '');
+      const res = await api.get(path, { responseType: 'blob' });
+      return URL.createObjectURL(res.data as Blob);
+    },
+  });
+
+  // Чистим object-URL при размонтировании / смене кадра (избегаем утечки памяти).
+  useEffect(() => {
+    if (!objUrl) return;
+    return () => URL.revokeObjectURL(objUrl);
+  }, [objUrl]);
+
+  // Сбрасываем флаг ошибки <img> при смене источника
+  useEffect(() => {
+    setImgFailed(false);
+  }, [objUrl]);
+
+  // Нет фото / ошибка загрузки blob / битый <img> → силуэт ровно в размер
+  // (та же разметка, что у анонимного аватара: .ssa-anon-av + Icon user).
+  if (!photoUrl || isError || !objUrl || imgFailed) {
+    return (
+      <div className="ssa-anon-av" style={{ width: size, height: size }} title="Фото недоступно">
+        <Icon name="user" size={Math.round(size * 0.5)} />
+      </div>
+    );
+  }
+
   return (
-    <div className="ssa-anon-av" style={{ width: px, height: px }} title="Контакты закрыты">
-      <Icon name="user" size={Math.round(px * 0.5)} />
+    <div className="ssa-photo-wrap" style={{ width: size, height: size }}>
+      <img
+        src={objUrl}
+        alt=""
+        className="ssa-photo-img"
+        onError={() => setImgFailed(true)}
+      />
     </div>
   );
 }
@@ -1155,6 +1206,9 @@ function SSAutoSheet({
               </div>
 
               <div className="cd-h-main">
+                <div className="ssa-cd-photo">
+                  <CandidatePhoto photoUrl={c.photo_url} name={c.title} size={56} />
+                </div>
                 <div className="cd-h-left">
                   <div className="cd-name-row">
                     <h1 className="cd-name">{c.title || 'Без названия'}</h1>

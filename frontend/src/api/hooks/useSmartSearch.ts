@@ -631,6 +631,9 @@ export interface AutoCandidate {
   is_new: boolean;
   score: number | null;
   taken: boolean;
+  // Прокси-путь к фото кандидата вида "/api/v1/smart/auto/photo?src=<hh_url>"
+  // (эндпоинт под Bearer — тянуть blob'ом через api, см. CandidatePhoto). null у анонимных/без фото.
+  photo_url?: string | null;
 }
 
 export interface AutoCandidatesResp {
