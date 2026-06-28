@@ -127,7 +127,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
 
       <div className="cd-h-main">
         <div className="cd-h-avatar">
-          <Avatar name={candidate.full_name} size="lg" src={(candidate as any).avatar_url} />
+          <Avatar name={candidate.full_name} size="xl" src={(candidate as any).avatar_url} />
         </div>
         <div className="cd-h-left">
           <div className="cd-name-row">
