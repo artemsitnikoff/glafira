@@ -119,3 +119,34 @@ class AutoEvaluateResponse(BaseModel):
 
 class AutoEvalToggleRequest(BaseModel):
     enabled: bool
+
+
+class AutoExperienceItem(BaseModel):
+    position: Optional[str] = None
+    company: Optional[str] = None
+    period: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AutoEducationItem(BaseModel):
+    name: Optional[str] = None
+    organization: Optional[str] = None
+    year: Optional[int] = None
+    result: Optional[str] = None
+
+
+class AutoCandidateDetail(BaseModel):
+    hh_resume_id: str
+    title: Optional[str] = None
+    age: Optional[int] = None
+    city: Optional[str] = None
+    salary: Optional[int] = None
+    total_experience: Optional[str] = None
+    anonymous: bool = False
+    photo_url: Optional[str] = None
+    hh_url: Optional[str] = None
+    about: Optional[str] = None
+    skills: list[str] = Field(default_factory=list)
+    experience: list[AutoExperienceItem] = Field(default_factory=list)
+    education: list[AutoEducationItem] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)

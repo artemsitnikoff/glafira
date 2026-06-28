@@ -27,7 +27,7 @@ from .audit import audit
 from .candidate import format_duration
 from .integrations.hh import client as hh_client
 from .integrations.hh import service as hh_service
-from .integrations.hh.service import get_valid_access_token, build_candidate_resume_sections
+from .integrations.hh.service import get_valid_access_token, build_candidate_resume_sections, _hh_period
 from .smart_search import (
     check_access,
     _parse_api_quota,
@@ -352,6 +352,121 @@ async def get_auto_candidates(
         "page": page,
         "pages": pages,
         "per_page": 10,
+    }
+
+
+async def get_auto_candidate_detail(
+    session: AsyncSession,
+    company_id: UUID,
+    hh_resume_id: str,
+) -> dict:
+    """ПОЛНОЕ резюме кандидата автоподбора через GET /resumes/{id} БЕЗ открытия контакта.
+
+    Это ПРОСМОТР резюме (тратит суточную квоту просмотров hh, 429 при превышении),
+    НЕ списание контакта из платного пула — контакты в ответе hh будут null
+    (with_contact не передаётся), ФИО/телефон/email НЕ маппим и НЕ отдаём.
+    Доступно при активной услуге доступа к базе резюме hh; 403 → понятная ошибка.
+    """
+    has_access, _has_paid_access, reason = await check_access(session, company_id)
+    if not has_access:
+        raise ValidationError(reason or "hh.ru не подключён")
+
+    token = await get_valid_access_token(session, company_id)
+
+    try:
+        full = await hh_client.get_resume_by_id(token, hh_resume_id)
+    except ValidationError as e:
+        msg = str(e)
+        if "квота" in msg.lower():
+            raise ValidationError("Превышен суточный лимит просмотров резюме hh")
+        raise ValidationError(f"Резюме недоступно: {msg[:150]}")
+
+    # ДИАГ-ЛОГ (один раз): только КЛЮЧИ полного резюме, без PII — для пиннинга имён полей.
+    if isinstance(full, dict):
+        logger.info("[auto] resume detail keys=%s", list(full.keys()))
+
+    # Защитный маппинг (паттерн build_candidate_resume_sections / get_auto_candidates)
+    area = full.get("area") or {}
+    salary_obj = full.get("salary") or {}
+    total_exp = full.get("total_experience") or {}
+    photo = full.get("photo") or {}
+
+    real_photo_url = (photo.get("medium") or photo.get("small")) if isinstance(photo, dict) else None
+    photo_url = (
+        f"/api/v1/smart/auto/photo?src={quote(real_photo_url, safe='')}"
+        if real_photo_url else None
+    )
+
+    # Навыки: skill_set — список строк ИЛИ объектов {name} (защитно)
+    skills: list[str] = []
+    for sk in (full.get("skill_set") or []):
+        if isinstance(sk, dict):
+            name = sk.get("name")
+        else:
+            name = sk
+        if name:
+            s = str(name).strip()
+            if s:
+                skills.append(s)
+
+    # Опыт
+    experience: list[dict] = []
+    for e in (full.get("experience") or []):
+        if not isinstance(e, dict):
+            continue
+        experience.append({
+            "position": e.get("position"),
+            "company": e.get("company"),
+            "period": _hh_period(e.get("start"), e.get("end")),
+            "description": e.get("description"),
+        })
+
+    # Образование: hh education = {primary:[...], additional:[...]} (защитно)
+    education: list[dict] = []
+    edu_obj = full.get("education") or {}
+    if isinstance(edu_obj, dict):
+        for bucket in ("primary", "additional"):
+            for ed in (edu_obj.get(bucket) or []):
+                if not isinstance(ed, dict):
+                    continue
+                year_raw = ed.get("year")
+                try:
+                    year = int(year_raw) if year_raw is not None else None
+                except (ValueError, TypeError):
+                    year = None
+                education.append({
+                    "name": ed.get("name"),
+                    "organization": ed.get("organization"),
+                    "year": year,
+                    "result": ed.get("result"),
+                })
+
+    # Языки: [{name, level:{name}}] → "Русский — Родной" (защитно)
+    languages: list[str] = []
+    for lng in (full.get("language") or []):
+        if not isinstance(lng, dict):
+            continue
+        lname = lng.get("name")
+        if not lname:
+            continue
+        level = (lng.get("level") or {}).get("name") if isinstance(lng.get("level"), dict) else None
+        languages.append(f"{lname} — {level}" if level else str(lname))
+
+    return {
+        "hh_resume_id": str(hh_resume_id),
+        "title": full.get("title"),
+        "age": full.get("age"),
+        "city": area.get("name") if isinstance(area, dict) else None,
+        "salary": salary_obj.get("amount") if isinstance(salary_obj, dict) else None,
+        "total_experience": format_duration((total_exp.get("months") if isinstance(total_exp, dict) else None) or 0),
+        "anonymous": bool(full.get("hidden_fields")),
+        "photo_url": photo_url,
+        "hh_url": full.get("alternate_url"),
+        "about": full.get("skills"),  # в hh-резюме «о себе» лежит в поле skills (ТЕКСТ)
+        "skills": skills,
+        "experience": experience,
+        "education": education,
+        "languages": languages,
     }
 
 

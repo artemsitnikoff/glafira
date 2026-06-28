@@ -93,12 +93,14 @@ from ...schemas.auto_search import (
     AutoEvalToggleRequest,
     AutoTakeRequest,
     AutoTakeResponse,
+    AutoCandidateDetail,
 )
 from ...services.auto_search import (
     get_auto_access,
     sync_saved_searches,
     list_auto_searches,
     get_auto_candidates,
+    get_auto_candidate_detail,
     set_basis,
     set_auto_eval,
     start_auto_evaluate,
@@ -790,6 +792,25 @@ async def get_auto_search_candidates(
         segment = "all"
     data = await get_auto_candidates(session, company_id, auto_search_id, segment=segment, page=page, sort=sort)
     return AutoCandidatesResponse(**data)
+
+
+@router.get(
+    "/auto/candidate/{hh_resume_id}/detail",
+    response_model=AutoCandidateDetail,
+    summary="Полное резюме кандидата автоподбора (GET /resumes/{id} без контакта)",
+)
+async def get_auto_candidate_full_resume(
+    hh_resume_id: str,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Полное резюме (опыт/образование/навыки/о себе) через просмотр hh БЕЗ открытия
+    контакта (контакт не тратится, расходуется только суточная квота просмотров hh)."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    data = await get_auto_candidate_detail(session, company_id, hh_resume_id)
+    return AutoCandidateDetail(**data)
 
 
 @router.post(
