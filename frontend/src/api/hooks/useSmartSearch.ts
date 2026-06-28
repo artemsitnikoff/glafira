@@ -660,3 +660,81 @@ export function useAutoCandidates(
     placeholderData: (prev) => prev,
   });
 }
+
+// === ОЦЕНКА АВТОПОИСКА (чанк C) ===
+
+export interface AutoScored {
+  hh_resume_id: string;
+  title?: string | null;
+  score: number;
+  verdict: string;
+  summary: string;
+  strengths: string[];
+  risks: string[];
+  requirements_match: { criterion: string; weight: number; points: number; comment?: string }[];
+  questions: string[];
+  forecast?: string | null;
+}
+
+export interface AutoRunStatus {
+  id: string;
+  status: string;
+  stage: string | null;
+  to_evaluate: number;
+  evaluated: number;
+  scored_candidates: AutoScored[];
+  note: string | null;
+  error: string | null;
+}
+
+export function useSetAutoBasis(searchId: string) {
+  const qc = useQueryClient();
+  return useMutation<AutoSearch, Error, AutoSearchBasis>({
+    mutationFn: async (basis): Promise<AutoSearch> => {
+      const response = await api.post(`/smart/auto/searches/${searchId}/basis`, basis);
+      return response.data as AutoSearch;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'searches'] });
+    },
+  });
+}
+
+export function useToggleAutoEval(searchId: string) {
+  const qc = useQueryClient();
+  return useMutation<AutoSearch, Error, boolean>({
+    mutationFn: async (enabled): Promise<AutoSearch> => {
+      const response = await api.patch(`/smart/auto/searches/${searchId}/auto-eval`, { enabled });
+      return response.data as AutoSearch;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'searches'] });
+    },
+  });
+}
+
+export function useRunAutoEval(searchId: string) {
+  return useMutation<{ run_id: string }, Error, { segment: 'all' | 'new'; n?: number }>({
+    mutationFn: async ({ segment, n }): Promise<{ run_id: string }> => {
+      const response = await api.post(`/smart/auto/searches/${searchId}/evaluate`, {
+        segment,
+        ...(n ? { n } : {}),
+      });
+      return response.data as { run_id: string };
+    },
+  });
+}
+
+export function useAutoEvalRun(runId: string | null, enabled: boolean) {
+  return useQuery<AutoRunStatus>({
+    queryKey: ['smart', 'auto', 'run', runId],
+    queryFn: async (): Promise<AutoRunStatus> => {
+      const response = await api.get(`/smart/auto/runs/${runId}`);
+      return response.data as AutoRunStatus;
+    },
+    enabled: enabled && runId !== null,
+    refetchInterval: (query) => {
+      return query.state.data?.status === 'running' ? 1500 : false;
+    },
+  });
+}

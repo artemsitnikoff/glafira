@@ -2,17 +2,25 @@
 // ЧАНК A: шапка ветки + список автопоисков из реального бека (/smart/auto/*).
 // ЧАНК B: список кандидатов выбранного автопоиска (пагинация/сегмент/сортировка)
 //   + нижняя bottom-sheet превью-карточка (своя вёрстка на классах .cand-detail).
-// Оценка AI и «забрать контакт» — wiring в чанке C (кнопки здесь DISABLED).
+// ЧАНК C: основа оценки (vacancy/промт) + AI-оценка в фоне (поллинг) + реальный разбор в табе Оценка AI.
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Icon } from '@/components/ui/Icon';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
+import { useVacancies } from '@/api/hooks/useVacancies';
 import {
   useAutoAccess,
   useAutoCandidates,
   useAutoSearches,
   useSyncAutoSearches,
+  useSetAutoBasis,
+  useToggleAutoEval,
+  useRunAutoEval,
+  useAutoEvalRun,
   type AutoCandidate,
   type AutoSearch,
+  type AutoSearchBasis,
+  type AutoScored,
 } from '@/api/hooks/useSmartSearch';
 import './SmartSearchAuto.css';
 // CSS-классы карточки соискателя (.cd-toolbar/.cd-header/.resume-single/.ai-single/...)
@@ -62,6 +70,132 @@ function saPager(cur: number, count: number): (number | '…')[] {
     }
   }
   return out;
+}
+
+// ====== Диалог выбора основы оценки (вакансия или промт) ======
+type BasisDialogProps = {
+  searchName: string;
+  current: AutoSearchBasis | null;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: (basis: AutoSearchBasis) => void;
+};
+
+function SSAutoBasisDialog({ searchName, current, confirmLabel, onCancel, onConfirm }: BasisDialogProps) {
+  const [kind, setKind] = useState<'vacancy' | 'prompt'>(current?.kind ?? 'vacancy');
+  const [vacId, setVacId] = useState<string | null>(
+    current?.kind === 'vacancy' ? (current.vacancy_id ?? null) : null,
+  );
+  const [text, setText] = useState(current?.kind === 'prompt' ? (current.prompt ?? '') : '');
+
+  const { data: vacData, isLoading: vacLoading } = useVacancies({ status: 'active', page_size: 100 });
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onCancel]);
+
+  const canConfirm = kind === 'vacancy' ? !!vacId : text.trim().length >= 3;
+
+  function handleConfirm() {
+    if (!canConfirm) return;
+    if (kind === 'vacancy') {
+      onConfirm({ kind: 'vacancy', vacancy_id: vacId! });
+    } else {
+      onConfirm({ kind: 'prompt', prompt: text.trim() });
+    }
+  }
+
+  return (
+    <>
+      <div className="ssa-modal-backdrop" onClick={onCancel} />
+      <div className="ssa-modal" role="dialog" aria-label="Основа оценки">
+        <div className="ssa-modal-head">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="ssa-modal-title">Относительно чего оценивать?</div>
+            <div className="ssa-modal-sub">
+              Оценка кандидата — относительная. Глафира сравнит резюме из автопоиска «{searchName}» с вашей
+              вакансией или с описанием идеального кандидата.
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onCancel} title="Закрыть">
+            <Icon name="x" size={18} />
+          </button>
+        </div>
+
+        <div className="ssa-modal-body">
+          {/* Метод 1 — по вакансии */}
+          <div
+            className={`ssb-method ${kind === 'vacancy' ? 'is-active' : 'is-dim'}`}
+            onClick={() => setKind('vacancy')}
+          >
+            <div className="ssb-method-head ssb-method-toggle">
+              <span className="ssb-radio" data-on={kind === 'vacancy' ? 'true' : 'false'} />
+              <div className="ssb-method-titles">
+                <div className="ssb-method-title">По открытой вакансии</div>
+                <div className="ssb-method-desc">Глафира возьмёт требования вакансии как эталон.</div>
+              </div>
+            </div>
+            {kind === 'vacancy' && (
+              <div className="ssa-vac-list" onClick={(e) => e.stopPropagation()}>
+                {vacLoading && <span className="ssa-vac-loading">Загрузка вакансий…</span>}
+                {vacData?.items?.map((v) => (
+                  <button
+                    key={v.id}
+                    className={`ssa-vac-opt ${vacId === v.id ? 'sel' : ''}`}
+                    onClick={() => setVacId(v.id)}
+                    type="button"
+                  >
+                    <Icon name="briefcase" size={15} className="ssa-vac-ic" />
+                    <span className="ssa-vac-name">{v.name}</span>
+                    {vacId === v.id && <Icon name="check" size={15} className="ssa-vac-check" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="ssb-or"><span>или</span></div>
+
+          {/* Метод 2 — промт */}
+          <div
+            className={`ssb-method ${kind === 'prompt' ? 'is-active' : 'is-dim'}`}
+            onClick={() => setKind('prompt')}
+          >
+            <div className="ssb-method-head ssb-method-toggle">
+              <span className="ssb-radio" data-on={kind === 'prompt' ? 'true' : 'false'} />
+              <div className="ssb-method-titles">
+                <div className="ssb-method-title">По описанию (промт)</div>
+                <div className="ssb-method-desc">Опишите словами, кто вам нужен — это станет эталоном оценки.</div>
+              </div>
+            </div>
+            {kind === 'prompt' && (
+              <textarea
+                className="ssb-textarea ssa-basis-textarea"
+                placeholder="Например: DevOps с Kubernetes и CI/CD, от 3 лет, опыт on-call, готов выйти быстро…"
+                value={text}
+                rows={3}
+                onChange={(e) => setText(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="ssa-modal-foot">
+          <button className="btn btn-secondary btn-sm" onClick={onCancel} type="button">
+            Отмена
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={handleConfirm} disabled={!canConfirm} type="button">
+            <Icon name="sparkles" size={14} /> {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </>
+  );
 }
 
 export function SmartSearchAuto({ onBack }: { onBack: () => void }) {
@@ -153,6 +287,120 @@ function SSAutoHeader({ onBack, poolLeft }: { onBack: () => void; poolLeft: numb
   );
 }
 
+// ====== Карточка одного автопоиска в списке (выделена в отдельный компонент для хуков) ======
+function SSAutoSearchCard({ s, onOpen }: { s: AutoSearch; onOpen: (id: string) => void }) {
+  const name = stripQuotes(s.name);
+  const bl = basisLabel(s.basis);
+  const newCount = s.new_count ?? 0;
+
+  const toggleEval = useToggleAutoEval(s.id);
+  const setBasis = useSetAutoBasis(s.id);
+
+  // Локальный диалог смены основы в карточке
+  const [dialog, setDialog] = useState<boolean>(false);
+
+  function handleToggleAutoEval(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (s.auto_eval) {
+      toggleEval.mutate(false);
+    } else {
+      if (s.basis) {
+        toggleEval.mutate(true);
+      } else {
+        setDialog(true);
+      }
+    }
+  }
+
+  function handleBasisClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    setDialog(true);
+  }
+
+  return (
+    <div className="ssa-search-card">
+      {dialog && (
+        <SSAutoBasisDialog
+          searchName={name}
+          current={s.basis}
+          confirmLabel="Сохранить основу"
+          onCancel={() => setDialog(false)}
+          onConfirm={(basis) => {
+            setBasis.mutate(basis, { onSuccess: () => setDialog(false) });
+          }}
+        />
+      )}
+
+      <div className="ssa-sc-main">
+        <div className="ssa-sc-head">
+          <span className="ssa-sc-name">«{name}»</span>
+          <button className="ssa-sc-edit" title="Изменить автопоиск на hh">
+            <Icon name="external-link" size={13} />
+          </button>
+          {s.region && (
+            <span className="ssa-sc-region"><Icon name="pin" size={12} /> {s.region}</span>
+          )}
+          <div style={{ flex: 1 }} />
+          {s.updated_at && <span className="ssa-sc-date t-mono">{s.updated_at}</span>}
+        </div>
+
+        <div className="ssa-sc-filters">
+          <span
+            className={`ssa-sub ${s.subscribed ? 'on' : 'off'}`}
+            title="Подписка на новые резюме"
+          >
+            <span className="ssa-sub-dot" />
+            {s.subscribed ? 'подписка активна' : 'подписка выключена'}
+          </span>
+        </div>
+
+        <div className="ssa-sc-foot">
+          <button className="ssa-sc-link all" onClick={() => onOpen(s.id)}>
+            Показать соискателей <span className="t-mono">{ssaFmt(s.total)}</span>
+          </button>
+          {newCount > 0 ? (
+            <button className="ssa-sc-link new" onClick={() => onOpen(s.id)}>
+              <span className="ssa-new-dot" /> Новые <span className="t-mono">+{newCount}</span>
+            </button>
+          ) : (
+            <span className="ssa-sc-nonew">новых нет</span>
+          )}
+        </div>
+      </div>
+
+      <div className="ssa-sc-aside">
+        <div className="ssa-autoeval">
+          <div className="ssa-ae-text">
+            <div className="ssa-ae-title">Авто-оценка новых</div>
+            <div className="ssa-ae-sub">
+              {s.auto_eval ? 'новые приходят с AI-баллом' : 'оценивать вручную'}
+            </div>
+          </div>
+          <span
+            className={`ss-switch ${s.auto_eval ? 'on' : ''}`}
+            aria-label="Авто-оценка"
+            onClick={handleToggleAutoEval}
+            title={s.auto_eval ? 'Выключить авто-оценку' : 'Включить авто-оценку'}
+          />
+        </div>
+        {s.basis && bl ? (
+          <button className="ssa-basis" title="Сменить основу оценки" onClick={handleBasisClick}>
+            <Icon name={s.basis.kind === 'vacancy' ? 'briefcase' : 'message-circle'} size={12} />
+            <span className="ssa-basis-text">
+              <span className="ssa-basis-k">{s.basis.kind === 'vacancy' ? 'против вакансии' : 'по промту'}</span>
+              <span className="ssa-basis-v">{bl}</span>
+            </span>
+          </button>
+        ) : (
+          <button className="ssa-sc-link all" style={{ fontSize: 12 }} onClick={handleBasisClick}>
+            <Icon name="sparkles" size={12} /> Выбрать основу оценки
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ====== Вид: список автопоисков ======
 function SSAutoSearchesView({ searches, onOpen }: {
   searches: AutoSearch[];
@@ -173,74 +421,9 @@ function SSAutoSearchesView({ searches, onOpen }: {
       </div>
 
       <div className="ssa-search-list">
-        {searches.map((s) => {
-          const name = stripQuotes(s.name);
-          const bl = basisLabel(s.basis);
-          const newCount = s.new_count ?? 0;
-          return (
-            <div key={s.id} className="ssa-search-card">
-              <div className="ssa-sc-main">
-                <div className="ssa-sc-head">
-                  <span className="ssa-sc-name">«{name}»</span>
-                  <button className="ssa-sc-edit" title="Изменить автопоиск на hh">
-                    <Icon name="external-link" size={13} />
-                  </button>
-                  {s.region && (
-                    <span className="ssa-sc-region"><Icon name="pin" size={12} /> {s.region}</span>
-                  )}
-                  <div style={{ flex: 1 }} />
-                  {s.updated_at && <span className="ssa-sc-date t-mono">{s.updated_at}</span>}
-                </div>
-
-                <div className="ssa-sc-filters">
-                  {/* Тумблер подписки — ОТОБРАЖЕНИЕ состояния (запись — в следующем чанке) */}
-                  <span
-                    className={`ssa-sub ${s.subscribed ? 'on' : 'off'}`}
-                    title="Подписка на новые резюме"
-                  >
-                    <span className="ssa-sub-dot" />
-                    {s.subscribed ? 'подписка активна' : 'подписка выключена'}
-                  </span>
-                </div>
-
-                <div className="ssa-sc-foot">
-                  <button className="ssa-sc-link all" onClick={() => onOpen(s.id)}>
-                    Показать соискателей <span className="t-mono">{ssaFmt(s.total)}</span>
-                  </button>
-                  {newCount > 0 ? (
-                    <button className="ssa-sc-link new" onClick={() => onOpen(s.id)}>
-                      <span className="ssa-new-dot" /> Новые <span className="t-mono">+{newCount}</span>
-                    </button>
-                  ) : (
-                    <span className="ssa-sc-nonew">новых нет</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="ssa-sc-aside">
-                <div className="ssa-autoeval">
-                  <div className="ssa-ae-text">
-                    <div className="ssa-ae-title">Авто-оценка новых</div>
-                    <div className="ssa-ae-sub">
-                      {s.auto_eval ? 'новые приходят с AI-баллом' : 'оценивать вручную'}
-                    </div>
-                  </div>
-                  {/* Тумблер авто-оценки — ОТОБРАЖЕНИЕ состояния (запись — в следующем чанке) */}
-                  <span className={`ss-switch ${s.auto_eval ? 'on' : ''}`} aria-label="Авто-оценка" />
-                </div>
-                {s.basis && bl && (
-                  <div className="ssa-basis" title="Основа оценки">
-                    <Icon name={s.basis.kind === 'vacancy' ? 'briefcase' : 'message-circle'} size={12} />
-                    <span className="ssa-basis-text">
-                      <span className="ssa-basis-k">{s.basis.kind === 'vacancy' ? 'против вакансии' : 'по промту'}</span>
-                      <span className="ssa-basis-v">{bl}</span>
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {searches.map((s) => (
+          <SSAutoSearchCard key={s.id} s={s} onOpen={onOpen} />
+        ))}
       </div>
     </div>
   );
@@ -259,7 +442,7 @@ function SSAutoNoAccess({ reason }: { reason: string | null }) {
   );
 }
 
-// ====== Вид: кандидаты выбранного автопоиска (чанк B) ======
+// ====== Вид: кандидаты выбранного автопоиска (чанк B + C) ======
 function SSAutoCandidatesView({
   search,
   poolLeft,
@@ -281,6 +464,18 @@ function SSAutoCandidatesView({
   const [openId, setOpenId] = useState<string | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
 
+  // Стейт оценки (чанк C)
+  const [runId, setRunId] = useState<string | null>(null);
+  const [scoredMap, setScoredMap] = useState<Record<string, AutoScored>>({});
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<null | { confirmLabel: string; after: (basis: AutoSearchBasis) => void }>(null);
+
+  const qc = useQueryClient();
+  const setBasis = useSetAutoBasis(search.id);
+  const toggleEval = useToggleAutoEval(search.id);
+  const runEval = useRunAutoEval(search.id);
+  const runStatus = useAutoEvalRun(runId, !!runId);
+
   const { data, isLoading, isError, error, isFetching } = useAutoCandidates(search.id, {
     segment,
     page,
@@ -298,9 +493,65 @@ function SSAutoCandidatesView({
   // У открытой карточки — берём кандидата из текущей страницы (sheet живёт поверх списка)
   const openCand = openId ? items.find((c) => c.hh_resume_id === openId) ?? null : null;
 
-  // Сортировка по AI-баллу недоступна, пока поток не оценён (score у всех null) — в этом
-  // чанке оценки нет, поэтому опция всегда disabled (включится в чанке C).
-  const sortScoreDisabled = true;
+  // Сортировка по AI-баллу доступна, если уже есть оценённые
+  const sortScoreDisabled = Object.keys(scoredMap).length === 0 && !items.some((c) => c.score != null);
+
+  // Эффект: обработка завершения/ошибки прогона
+  useEffect(() => {
+    const status = runStatus.data?.status;
+    if (!status || status === 'running') return;
+    if (status === 'done') {
+      const scored = runStatus.data?.scored_candidates ?? [];
+      if (scored.length > 0) {
+        setScoredMap((prev) => {
+          const next = { ...prev };
+          scored.forEach((s) => { next[s.hh_resume_id] = s; });
+          return next;
+        });
+      }
+      setRunId(null);
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'candidates', search.id] });
+    } else if (status === 'error') {
+      setEvalError(
+        runStatus.data?.error || runStatus.data?.note || 'Не удалось оценить кандидатов',
+      );
+      setRunId(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runStatus.data?.status]);
+
+  function openBasisDialog(confirmLabel: string, after: (basis: AutoSearchBasis) => void) {
+    setDialog({ confirmLabel, after });
+  }
+
+  function startEval() {
+    function doRun() {
+      runEval.mutate(
+        { segment },
+        {
+          onSuccess: ({ run_id }) => setRunId(run_id),
+          onError: (e) => setEvalError(e.message || 'Не удалось запустить оценку'),
+        },
+      );
+    }
+    if (search.basis) {
+      doRun();
+    } else {
+      openBasisDialog('✨ Оценить', () => doRun());
+    }
+  }
+
+  function handleToggleAutoEval() {
+    if (search.auto_eval) {
+      toggleEval.mutate(false);
+    } else {
+      if (search.basis) {
+        toggleEval.mutate(true);
+      } else {
+        openBasisDialog('✨ Включить авто-оценку', () => toggleEval.mutate(true));
+      }
+    }
+  }
 
   function scrollRowsTop() {
     const cont = rowsRef.current?.closest('.content');
@@ -319,8 +570,29 @@ function SSAutoCandidatesView({
     setPage(0);
   }
 
+  const isEvalRunning = !!runId || runEval.isPending;
+
   return (
     <div className="ssa-cands" ref={rowsRef}>
+      {/* Диалог основы оценки */}
+      {dialog && (
+        <SSAutoBasisDialog
+          searchName={name}
+          current={search.basis}
+          confirmLabel={dialog.confirmLabel}
+          onCancel={() => setDialog(null)}
+          onConfirm={(basis) => {
+            const afterFn = dialog.after;
+            setBasis.mutate(basis, {
+              onSuccess: () => {
+                setDialog(null);
+                afterFn(basis);
+              },
+            });
+          }}
+        />
+      )}
+
       {/* Хлебные крошки */}
       <div className="ssa-cands-head">
         <button className="ssa-crumb" onClick={onBackToList}>
@@ -330,8 +602,12 @@ function SSAutoCandidatesView({
         <span className="ssa-crumb-cur">«{name}»</span>
         {search.region && <span className="ssa-crumb-region">{search.region}</span>}
         <div style={{ flex: 1 }} />
-        {search.basis && bl && (
-          <span className="ssa-basis ssa-basis-inline" title="Основа оценки">
+        {search.basis && bl ? (
+          <button
+            className="ssa-basis ssa-basis-inline"
+            title="Сменить основу оценки"
+            onClick={() => openBasisDialog('Сохранить основу', () => {})}
+          >
             <Icon name={search.basis.kind === 'vacancy' ? 'briefcase' : 'message-circle'} size={12} />
             <span className="ssa-basis-text">
               <span className="ssa-basis-k">
@@ -339,9 +615,28 @@ function SSAutoCandidatesView({
               </span>
               <span className="ssa-basis-v">{bl}</span>
             </span>
-          </span>
+          </button>
+        ) : (
+          <button
+            className="ssa-sc-link all"
+            style={{ fontSize: 12 }}
+            onClick={() => openBasisDialog('Сохранить основу', () => {})}
+          >
+            <Icon name="sparkles" size={12} /> Выбрать основу оценки
+          </button>
         )}
       </div>
+
+      {/* Ошибка оценки */}
+      {evalError && (
+        <div className="ssa-eval-err">
+          <Icon name="alert-circle" size={14} />
+          <span>{evalError}</span>
+          <button className="icon-btn" onClick={() => setEvalError(null)} title="Закрыть">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Панель: сегмент / сортировка / авто-оценка / кнопка оценить */}
       <div className="ssa-cands-bar">
@@ -379,23 +674,32 @@ function SSAutoCandidatesView({
           </select>
         </label>
 
-        {/* Авто-оценка новых — ОТОБРАЖЕНИЕ состояния (wiring в чанке C) */}
+        {/* Авто-оценка новых — кликабельный тумблер */}
         <div className="ssa-ae-inline">
           <span className="ssa-ae-inline-label">Авто-оценка новых</span>
           <span
             className={`ss-switch ${search.auto_eval ? 'on' : ''}`}
             aria-label="Авто-оценка"
+            onClick={handleToggleAutoEval}
+            title={search.auto_eval ? 'Выключить авто-оценку' : 'Включить авто-оценку'}
           />
         </div>
 
-        {/* Оценка топ-N — DISABLED в этом чанке (wiring оценки — чанк C) */}
-        <button
-          className="btn btn-primary btn-sm ssa-eval-btn"
-          disabled
-          title="Оценка подключается"
-        >
-          <Icon name="sparkles" size={14} /> Оценить {ssaFmt(segment === 'new' ? newCount : totalAll)}
-        </button>
+        {/* Кнопка оценки / прогресс */}
+        {runStatus.data?.status === 'running' ? (
+          <div className="ssa-eval-progress">
+            <span className="ssa-spin" />
+            Глафира оценивает… {runStatus.data.evaluated}/{runStatus.data.to_evaluate}
+          </div>
+        ) : (
+          <button
+            className="btn btn-primary btn-sm ssa-eval-btn"
+            onClick={startEval}
+            disabled={isEvalRunning}
+          >
+            <Icon name="sparkles" size={14} /> Оценить {ssaFmt(segment === 'new' ? newCount : totalAll)}
+          </button>
+        )}
       </div>
 
       {segment === 'new' && (
@@ -421,7 +725,12 @@ function SSAutoCandidatesView({
         <>
           <div className={`ssa-rows ${isFetching ? 'is-fetching' : ''}`}>
             {items.map((c) => (
-              <SSAutoRow key={c.hh_resume_id} c={c} onOpen={() => setOpenId(c.hh_resume_id)} />
+              <SSAutoRow
+                key={c.hh_resume_id}
+                c={c}
+                score={scoredMap[c.hh_resume_id]?.score ?? c.score}
+                onOpen={() => setOpenId(c.hh_resume_id)}
+              />
             ))}
           </div>
 
@@ -475,6 +784,10 @@ function SSAutoCandidatesView({
           searchName={name}
           region={search.region}
           poolLeft={poolLeft}
+          scored={scoredMap[openCand.hh_resume_id] ?? null}
+          basis={search.basis}
+          onRunScoring={startEval}
+          running={isEvalRunning}
           onClose={() => setOpenId(null)}
         />
       )}
@@ -483,10 +796,11 @@ function SSAutoCandidatesView({
 }
 
 // Строка кандидата в списке
-function SSAutoRow({ c, onOpen }: { c: AutoCandidate; onOpen: () => void }) {
+function SSAutoRow({ c, score, onOpen }: { c: AutoCandidate; score?: number | null; onOpen: () => void }) {
   const ageStr = c.age != null ? `${c.age} ${plural(c.age, 'год', 'года', 'лет')}` : null;
   const metaParts = [ageStr, c.city].filter(Boolean) as string[];
   const jobParts = [c.last_job, c.experience ? `опыт ${c.experience}` : null].filter(Boolean) as string[];
+  const displayScore = score ?? c.score;
   return (
     <div className={`ssa-row ${c.is_new ? 'is-new' : ''} ${c.taken ? 'is-taken' : ''}`} onClick={onOpen}>
       <div className="ssa-row-av">
@@ -527,8 +841,8 @@ function SSAutoRow({ c, onOpen }: { c: AutoCandidate; onOpen: () => void }) {
         {c.updated_at && <div className="ssa-row-upd">обновлено {c.updated_at}</div>}
       </div>
       <div className="ssa-row-score">
-        {c.score != null ? (
-          <ScoreLabel value={c.score} size="lg" title="AI-балл" />
+        {displayScore != null ? (
+          <ScoreLabel value={displayScore} size="lg" title="AI-балл" />
         ) : (
           <span className="ssa-score-empty" title="Не оценён">
             —
@@ -560,16 +874,27 @@ function SSAutoSheet({
   searchName,
   region,
   poolLeft,
+  scored,
+  basis,
+  onRunScoring,
+  running,
   onClose,
 }: {
   c: AutoCandidate;
   searchName: string;
   region: string | null;
   poolLeft: number | null;
+  scored: AutoScored | null;
+  basis: AutoSearchBasis | null;
+  onRunScoring: () => void;
+  running: boolean;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'resume' | 'ai'>('resume');
   const [shown, setShown] = useState(false);
+
+  // Приоритет: scored.score > c.score
+  const displayScore = scored?.score ?? c.score;
 
   useEffect(() => {
     // setTimeout (не requestAnimationFrame — известная грабля throttling прототипа)
@@ -591,7 +916,7 @@ function SSAutoSheet({
         <div className="ssa-sheet-grip" />
         <div className="cnd-funnel-wrap">
           <div className="cand-detail ssa-cd">
-            {/* Тулбар — действия Автоподбора DISABLED (wiring в чанке C) + рабочий крестик */}
+            {/* Тулбар — «Забрать контакт»/«Перевести» disabled до чанка C2 */}
             <div className="cd-toolbar">
               <button className="btn btn-primary btn-sm" disabled title="Подключаем">
                 <Icon name="external-link" size={14} /> Забрать контакт
@@ -622,7 +947,7 @@ function SSAutoSheet({
                 <div className="cd-h-left">
                   <div className="cd-name-row">
                     <h1 className="cd-name">{c.title || 'Без названия'}</h1>
-                    {c.score != null && <ScoreLabel value={c.score} size="lg" title="AI-балл" />}
+                    {displayScore != null && <ScoreLabel value={displayScore} size="lg" title="AI-балл" />}
                     {c.is_new && (
                       <span className="ssa-newpill">
                         <span className="ssa-new-dot" /> новое
@@ -696,7 +1021,11 @@ function SSAutoSheet({
             </div>
 
             <div className="cc-content">
-              {tab === 'resume' ? <SSAutoResume c={c} /> : <SSAutoAI c={c} />}
+              {tab === 'resume' ? (
+                <SSAutoResume c={c} />
+              ) : (
+                <SSAutoAI scored={scored} basis={basis} onRunScoring={onRunScoring} running={running} />
+              )}
             </div>
           </div>
         </div>
@@ -767,9 +1096,19 @@ function SSAutoResume({ c }: { c: AutoCandidate }) {
   );
 }
 
-// Таб Оценка AI — пустое состояние, пока резюме не оценено (оценка — чанк C)
-function SSAutoAI({ c }: { c: AutoCandidate }) {
-  if (c.score == null) {
+// Таб Оценка AI — реальный разбор из прогона (чанк C)
+function SSAutoAI({
+  scored,
+  basis,
+  onRunScoring,
+  running,
+}: {
+  scored: AutoScored | null;
+  basis: AutoSearchBasis | null;
+  onRunScoring: () => void;
+  running: boolean;
+}) {
+  if (scored == null) {
     return (
       <div className="ai-single">
         <div className="ssa-ai-empty">
@@ -781,23 +1120,128 @@ function SSAutoAI({ c }: { c: AutoCandidate }) {
             Оценка относительна: Глафира сравнивает резюме с конкретной вакансией или с описанием
             идеального кандидата. Выберите основу — и она выставит балл.
           </p>
-          <button className="btn btn-primary btn-sm" disabled title="Подключаем">
-            <Icon name="sparkles" size={14} /> Оценить относительно…
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={onRunScoring}
+            disabled={running}
+          >
+            {running ? (
+              <><span className="ssa-spin dark" /> Оцениваю…</>
+            ) : (
+              <><Icon name="sparkles" size={14} /> Оценить относительно…</>
+            )}
           </button>
         </div>
       </div>
     );
   }
-  // score есть → минимальный вердикт (подробный разбор strengths/risks/criteria — из прогона, чанк C)
+
+  // Реальный разбор из прогона
+  const totalPts = scored.requirements_match?.reduce((s, m) => s + m.points, 0) ?? 0;
+  const totalMax = scored.requirements_match?.reduce((s, m) => s + m.weight, 0) ?? 0;
+
   return (
     <div className="ai-single">
-      <div className="ssa-ai-scored">
-        <ScoreLabel value={c.score} size="xl" title="AI-балл" />
-        <div className="ssa-ai-scored-text">
-          <h3>AI-балл: {c.score}</h3>
-          <p>Подробный разбор (сильные/слабые стороны, критерии) появится после оценки.</p>
+      {/* Вердикт */}
+      <div className="filo-card filo-card-compact">
+        <div className="filo-head">
+          <div className="filo-ai-mark filo-glafira">
+            <span className="glafira-emoji">👩🏻</span>
+          </div>
+          <div className="filo-head-body">
+            <div className="filo-title-row">
+              <span className="filo-title">Оценка от Глафиры</span>
+            </div>
+            {scored.verdict && <div className="filo-sub">{scored.verdict}</div>}
+            {basis && (
+              <div className="filo-screening">
+                Сравнила резюме{' '}
+                {basis.kind === 'vacancy' ? (
+                  <>с выбранной вакансией</>
+                ) : (
+                  <>с запросом <b>«{basis.prompt}»</b></>
+                )}
+                . Совпадение — {scored.score}%.
+                {scored.summary && <> {scored.summary}</>}
+              </div>
+            )}
+          </div>
+          <ScoreLabel value={scored.score} size="xl" title="AI-балл" />
         </div>
       </div>
+
+      <h3 className="cc-sec-title">Анализ AI</h3>
+
+      {/* Сильные стороны */}
+      {scored.strengths?.length > 0 && (
+        <div className="msg ai-msg ai-msg-good" style={{ maxWidth: '100%' }}>
+          <div className="ai-name ai-name-good">
+            <span className="cc-sec-emoji">✅</span> Сильные стороны
+          </div>
+          <ul className="ai-msg-list">
+            {scored.strengths.map((s, i) => <li key={i}>{s}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* Слабые стороны */}
+      {scored.risks?.length > 0 && (
+        <div className="msg ai-msg ai-msg-warn" style={{ maxWidth: '100%', marginTop: 8 }}>
+          <div className="ai-name ai-name-warn">
+            <span className="cc-sec-emoji">⚠️</span> Слабые стороны
+          </div>
+          <ul className="ai-msg-list">
+            {scored.risks.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* Вопросы */}
+      {scored.questions?.length > 0 && (
+        <div className="msg ai-msg ai-msg-q" style={{ maxWidth: '100%', marginTop: 8 }}>
+          <div className="ai-name ai-name-q">
+            <span className="cc-sec-emoji">💬</span> Вопросы для первого контакта
+          </div>
+          <ol className="ai-msg-list ai-msg-list-num">
+            {scored.questions.map((q, i) => <li key={i}>{q}</li>)}
+          </ol>
+        </div>
+      )}
+
+      {/* Разбор по критериям */}
+      {scored.requirements_match?.length > 0 && (
+        <>
+          <h3 className="cc-sec-title">
+            Разбор по критериям{' '}
+            <span className="crit-total">
+              <span className="t-mono">{totalPts}</span> / <span className="t-mono">{totalMax}</span>
+            </span>
+          </h3>
+          <div className="crit-list">
+            {scored.requirements_match.map((match, i) => {
+              const pct = match.weight ? Math.round((match.points / match.weight) * 100) : 0;
+              const color = match.weight === 0 ? 'gray' : pct >= 80 ? 'green' : pct >= 40 ? 'yellow' : 'red';
+              return (
+                <div key={i} className={`crit-row crit-${color}`}>
+                  <div className="crit-head">
+                    <span className="crit-label">{match.criterion}</span>
+                    <span className="crit-pts t-mono">
+                      {match.points}<span className="crit-pts-max"> / {match.weight || '—'}</span>
+                    </span>
+                  </div>
+                  <div className="crit-bar"><span style={{ width: `${pct}%` }} /></div>
+                  {match.comment && <div className="crit-comment">{match.comment}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Прогноз */}
+      {scored.forecast && (
+        <p className="ssa-ai-forecast">{scored.forecast}</p>
+      )}
     </div>
   );
 }
