@@ -632,6 +632,11 @@ async def _run_auto_evaluate(
                     "score": result.get("score"),
                     "verdict": result.get("verdict"),
                     "summary": result.get("summary"),
+                    "strengths": result.get("strengths") or [],
+                    "risks": result.get("risks") or [],
+                    "requirements_match": result.get("requirements_match") or [],
+                    "questions": result.get("questions") or [],
+                    "forecast": result.get("forecast"),
                 }
                 scored_candidates.append(record)
                 evaluated += 1

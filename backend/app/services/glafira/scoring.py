@@ -68,7 +68,10 @@ async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUI
         model: Модель LLM компании (из get_company_llm_model). None → дефолт env GLAFIRA_MODEL.
 
     Returns:
-        dict: {"score": int, "verdict": str, "summary": str}
+        dict: полный валидированный разбор вердикта —
+            {"score": int, "verdict": str, "summary": str, "strengths": list[str],
+             "risks": list[str], "requirements_match": list[dict], "forecast": str,
+             "questions": list[str]} (см. _ScoringLLMOutput).
 
     Raises:
         GlafiraParseError: При сбое парсинга JSON от LLM
