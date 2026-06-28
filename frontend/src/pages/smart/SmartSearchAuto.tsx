@@ -985,6 +985,18 @@ function SSAutoRow({ c, score, onOpen }: { c: AutoCandidate; score?: number | nu
           )}
         </div>
         {c.updated_at && <div className="ssa-row-upd">обновлено {c.updated_at}</div>}
+        {c.hh_url && (
+          <a
+            className="ssa-row-hh"
+            href={c.hh_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="Открыть резюме на hh.ru"
+          >
+            <Icon name="external-link" size={13} /> hh
+          </a>
+        )}
       </div>
       <div className="ssa-row-score">
         {displayScore != null ? (
@@ -1196,6 +1208,17 @@ function SSAutoSheet({
             <div className="cd-header">
               <div className="cd-context">
                 <span className="src-pill src-hh">hh · Автопоиск «{searchName}»</span>
+                {c.hh_url && (
+                  <a
+                    className="ssa-cd-hh"
+                    href={c.hh_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Открыть резюме на hh.ru"
+                  >
+                    <Icon name="external-link" size={13} /> Открыть на hh
+                  </a>
+                )}
                 {c.updated_at && <span>обновлено {c.updated_at}</span>}
                 {region && (
                   <>

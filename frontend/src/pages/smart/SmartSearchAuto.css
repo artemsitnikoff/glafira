@@ -183,6 +183,13 @@
 .ssa-page .ssa-row-salary { font-size: 13.5px; font-weight: 600; color: var(--fg-1); }
 .ssa-page .ssa-nosal { font-size: 12px; font-weight: 400; color: var(--fg-3); font-family: var(--font-sans); }
 .ssa-page .ssa-row-upd { font-size: 11px; color: var(--fg-3); margin-top: 3px; }
+.ssa-page .ssa-row-hh { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 11.5px; font-weight: 600; color: var(--accent); text-decoration: none; font-family: var(--font-sans); }
+.ssa-page .ssa-row-hh:hover { text-decoration: underline; }
+.ssa-page .ssa-row-hh svg { flex: none; }
+/* ссылка «Открыть на hh» в шапке bottom-sheet (.cd-context) */
+.ssa-page .ssa-cd-hh { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.ssa-page .ssa-cd-hh:hover { text-decoration: underline; }
+.ssa-page .ssa-cd-hh svg { flex: none; }
 .ssa-page .ssa-row-score { flex: none; }
 .ssa-page .ssa-score-empty { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 32px; border-radius: var(--radius-md); background: var(--bg-panel-2); border: 1px dashed var(--ark-gray-400); color: var(--fg-3); font-family: var(--font-mono); font-size: 15px; }
 .ssa-page .ssa-row-taken-flag { position: absolute; top: 10px; right: 14px; display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--ark-green-600); background: var(--ark-green-100); border-radius: var(--radius-full); padding: 2px 8px; }

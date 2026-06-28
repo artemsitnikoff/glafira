@@ -634,6 +634,8 @@ export interface AutoCandidate {
   // Прокси-путь к фото кандидата вида "/api/v1/smart/auto/photo?src=<hh_url>"
   // (эндпоинт под Bearer — тянуть blob'ом через api, см. CandidatePhoto). null у анонимных/без фото.
   photo_url?: string | null;
+  // Публичная web-ссылка на резюме hh (https://hh.ru/resume/...). null, если недоступна.
+  hh_url?: string | null;
 }
 
 export interface AutoCandidatesResp {
