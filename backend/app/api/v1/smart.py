@@ -6,7 +6,7 @@ import httpx
 import logging
 import types
 from datetime import datetime, timezone, timedelta
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import select, update
@@ -925,58 +925,51 @@ async def take_auto_search(
 async def get_auto_candidate_photo(
     src: str = Query(...),
     current_user: User = Depends(get_current_user),
-) -> FileResponse:
-    """Прокси-кэш фото кандидата с hh (SSRF-гард, без токена)."""
-    # SSRF-гард — первым делом, до любого сетевого вызова
+) -> Response:
+    """Прокси-кэш фото кандидата с hh (SSRF-гард, без токена). Никогда не 500 — при сбое 404→силуэт."""
+    # SSRF-гард (ValidationError → 400). Вне try — намеренно, чтобы SSRF был 400, а не 404.
     await validate_outbound_url(src, allowed_domains=("hh.ru", "hhcdn.ru"))
 
-    cache_dir = storage_root / "photos"
-    await asyncio.to_thread(lambda: cache_dir.mkdir(parents=True, exist_ok=True))
-
     key = hashlib.sha1(src.encode("utf-8")).hexdigest()
+    cache_dir = storage_root / "photos"
     cache_path = cache_dir / key
     ct_path = cache_dir / f"{key}.ct"
 
-    if cache_path.exists():
-        media_type = "image/jpeg"
-        if ct_path.exists():
-            media_type = ct_path.read_text().strip() or "image/jpeg"
-        return FileResponse(
-            cache_path,
-            media_type=media_type,
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
-
+    # 1) Кэш-чтение (best-effort: сбой диска не ломает — идём качать заново)
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(10.0), follow_redirects=True
-        ) as client:
-            resp = await client.get(src)  # БЕЗ заголовка Authorization
+        if cache_path.exists():
+            media_type = "image/jpeg"
+            if ct_path.exists():
+                media_type = (ct_path.read_text().strip() or "image/jpeg")
+            return FileResponse(cache_path, media_type=media_type,
+                                headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        logger.exception("[auto] photo cache read failed")  # игнор, качаем заново
 
-        ct_header = resp.headers.get("content-type", "image/jpeg")
-        media_type = ct_header.split(";")[0].strip().lower() or "image/jpeg"
-
-        if (
-            resp.status_code != 200
-            or not media_type.startswith("image/")
-            or len(resp.content) > 3 * 1024 * 1024
-        ):
+    # 2) Скачать с hh (БЕЗ Authorization — фото публично, токен не утекает)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), follow_redirects=True) as client:
+            resp = await client.get(src)
+        media_type = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip().lower() or "image/jpeg"
+        if resp.status_code != 200 or not media_type.startswith("image/") or len(resp.content) > 3 * 1024 * 1024:
             raise NotFoundError("Фото")
-
         content = resp.content
-
-        async def _write() -> None:
-            cache_path.write_bytes(content)
-            ct_path.write_text(media_type)
-
-        await asyncio.to_thread(_write)
-
-        return FileResponse(
-            cache_path,
-            media_type=media_type,
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
-    except ValidationError:
+    except (ValidationError, NotFoundError):
         raise
     except Exception:
+        logger.exception("[auto] photo fetch failed host=%s", (urlparse(src).hostname or "?"))
         raise NotFoundError("Фото")
+
+    # 3) Дисковый кэш — BEST-EFFORT (сбой НЕ ломает раздачу)
+    try:
+        def _write() -> None:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(content)
+            ct_path.write_text(media_type)
+        await asyncio.to_thread(_write)
+    except Exception:
+        logger.exception("[auto] photo cache write failed")  # игнор — всё равно отдаём ниже
+
+    # 4) Отдать БАЙТЫ напрямую (надёжно — не зависит от файла на диске)
+    return Response(content=content, media_type=media_type,
+                    headers={"Cache-Control": "public, max-age=86400"})
