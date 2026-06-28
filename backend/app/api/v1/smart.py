@@ -77,8 +77,8 @@ from ...services.base_search import (
 from ...core.errors import NotFoundError, ForbiddenError, ValidationError, ConflictError
 from ...models.smart_search import SmartSearchRun
 from ...services.resume_export import build_resume_pdf, build_resume_docx
-from ...schemas.auto_search import AutoSearchItem, AutoAccessResponse
-from ...services.auto_search import get_auto_access, sync_saved_searches, list_auto_searches
+from ...schemas.auto_search import AutoSearchItem, AutoAccessResponse, AutoCandidatesResponse
+from ...services.auto_search import get_auto_access, sync_saved_searches, list_auto_searches, get_auto_candidates
 
 router = APIRouter()
 
@@ -745,3 +745,22 @@ async def sync_auto_searches(
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
     return await sync_saved_searches(session, company_id)
+
+
+@router.get("/auto/searches/{auto_search_id}/candidates", response_model=AutoCandidatesResponse)
+async def get_auto_search_candidates(
+    auto_search_id: UUID,
+    segment: str = Query("all"),
+    page: int = Query(0, ge=0),
+    sort: str = Query("updated"),
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Кандидаты автопоиска на бесплатных полях hh (пагинация 10, сегмент Все/Новые)."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    if segment not in ("all", "new"):
+        segment = "all"
+    data = await get_auto_candidates(session, company_id, auto_search_id, segment=segment, page=page, sort=sort)
+    return AutoCandidatesResponse(**data)

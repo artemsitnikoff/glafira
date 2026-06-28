@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, parse_qsl
 from uuid import UUID
@@ -15,7 +16,10 @@ from uuid import UUID
 from sqlalchemy import select, desc, nullslast
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.errors import NotFoundError
 from ..models.auto_search import AutoSearch
+from ..models.candidate import Candidate
+from .candidate import format_duration
 from .integrations.hh import client as hh_client
 from .integrations.hh.service import get_valid_access_token
 from .smart_search import check_access, _parse_api_quota
@@ -166,4 +170,114 @@ async def get_auto_access(session: AsyncSession, company_id: UUID) -> dict:
         "has_paid_access": has_paid_access,
         "reason": reason,
         "pool_left": pool_left,
+    }
+
+
+async def get_auto_candidates(
+    session: AsyncSession,
+    company_id: UUID,
+    auto_search_id: UUID,
+    segment: str = "all",
+    page: int = 0,
+    sort: str = "updated",
+) -> dict:
+    """Кандидаты автопоиска на БЕСПЛАТНЫХ полях hh, синхронно, с пагинацией по 10.
+
+    Читает items_url (segment='all') или new_items_url (segment='new') сохранённого
+    автопоиска hh и отдаёт страницу резюме без открытия контактов/чтения полного резюме.
+    sort принимается, пока игнорируется (резюме отдаёт hh в порядке поиска).
+    """
+    auto_search = (
+        await session.execute(
+            select(AutoSearch).where(
+                AutoSearch.company_id == company_id,
+                AutoSearch.id == auto_search_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if auto_search is None:
+        raise NotFoundError("Автопоиск")
+
+    url = auto_search.new_items_url if segment == "new" else auto_search.items_url
+    if not url:
+        return {"items": [], "total": 0, "page": page, "pages": 0, "per_page": 10}
+
+    params = parse_saved_search_url(url) + [("per_page", "10"), ("page", str(page))]
+
+    token = await get_valid_access_token(session, company_id)
+    raw = await hh_client.search_resumes(token, params)
+
+    items = raw.get("items") or []
+    # ДИАГ-ЛОГ: только КЛЮЧИ первого item (структура ответа), НЕ значения (PII).
+    if items and isinstance(items[0], dict):
+        logger.info("[auto] resume item keys=%s", list(items[0].keys()))
+
+    # БАТЧ-дедуп: один запрос по всем валидным hh_resume_id страницы.
+    resume_ids = [str(item.get("id")) for item in items
+                  if isinstance(item, dict) and item.get("id") is not None]
+    taken_ids: set[str] = set()
+    if resume_ids:
+        rows = await session.execute(
+            select(Candidate.extra["hh_resume_id"].astext).where(
+                Candidate.company_id == company_id,
+                Candidate.extra["hh_resume_id"].astext.in_(resume_ids),
+                Candidate.deleted_at.is_(None),
+            )
+        )
+        taken_ids = {r for r in rows.scalars().all() if r is not None}
+
+    items_mapped: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        rid = item.get("id")
+        if rid is None:
+            continue
+        hh_resume_id = str(rid)
+
+        area = item.get("area") or {}
+        salary_obj = item.get("salary") or {}
+        total_exp = item.get("total_experience") or {}
+
+        last_job = None
+        experience_list = item.get("experience") or []
+        if isinstance(experience_list, list):
+            for exp in experience_list:
+                if not isinstance(exp, dict):
+                    continue
+                position = exp.get("position")
+                company = exp.get("company")
+                parts = [p for p in (position, company) if p]
+                last_job = " · ".join(parts) if parts else None
+                break
+
+        items_mapped.append({
+            "hh_resume_id": hh_resume_id,
+            "title": item.get("title"),
+            "age": item.get("age"),
+            "city": area.get("name") if isinstance(area, dict) else None,
+            "anonymous": bool(item.get("hidden_fields")),
+            "salary": salary_obj.get("amount") if isinstance(salary_obj, dict) else None,
+            "experience": format_duration((total_exp.get("months") if isinstance(total_exp, dict) else None) or 0),
+            "skills": item.get("skill_set") or [],
+            "last_job": last_job,
+            "updated_at": item.get("updated_at"),
+            "is_new": segment == "new",
+            "score": None,
+            "taken": hh_resume_id in taken_ids,
+        })
+
+    total = min(raw.get("found", 0) or 0, 2000)
+    pages = math.ceil(total / 10) if total else 0
+
+    if segment == "new":
+        auto_search.last_seen_at = _utc_naive_now()
+        await session.commit()
+
+    return {
+        "items": items_mapped,
+        "total": total,
+        "page": page,
+        "pages": pages,
+        "per_page": 10,
     }
