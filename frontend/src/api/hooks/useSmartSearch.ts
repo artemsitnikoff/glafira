@@ -614,3 +614,49 @@ export function useSyncAutoSearches() {
     },
   });
 }
+
+// Кандидат автопоиска (бесплатные поля hh — контакты закрыты до списания пула).
+// skills приходит ПУСТЫМ из поиска (навыки — только в полном резюме); НЕ выдумывать.
+export interface AutoCandidate {
+  hh_resume_id: string;
+  title: string | null;
+  age: number | null;
+  city: string | null;
+  anonymous: boolean;
+  salary: number | null;
+  experience: string | null;
+  skills: string[];
+  last_job: string | null;
+  updated_at: string | null;
+  is_new: boolean;
+  score: number | null;
+  taken: boolean;
+}
+
+export interface AutoCandidatesResp {
+  items: AutoCandidate[];
+  total: number;
+  page: number;
+  pages: number;
+  per_page: number;
+}
+
+// Кандидаты выбранного автопоиска: пагинация + сегмент (all|new) + сортировка.
+// keepPreviousData (placeholderData) — чтобы при смене страницы не мигало в пустоту.
+export function useAutoCandidates(
+  searchId: string | null,
+  params: { segment: 'all' | 'new'; page: number; sort?: string },
+) {
+  const { segment, page, sort } = params;
+  return useQuery({
+    queryKey: ['smart', 'auto', 'candidates', searchId, segment, page, sort ?? null],
+    queryFn: async (): Promise<AutoCandidatesResp> => {
+      const response = await api.get(`/smart/auto/searches/${searchId}/candidates`, {
+        params: { segment, page, ...(sort ? { sort } : {}) },
+      });
+      return response.data as AutoCandidatesResp;
+    },
+    enabled: searchId !== null,
+    placeholderData: (prev) => prev,
+  });
+}

@@ -120,21 +120,139 @@
 .ssa-page .ssa-state-title { font-size: 16px; font-weight: 600; }
 .ssa-page .ssa-state-sub { font-size: 13px; color: var(--fg-2); line-height: 1.5; max-width: 440px; margin-bottom: 10px; }
 
-/* ---------- Плейсхолдер «кандидаты — следующий чанк» ---------- */
-.ssa-page .ssa-cands-soon { margin-top: 18px; }
+/* ---------- Кандидаты автопоиска (чанк B) ---------- */
+.ssa-page .ssa-cands { margin-top: 18px; }
+.ssa-page .ssa-cands-head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; flex-wrap: wrap; }
 .ssa-page .ssa-crumb { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; cursor: pointer; font: inherit; font-size: 13px; color: var(--fg-2); padding: 4px 8px 4px 4px; border-radius: var(--radius-md); }
 .ssa-page .ssa-crumb:hover { background: var(--bg-3-hover); color: var(--fg-1); }
-.ssa-page .ssa-cands-soon-body {
-  margin-top: 14px; padding: 40px 24px; text-align: center;
-  background: var(--bg-panel-2); border: 1px solid var(--border-2); border-radius: var(--radius-lg);
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+.ssa-page .ssa-crumb-sep { color: var(--ark-gray-400); }
+.ssa-page .ssa-crumb-cur { font-size: 16px; font-weight: 600; }
+.ssa-page .ssa-crumb-region { font-size: 12.5px; color: var(--fg-3); }
+.ssa-page .ssa-basis-inline { width: auto; max-width: 320px; flex: none; }
+
+/* панель действий списка */
+.ssa-page .ssa-cands-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.ssa-page .ssa-seg { display: inline-flex; background: var(--bg-panel-2); border: 1px solid var(--border-1); border-radius: var(--radius-md); padding: 3px; }
+.ssa-page .ssa-seg-btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 14px; border-radius: var(--radius-md); border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; color: var(--fg-2); background: transparent; }
+.ssa-page .ssa-seg-btn .t-mono { font-size: 12px; }
+.ssa-page .ssa-seg-btn.active { background: var(--ark-white); color: var(--fg-1); font-weight: 600; box-shadow: var(--shadow-1); }
+.ssa-page .ssa-seg-btn.new.active { color: var(--ark-green-600); }
+.ssa-page .ssa-seg-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.ssa-page .ssa-sort { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-3); }
+.ssa-page .ssa-sort select { height: 30px; border: 1px solid var(--border-1); border-radius: var(--radius-md); background: var(--ark-white); padding: 0 8px; font: inherit; font-size: 12.5px; color: var(--fg-1); cursor: pointer; }
+.ssa-page .ssa-ae-inline { display: inline-flex; align-items: center; gap: 9px; }
+.ssa-page .ssa-ae-inline-label { font-size: 12.5px; color: var(--fg-2); }
+.ssa-page .ssa-eval-btn { white-space: nowrap; }
+
+.ssa-page .ssa-newnote { display: flex; align-items: center; gap: 8px; background: var(--ark-yellow-100); color: var(--ark-yellow-600); border-radius: var(--radius-md); padding: 9px 12px; margin-bottom: 12px; font-size: 12px; line-height: 1.4; }
+.ssa-page .ssa-newnote svg { flex: none; }
+
+/* строки кандидатов */
+.ssa-page .ssa-rows { display: flex; flex-direction: column; gap: 8px; }
+.ssa-page .ssa-rows.is-fetching { opacity: .7; transition: opacity var(--dur-fast) var(--ease-out); }
+.ssa-page .ssa-row { position: relative; display: flex; align-items: center; gap: 14px; background: var(--ark-white); border: 1px solid var(--border-1); border-radius: var(--radius-lg); padding: 12px 16px; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.ssa-page .ssa-row:hover { border-color: var(--ark-gray-400); box-shadow: var(--shadow-1); transform: translateY(-1px); }
+.ssa-page .ssa-row.is-new { border-left: 3px solid var(--ark-green-600); }
+.ssa-page .ssa-row.is-taken { background: linear-gradient(0deg, rgba(18,134,64,.05), rgba(18,134,64,.05)), var(--ark-white); }
+
+.ssa-page .ssa-row-av { position: relative; flex: none; }
+.ssa-page .ssa-anon-av { border-radius: 50%; flex: none; background: var(--ark-gray-200); color: var(--ark-gray-500); display: inline-flex; align-items: center; justify-content: center; }
+.ssa-page .ssa-row-newpip { position: absolute; top: -2px; right: -2px; width: 11px; height: 11px; border-radius: 50%; background: var(--ark-green-600); border: 2px solid var(--ark-white); }
+.ssa-page .ssa-row-main { flex: 1; min-width: 0; }
+.ssa-page .ssa-row-title-line { display: flex; align-items: center; gap: 9px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+.ssa-page .ssa-row-title { font-size: 14px; font-weight: 600; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+.ssa-page .ssa-row-meta { font-size: 12px; color: var(--fg-2); white-space: nowrap; flex: none; }
+.ssa-page .ssa-anon-tag { display: inline-flex; align-items: center; gap: 3px; flex: none; font-size: 10px; font-weight: 600; color: var(--fg-3); background: var(--bg-panel-2); border: 1px solid var(--border-2); border-radius: var(--radius-full); padding: 1px 7px 1px 6px; }
+.ssa-page .ssa-row-job { font-size: 12.5px; color: var(--fg-2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ssa-page .ssa-row-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.ssa-page .ssa-skill { font-size: 11px; color: var(--fg-2); background: var(--bg-panel-2); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 2px 8px; }
+.ssa-page .ssa-skill.more { color: var(--fg-3); }
+.ssa-page .ssa-row-right { flex: none; text-align: right; min-width: 130px; }
+.ssa-page .ssa-row-salary { font-size: 13.5px; font-weight: 600; color: var(--fg-1); }
+.ssa-page .ssa-nosal { font-size: 12px; font-weight: 400; color: var(--fg-3); font-family: var(--font-sans); }
+.ssa-page .ssa-row-upd { font-size: 11px; color: var(--fg-3); margin-top: 3px; }
+.ssa-page .ssa-row-score { flex: none; }
+.ssa-page .ssa-score-empty { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 32px; border-radius: var(--radius-md); background: var(--bg-panel-2); border: 1px dashed var(--ark-gray-400); color: var(--fg-3); font-family: var(--font-mono); font-size: 15px; }
+.ssa-page .ssa-row-taken-flag { position: absolute; top: 10px; right: 14px; display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--ark-green-600); background: var(--ark-green-100); border-radius: var(--radius-full); padding: 2px 8px; }
+
+/* пагинатор */
+.ssa-page .ssa-rows-empty { margin-top: 16px; text-align: center; padding: 28px; font-size: 13px; color: var(--fg-3); background: var(--bg-panel-2); border: 1px solid var(--border-2); border-radius: var(--radius-lg); }
+.ssa-page .ssa-pager { display: flex; flex-direction: column; align-items: center; gap: 9px; margin-top: 18px; }
+.ssa-page .ssa-pager-info { font-size: 12.5px; color: var(--fg-3); }
+.ssa-page .ssa-pager-info b { color: var(--fg-1); font-weight: 600; }
+.ssa-page .ssa-pager-ctrls { display: flex; align-items: center; gap: 4px; }
+.ssa-page .ssa-pg, .ssa-page .ssa-pg-nav {
+  min-width: 32px; height: 32px; padding: 0 7px; border-radius: var(--radius-md);
+  border: 1px solid var(--border-1); background: var(--ark-white); cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--fg-1);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-feature-settings: 'tnum';
+  transition: all var(--dur-fast) var(--ease-out);
 }
-.ssa-page .ssa-cands-soon-ic { color: var(--fg-3); margin-bottom: 6px; }
-.ssa-page .ssa-cands-soon-title { font-size: 16px; font-weight: 600; }
-.ssa-page .ssa-cands-soon-sub { font-size: 13px; color: var(--fg-2); }
+.ssa-page .ssa-pg:hover, .ssa-page .ssa-pg-nav:hover:not(:disabled) { border-color: var(--ark-gray-400); background: var(--bg-3-hover); }
+.ssa-page .ssa-pg.active { background: var(--accent); border-color: var(--accent); color: var(--ark-white); font-weight: 600; }
+.ssa-page .ssa-pg-nav:disabled { opacity: .4; cursor: not-allowed; }
+.ssa-page .ssa-pg-ell { padding: 0 4px; color: var(--fg-3); user-select: none; }
+
+/* ---------- bottom-sheet: контейнер + хост для .cand-detail ---------- */
+.ssa-page .ssa-sheet-backdrop { position: fixed; inset: 0 0 0 var(--sidebar-width); z-index: 60; background: rgba(15,22,32,.34); opacity: 0; transition: opacity 200ms var(--ease-out); }
+.ssa-page .ssa-sheet-backdrop.is-open { opacity: 1; }
+.ssa-page .ssa-sheet {
+  position: fixed; left: var(--sidebar-width); right: 0; bottom: 0; z-index: 61;
+  height: 86vh; min-height: 480px;
+  background: var(--ark-white); border-top: 1px solid var(--border-1);
+  border-radius: 18px 18px 0 0; box-shadow: 0 -16px 48px rgba(15,22,32,.18);
+  display: flex; flex-direction: column;
+  transform: translateY(100%); transition: transform 300ms var(--ease-out);
+}
+.ssa-page .ssa-sheet.is-open { transform: none; }
+.ssa-page .ssa-sheet-grip { width: 40px; height: 4px; border-radius: var(--radius-full); background: var(--ark-gray-400); margin: 9px auto 4px; flex: none; }
+.ssa-page .ssa-sheet .cnd-funnel-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* переиспускаем .cand-detail внутри листа: снимаем абсолютное позиционирование */
+.ssa-page .ssa-sheet .cand-detail.ssa-cd {
+  position: static; inset: auto; left: auto; right: auto; top: auto; bottom: auto;
+  width: 100%; height: auto; min-height: 0; flex: 1;
+  border: 0; box-shadow: none; animation: none;
+  border-radius: 0 0 18px 18px; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.ssa-page .ssa-sheet .cand-detail.ssa-cd .cd-toolbar { border-radius: 0; }
+
+/* «новое» в шапке карточки */
+.ssa-page .ssa-newpill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--ark-green-600); background: var(--ark-green-100); padding: 2px 9px; border-radius: var(--radius-full); }
+.ssa-page .ssa-newpill .ssa-new-dot { box-shadow: none; }
+
+/* мелкие чипы навыков в шапке (cd-tags-row) */
+.ssa-page .ssa-sheet .skill-chip.skill-chip-sm { font-size: 11px; padding: 2px 8px; }
+
+/* закрытый контакт */
+.ssa-page .ssa-cb-locked { position: relative; }
+.ssa-page .ssa-locked { display: inline-flex; align-items: center; gap: 5px; color: var(--ark-yellow-600); font-weight: 600; }
+.ssa-page .ssa-mask { letter-spacing: .04em; color: var(--fg-3); }
+.ssa-page .ssa-cb-note { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-2); font-size: 11.5px; color: var(--fg-2); line-height: 1.45; }
+.ssa-page .ssa-cb-warn { color: var(--ark-yellow-600); }
+
+/* подсказка «открытые поля» в табе Резюме */
+.ssa-page .ssa-unscored-note { display: flex; align-items: center; gap: 8px; background: var(--ark-violet-100); color: var(--ark-violet-500); border-radius: var(--radius-lg); padding: 10px 13px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.4; }
+.ssa-page .ssa-unscored-note svg { flex: none; color: var(--ark-violet-500); }
+
+/* пустой AI-таб */
+.ssa-page .ssa-ai-empty { text-align: center; padding: 36px 20px; }
+.ssa-page .ssa-ai-empty-ic { width: 56px; height: 56px; border-radius: var(--radius-lg); margin: 0 auto 14px; background: var(--ark-violet-100); color: var(--ark-violet-500); display: flex; align-items: center; justify-content: center; }
+.ssa-page .ssa-ai-empty h3 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.ssa-page .ssa-ai-empty p { margin: 0 auto 16px; font-size: 13px; color: var(--fg-2); line-height: 1.55; max-width: 440px; }
+
+/* AI-таб со score (минимальный вердикт) */
+.ssa-page .ssa-ai-scored { display: flex; align-items: center; gap: 16px; }
+.ssa-page .ssa-ai-scored-text h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+.ssa-page .ssa-ai-scored-text p { margin: 0; font-size: 13px; color: var(--fg-2); line-height: 1.5; }
 
 /* ---------- Адаптив ---------- */
 @media (max-width: 980px) {
   .ssa-page .ssa-search-card { flex-direction: column; }
   .ssa-page .ssa-sc-aside { width: auto; border-left: 0; border-top: 1px solid var(--border-2); flex-direction: row; flex-wrap: wrap; }
+  .ssa-page .ssa-sheet, .ssa-page .ssa-sheet-backdrop { left: 0; }
+  .ssa-page .ssa-sheet-backdrop { inset: 0; }
 }
