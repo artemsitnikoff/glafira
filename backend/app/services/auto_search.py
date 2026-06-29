@@ -18,6 +18,7 @@ from sqlalchemy import select, desc, nullslast, update, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..core.errors import NotFoundError, ValidationError, ConflictError, GlafiraParseError
 from ..database import AsyncSessionLocal
 from ..models.auto_search import AutoSearch, AutoSearchRun
@@ -34,7 +35,7 @@ from .smart_search import (
     _is_ai_credits_error,
     _create_candidate_from_resume,
 )
-from .base_search import _create_synthetic_vacancy_for_scoring, GLAFIRA_MAX_EVALUATE
+from .base_search import _create_synthetic_vacancy_for_scoring
 from .glafira.scoring import score_resume_dict
 from .settings.glafira import get_company_openrouter_key, get_company_llm_model
 
@@ -42,6 +43,11 @@ from .settings.glafira import get_company_openrouter_key, get_company_llm_model
 # не слил весь платный пул контактов одним вызовом (полноценный whitelist как в
 # take_selected невозможен: кандидаты автопоиска не персистятся до оценки).
 AUTO_TAKE_BATCH_CAP = 25
+
+# Предохранитель расхода: верхний предел N для AI-оценки в Автоподборе (фаза EVALUATE).
+# ОТДЕЛЬНЫЙ от GLAFIRA_MAX_EVALUATE (=100, умный подбор по своей базе) — Автоподбор
+# гоняет большие сохранённые поиски hh, поэтому кап выше (1000). Каждый = LLM-вызов = деньги.
+AUTO_MAX_EVALUATE = int(getattr(settings, "AUTO_MAX_EVALUATE", 1000))
 
 logger = logging.getLogger(__name__)
 
@@ -656,7 +662,7 @@ async def start_auto_evaluate(
     if auto_search.basis is None:
         raise ValidationError("Сначала задайте основу оценки")
 
-    to_eval = min(n or GLAFIRA_MAX_EVALUATE, GLAFIRA_MAX_EVALUATE)
+    to_eval = min(n or AUTO_MAX_EVALUATE, AUTO_MAX_EVALUATE)
 
     def _new_run() -> AutoSearchRun:
         return AutoSearchRun(
@@ -845,7 +851,7 @@ async def _run_auto_evaluate(
                 logger.error("[auto_eval] Не удалось финализировать пустой прогон: %s", e)
             return
 
-        cap = min(n or GLAFIRA_MAX_EVALUATE, GLAFIRA_MAX_EVALUATE)
+        cap = min(n or AUTO_MAX_EVALUATE, AUTO_MAX_EVALUATE)
         accumulated: list[dict] = []
         for page in range(20):
             try:
@@ -959,7 +965,7 @@ async def _run_auto_evaluate(
             logger.error("[auto_eval] Не удалось сохранить финал: %s", e)
 
     try:
-        timeout_s = max(900, (n or GLAFIRA_MAX_EVALUATE) * 200)
+        timeout_s = min(6 * 3600, max(1800, (n or AUTO_MAX_EVALUATE) * 30))
         await asyncio.wait_for(_inner(), timeout=timeout_s)
     except asyncio.TimeoutError:
         try:
