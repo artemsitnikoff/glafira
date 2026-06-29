@@ -422,27 +422,40 @@ async def get_auto_candidates(
         auto_search.last_seen_at = _utc_naive_now()
         await session.commit()
 
-    # Инжектируем score из последнего завершённого прогона
-    last_run_result = await session.execute(
+    # Инжектируем score из НЕДАВНИХ прогонов (НЕ только последнего 'done').
+    # Раньше читался ровно один прогон со status=='done' — из-за чего:
+    #  • прогон, прервавшийся после N оценок (status='error': таймаут/кредиты),
+    #    терял ВСЕ свои оценки в UI, хотя они персистнуты в scored_candidates
+    #    (= клиент уже заплатил за оценку, а её не видно — «где оценки??»);
+    #  • маленький до-прогон (напр. 122/123) перекрывал большой (480) — кандидаты
+    #    вне маленького показывались прочерком;
+    #  • при отсутствии свежего 'done' читался старый крошечный прогон (1 балл).
+    # Теперь мёржим оценки из нескольких последних прогонов, НЕЗАВИСИМО от статуса;
+    # при конфликте по hh_resume_id побеждает балл из БОЛЕЕ НОВОГО прогона.
+    recent_runs_result = await session.execute(
         select(AutoSearchRun)
         .where(
             AutoSearchRun.company_id == company_id,
             AutoSearchRun.auto_search_id == auto_search_id,
-            AutoSearchRun.status == "done",
         )
         .order_by(desc(AutoSearchRun.created_at))
-        .limit(1)
+        .limit(8)
     )
-    last_run = last_run_result.scalar_one_or_none()
-    if last_run and last_run.scored_candidates:
-        score_map = {
-            str(c.get("hh_resume_id")): c.get("score")
-            for c in last_run.scored_candidates
-            if isinstance(c, dict) and c.get("score") is not None
-        }
+    score_map: dict[str, int] = {}
+    for run in recent_runs_result.scalars().all():  # от новых к старым
+        for c in (run.scored_candidates or []):
+            if not isinstance(c, dict):
+                continue
+            rid = c.get("hh_resume_id")
+            sc = c.get("score")
+            if rid is None or sc is None:
+                continue
+            score_map.setdefault(str(rid), sc)  # первый = из самого нового прогона
+    if score_map:
         for it in items_mapped:
-            if str(it.get("hh_resume_id", "")) in score_map:
-                it["score"] = score_map[str(it["hh_resume_id"])]
+            rid = str(it.get("hh_resume_id", ""))
+            if rid in score_map:
+                it["score"] = score_map[rid]
     if sort == "score":
         items_mapped.sort(
             key=lambda x: (x.get("score") is None, -(x.get("score") or 0))
