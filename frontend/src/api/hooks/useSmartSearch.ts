@@ -578,6 +578,11 @@ export interface AutoSearch {
   new_count: number | null;
   basis: AutoSearchBasis | null;
   updated_at: string | null;
+  // Персистентный прогресс последнего прогона AI-оценки (v0.9.177) —
+  // виден всегда, не только во время активного поллинга.
+  eval_status?: 'running' | 'done' | 'error' | null;
+  eval_done?: number;
+  eval_total?: number;
 }
 
 // Доступ к автопоискам hh (платный доступ + остаток пула контактов)

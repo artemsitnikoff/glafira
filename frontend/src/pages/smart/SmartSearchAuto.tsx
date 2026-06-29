@@ -83,6 +83,50 @@ interface ApiErrEnvelope {
   error?: { code?: string; message?: string };
 }
 
+// CONFLICT (реальный прогон уже идёт на беке) — отличаем по коду из envelope client.ts
+function isConflictErr(e: unknown): boolean {
+  return (e as ApiErrEnvelope)?.error?.code === 'CONFLICT';
+}
+
+// ====== Персистентный прогресс AI-оценки (из search.eval_*) ======
+// Виден ВСЕГДА (не только при активном поллинге): берётся из сохранённого на беке
+// статуса последнего прогона. running → спиннер; done → ✓; error → приглушённое ⚠.
+function SSAutoEvalProgress({
+  status,
+  done,
+  total,
+}: {
+  status?: 'running' | 'done' | 'error' | null;
+  done?: number;
+  total?: number;
+}) {
+  if (!status) return null;
+  const d = done ?? 0;
+  const t = total ?? 0;
+  if (status === 'running') {
+    return (
+      <div className="ssa-eval-flag running">
+        <span className="ssa-spin" /> Оценивается {d} из {t}…
+      </div>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <div className="ssa-eval-flag error">
+        <Icon name="alert-triangle" size={13} /> Оценка прервана
+        {d > 0 && <span className="ssa-eval-flag-sub">оценено {d}</span>}
+      </div>
+    );
+  }
+  // done
+  const label = t > 0 && d === t ? `Оценено ${d}` : `Оценено ${d} из ${t}`;
+  return (
+    <div className="ssa-eval-flag done">
+      <Icon name="check" size={13} /> {label}
+    </div>
+  );
+}
+
 // Хелпер текста ошибки для тоста (учитывает ApiError envelope из client.ts)
 function takeErrorText(e: unknown): string {
   const env = e as ApiErrEnvelope;
@@ -335,11 +379,56 @@ function SSAutoSearchCard({ s, onOpen }: { s: AutoSearch; onOpen: (id: string) =
   const bl = basisLabel(s.basis);
   const newCount = s.new_count ?? 0;
 
+  const qc = useQueryClient();
   const toggleEval = useToggleAutoEval(s.id);
   const setBasis = useSetAutoBasis(s.id);
+  const runEval = useRunAutoEval(s.id);
 
-  // Локальный диалог смены основы в карточке
-  const [dialog, setDialog] = useState<boolean>(false);
+  // Локальный диалог: смена основы ИЛИ «выбрать основу → запустить оценку».
+  // after — что сделать после сохранения основы (null = просто сохранить).
+  const [dialog, setDialog] = useState<null | { after: ((basis: AutoSearchBasis) => void) | null }>(null);
+
+  // Локальный прогон оценки из карточки (поллинг). На done — инвалидируем searches.
+  const [runId, setRunId] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const runStatus = useAutoEvalRun(runId, !!runId);
+
+  // Прогон завершился/упал → сбрасываем runId и обновляем eval_* в карточках.
+  useEffect(() => {
+    const status = runStatus.data?.status;
+    if (!status || status === 'running') return;
+    setRunId(null);
+    qc.invalidateQueries({ queryKey: ['smart', 'auto', 'searches'] });
+    qc.invalidateQueries({ queryKey: ['smart', 'auto', 'candidates', s.id] });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runStatus.data?.status]);
+
+  // Прогресс идёт, если: идёт серверный прогон (eval_status), локальный runId или mutate в полёте.
+  const isRunning = s.eval_status === 'running' || !!runId || runEval.isPending;
+  const everEvaluated = s.eval_status === 'done' || s.eval_status === 'error';
+
+  function doRunEval(segment: 'all' | 'new') {
+    setConflict(false);
+    runEval.mutate(
+      { segment },
+      {
+        onSuccess: ({ run_id }) => setRunId(run_id),
+        onError: (e) => {
+          if (isConflictErr(e)) setConflict(true);
+        },
+      },
+    );
+  }
+
+  // Запуск оценки сегмента: если основы нет — сперва диалог основы, затем прогон.
+  function startEval(segment: 'all' | 'new', e: React.MouseEvent) {
+    e.stopPropagation();
+    if (s.basis) {
+      doRunEval(segment);
+    } else {
+      setDialog({ after: () => doRunEval(segment) });
+    }
+  }
 
   function handleToggleAutoEval(e: React.MouseEvent) {
     e.stopPropagation();
@@ -349,14 +438,14 @@ function SSAutoSearchCard({ s, onOpen }: { s: AutoSearch; onOpen: (id: string) =
       if (s.basis) {
         toggleEval.mutate(true);
       } else {
-        setDialog(true);
+        setDialog({ after: () => toggleEval.mutate(true) });
       }
     }
   }
 
   function handleBasisClick(e: React.MouseEvent) {
     e.stopPropagation();
-    setDialog(true);
+    setDialog({ after: null });
   }
 
   return (
@@ -365,10 +454,16 @@ function SSAutoSearchCard({ s, onOpen }: { s: AutoSearch; onOpen: (id: string) =
         <SSAutoBasisDialog
           searchName={name}
           current={s.basis}
-          confirmLabel="Сохранить основу"
-          onCancel={() => setDialog(false)}
+          confirmLabel={dialog.after ? '✨ Оценить' : 'Сохранить основу'}
+          onCancel={() => setDialog(null)}
           onConfirm={(basis) => {
-            setBasis.mutate(basis, { onSuccess: () => setDialog(false) });
+            const afterFn = dialog.after;
+            setBasis.mutate(basis, {
+              onSuccess: () => {
+                setDialog(null);
+                afterFn?.(basis);
+              },
+            });
           }}
         />
       )}
@@ -437,6 +532,57 @@ function SSAutoSearchCard({ s, onOpen }: { s: AutoSearch; onOpen: (id: string) =
           <button className="ssa-sc-link all" style={{ fontSize: 12 }} onClick={handleBasisClick}>
             <Icon name="sparkles" size={12} /> Выбрать основу оценки
           </button>
+        )}
+
+        {/* Персистентный прогресс последнего прогона (всегда виден) */}
+        {isRunning ? (
+          <SSAutoEvalProgress
+            status="running"
+            done={runStatus.data?.evaluated ?? s.eval_done}
+            total={runStatus.data?.to_evaluate ?? s.eval_total}
+          />
+        ) : (
+          <SSAutoEvalProgress status={s.eval_status} done={s.eval_done} total={s.eval_total} />
+        )}
+
+        {conflict && (
+          <div className="ssa-eval-note">
+            <Icon name="alert-circle" size={12} /> Оценка уже идёт
+          </div>
+        )}
+
+        {/* Кнопки оценки / переиндексации */}
+        {!everEvaluated ? (
+          // Никогда не оценивался → первая оценка (срез all)
+          <button
+            className="ssa-sc-reidx primary"
+            onClick={(e) => startEval('all', e)}
+            disabled={isRunning}
+          >
+            <Icon name="sparkles" size={12} /> Оценить {ssaFmt(s.total)}
+          </button>
+        ) : (
+          // Оценка была → переиндексация всё / только новых
+          <div className="ssa-reidx-row">
+            <button
+              className="ssa-sc-reidx"
+              onClick={(e) => startEval('all', e)}
+              disabled={isRunning}
+              title="Пере-оценить весь срез — если сменили вакансию/промт"
+            >
+              <Icon name="refresh-cw" size={12} /> Переиндексировать всё
+            </button>
+            {newCount > 0 && (
+              <button
+                className="ssa-sc-reidx"
+                onClick={(e) => startEval('new', e)}
+                disabled={isRunning}
+                title="Оценить только новые резюме"
+              >
+                <Icon name="sparkles" size={12} /> Только новых
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -545,6 +691,7 @@ function SSAutoCandidatesView({
   const [runId, setRunId] = useState<string | null>(null);
   const [scoredMap, setScoredMap] = useState<Record<string, AutoScored>>({});
   const [evalError, setEvalError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [dialog, setDialog] = useState<null | { confirmLabel: string; after: (basis: AutoSearchBasis) => void }>(null);
 
   // Стейт чанка C2: забор контакта / тосты / локальный трекер взятых
@@ -603,11 +750,14 @@ function SSAutoCandidatesView({
       }
       setRunId(null);
       qc.invalidateQueries({ queryKey: ['smart', 'auto', 'candidates', search.id] });
+      // Обновляем eval_status/eval_done/eval_total в списке автопоисков (персистентный прогресс).
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'searches'] });
     } else if (status === 'error') {
       setEvalError(
         runStatus.data?.error || runStatus.data?.note || 'Не удалось оценить кандидатов',
       );
       setRunId(null);
+      qc.invalidateQueries({ queryKey: ['smart', 'auto', 'searches'] });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runStatus.data?.status]);
@@ -661,13 +811,19 @@ function SSAutoCandidatesView({
     );
   }
 
-  function startEval() {
+  // Запуск оценки конкретного сегмента (по умолчанию — активный сегмент списка).
+  function startEval(seg?: 'all' | 'new') {
+    const target = seg ?? segment;
     function doRun() {
+      setConflict(false);
       runEval.mutate(
-        { segment },
+        { segment: target },
         {
           onSuccess: ({ run_id }) => setRunId(run_id),
-          onError: (e) => setEvalError(e.message || 'Не удалось запустить оценку'),
+          onError: (e) => {
+            if (isConflictErr(e)) setConflict(true);
+            else setEvalError(e.message || 'Не удалось запустить оценку');
+          },
         },
       );
     }
@@ -707,7 +863,11 @@ function SSAutoCandidatesView({
     setPage(0);
   }
 
-  const isEvalRunning = !!runId || runEval.isPending;
+  // Прогон идёт: локальный runId, mutate в полёте ИЛИ персистентный серверный статус.
+  const isEvalRunning =
+    !!runId || runEval.isPending || search.eval_status === 'running' || runStatus.data?.status === 'running';
+  // Оценка уже была (для выбора кнопок «всё / только новых»).
+  const everEvaluated = search.eval_status === 'done' || search.eval_status === 'error';
 
   return (
     <div className="ssa-cands" ref={rowsRef}>
@@ -822,22 +982,62 @@ function SSAutoCandidatesView({
           />
         </div>
 
-        {/* Кнопка оценки / прогресс */}
-        {runStatus.data?.status === 'running' ? (
-          <div className="ssa-eval-progress">
-            <span className="ssa-spin" />
-            Глафира оценивает… {runStatus.data.evaluated}/{runStatus.data.to_evaluate}
-          </div>
-        ) : (
+        {/* Прогресс оценки (персистентный) + кнопки оценки / переиндексации */}
+        {isEvalRunning ? (
+          <SSAutoEvalProgress
+            status="running"
+            done={runStatus.data?.evaluated ?? search.eval_done}
+            total={runStatus.data?.to_evaluate ?? search.eval_total}
+          />
+        ) : !everEvaluated ? (
+          // Никогда не оценивался → первая оценка активного сегмента
           <button
             className="btn btn-primary btn-sm ssa-eval-btn"
-            onClick={startEval}
+            onClick={() => startEval()}
             disabled={isEvalRunning}
           >
             <Icon name="sparkles" size={14} /> Оценить {ssaFmt(segment === 'new' ? newCount : totalAll)}
           </button>
+        ) : (
+          // Оценка была → персистентный итог + кнопки «всё / только новых»
+          <>
+            <SSAutoEvalProgress
+              status={search.eval_status}
+              done={search.eval_done}
+              total={search.eval_total}
+            />
+            <button
+              className="btn btn-secondary btn-sm ssa-eval-btn"
+              onClick={() => startEval('all')}
+              disabled={isEvalRunning}
+              title="Пере-оценить весь срез — если сменили вакансию/промт"
+            >
+              <Icon name="refresh-cw" size={14} /> Переиндексировать всё
+            </button>
+            {newCount > 0 && (
+              <button
+                className="btn btn-primary btn-sm ssa-eval-btn"
+                onClick={() => startEval('new')}
+                disabled={isEvalRunning}
+                title="Оценить только новые резюме"
+              >
+                <Icon name="sparkles" size={14} /> Только новых
+              </button>
+            )}
+          </>
         )}
       </div>
+
+      {/* CONFLICT — реальный прогон уже идёт на беке */}
+      {conflict && (
+        <div className="ssa-eval-note ssa-eval-note-bar">
+          <Icon name="alert-circle" size={14} />
+          <span>Оценка уже идёт</span>
+          <button className="icon-btn" onClick={() => setConflict(false)} title="Закрыть">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+      )}
 
       {segment === 'new' && (
         <div className="ssa-newnote">

@@ -107,6 +107,47 @@
 .ssa-page .ssa-basis-k { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-3); }
 .ssa-page .ssa-basis-v { display: block; font-size: 12px; font-weight: 600; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---------- Персистентный прогресс AI-оценки (из eval_*) ---------- */
+.ssa-page .ssa-eval-flag {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 600; line-height: 1.3;
+}
+.ssa-page .ssa-eval-flag.running { color: var(--fg-2); }
+.ssa-page .ssa-eval-flag.done { color: var(--ark-green-600); }
+.ssa-page .ssa-eval-flag.done svg { color: var(--ark-green-600); }
+.ssa-page .ssa-eval-flag.error { color: var(--fg-3); }
+.ssa-page .ssa-eval-flag.error svg { color: var(--ark-yellow-600); }
+.ssa-page .ssa-eval-flag-sub { font-weight: 400; color: var(--fg-3); }
+
+/* нотис «оценка уже идёт» (CONFLICT) */
+.ssa-page .ssa-eval-note {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--ark-yellow-600);
+}
+.ssa-page .ssa-eval-note svg { flex: none; }
+.ssa-page .ssa-eval-note-bar {
+  background: var(--ark-yellow-100); border-radius: var(--radius-md);
+  padding: 8px 12px; margin-bottom: 12px; font-size: 12px; line-height: 1.4;
+}
+.ssa-page .ssa-eval-note-bar span { flex: 1; }
+.ssa-page .ssa-eval-note-bar .icon-btn { color: var(--ark-yellow-600); background: none; border: 0; cursor: pointer; padding: 2px; border-radius: var(--radius-sm); }
+.ssa-page .ssa-eval-note-bar .icon-btn:hover { background: rgba(0,0,0,.06); }
+
+/* кнопки оценки/переиндексации в карточке списка */
+.ssa-page .ssa-reidx-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ssa-page .ssa-sc-reidx {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--ark-white); border: 1px solid var(--border-1); border-radius: var(--radius-md);
+  padding: 6px 10px; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--fg-2);
+  cursor: pointer; white-space: nowrap;
+}
+.ssa-page .ssa-sc-reidx:hover:not(:disabled) { border-color: var(--ark-gray-400); background: var(--bg-3-hover); color: var(--fg-1); }
+.ssa-page .ssa-sc-reidx svg { color: var(--accent); flex: none; }
+.ssa-page .ssa-sc-reidx.primary { background: var(--accent); border-color: var(--accent); color: var(--ark-white); justify-content: center; }
+.ssa-page .ssa-sc-reidx.primary svg { color: var(--ark-white); }
+.ssa-page .ssa-sc-reidx.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--ark-white); }
+.ssa-page .ssa-sc-reidx:disabled { opacity: .5; cursor: not-allowed; }
+
 /* ---------- Spinner ---------- */
 .ssa-page .ssa-spin { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 2px solid var(--ark-gray-400); border-top-color: var(--accent); animation: ssaSpin 0.7s linear infinite; display: inline-block; }
 .ssa-page .ssa-spin.dark { border-color: rgba(255,255,255,.45); border-top-color: var(--ark-white); }
