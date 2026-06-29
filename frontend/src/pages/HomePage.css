@@ -257,6 +257,23 @@
 .content-inner .msg-sum-sep { width: 1px; height: 12px; background: var(--border-1); }
 .content-inner .msg-sum-warn { color: var(--ark-yellow-600); }
 .content-inner .msg-sum-warn .msg-sum-num { color: var(--ark-yellow-600); }
+.content-inner .msg-seg {
+  display: flex; gap: 4px;
+  background: var(--bg-3); border-radius: var(--radius-md);
+  padding: 3px; margin: 2px 0 12px;
+}
+.content-inner .msg-seg-btn {
+  flex: 1; border: none; background: none; cursor: pointer;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  font: inherit; font-size: 12.5px; color: var(--fg-2);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.content-inner .msg-seg-btn:hover { color: var(--fg-1); }
+.content-inner .msg-seg-btn.active {
+  background: var(--ark-white); color: var(--fg-1); font-weight: 600;
+  box-shadow: var(--shadow-1);
+}
+.content-inner .msg-seg-num { color: var(--accent); font-weight: 600; }
 
 .content-inner .msg-list { display: flex; flex-direction: column; }
 .content-inner .msg-row {

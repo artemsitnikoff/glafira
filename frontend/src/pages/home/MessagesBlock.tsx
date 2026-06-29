@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHomeDialogs } from '@/api/hooks/useHomeDialogs';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -19,12 +20,14 @@ const channelMeta = {
 export function MessagesBlock() {
   const { data, isLoading } = useHomeDialogs();
   const navigate = useNavigate();
+  const [mode, setMode] = useState<'all' | 'waiting'>('all');
 
   if (isLoading) return <Skeleton height={380} />;
 
   const dialogs = data ?? [];
   const waitingCount = dialogs.filter(d => d.waiting).length;
   const total = dialogs.length;
+  const shown = mode === 'waiting' ? dialogs.filter(d => d.waiting) : dialogs;
 
   return (
     <div className="card-block msg-card">
@@ -35,23 +38,28 @@ export function MessagesBlock() {
         </div>
       </div>
 
-      <div className="msg-summary">
-        <span className="msg-sum-item">
-          <span className="msg-sum-num t-mono">{waitingCount}</span> ждут ответа
-        </span>
-        <span className="msg-sum-sep"/>
-        <span className="msg-sum-item">
-          <span className="msg-sum-num t-mono">{total}</span> диалогов
-        </span>
+      <div className="msg-seg">
+        <button
+          className={`msg-seg-btn${mode === 'waiting' ? ' active' : ''}`}
+          onClick={() => setMode('waiting')}
+        >
+          Ждут ответа <span className="msg-seg-num t-mono">{waitingCount}</span>
+        </button>
+        <button
+          className={`msg-seg-btn${mode === 'all' ? ' active' : ''}`}
+          onClick={() => setMode('all')}
+        >
+          Все <span className="msg-seg-num t-mono">{total}</span>
+        </button>
       </div>
 
-      {dialogs.length === 0 ? (
+      {shown.length === 0 ? (
         <div className="msg-empty">
-          <EmptyState title="Нет активных диалогов" />
+          <EmptyState title={mode === 'waiting' ? 'Все диалоги отвечены' : 'Нет активных диалогов'} />
         </div>
       ) : (
         <div className="msg-list">
-          {dialogs.map((dialog) => {
+          {shown.map((dialog) => {
             const ch = channelMeta[dialog.channel as keyof typeof channelMeta] || {
               abbr: dialog.channel.slice(0, 3).toUpperCase(),
               color: '#9AA3AE',
