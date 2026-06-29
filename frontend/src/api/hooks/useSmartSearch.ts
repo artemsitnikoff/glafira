@@ -776,11 +776,16 @@ export function useToggleAutoEval(searchId: string) {
 }
 
 export function useRunAutoEval(searchId: string) {
-  return useMutation<{ run_id: string }, Error, { segment: 'all' | 'new'; n?: number }>({
-    mutationFn: async ({ segment, n }): Promise<{ run_id: string }> => {
+  return useMutation<
+    { run_id: string },
+    Error,
+    { segment: 'all' | 'new'; n?: number; skip_scored?: boolean }
+  >({
+    mutationFn: async ({ segment, n, skip_scored }): Promise<{ run_id: string }> => {
       const response = await api.post(`/smart/auto/searches/${searchId}/evaluate`, {
         segment,
         ...(n ? { n } : {}),
+        ...(skip_scored ? { skip_scored: true } : {}),
       });
       return response.data as { run_id: string };
     },

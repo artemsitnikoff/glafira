@@ -76,6 +76,9 @@ class AutoBasisRequest(BaseModel):
 class AutoEvaluateRequest(BaseModel):
     segment: Literal["all", "new"] = "all"
     n: Optional[int] = None
+    # Дооценка: пропускать кандидатов, у которых УЖЕ есть балл в прошлых прогонах —
+    # AI-вызов (= токены) только по неоценённым. Старые баллы поднимет мёрж в списке.
+    skip_scored: bool = False
 
 
 class AutoTakeRequest(BaseModel):

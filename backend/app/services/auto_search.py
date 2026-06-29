@@ -772,8 +772,12 @@ async def start_auto_evaluate(
     auto_search_id: UUID,
     segment: str = "all",
     n: int | None = None,
+    skip_scored: bool = False,
 ) -> UUID:
-    """TOCTOU-безопасный старт фонового прогона AI-оценки."""
+    """TOCTOU-безопасный старт фонового прогона AI-оценки.
+
+    skip_scored=True — дооценка: пропустить кандидатов, у которых уже есть балл в
+    прошлых прогонах (AI-вызов только по неоценённым; старые баллы поднимет мёрж)."""
     result = await session.execute(
         select(AutoSearch).where(
             AutoSearch.company_id == company_id,
@@ -842,7 +846,7 @@ async def start_auto_evaluate(
 
     run_id = run.id
     task = asyncio.create_task(
-        _run_auto_evaluate(run_id, company_id, auto_search_id, segment, n)
+        _run_auto_evaluate(run_id, company_id, auto_search_id, segment, n, skip_scored)
     )
     _auto_active_tasks[run_id] = task
     task.add_done_callback(lambda t: _auto_active_tasks.pop(run_id, None))
@@ -855,8 +859,13 @@ async def _run_auto_evaluate(
     auto_search_id: UUID,
     segment: str,
     n: int | None,
+    skip_scored: bool = False,
 ) -> None:
-    """Фоновая AI-оценка кандидатов автопоиска ТОЛЬКО по бесплатным полям hh (без get_resume_by_id)."""
+    """Фоновая AI-оценка кандидатов автопоиска ТОЛЬКО по бесплатным полям hh (без get_resume_by_id).
+
+    skip_scored=True — дооценка: уже оценённые в прошлых прогонах кандидаты не идут
+    в AI (= токены не тратятся), лишь засчитываются в прогресс; новый прогон копит
+    баллы ТОЛЬКО неоценённых, старые подмёрживаются в списке (_build_auto_score_map)."""
 
     async def _inner() -> None:
         token = None
@@ -865,6 +874,7 @@ async def _run_auto_evaluate(
         url = None
         api_key = None
         model = None
+        prior_ids: set[str] = set()  # уже оценённые ранее (для skip_scored)
 
         # INIT: короткая сессия
         async with AsyncSessionLocal() as session:
@@ -908,6 +918,13 @@ async def _run_auto_evaluate(
                 return
 
             model = await get_company_llm_model(session, company_id)
+
+            # Дооценка: id уже оценённых в прошлых прогонах (новый пустой прогон
+            # отфильтрован — evaluated>0). По ним AI-вызов не делаем.
+            if skip_scored:
+                prior_ids = set(
+                    (await _build_auto_score_map(session, company_id, auto_search_id)).keys()
+                )
 
             kind = basis.get("kind")
             if kind == "vacancy":
@@ -1030,6 +1047,22 @@ async def _run_auto_evaluate(
         credits_note: str | None = None
 
         for item in items:
+            # Дооценка: уже оценён в прошлом прогоне → НЕ тратим AI-токены, лишь
+            # засчитываем в прогресс (балл подтянет мёрж в списке). Коммитим прогресс
+            # пореже (раз в 50), чтобы не плодить запись на каждый перенос.
+            if skip_scored and str(item.get("id")) in prior_ids:
+                evaluated += 1
+                if evaluated % 50 == 0:
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            run = await session.get(AutoSearchRun, run_id)
+                            if run:
+                                run.scored_candidates = list(scored_candidates)
+                                run.evaluated = evaluated
+                                await session.commit()
+                    except Exception as e:
+                        logger.warning("[auto_eval] Прогресс (skip) не обновлён: %s", e)
+                continue
             try:
                 result = await asyncio.wait_for(
                     score_resume_dict(item, vacancy_proxy, company_id, api_key, model),

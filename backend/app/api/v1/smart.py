@@ -863,7 +863,8 @@ async def evaluate_auto_search(
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
     run_id = await start_auto_evaluate(
-        session, company_id, auto_search_id, segment=request.segment, n=request.n
+        session, company_id, auto_search_id,
+        segment=request.segment, n=request.n, skip_scored=request.skip_scored,
     )
     return AutoEvaluateResponse(run_id=run_id)
 

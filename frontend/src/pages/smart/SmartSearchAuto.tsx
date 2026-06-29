@@ -813,12 +813,13 @@ function SSAutoCandidatesView({
   }
 
   // Запуск оценки конкретного сегмента (по умолчанию — активный сегмент списка).
-  function startEval(seg?: 'all' | 'new') {
+  // skipScored=true — дооценка: AI только по неоценённым (не тратит токены на уже оценённых).
+  function startEval(seg?: 'all' | 'new', skipScored?: boolean) {
     const target = seg ?? segment;
     function doRun() {
       setConflict(false);
       runEval.mutate(
-        { segment: target },
+        { segment: target, skip_scored: skipScored },
         {
           onSuccess: ({ run_id }) => setRunId(run_id),
           onError: (e) => {
@@ -1017,6 +1018,14 @@ function SSAutoCandidatesView({
               title="Пере-оценить весь срез — если сменили вакансию/промт"
             >
               <Icon name="refresh-cw" size={14} /> Переиндексировать всё
+            </button>
+            <button
+              className="btn btn-primary btn-sm ssa-eval-btn"
+              onClick={() => startEval('all', true)}
+              disabled={isEvalRunning}
+              title="Оценить только тех, у кого ещё нет балла (прочерки). Уже оценённых AI не трогает — токены не тратятся."
+            >
+              <Icon name="sparkles" size={14} /> Дооценить остальных
             </button>
             {newCount > 0 && (
               <button
