@@ -13,6 +13,7 @@ import { CandidateTagPicker } from '@/components/CandidateTagPicker';
 import { SOURCE_CONFIG } from '@/lib/source-colors';
 import { useAuthStore } from '@/store/authStore';
 import { useHabrOpenContacts } from '@/api/mutations/habrIntegration';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 
 type Props = {
   candidateId: string | null | undefined;
@@ -26,6 +27,7 @@ export function CandidateHeader({ candidateId, application }: Props) {
   const isAdmin = userRole === 'admin';
   const openContactsMutation = useHabrOpenContacts();
   const [openContactsError, setOpenContactsError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   function handleOpenContacts() {
     if (!candidateId) return;
@@ -95,6 +97,9 @@ export function CandidateHeader({ candidateId, application }: Props) {
   };
 
   const sourceInfo = getSourceInfo();
+  // Публичный прокси-URL фото (работает в <img> без авторизации). Есть → аватар
+  // кликабелен и открывается в лайтбоксе; нет (инициалы) → не кликабелен.
+  const avatarUrl: string | null = (candidate as any).avatar_url || null;
   // «Найден Умным подбором» — флаг с бэка (резюме есть среди scored_candidates смарт-прогона;
   // работает и для smart-invite, и для импортированных откликов).
   const isSmartSearch = !!((candidate as any)?.from_smart_search);
@@ -126,8 +131,17 @@ export function CandidateHeader({ candidateId, application }: Props) {
       </div>
 
       <div className="cd-h-main">
-        <div className="cd-h-avatar">
-          <Avatar name={candidate.full_name} size="xl" src={(candidate as any).avatar_url} />
+        <div
+          className="cd-h-avatar"
+          {...(avatarUrl
+            ? {
+                onClick: () => setLightboxOpen(true),
+                style: { cursor: 'zoom-in' },
+                title: 'Открыть фото',
+              }
+            : {})}
+        >
+          <Avatar name={candidate.full_name} size="xl" src={avatarUrl} />
         </div>
         <div className="cd-h-left">
           <div className="cd-name-row">
@@ -241,6 +255,14 @@ export function CandidateHeader({ candidateId, application }: Props) {
           )}
         </div>
       </div>
+
+      {lightboxOpen && avatarUrl && (
+        <ImageLightbox
+          src={avatarUrl}
+          alt={candidate.full_name}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </div>
   );
 }

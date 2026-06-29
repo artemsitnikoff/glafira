@@ -1,0 +1,45 @@
+/* Лайтбокс просмотра фото в полный размер. Рендерится через портал в
+   document.body — вне всех scoped-обёрток, поэтому классы с уникальным
+   префиксом .img-lightbox*. Токена затемнения нет — rgba инлайном. */
+
+.img-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: rgba(0, 0, 0, 0.78);
+  cursor: zoom-out;
+}
+
+.img-lightbox-img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  cursor: default;
+}
+
+.img-lightbox-close {
+  position: fixed;
+  top: var(--space-5);
+  right: var(--space-5);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ark-white);
+  cursor: pointer;
+  transition: background var(--dur-normal);
+}
+
+.img-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
