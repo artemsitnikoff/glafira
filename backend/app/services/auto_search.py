@@ -430,16 +430,20 @@ async def get_auto_candidates(
     #  • маленький до-прогон (напр. 122/123) перекрывал большой (480) — кандидаты
     #    вне маленького показывались прочерком;
     #  • при отсутствии свежего 'done' читался старый крошечный прогон (1 балл).
-    # Теперь мёржим оценки из нескольких последних прогонов, НЕЗАВИСИМО от статуса;
-    # при конфликте по hh_resume_id побеждает балл из БОЛЕЕ НОВОГО прогона.
+    # Теперь мёржим оценки из РЕЗУЛЬТАТИВНЫХ прогонов (evaluated>0), НЕЗАВИСИМО от
+    # статуса; при конфликте по hh_resume_id побеждает балл из БОЛЕЕ НОВОГО прогона.
+    # ⚠️ Пустые прогоны (evaluated=0: упавшие retry после CONFLICT/перезапуска)
+    # отфильтрованы — иначе они вытесняют большой прогон (480 баллов) из окна, и
+    # видна лишь горстка оценок. Окно — до 50 последних результативных прогонов.
     recent_runs_result = await session.execute(
         select(AutoSearchRun)
         .where(
             AutoSearchRun.company_id == company_id,
             AutoSearchRun.auto_search_id == auto_search_id,
+            AutoSearchRun.evaluated > 0,
         )
         .order_by(desc(AutoSearchRun.created_at))
-        .limit(8)
+        .limit(50)
     )
     score_map: dict[str, int] = {}
     for run in recent_runs_result.scalars().all():  # от новых к старым
