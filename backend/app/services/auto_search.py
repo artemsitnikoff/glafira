@@ -61,6 +61,9 @@ AUTO_STUCK_RECONCILE_SECONDS = 270
 _auto_items_cache: dict = {}
 _AUTO_ITEMS_TTL = 120.0
 
+# Размер страницы списка кандидатов автоподбора (per-page и глобальный score-ранг).
+AUTO_PAGE_SIZE = 25
+
 
 def _utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -399,34 +402,60 @@ async def _build_auto_score_map(
 async def _fetch_all_auto_items(
     token: str, url: str, company_id: UUID, auto_search_id: UUID, segment: str
 ) -> list[dict]:
-    """Все бесплатные resume-карточки автопоиска (пагинация per_page=50, кап 1000),
-    с коротким TTL-кэшем в процессе. БЕСПЛАТНО (поиск, не контакты). Кэш per-worker."""
+    """Все бесплатные resume-карточки автопоиска (per_page=100, кап 1000), с коротким
+    TTL-кэшем в процессе. БЕСПЛАТНО (поиск, не контакты). Кэш per-worker.
+
+    ⚠️ Узкое место глобальной сортировки — НЕ БД, а сетевая латентность hh: раньше
+    ~14 страниц тянулись ПОСЛЕДОВАТЕЛЬНО (≈12с). Теперь стр.0 узнаёт total/pages,
+    остальные тянутся ПАРАЛЛЕЛЬНО (семафор 5) → 2-3 round-trip вместо 14."""
     key = (str(company_id), str(auto_search_id), segment)
     now = time.monotonic()
     cached = _auto_items_cache.get(key)
     if cached and (now - cached[0]) < _AUTO_ITEMS_TTL:
         return cached[1]
 
-    acc: list[dict] = []
-    for pg in range(20):
+    base = parse_saved_search_url(url)
+    PER = 100
+    MAX_ITEMS = 1000
+
+    async def _fetch_page(pg: int):
         try:
-            params = parse_saved_search_url(url) + [("per_page", "50"), ("page", str(pg))]
-            res = await asyncio.wait_for(hh_client.search_resumes(token, params), timeout=45)
+            params = base + [("per_page", str(PER)), ("page", str(pg))]
+            return await asyncio.wait_for(hh_client.search_resumes(token, params), timeout=45)
         except Exception as e:
             logger.warning("[auto] ranked fetch page %d failed: %s", pg, e)
-            break
-        page_items = res.get("items") or []
-        if not page_items:
-            break
-        acc.extend(page_items)
-        if len(acc) >= 1000:
-            break
-    acc = acc[:1000]
+            return None
+
+    acc: list[dict] = []
+    first = await _fetch_page(0)
+    if first:
+        acc.extend(first.get("items") or [])
+        hh_pages = first.get("pages")
+        if isinstance(hh_pages, int) and hh_pages > 0:
+            total_pages = min(hh_pages, math.ceil(MAX_ITEMS / PER))
+        else:
+            found = min(first.get("found", 0) or 0, MAX_ITEMS)
+            total_pages = max(1, math.ceil(found / PER)) if found else 1
+        rest = list(range(1, total_pages))
+        if rest:
+            sem = asyncio.Semaphore(5)
+
+            async def _guarded(pg: int):
+                async with sem:
+                    return await _fetch_page(pg)
+
+            for res in await asyncio.gather(*[_guarded(pg) for pg in rest]):
+                if res:
+                    acc.extend(res.get("items") or [])
+    acc = acc[:MAX_ITEMS]
 
     # Лёгкая эвикция протухших ключей, чтобы кэш не разрастался.
     for k in [k for k, v in _auto_items_cache.items() if (now - v[0]) >= _AUTO_ITEMS_TTL]:
         _auto_items_cache.pop(k, None)
-    _auto_items_cache[key] = (now, acc)
+    # Не кэшируем результат, если первая страница не получена (сбой hh) — иначе
+    # пустая сортировка залипнет на TTL; пусть следующий заход повторит запрос.
+    if first is not None:
+        _auto_items_cache[key] = (now, acc)
     return acc
 
 
@@ -457,11 +486,11 @@ async def get_auto_candidates(
 
     url = auto_search.new_items_url if segment == "new" else auto_search.items_url
     if not url:
-        return {"items": [], "total": 0, "page": page, "pages": 0, "per_page": 10}
+        return {"items": [], "total": 0, "page": page, "pages": 0, "per_page": AUTO_PAGE_SIZE}
 
     # === ГЛОБАЛЬНЫЙ РАНГ ПО AI-БАЛЛУ (обе стороны) ===
     # sort='score'/'score_desc' → высокий→низкий, 'score_asc' → низкий→высокий.
-    # Ранжируем ВЕСЬ автопоиск (не 10 видимых на странице): тянем все бесплатные
+    # Ранжируем ВЕСЬ автопоиск (не видимую страницу): тянем все бесплатные
     # карточки (TTL-кэш), мёржим баллы из прогонов, сортируем, пагинируем локально.
     # Прочерки (неоценённые) — всегда в конце, в обе стороны.
     if sort in ("score", "score_desc", "score_asc"):
@@ -508,16 +537,16 @@ async def get_auto_candidates(
             await session.commit()
 
         total = len(mapped)
-        start = page * 10
+        start = page * AUTO_PAGE_SIZE
         return {
-            "items": mapped[start:start + 10],
+            "items": mapped[start:start + AUTO_PAGE_SIZE],
             "total": total,
             "page": page,
-            "pages": math.ceil(total / 10) if total else 0,
-            "per_page": 10,
+            "pages": math.ceil(total / AUTO_PAGE_SIZE) if total else 0,
+            "per_page": AUTO_PAGE_SIZE,
         }
 
-    params = parse_saved_search_url(url) + [("per_page", "10"), ("page", str(page))]
+    params = parse_saved_search_url(url) + [("per_page", str(AUTO_PAGE_SIZE)), ("page", str(page))]
 
     token = await get_valid_access_token(session, company_id)
     raw = await hh_client.search_resumes(token, params)
@@ -554,7 +583,7 @@ async def get_auto_candidates(
             items_mapped.append(m)
 
     total = min(raw.get("found", 0) or 0, 2000)
-    pages = math.ceil(total / 10) if total else 0
+    pages = math.ceil(total / AUTO_PAGE_SIZE) if total else 0
 
     if segment == "new":
         auto_search.last_seen_at = _utc_naive_now()
@@ -577,7 +606,7 @@ async def get_auto_candidates(
         "total": total,
         "page": page,
         "pages": pages,
-        "per_page": 10,
+        "per_page": AUTO_PAGE_SIZE,
     }
 
 
