@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { Icon } from '@/components/ui/Icon';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { useVacancies } from '@/api/hooks/useVacancies';
 import {
   useAutoAccess,
@@ -1236,13 +1237,17 @@ function SSAutoRow({ c, score, onOpen }: { c: AutoCandidate; score?: number | nu
 // и подставляем object-URL. Нет фото / ошибка (404) → силуэт (.ssa-anon-av + Icon user).
 function CandidatePhoto({
   photoUrl,
+  name,
   size,
+  enlargeable = false,
 }: {
   photoUrl?: string | null;
   name?: string | null;
   size: number;
+  enlargeable?: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const { data: objUrl, isError } = useQuery({
     queryKey: ['smart', 'auto', 'photo', photoUrl],
@@ -1279,14 +1284,22 @@ function CandidatePhoto({
     );
   }
 
+  const canEnlarge = enlargeable && !!objUrl;
+
   return (
     <div className="ssa-photo-wrap" style={{ width: size, height: size }}>
       <img
         src={objUrl}
-        alt=""
+        alt={name || ''}
         className="ssa-photo-img"
         onError={() => setImgFailed(true)}
+        title={canEnlarge ? 'Открыть фото' : undefined}
+        style={canEnlarge ? { cursor: 'zoom-in' } : undefined}
+        onClick={canEnlarge ? (e) => { e.stopPropagation(); setLightboxOpen(true); } : undefined}
       />
+      {canEnlarge && lightboxOpen && (
+        <ImageLightbox src={objUrl} alt={name || ''} onClose={() => setLightboxOpen(false)} />
+      )}
     </div>
   );
 }
@@ -1454,7 +1467,7 @@ function SSAutoSheet({
 
               <div className="cd-h-main">
                 <div className="ssa-cd-photo">
-                  <CandidatePhoto photoUrl={c.photo_url} name={c.title} size={56} />
+                  <CandidatePhoto photoUrl={c.photo_url} name={c.title} size={56} enlargeable />
                 </div>
                 <div className="cd-h-left">
                   <div className="cd-name-row">
