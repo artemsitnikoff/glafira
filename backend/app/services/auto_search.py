@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit, parse_qsl, quote
 from uuid import UUID
@@ -53,6 +54,12 @@ logger = logging.getLogger(__name__)
 
 _auto_active_tasks: dict = {}
 AUTO_STUCK_RECONCILE_SECONDS = 270
+
+# Короткий per-worker TTL-кэш ВСЕХ бесплатных resume-карточек автопоиска — чтобы
+# глобальный ранг по AI-баллу (fetch-all → сортировка → пагинация локально) не
+# дёргал hh-поиск заново на каждый клик по странице. Ключ company-scoped.
+_auto_items_cache: dict = {}
+_AUTO_ITEMS_TTL = 120.0
 
 
 def _utc_naive_now() -> datetime:
@@ -310,6 +317,119 @@ async def get_auto_access(session: AsyncSession, company_id: UUID) -> dict:
     }
 
 
+def _map_auto_resume_item(item, is_new: bool, taken_ids: set[str]) -> dict | None:
+    """Маппинг одного hh resume-item (бесплатные поля) в карточку кандидата автоподбора.
+    Единый источник формы карточки для обоих путей (per-page и глобальный ранг)."""
+    if not isinstance(item, dict):
+        return None
+    rid = item.get("id")
+    if rid is None:
+        return None
+    hh_resume_id = str(rid)
+
+    area = item.get("area") or {}
+    salary_obj = item.get("salary") or {}
+    total_exp = item.get("total_experience") or {}
+
+    last_job = None
+    experience_list = item.get("experience") or []
+    if isinstance(experience_list, list):
+        for exp in experience_list:
+            if not isinstance(exp, dict):
+                continue
+            position = exp.get("position")
+            company = exp.get("company")
+            parts = [p for p in (position, company) if p]
+            last_job = " · ".join(parts) if parts else None
+            break
+
+    real_photo_url = _extract_photo_url(item.get("photo"))
+    photo_url = (
+        f"/api/v1/smart/auto/photo?src={quote(real_photo_url, safe='')}"
+        if real_photo_url else None
+    )
+
+    return {
+        "hh_resume_id": hh_resume_id,
+        "title": item.get("title"),
+        "age": item.get("age"),
+        "city": area.get("name") if isinstance(area, dict) else None,
+        "anonymous": bool(item.get("hidden_fields")),
+        "salary": salary_obj.get("amount") if isinstance(salary_obj, dict) else None,
+        "experience": format_duration((total_exp.get("months") if isinstance(total_exp, dict) else None) or 0),
+        "skills": item.get("skill_set") or [],
+        "last_job": last_job,
+        "updated_at": item.get("updated_at"),
+        "is_new": is_new,
+        "score": None,
+        "taken": hh_resume_id in taken_ids,
+        "photo_url": photo_url,
+        "hh_url": item.get("alternate_url"),
+    }
+
+
+async def _build_auto_score_map(
+    session: AsyncSession, company_id: UUID, auto_search_id: UUID
+) -> dict[str, int]:
+    """Смёрженная карта hh_resume_id→score из результативных прогонов (evaluated>0,
+    окно 50, при конфликте побеждает балл из более нового прогона)."""
+    res = await session.execute(
+        select(AutoSearchRun)
+        .where(
+            AutoSearchRun.company_id == company_id,
+            AutoSearchRun.auto_search_id == auto_search_id,
+            AutoSearchRun.evaluated > 0,
+        )
+        .order_by(desc(AutoSearchRun.created_at))
+        .limit(50)
+    )
+    score_map: dict[str, int] = {}
+    for run in res.scalars().all():  # от новых к старым
+        for c in (run.scored_candidates or []):
+            if not isinstance(c, dict):
+                continue
+            rid = c.get("hh_resume_id")
+            sc = c.get("score")
+            if rid is None or sc is None:
+                continue
+            score_map.setdefault(str(rid), sc)
+    return score_map
+
+
+async def _fetch_all_auto_items(
+    token: str, url: str, company_id: UUID, auto_search_id: UUID, segment: str
+) -> list[dict]:
+    """Все бесплатные resume-карточки автопоиска (пагинация per_page=50, кап 1000),
+    с коротким TTL-кэшем в процессе. БЕСПЛАТНО (поиск, не контакты). Кэш per-worker."""
+    key = (str(company_id), str(auto_search_id), segment)
+    now = time.monotonic()
+    cached = _auto_items_cache.get(key)
+    if cached and (now - cached[0]) < _AUTO_ITEMS_TTL:
+        return cached[1]
+
+    acc: list[dict] = []
+    for pg in range(20):
+        try:
+            params = parse_saved_search_url(url) + [("per_page", "50"), ("page", str(pg))]
+            res = await asyncio.wait_for(hh_client.search_resumes(token, params), timeout=45)
+        except Exception as e:
+            logger.warning("[auto] ranked fetch page %d failed: %s", pg, e)
+            break
+        page_items = res.get("items") or []
+        if not page_items:
+            break
+        acc.extend(page_items)
+        if len(acc) >= 1000:
+            break
+    acc = acc[:1000]
+
+    # Лёгкая эвикция протухших ключей, чтобы кэш не разрастался.
+    for k in [k for k, v in _auto_items_cache.items() if (now - v[0]) >= _AUTO_ITEMS_TTL]:
+        _auto_items_cache.pop(k, None)
+    _auto_items_cache[key] = (now, acc)
+    return acc
+
+
 async def get_auto_candidates(
     session: AsyncSession,
     company_id: UUID,
@@ -338,6 +458,64 @@ async def get_auto_candidates(
     url = auto_search.new_items_url if segment == "new" else auto_search.items_url
     if not url:
         return {"items": [], "total": 0, "page": page, "pages": 0, "per_page": 10}
+
+    # === ГЛОБАЛЬНЫЙ РАНГ ПО AI-БАЛЛУ (обе стороны) ===
+    # sort='score'/'score_desc' → высокий→низкий, 'score_asc' → низкий→высокий.
+    # Ранжируем ВЕСЬ автопоиск (не 10 видимых на странице): тянем все бесплатные
+    # карточки (TTL-кэш), мёржим баллы из прогонов, сортируем, пагинируем локально.
+    # Прочерки (неоценённые) — всегда в конце, в обе стороны.
+    if sort in ("score", "score_desc", "score_asc"):
+        token = await get_valid_access_token(session, company_id)
+        all_items = await _fetch_all_auto_items(
+            token, url, company_id, auto_search_id, segment
+        )
+
+        all_ids = [
+            str(it.get("id")) for it in all_items
+            if isinstance(it, dict) and it.get("id") is not None
+        ]
+        taken_ids: set[str] = set()
+        if all_ids:
+            rows = await session.execute(
+                select(Candidate.extra["hh_resume_id"].astext).where(
+                    Candidate.company_id == company_id,
+                    Candidate.extra["hh_resume_id"].astext.in_(all_ids),
+                    Candidate.deleted_at.is_(None),
+                )
+            )
+            taken_ids = {r for r in rows.scalars().all() if r is not None}
+
+        score_map = await _build_auto_score_map(session, company_id, auto_search_id)
+        mapped: list[dict] = []
+        for it in all_items:
+            m = _map_auto_resume_item(it, segment == "new", taken_ids)
+            if m is None:
+                continue
+            if m["hh_resume_id"] in score_map:
+                m["score"] = score_map[m["hh_resume_id"]]
+            mapped.append(m)
+
+        ascending = sort == "score_asc"
+        mapped.sort(
+            key=lambda x: (
+                x["score"] is None,
+                (x["score"] or 0) if ascending else -(x["score"] or 0),
+            )
+        )
+
+        if segment == "new":
+            auto_search.last_seen_at = _utc_naive_now()
+            await session.commit()
+
+        total = len(mapped)
+        start = page * 10
+        return {
+            "items": mapped[start:start + 10],
+            "total": total,
+            "page": page,
+            "pages": math.ceil(total / 10) if total else 0,
+            "per_page": 10,
+        }
 
     params = parse_saved_search_url(url) + [("per_page", "10"), ("page", str(page))]
 
@@ -371,49 +549,9 @@ async def get_auto_candidates(
 
     items_mapped: list[dict] = []
     for item in items:
-        if not isinstance(item, dict):
-            continue
-        rid = item.get("id")
-        if rid is None:
-            continue
-        hh_resume_id = str(rid)
-
-        area = item.get("area") or {}
-        salary_obj = item.get("salary") or {}
-        total_exp = item.get("total_experience") or {}
-
-        last_job = None
-        experience_list = item.get("experience") or []
-        if isinstance(experience_list, list):
-            for exp in experience_list:
-                if not isinstance(exp, dict):
-                    continue
-                position = exp.get("position")
-                company = exp.get("company")
-                parts = [p for p in (position, company) if p]
-                last_job = " · ".join(parts) if parts else None
-                break
-
-        real_photo_url = _extract_photo_url(item.get("photo"))
-        photo_url = f"/api/v1/smart/auto/photo?src={quote(real_photo_url, safe='')}" if real_photo_url else None
-
-        items_mapped.append({
-            "hh_resume_id": hh_resume_id,
-            "title": item.get("title"),
-            "age": item.get("age"),
-            "city": area.get("name") if isinstance(area, dict) else None,
-            "anonymous": bool(item.get("hidden_fields")),
-            "salary": salary_obj.get("amount") if isinstance(salary_obj, dict) else None,
-            "experience": format_duration((total_exp.get("months") if isinstance(total_exp, dict) else None) or 0),
-            "skills": item.get("skill_set") or [],
-            "last_job": last_job,
-            "updated_at": item.get("updated_at"),
-            "is_new": segment == "new",
-            "score": None,
-            "taken": hh_resume_id in taken_ids,
-            "photo_url": photo_url,
-            "hh_url": item.get("alternate_url"),
-        })
+        m = _map_auto_resume_item(item, segment == "new", taken_ids)
+        if m is not None:
+            items_mapped.append(m)
 
     total = min(raw.get("found", 0) or 0, 2000)
     pages = math.ceil(total / 10) if total else 0
@@ -422,48 +560,17 @@ async def get_auto_candidates(
         auto_search.last_seen_at = _utc_naive_now()
         await session.commit()
 
-    # Инжектируем score из НЕДАВНИХ прогонов (НЕ только последнего 'done').
-    # Раньше читался ровно один прогон со status=='done' — из-за чего:
-    #  • прогон, прервавшийся после N оценок (status='error': таймаут/кредиты),
-    #    терял ВСЕ свои оценки в UI, хотя они персистнуты в scored_candidates
-    #    (= клиент уже заплатил за оценку, а её не видно — «где оценки??»);
-    #  • маленький до-прогон (напр. 122/123) перекрывал большой (480) — кандидаты
-    #    вне маленького показывались прочерком;
-    #  • при отсутствии свежего 'done' читался старый крошечный прогон (1 балл).
-    # Теперь мёржим оценки из РЕЗУЛЬТАТИВНЫХ прогонов (evaluated>0), НЕЗАВИСИМО от
-    # статуса; при конфликте по hh_resume_id побеждает балл из БОЛЕЕ НОВОГО прогона.
-    # ⚠️ Пустые прогоны (evaluated=0: упавшие retry после CONFLICT/перезапуска)
-    # отфильтрованы — иначе они вытесняют большой прогон (480 баллов) из окна, и
-    # видна лишь горстка оценок. Окно — до 50 последних результативных прогонов.
-    recent_runs_result = await session.execute(
-        select(AutoSearchRun)
-        .where(
-            AutoSearchRun.company_id == company_id,
-            AutoSearchRun.auto_search_id == auto_search_id,
-            AutoSearchRun.evaluated > 0,
-        )
-        .order_by(desc(AutoSearchRun.created_at))
-        .limit(50)
-    )
-    score_map: dict[str, int] = {}
-    for run in recent_runs_result.scalars().all():  # от новых к старым
-        for c in (run.scored_candidates or []):
-            if not isinstance(c, dict):
-                continue
-            rid = c.get("hh_resume_id")
-            sc = c.get("score")
-            if rid is None or sc is None:
-                continue
-            score_map.setdefault(str(rid), sc)  # первый = из самого нового прогона
+    # Инжектируем score из недавних РЕЗУЛЬТАТИВНЫХ прогонов (см. _build_auto_score_map:
+    # evaluated>0, окно 50, новый прогон побеждает — чинит «где оценки??», когда
+    # прерванный/перекрытый прогон прятал персистнутые баллы). Глобальный ранг по
+    # баллу обрабатывается ВЫШЕ отдельной веткой; здесь — только подстановка балла
+    # в текущую hh-страницу при sort='updated'.
+    score_map = await _build_auto_score_map(session, company_id, auto_search_id)
     if score_map:
         for it in items_mapped:
             rid = str(it.get("hh_resume_id", ""))
             if rid in score_map:
                 it["score"] = score_map[rid]
-    if sort == "score":
-        items_mapped.sort(
-            key=lambda x: (x.get("score") is None, -(x.get("score") or 0))
-        )
 
     return {
         "items": items_mapped,

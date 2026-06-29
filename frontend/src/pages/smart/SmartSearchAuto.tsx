@@ -684,7 +684,7 @@ function SSAutoCandidatesView({
   // Локальное состояние списка: сегмент / страница / сортировка / открытая карточка
   const [segment, setSegment] = useState<'all' | 'new'>('all');
   const [page, setPage] = useState(0); // 0-based (как у бека)
-  const [sort, setSort] = useState<'updated' | 'score'>('updated');
+  const [sort, setSort] = useState<'updated' | 'score_desc' | 'score_asc'>('updated');
   const [openId, setOpenId] = useState<string | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
 
@@ -961,13 +961,16 @@ function SSAutoCandidatesView({
           <select
             value={sort}
             onChange={(e) => {
-              setSort(e.target.value as 'updated' | 'score');
+              setSort(e.target.value as 'updated' | 'score_desc' | 'score_asc');
               setPage(0);
             }}
           >
             <option value="updated">по обновлению</option>
-            <option value="score" disabled={sortScoreDisabled}>
-              по AI-баллу
+            <option value="score_desc" disabled={sortScoreDisabled}>
+              по AI-баллу: высокий → низкий
+            </option>
+            <option value="score_asc" disabled={sortScoreDisabled}>
+              по AI-баллу: низкий → высокий
             </option>
           </select>
         </label>
