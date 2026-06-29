@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
@@ -126,8 +126,21 @@ type Mode = 'hh' | 'base' | 'auto' | null;
 export default function SmartSearchPage() {
   const navigate = useNavigate();
 
-  // Режим: null = развилка, 'hh' = ветка hh, 'base' = ветка по своей базе
-  const [mode, setMode] = useState<Mode>(null);
+  // Режим в URL (?src=) — чтобы у экрана был адрес (refresh / кнопка «назад» / ссылка),
+  // а не чистый client-state. null = развилка, 'hh'/'base'/'auto' — ветки.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawSrc = searchParams.get('src');
+  const mode: Mode = rawSrc === 'hh' || rawSrc === 'base' || rawSrc === 'auto' ? rawSrc : null;
+  const setMode = (m: Mode) => {
+    const next = new URLSearchParams(searchParams);
+    if (m) {
+      next.set('src', m);
+    } else {
+      // выход на развилку — чистим и вложенные параметры автоподбора
+      ['src', 'as', 'seg', 'sp', 'sort', 'cand'].forEach((k) => next.delete(k));
+    }
+    setSearchParams(next);
+  };
 
   // Запросы к API
   const { data: accessData } = useSmartAccess();

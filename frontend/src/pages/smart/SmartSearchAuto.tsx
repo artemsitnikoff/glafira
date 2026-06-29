@@ -4,7 +4,7 @@
 //   + нижняя bottom-sheet превью-карточка (своя вёрстка на классах .cand-detail).
 // ЧАНК C: основа оценки (vacancy/промт) + AI-оценка в фоне (поллинг) + реальный разбор в табе Оценка AI.
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { Icon } from '@/components/ui/Icon';
@@ -290,8 +290,20 @@ export function SmartSearchAuto({ onBack }: { onBack: () => void }) {
   const { data: searches = [], isLoading, isError, error } = useAutoSearches();
   const syncMutation = useSyncAutoSearches();
 
-  // Выбранный автопоиск → показываем его кандидатов (чанк B).
-  const [searchId, setSearchId] = useState<string | null>(null);
+  // Выбранный автопоиск → показываем его кандидатов (чанк B). В URL (?as=) —
+  // чтобы открытый автопоиск имел адрес и переживал refresh / «назад».
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchId = searchParams.get('as');
+  const setSearchId = (id: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (id) {
+      next.set('as', id);
+    } else {
+      // назад к списку — чистим параметры списка кандидатов
+      ['as', 'seg', 'sp', 'sort', 'cand'].forEach((k) => next.delete(k));
+    }
+    setSearchParams(next);
+  };
   const selected = searches.find((s) => s.id === searchId) ?? null;
 
   // Нет доступа к автопоискам hh (нет привязки / 402 / 403)
@@ -682,10 +694,28 @@ function SSAutoCandidatesView({
   const newCount = search.new_count ?? 0;
 
   // Локальное состояние списка: сегмент / страница / сортировка / открытая карточка
-  const [segment, setSegment] = useState<'all' | 'new'>('all');
-  const [page, setPage] = useState(0); // 0-based (как у бека)
-  const [sort, setSort] = useState<'updated' | 'score_desc' | 'score_asc'>('updated');
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Состояние списка (сегмент / страница / сортировка / открытая карточка) — в URL,
+  // чтобы у среза кандидатов был адрес (refresh / «назад» / ссылка), а не аякс-стейт.
+  // ⚠️ Многополевые изменения — одним patchUrl: два setSearchParams подряд в одном
+  // обработчике затёрли бы друг друга (второй читает устаревшие params).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const segment: 'all' | 'new' = searchParams.get('seg') === 'new' ? 'new' : 'all';
+  const rawSortParam = searchParams.get('sort');
+  const sort: 'updated' | 'score_desc' | 'score_asc' =
+    rawSortParam === 'score_desc' || rawSortParam === 'score_asc' ? rawSortParam : 'updated';
+  const page = Math.max(0, parseInt(searchParams.get('sp') || '0', 10) || 0); // 0-based (как у бека)
+  const openId = searchParams.get('cand');
+
+  function patchUrl(patch: Record<string, string | null>) {
+    const next = new URLSearchParams(searchParams);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v == null) next.delete(k);
+      else next.set(k, v);
+    }
+    setSearchParams(next);
+  }
+  const setPage = (p: number) => patchUrl({ sp: p ? String(p) : null });
+  const setOpenId = (id: string | null) => patchUrl({ cand: id });
   const rowsRef = useRef<HTMLDivElement | null>(null);
 
   // Стейт оценки (чанк C)
@@ -861,8 +891,8 @@ function SSAutoCandidatesView({
     requestAnimationFrame(scrollRowsTop);
   }
   function changeSegment(seg: 'all' | 'new') {
-    setSegment(seg);
-    setPage(0);
+    // один patch: сегмент + сброс страницы и открытой карточки
+    patchUrl({ seg: seg === 'new' ? 'new' : null, sp: null, cand: null });
   }
 
   // Прогон идёт: локальный runId, mutate в полёте ИЛИ персистентный серверный статус.
@@ -962,8 +992,9 @@ function SSAutoCandidatesView({
           <select
             value={sort}
             onChange={(e) => {
-              setSort(e.target.value as 'updated' | 'score_desc' | 'score_asc');
-              setPage(0);
+              const v = e.target.value as 'updated' | 'score_desc' | 'score_asc';
+              // один patch: сортировка + сброс страницы
+              patchUrl({ sort: v === 'updated' ? null : v, sp: null });
             }}
           >
             <option value="updated">по обновлению</option>
