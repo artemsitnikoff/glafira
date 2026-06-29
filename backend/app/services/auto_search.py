@@ -53,6 +53,46 @@ def _utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _run_is_dead_running(run) -> bool:
+    """True, если прогон формально 'running', но фоновая задача давно его не трогала
+    (передеплой убил asyncio-таск → updated_at завис старше порога reconcile)."""
+    if run.status != "running" or run.updated_at is None:
+        return False
+    updated = run.updated_at
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - updated).total_seconds()
+    return age >= AUTO_STUCK_RECONCILE_SECONDS
+
+
+def _reconcile_stuck_run(run) -> bool:
+    """Финализирует мёртвый running-прогон IN-PLACE (БЕЗ commit). Возвращает True,
+    если что-то изменилось (и вызывающему нужно закоммитить).
+
+    Зависимости от непустого scored НЕТ: даже прогон с 0 оценённых добивается
+    (в 'error'), иначе partial-unique индекс uq_auto_search_run_active навечно
+    блокирует перезапуск оценки (вечный ConflictError)."""
+    if not _run_is_dead_running(run):
+        return False
+    scored = run.scored_candidates or []
+    if scored:
+        run.status = "done"
+        run.stage = "done"
+        run.evaluated = len(scored)
+        if not run.note:
+            run.note = (
+                "Авто-финализация при чтении: фоновая задача не обновила статус"
+            )
+    else:
+        run.status = "error"
+        if not run.error:
+            run.error = (
+                "Прервано — фоновая задача не обновляла статус (перезапуск/зависание)"
+            )
+    run.finished_at = _utc_naive_now()
+    return True
+
+
 def _extract_photo_url(photo) -> str | None:
     """Достаёт URL фото из hh-объекта photo, устойчиво к разным структурам:
     dict {medium/small} ИЛИ {'500','100','40',...} ИЛИ плоская строка-URL."""
@@ -197,13 +237,43 @@ async def sync_saved_searches(session: AsyncSession, company_id: UUID) -> list[A
 
 
 async def list_auto_searches(session: AsyncSession, company_id: UUID) -> list[AutoSearch]:
-    """Читает автопоиски компании из кэша. Сортировка: сначала с новыми (new_count desc), затем по имени."""
+    """Читает автопоиски компании из кэша. Сортировка: сначала с новыми (new_count desc), затем по имени.
+
+    Навешивает transient-атрибуты прогресса последней AI-оценки (eval_status/eval_done/
+    eval_total) на каждый ORM-объект — pydantic AutoSearchItem прочитает их через
+    from_attributes. Последний прогон по каждому автопоиску берётся ОДНИМ запросом
+    (DISTINCT ON), без N+1. В БД здесь НЕ пишем — только для отображения."""
     result = await session.execute(
         select(AutoSearch)
         .where(AutoSearch.company_id == company_id)
         .order_by(nullslast(desc(AutoSearch.new_count)), AutoSearch.name)
     )
-    return list(result.scalars().all())
+    items = list(result.scalars().all())
+
+    last_runs_res = await session.execute(
+        select(AutoSearchRun)
+        .where(AutoSearchRun.company_id == company_id)
+        .order_by(AutoSearchRun.auto_search_id, desc(AutoSearchRun.created_at))
+        .distinct(AutoSearchRun.auto_search_id)
+    )
+    last_by_as = {r.auto_search_id: r for r in last_runs_res.scalars().all()}
+
+    for s in items:
+        run = last_by_as.get(s.id)
+        if run is not None:
+            s.eval_status = (
+                "error"
+                if (run.status == "running" and _run_is_dead_running(run))
+                else run.status
+            )
+            s.eval_done = run.evaluated or 0
+            s.eval_total = run.to_evaluate or 0
+        else:
+            s.eval_status = None
+            s.eval_done = 0
+            s.eval_total = 0
+
+    return items
 
 
 async def get_auto_access(session: AsyncSession, company_id: UUID) -> dict:
@@ -587,22 +657,58 @@ async def start_auto_evaluate(
         raise ValidationError("Сначала задайте основу оценки")
 
     to_eval = min(n or GLAFIRA_MAX_EVALUATE, GLAFIRA_MAX_EVALUATE)
-    run = AutoSearchRun(
-        company_id=company_id,
-        auto_search_id=auto_search_id,
-        status="running",
-        stage="evaluating",
-        basis=dict(auto_search.basis),
-        to_evaluate=to_eval,
-        evaluated=0,
-        scored_candidates=[],
-    )
+
+    def _new_run() -> AutoSearchRun:
+        return AutoSearchRun(
+            company_id=company_id,
+            auto_search_id=auto_search_id,
+            status="running",
+            stage="evaluating",
+            basis=dict(auto_search.basis),
+            to_evaluate=to_eval,
+            evaluated=0,
+            scored_candidates=[],
+        )
+
+    run = _new_run()
     session.add(run)
     try:
         await session.commit()
     except IntegrityError:
+        # Partial-unique индекс uq_auto_search_run_active не дал вставить —
+        # значит уже есть running-прогон. Если он осиротел (передеплой убил
+        # asyncio-таск), вытесняем его и ставим новый. Ровно один ретрай вставки.
         await session.rollback()
-        raise ConflictError("Оценка уже идёт")
+        existing = (
+            await session.execute(
+                select(AutoSearchRun)
+                .where(
+                    AutoSearchRun.company_id == company_id,
+                    AutoSearchRun.auto_search_id == auto_search_id,
+                    AutoSearchRun.status == "running",
+                )
+                .order_by(desc(AutoSearchRun.updated_at))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if existing is None or not _run_is_dead_running(existing):
+            # Живой (свежий) прогон действительно идёт — честный конфликт.
+            raise ConflictError("Оценка уже идёт")
+
+        # Осиротевший прогон — добиваем в error и освобождаем индекс.
+        existing.status = "error"
+        existing.error = "Прервано (вытеснено новым запуском)"
+        existing.finished_at = _utc_naive_now()
+        await session.commit()
+
+        run = _new_run()
+        session.add(run)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise ConflictError("Оценка уже идёт")
 
     run_id = run.id
     task = asyncio.create_task(
@@ -893,31 +999,17 @@ async def get_auto_run_status(session: AsyncSession, company_id: UUID, run_id: U
     if run is None:
         raise NotFoundError("Прогон")
 
-    # Reconcile застрявших
-    if run.status == "running" and run.updated_at is not None:
-        updated = run.updated_at
-        if updated.tzinfo is None:
-            updated = updated.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - updated).total_seconds()
-        scored = run.scored_candidates or []
-        if age >= AUTO_STUCK_RECONCILE_SECONDS and scored:
-            run_pk = run.id
-            run.status = "done"
-            run.stage = "done"
-            run.evaluated = len(scored)
-            run.finished_at = _utc_naive_now()
-            if not run.note:
-                run.note = (
-                    "Авто-финализация при чтении: фоновая задача не обновила статус"
-                )
-            try:
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                re_result = await session.execute(
-                    select(AutoSearchRun).where(AutoSearchRun.id == run_pk)
-                )
-                run = re_result.scalar_one_or_none()
+    # Reconcile застрявших (в т.ч. с 0 оценённых — иначе perma-CONFLICT при перезапуске)
+    if _reconcile_stuck_run(run):
+        run_pk = run.id
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            re_result = await session.execute(
+                select(AutoSearchRun).where(AutoSearchRun.id == run_pk)
+            )
+            run = re_result.scalar_one_or_none()
 
     return run
 
