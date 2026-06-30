@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
+from arq import cron
 from arq.connections import RedisSettings
 
 from .config import settings
@@ -62,16 +63,32 @@ async def run_auto_evaluate(
     logger.info("[worker] run_auto_evaluate done run=%s", run_id)
 
 
+async def self_heal_cron(ctx: dict) -> None:
+    """Cron в воркере: авто-продолжает прерванные оценки (деплой/рестарт/падение
+    убили прогон) — skip_scored, только неоценённые, без переплаты. См.
+    services.auto_search.self_heal_interrupted_evals (кап против death-loop внутри)."""
+    from .services.auto_search import self_heal_interrupted_evals
+    await self_heal_interrupted_evals()
+
+
 class WorkerSettings:
     """Конфиг arq-воркера. Имя джоба = имя функции (`run_auto_evaluate`)."""
 
     functions = [run_auto_evaluate]
+    # Self-heal прерванных оценок: при старте воркера (после деплоя/рестарта сразу
+    # подхватит) + каждые 3 минуты.
+    cron_jobs = [
+        cron(self_heal_cron, minute=set(range(0, 60, 3)), second=0, run_at_startup=True)
+    ]
     redis_settings = _redis_settings()
     # Параллельность джобов в одном воркере.
     max_jobs = 4
     # Оценка может идти часами (внутренний кап _run_auto_evaluate — 6ч). Берём с запасом,
     # иначе arq убьёт джоб по своему дефолтному таймауту (300с).
     job_timeout = 7 * 3600
-    # Ретрай при падении воркера. Резюмируемо (job_try>1 → skip_scored), без переплаты.
-    max_tries = 3
+    # ⚠️ max_tries=1: НЕ полагаемся на arq-авторетрай убитого джоба — иначе он бы
+    # гонялся с self_heal_cron (оба продолжили бы один автопоиск → двойная оплата
+    # хвоста). Возобновление прерванных оценок — ТОЛЬКО через self_heal_cron
+    # (детерминированно: ловит мёртвый прогон, продолжает skip_scored, под капом).
+    max_tries = 1
     keep_result = 3600

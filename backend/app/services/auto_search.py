@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit, parse_qsl, quote
 from uuid import UUID
 
-from sqlalchemy import select, desc, nullslast, update, and_
+from sqlalchemy import select, desc, nullslast, update, and_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -106,6 +106,7 @@ def _reconcile_stuck_run(run) -> bool:
                 "Прервано — фоновая задача не обновляла статус (перезапуск/зависание)"
             )
     run.finished_at = _utc_naive_now()
+    run.interrupted = True  # self-heal cron подхватит и авто-продолжит (skip_scored)
     return True
 
 
@@ -372,10 +373,14 @@ def _map_auto_resume_item(item, is_new: bool, taken_ids: set[str]) -> dict | Non
 
 
 async def _build_auto_score_map(
-    session: AsyncSession, company_id: UUID, auto_search_id: UUID
+    session: AsyncSession, company_id: UUID, auto_search_id: UUID, limit: int = 50
 ) -> dict[str, int]:
     """Смёрженная карта hh_resume_id→score из результативных прогонов (evaluated>0,
-    окно 50, при конфликте побеждает балл из более нового прогона)."""
+    при конфликте побеждает балл из более нового прогона).
+
+    limit — окно прогонов. Для отображения в списке хватает 50 (свежие баллы, дёшево).
+    Для skip_scored (анти-переплата) окно ШИРЕ (300) — иначе при 50+ прогонах у долго-
+    живущего автопоиска старые баллы выпадают и кандидаты переоцениваются повторно."""
     res = await session.execute(
         select(AutoSearchRun)
         .where(
@@ -384,7 +389,7 @@ async def _build_auto_score_map(
             AutoSearchRun.evaluated > 0,
         )
         .order_by(desc(AutoSearchRun.created_at))
-        .limit(50)
+        .limit(limit)
     )
     score_map: dict[str, int] = {}
     for run in res.scalars().all():  # от новых к старым
@@ -802,11 +807,13 @@ async def start_auto_evaluate(
     segment: str = "all",
     n: int | None = None,
     skip_scored: bool = False,
+    note: str | None = None,
 ) -> UUID:
     """TOCTOU-безопасный старт фонового прогона AI-оценки.
 
     skip_scored=True — дооценка: пропустить кандидатов, у которых уже есть балл в
-    прошлых прогонах (AI-вызов только по неоценённым; старые баллы поднимет мёрж)."""
+    прошлых прогонах (AI-вызов только по неоценённым; старые баллы поднимет мёрж).
+    note — пометка прогона (self-heal помечает авто-продолжения для капа/диагностики)."""
     result = await session.execute(
         select(AutoSearch).where(
             AutoSearch.company_id == company_id,
@@ -832,6 +839,7 @@ async def start_auto_evaluate(
             to_evaluate=0,
             evaluated=0,
             scored_candidates=[],
+            note=note,
         )
 
     run = _new_run()
@@ -959,10 +967,13 @@ async def _run_auto_evaluate(
             model = await get_company_llm_model(session, company_id)
 
             # Дооценка: id уже оценённых в прошлых прогонах (новый пустой прогон
-            # отфильтрован — evaluated>0). По ним AI-вызов не делаем.
+            # отфильтрован — evaluated>0). По ним AI-вызов не делаем. Окно 300 (а не 50):
+            # анти-переплата важнее — нельзя потерять старые баллы и переоценить повторно.
             if skip_scored:
                 prior_ids = set(
-                    (await _build_auto_score_map(session, company_id, auto_search_id)).keys()
+                    (await _build_auto_score_map(
+                        session, company_id, auto_search_id, limit=300
+                    )).keys()
                 )
 
             kind = basis.get("kind")
@@ -1172,6 +1183,8 @@ async def _run_auto_evaluate(
                     run.status = "error"
                     run.error = "timeout"
                     run.finished_at = _utc_naive_now()
+                    # Таймаут = прогон не доехал → self-heal продолжит (skip_scored).
+                    run.interrupted = True
                     await s.commit()
         except Exception as e:
             logger.error("[auto_eval] Финал по таймауту: %s", e)
@@ -1232,6 +1245,7 @@ async def sweep_orphaned_auto_runs() -> None:
                     status="error",
                     error="Прервано (зависание/перезапуск)",
                     finished_at=_utc_naive_now(),
+                    interrupted=True,  # self-heal cron авто-продолжит
                 )
                 .returning(AutoSearchRun.id)
             )
@@ -1246,6 +1260,98 @@ async def sweep_orphaned_auto_runs() -> None:
                 )
     except Exception as e:
         logger.error("[auto_eval] sweep_orphaned_auto_runs ошибка: %s", e)
+
+
+SELF_HEAL_NOTE = "[self-heal] авто-продолжение прерванной оценки"
+# Кап против death-loop (воркер постоянно умирает / кончились кредиты): не больше
+# N авто-продолжений на автопоиск в час. После — ждём ручного перезапуска.
+SELF_HEAL_MAX_PER_HOUR = 5
+
+
+async def self_heal_interrupted_evals() -> None:
+    """Self-heal: находит прерванные прогоны оценки (interrupted=True) и авто-продолжает
+    их (skip_scored — только неоценённые, БЕЗ переплаты за уже оценённых). Вызывается
+    arq-cron'ом в воркере (раз в ~3 мин + при старте воркера) → переживает ЛЮБОЙ обрыв
+    (деплой/рестарт/падение), без ручных кнопок. Кап SELF_HEAL_MAX_PER_HOUR на
+    автопоиск — чтобы death-loop не молотил бесконечно."""
+    try:
+        # 1) Финализируем мёртвые 'running'-прогоны, которые никто не «прочитал»
+        #    (reconcile-on-read не сработал) → ставим им interrupted=True.
+        async with AsyncSessionLocal() as session:
+            running = (await session.execute(
+                select(AutoSearchRun).where(AutoSearchRun.status == "running")
+            )).scalars().all()
+            if any(_reconcile_stuck_run(r) for r in running):
+                await session.commit()
+
+        # 2) По каждому автопоиску с прерванным прогоном — авто-продолжение (под капом).
+        async with AsyncSessionLocal() as session:
+            interrupted = (await session.execute(
+                select(AutoSearchRun)
+                .where(AutoSearchRun.interrupted.is_(True))
+                .order_by(desc(AutoSearchRun.created_at))
+            )).scalars().all()
+
+            seen: set = set()
+            latest = []
+            for r in interrupted:
+                if r.auto_search_id in seen:
+                    continue
+                seen.add(r.auto_search_id)
+                latest.append(r)
+
+            hour_ago = _utc_naive_now() - timedelta(hours=1)
+            for run in latest:
+                company_id = run.company_id
+                auto_search_id = run.auto_search_id
+
+                # Уже идёт ЖИВОЙ прогон по автопоиску? — не вмешиваемся, снимаем флаг.
+                active = (await session.execute(
+                    select(AutoSearchRun)
+                    .where(
+                        AutoSearchRun.auto_search_id == auto_search_id,
+                        AutoSearchRun.status == "running",
+                    )
+                    .order_by(desc(AutoSearchRun.updated_at))
+                    .limit(1)
+                )).scalar_one_or_none()
+                if active is not None and not _run_is_dead_running(active):
+                    run.interrupted = False
+                    await session.commit()
+                    continue
+
+                # Кап: сколько self-heal продолжений за последний час.
+                heal_count = (await session.execute(
+                    select(func.count()).select_from(AutoSearchRun).where(
+                        AutoSearchRun.auto_search_id == auto_search_id,
+                        AutoSearchRun.note == SELF_HEAL_NOTE,
+                        AutoSearchRun.created_at >= hour_ago,
+                    )
+                )).scalar() or 0
+                if heal_count >= SELF_HEAL_MAX_PER_HOUR:
+                    run.interrupted = False  # сдаёмся — нужен ручной перезапуск
+                    await session.commit()
+                    logger.warning(
+                        "[self-heal] автопоиск %s: кап %d/час — нужен ручной перезапуск",
+                        auto_search_id, SELF_HEAL_MAX_PER_HOUR,
+                    )
+                    continue
+
+                # Снимаем флаг ДО запуска (идемпотентность: следующий тик не продублирует).
+                run.interrupted = False
+                await session.commit()
+                try:
+                    await start_auto_evaluate(
+                        session, company_id, auto_search_id,
+                        segment="all", skip_scored=True, note=SELF_HEAL_NOTE,
+                    )
+                    logger.info("[self-heal] автопоиск %s — авто-продолжение поставлено", auto_search_id)
+                except ConflictError:
+                    logger.info("[self-heal] автопоиск %s — уже идёт прогон, пропуск", auto_search_id)
+                except Exception as e:
+                    logger.warning("[self-heal] автопоиск %s — не удалось продолжить: %s", auto_search_id, e)
+    except Exception as e:
+        logger.error("[self-heal] self_heal_interrupted_evals ошибка: %s", e)
 
 
 # === ФАЗА 4: «Забрать контакт / Перевести» (ПЛАТНО) ===

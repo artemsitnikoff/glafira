@@ -113,6 +113,12 @@ class AutoSearchRun(Base, TimestampMixin):
     error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     log: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Прогон прерван (воркер убит деплоем/рестартом, не доехал). Ставится reconcile/
+    # sweep при финализации мёртвого прогона. Self-heal cron находит такие и
+    # авто-продолжает (skip_scored). Снимается, когда продолжение поставлено в очередь.
+    interrupted: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
     # ⚠️ TIMESTAMP БЕЗ timezone (наивный UTC) — как в SmartSearchRun/BaseSearchRun.
     # timezone=True вызывает asyncpg DataError при записи aware-datetime объектов.
     finished_at: Mapped[datetime | None] = mapped_column(
