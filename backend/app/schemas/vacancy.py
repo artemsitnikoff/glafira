@@ -94,6 +94,8 @@ class VacancyDetail(ORMBase):
     auto_move_threshold: int
     auto_move_stage: str | None = None
     auto_qa: bool
+    auto_qa_stage: str | None = None
+    auto_qa_target_stage: str | None = None
     auto_reject: bool
     auto_reject_message: bool
     rejection_text: str | None = None
@@ -135,6 +137,8 @@ class VacancyCreate(BaseModel):
     auto_move_threshold: int = Field(default=80, ge=0, le=100)
     auto_move_stage: str | None = None
     auto_qa: bool = False
+    auto_qa_stage: str | None = None
+    auto_qa_target_stage: str | None = None
     auto_reject: bool = False
     auto_reject_message: bool = False
     rejection_text: str | None = None
@@ -171,6 +175,8 @@ class VacancyUpdate(BaseModel):
     auto_move_threshold: int | None = Field(default=None, ge=0, le=100)
     auto_move_stage: str | None = None
     auto_qa: bool | None = None
+    auto_qa_stage: str | None = None
+    auto_qa_target_stage: str | None = None
     auto_reject: bool | None = None
     auto_reject_message: bool | None = None
     rejection_text: str | None = None

@@ -20,7 +20,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Application, Vacancy, Candidate, AiEvaluation, Message
@@ -97,7 +97,8 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
         .join(Candidate, Application.candidate_id == Candidate.id)
         .where(
             Application.company_id == company_id,
-            Application.stage == "response",
+            # Источник П.2 — настраиваемый (vacancy.auto_qa_stage), NULL→'response'.
+            Application.stage == func.coalesce(Vacancy.auto_qa_stage, "response"),
             Application.auto_qa_asked_at.is_(None),
             Application.hh_negotiation_id.isnot(None),
             Vacancy.auto_qa.is_(True),
@@ -169,11 +170,15 @@ async def analyze_and_advance(session: AsyncSession, application: Application, c
     """Анализирует диалог (вопросы Глафиры + ответы кандидата) и при подтверждении переводит
     Отклик→Отобран. Вызывать при НОВОМ входящем сообщении. НЕ двигает при сбое/невнятности.
     Возвращает True, если перевёл."""
-    # Предохранители: только «Отклик», только если вопросы реально задавались, режим A/B
-    if application.stage != "response" or application.auto_qa_asked_at is None:
+    # Предохранители: вопросы реально задавались, вакансия активна, режим A/B, и карточка
+    # на НАСТРАИВАЕМОМ исходном этапе (vacancy.auto_qa_stage, NULL→'response').
+    if application.auto_qa_asked_at is None:
         return False
     vacancy = await session.get(Vacancy, application.vacancy_id)
     if not vacancy or not vacancy.auto_qa or vacancy.glafira_mode not in ("A", "B"):
+        return False
+    source_stage = vacancy.auto_qa_stage or "response"
+    if application.stage != source_stage:
         return False
 
     msgs = (await session.execute(
@@ -204,9 +209,20 @@ async def analyze_and_advance(session: AsyncSession, application: Application, c
         logger.info("[auto_qa] ответы не подтвердили перевод app=%s: %s", application.id, reason)
         return False
 
+    # Целевой этап П.2 — настраиваемый (vacancy.auto_qa_target_stage), та же валидация
+    # что у автоскоринга: не защищённый / не терминальный / реальный этап вакансии.
+    from .scoring import resolve_auto_target_stage
+    target = await resolve_auto_target_stage(session, vacancy.id, vacancy.auto_qa_target_stage)
+    if not target:
+        logger.warning(
+            "[auto_qa] нет валидного целевого этапа app=%s (auto_qa_target_stage=%r) — НЕ двигаем",
+            application.id, vacancy.auto_qa_target_stage,
+        )
+        return False
+
     try:
         await move_application(
-            session, application.id, MoveRequest(to_stage="selected"), company_id,
+            session, application.id, MoveRequest(to_stage=target), company_id,
             actor_user_id=None, actor_type="ai",
         )
     except Exception as e:
@@ -216,11 +232,11 @@ async def analyze_and_advance(session: AsyncSession, application: Application, c
     await audit(
         session, action="auto_qa_advanced", entity_type="application", entity_id=application.id,
         after={"candidate_id": str(application.candidate_id), "vacancy_id": str(application.vacancy_id),
-               "reason": reason},
+               "from_stage": source_stage, "to_stage": target, "reason": reason},
         actor_user_id=None, actor_type="ai", company_id=company_id,
     )
     await session.commit()
-    logger.info("[auto_qa] кандидат переведён Отклик→Отобран app=%s: %s", application.id, reason)
+    logger.info("[auto_qa] кандидат переведён %s→%s app=%s: %s", source_stage, target, application.id, reason)
     return True
 
 

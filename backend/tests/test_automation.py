@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Application, Vacancy, StageHistory, GlafiraSettings
+from app.models import Application, Vacancy, StageHistory, GlafiraSettings, VacancyStage
 from app.schemas.application import MoveRequest
 from app.schemas.vacancy import VacancyCreate, VacancyUpdate
 from app.services.application import move_application
@@ -27,9 +27,30 @@ def _mock_score(score: int, verdict: str = "good") -> dict:
     }
 
 
+# Реальная воронка (как сеет create_vacancy в проде). Нужна, чтобы валидация
+# целевого этапа авто-перевода (resolve_auto_target_stage) находила 'selected' и др.
+# непротекторные/нетерминальные этапы — иначе перевод не происходит (None → не двигаем).
+_FUNNEL_STAGES = [
+    ("response", "Отклик", False),
+    ("added", "Добавлен", False),
+    ("selected", "Отобран", False),
+    ("recruiter", "Контакт с рекрутером", False),
+    ("interview", "Интервью", False),
+    ("offer", "Оффер", False),
+    ("hired", "Нанят", True),
+    ("rejected", "Отказ", True),
+]
+
+
 async def _make_vacancy(db, company_id, **kw) -> Vacancy:
     vac = Vacancy(company_id=company_id, name="Авто-вакансия", **kw)
     db.add(vac)
+    await db.flush()
+    for i, (key, label, term) in enumerate(_FUNNEL_STAGES):
+        db.add(VacancyStage(
+            company_id=company_id, vacancy_id=vac.id,
+            stage_key=key, label=label, order_index=i, is_terminal=term,
+        ))
     await db.flush()
     return vac
 
@@ -72,6 +93,24 @@ async def test_auto_move_by_score_advances_response_to_selected(
     assert hist is not None
     assert hist.actor_type == "ai"
     assert hist.actor_user_id is None
+
+
+async def test_auto_move_custom_target_stage(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_move_stage='interview' (настраиваемый целевой этап) → перевод на 'interview', не 'selected'."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(
+        db_session, cid, auto_move=True, auto_move_threshold=80,
+        glafira_mode="A", auto_move_stage="interview",
+    )
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+
+    with patch("app.services.glafira.scoring.call_json", new_callable=AsyncMock) as m:
+        m.return_value = _mock_score(90)
+        await score_candidate(db_session, candidate_id=test_candidate.id, vacancy_id=vac.id,
+                              company_id=cid, source="TEST")
+
+    await db_session.refresh(app)
+    assert app.stage == "interview"
 
 
 async def test_auto_move_low_score_stays(db_session: AsyncSession, admin_user, test_candidate):

@@ -318,6 +318,8 @@ async def create_vacancy(
         auto_move_threshold=vacancy_data.auto_move_threshold,
         auto_move_stage=vacancy_data.auto_move_stage,
         auto_qa=vacancy_data.auto_qa,
+        auto_qa_stage=vacancy_data.auto_qa_stage,
+        auto_qa_target_stage=vacancy_data.auto_qa_target_stage,
         auto_reject=vacancy_data.auto_reject,
         auto_reject_message=vacancy_data.auto_reject_message,
         rejection_text=vacancy_data.rejection_text,
@@ -542,6 +544,10 @@ async def update_vacancy(
         vacancy.auto_move_stage = vacancy_data.auto_move_stage
     if vacancy_data.auto_qa is not None:
         vacancy.auto_qa = vacancy_data.auto_qa
+    if vacancy_data.auto_qa_stage is not None:
+        vacancy.auto_qa_stage = vacancy_data.auto_qa_stage
+    if vacancy_data.auto_qa_target_stage is not None:
+        vacancy.auto_qa_target_stage = vacancy_data.auto_qa_target_stage
     if vacancy_data.auto_reject is not None:
         vacancy.auto_reject = vacancy_data.auto_reject
     if vacancy_data.auto_reject_message is not None:

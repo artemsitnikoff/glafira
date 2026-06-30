@@ -47,6 +47,8 @@ type VacancyFormData = VacancyCreate & {
   auto_reject_message: boolean;
   rejection_text: string | null;
   auto_move_stage: string | null;
+  auto_qa_stage: string | null;
+  auto_qa_target_stage: string | null;
 };
 
 type VacancyCreateExtended = VacancyCreate & {
@@ -54,6 +56,8 @@ type VacancyCreateExtended = VacancyCreate & {
   auto_reject_message: boolean;
   rejection_text: string | null;
   auto_move_stage: string | null;
+  auto_qa_stage: string | null;
+  auto_qa_target_stage: string | null;
   stages: StageInput[];
   reject_reasons: Array<{
     side: 'candidate' | 'company';
@@ -68,6 +72,8 @@ type VacancyUpdateExtended = VacancyUpdate & {
   auto_reject_message: boolean;
   rejection_text: string | null;
   auto_move_stage: string | null;
+  auto_qa_stage: string | null;
+  auto_qa_target_stage: string | null;
 };
 
 // Защищённые (системные) этапы — зеркало с бэкенда
@@ -406,6 +412,8 @@ export default function VacancyFormPage() {
     auto_move_threshold: 80,
     auto_move_stage: 'selected',
     auto_qa: false,
+    auto_qa_stage: 'response',
+    auto_qa_target_stage: 'selected',
     auto_reject: false,
     auto_reject_message: false,
     rejection_text: null,
@@ -443,6 +451,8 @@ export default function VacancyFormPage() {
         auto_move_threshold: (vacancy as any).auto_move_threshold || 80,
         auto_move_stage: (vacancy as any).auto_move_stage || 'selected',
         auto_qa: (vacancy as any).auto_qa || false,
+        auto_qa_stage: (vacancy as any).auto_qa_stage || 'response',
+        auto_qa_target_stage: (vacancy as any).auto_qa_target_stage || 'selected',
         auto_reject: (vacancy as any).auto_reject || false,
         auto_reject_message: (vacancy as any).auto_reject_message || false,
         rejection_text: (vacancy as any).rejection_text || null,
@@ -728,6 +738,9 @@ export default function VacancyFormPage() {
               onChange={updateFormData}
               autoStages={stages
                 .filter((s) => s.type === 'middle')
+                .map((s) => ({ key: getStageKey(s), name: s.name }))}
+              autoSourceStages={stages
+                .filter((s) => s.type !== 'finalOk' && s.type !== 'finalBad')
                 .map((s) => ({ key: getStageKey(s), name: s.name }))}
             />
           )}
@@ -1680,6 +1693,7 @@ function AutomationStep({
   formData,
   onChange,
   autoStages = [],
+  autoSourceStages = [],
 }: {
   editMode?: boolean;
   vacancyId?: string;
@@ -1687,6 +1701,7 @@ function AutomationStep({
   formData: any;
   onChange: (updates: any) => void;
   autoStages?: { key: string; name: string }[];
+  autoSourceStages?: { key: string; name: string }[];
 }) {
   // Текст по умолчанию для префилла текстареа отказа: текст компании из Настроек,
   // иначе встроенный вежливый текст (зеркало backend).
@@ -1710,6 +1725,36 @@ function AutomationStep({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.auto_move, formData.auto_move_stage, autoKeys]);
+
+  // П.2 — исходный этап (любой НЕ терминальный, дефолт 'response') и целевой
+  // (middle, как П.1, дефолт 'selected'). Та же нормализация на валидное значение.
+  const autoQaSourceValue = autoSourceStages.some((s) => s.key === formData.auto_qa_stage)
+    ? formData.auto_qa_stage
+    : (autoSourceStages[0]?.key ?? 'response');
+  const autoQaTargetValue = autoStages.some((s) => s.key === formData.auto_qa_target_stage)
+    ? formData.auto_qa_target_stage
+    : (autoStages[0]?.key ?? 'selected');
+  const autoSourceKeys = autoSourceStages.map((s) => s.key).join(',');
+  useEffect(() => {
+    if (
+      formData.auto_qa &&
+      autoSourceStages.length > 0 &&
+      !autoSourceStages.some((s) => s.key === formData.auto_qa_stage)
+    ) {
+      onChange({ auto_qa_stage: autoSourceStages[0].key });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.auto_qa, formData.auto_qa_stage, autoSourceKeys]);
+  useEffect(() => {
+    if (
+      formData.auto_qa &&
+      autoStages.length > 0 &&
+      !autoStages.some((s) => s.key === formData.auto_qa_target_stage)
+    ) {
+      onChange({ auto_qa_target_stage: autoStages[0].key });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.auto_qa, formData.auto_qa_target_stage, autoKeys]);
 
   return (
     <div className="nv-step-body">
@@ -1772,11 +1817,38 @@ function AutomationStep({
         <div className="nv-auto-body">
           <div className="nv-auto-inline">
             <span>Если карточка на этапе</span>
-            <div className="nv-inline-select">
-              <span className="nv-stage-dot" style={{ background: 'var(--ark-blue-500)' }} />
-              <span>Отклик</span>
-            </div>
-            <span>— Глафира задаёт кандидату уточняющие вопросы и переводит в «Отобран» по ответам.</span>
+            <select
+              className="nv-input"
+              value={autoQaSourceValue}
+              onChange={(e) => onChange({ auto_qa_stage: e.target.value })}
+              disabled={!formData.auto_qa}
+              style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+            >
+              {autoSourceStages.length === 0 ? (
+                <option value="">нет этапов</option>
+              ) : (
+                autoSourceStages.map((s) => (
+                  <option key={s.key} value={s.key}>{s.name}</option>
+                ))
+              )}
+            </select>
+            <span>— Глафира задаёт кандидату уточняющие вопросы и переводит в</span>
+            <select
+              className="nv-input"
+              value={autoQaTargetValue}
+              onChange={(e) => onChange({ auto_qa_target_stage: e.target.value })}
+              disabled={!formData.auto_qa}
+              style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+            >
+              {autoStages.length === 0 ? (
+                <option value="">нет этапов</option>
+              ) : (
+                autoStages.map((s) => (
+                  <option key={s.key} value={s.key}>{s.name}</option>
+                ))
+              )}
+            </select>
+            <span>по ответам.</span>
           </div>
           <div className="nv-auto-hint">
             <Icon name="sparkle" size={12} />

@@ -70,6 +70,12 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     # этой вакансии; валидируется при переводе (фолбэк на 'selected', иначе не двигаем).
     auto_move_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     auto_qa: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # П.2 — настраиваемые этапы уточняющих вопросов: источник (на каком этапе задаём,
+    # NULL→'response') и цель (куда переводим по ответам, NULL→'selected'). Источник —
+    # любой НЕ терминальный этап; цель валидируется как у auto_move_stage (не защищённый/
+    # не терминальный) при переводе.
+    auto_qa_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    auto_qa_target_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     auto_reject: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # Слать ли кандидату вежливое сообщение при переводе в отказ (поднимает «вежливость» на hh).
     # Гейтит отправку в sync_company_rejections; discard на hh идёт независимо от флага.

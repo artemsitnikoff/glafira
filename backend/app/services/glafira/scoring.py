@@ -530,6 +530,35 @@ async def score_candidate(
     return evaluation
 
 
+async def resolve_auto_target_stage(
+    session: AsyncSession,
+    vacancy_id: UUID,
+    configured_stage: str | None,
+    default: str = "selected",
+) -> str | None:
+    """Валидный целевой этап авто-перевода (общий для П.1 автоскоринга и П.2 авто-QA).
+
+    Реальный этап ЭТОЙ вакансии, НЕ защищённый (PROTECTED_STAGE_KEYS: начальные/
+    системные) И НЕ терминальный (is_terminal — в т.ч. КАСТОМНЫЕ терминальные).
+    configured_stage невалиден/None → фолбэк на default ('selected'); если и default
+    невалиден → None (вызывающий НЕ двигает кандидата — безопаснее не тронуть)."""
+    stage_rows = await session.execute(
+        select(VacancyStage.stage_key, VacancyStage.is_terminal).where(
+            VacancyStage.vacancy_id == vacancy_id
+        )
+    )
+    valid_targets = {
+        k for (k, is_term) in stage_rows.all()
+        if k and k not in PROTECTED_STAGE_KEYS and not is_term
+    }
+    target = (configured_stage or "").strip()
+    if target in valid_targets:
+        return target
+    if default in valid_targets:
+        return default
+    return None
+
+
 async def _maybe_auto_advance_by_score(
     session: AsyncSession,
     application: Application,
@@ -556,22 +585,9 @@ async def _maybe_auto_advance_by_score(
             vacancy.glafira_mode in ('A', 'B') and
             score >= vacancy.auto_move_threshold):
 
-            # Реальные НЕ защищённые этапы этой вакансии (исключаем начальные/системные
-            # по PROTECTED_STAGE_KEYS И любые терминальные по is_terminal — в т.ч.
-            # КАСТОМНЫЕ терминальные, чей stage_key не входит в защищённый набор).
-            stage_rows = await session.execute(
-                select(VacancyStage.stage_key, VacancyStage.is_terminal).where(
-                    VacancyStage.vacancy_id == vacancy.id
-                )
+            target = await resolve_auto_target_stage(
+                session, vacancy.id, vacancy.auto_move_stage
             )
-            valid_targets = {
-                k for (k, is_term) in stage_rows.all()
-                if k and k not in PROTECTED_STAGE_KEYS and not is_term
-            }
-            target = (vacancy.auto_move_stage or 'selected').strip()
-            if target not in valid_targets:
-                target = 'selected' if 'selected' in valid_targets else None
-
             if not target:
                 logger.warning(
                     f"Автоперевод пропущен: у вакансии {application.vacancy_id} нет валидного "
