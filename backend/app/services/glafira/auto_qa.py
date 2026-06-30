@@ -114,7 +114,10 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
         # из шаблона), всегда один и тот же; иначе 'weak' = вопросы по слабым сторонам,
         # сгенерированные при скоринге (AiEvaluation.questions). Пусто → НЕ шлём.
         if (vacancy.auto_qa_mode or "weak") == "fixed":
-            body = (vacancy.auto_qa_fixed_text or "").strip()
+            # auto_qa_fixed_text может быть HTML из rich-редактора → в hh-чат шлём чистый
+            # текст (теги убираем, переносы/списки сохраняем). Плоский текст пройдёт как есть.
+            from .scoring import _strip_html
+            body = _strip_html(vacancy.auto_qa_fixed_text)
             if not body:
                 stats["skipped_no_questions"] += 1  # нет статического текста — НЕ шлём пустое
                 continue

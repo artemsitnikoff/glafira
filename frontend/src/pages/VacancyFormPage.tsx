@@ -804,10 +804,12 @@ function RichTextField({
   value,
   onChange,
   placeholder,
+  minHeight,
 }: {
   value: string;
   onChange: (html: string | null) => void;
   placeholder?: string;
+  minHeight?: number; // переопределить min-height редактируемой области (px)
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -869,6 +871,7 @@ function RichTextField({
         suppressContentEditableWarning
         data-placeholder={placeholder}
         onInput={push}
+        style={minHeight ? { minHeight } : undefined}
       />
     </div>
   );
@@ -1893,14 +1896,11 @@ function AutomationStep({
 
           {formData.auto_qa_mode === 'fixed' && (
             <div style={{ margin: '8px 0 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <textarea
-                className="nv-input"
+              <RichTextField
                 value={formData.auto_qa_fixed_text || ''}
-                onChange={(e) => onChange({ auto_qa_fixed_text: e.target.value })}
-                disabled={!formData.auto_qa}
-                placeholder="Напишите вопросы кандидату — отправятся как есть, всегда одни и те же…"
-                rows={4}
-                style={{ width: '100%', resize: 'vertical', fontSize: '13px', padding: '8px', borderRadius: '6px', lineHeight: 1.5 }}
+                onChange={(html) => onChange({ auto_qa_fixed_text: html })}
+                placeholder={"Напишите вопросы кандидату — отправятся как есть, всегда одни и те же…"}
+                minHeight={120}
               />
               {msgTemplates.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1910,7 +1910,9 @@ function AutomationStep({
                     value=""
                     onChange={(e) => {
                       const t = msgTemplates.find((x) => x.id === e.target.value);
-                      if (t) onChange({ auto_qa_fixed_text: t.body });
+                      // Шаблон — плоский текст; переносы → <br>, чтобы отобразились в rich-редакторе
+                      // (на отправке _strip_html вернёт их в переносы строк).
+                      if (t) onChange({ auto_qa_fixed_text: t.body.replace(/\n/g, '<br>') });
                     }}
                     disabled={!formData.auto_qa}
                     style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
