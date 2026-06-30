@@ -293,6 +293,31 @@ async def test_auto_qa_asks_once_via_hh(db_session: AsyncSession, admin_user, te
         assert send.await_count == 1
 
 
+async def test_auto_qa_fixed_questions_sends_static_text(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_qa_mode='fixed': шлёт статический auto_qa_fixed_text как есть, БЕЗ AiEvaluation."""
+    cid = admin_user.company_id
+    vac = await _make_vacancy(
+        db_session, cid, auto_qa=True, auto_move=False, glafira_mode="A",
+        auto_qa_mode="fixed", auto_qa_fixed_text="Сколько лет коммерческого опыта на Python?",
+    )
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+    app.hh_negotiation_id = "neg1"
+    app.hh_chat_id = "chat1"
+    await db_session.flush()
+    # НАМЕРЕННО без _make_eval — фикс-режим не зависит от скоринга
+
+    with patch("app.services.glafira.auto_qa.get_valid_access_token", new_callable=AsyncMock) as tok, \
+         patch("app.services.glafira.auto_qa.hh_client.send_chat_message", new_callable=AsyncMock) as send:
+        tok.return_value = "token"
+        send.return_value = {"id": "m1"}
+        await ask_auto_qa_questions(db_session, cid)
+        await db_session.refresh(app)
+        assert app.auto_qa_asked_at is not None
+        assert send.await_count == 1
+        # отправлен ИМЕННО статический текст (без LLM-обёртки/генерации)
+        assert send.await_args.args[2] == "Сколько лет коммерческого опыта на Python?"
+
+
 async def test_auto_qa_mode_c_not_asked(db_session: AsyncSession, admin_user, test_candidate):
     """Режим C — вопросы не задаются."""
     cid = admin_user.company_id

@@ -18,6 +18,7 @@ import { useDefaultFunnel, type DefaultFunnelStage } from '@/api/hooks/useDefaul
 import { useRejectReasons, type RejectReasonOut } from '@/api/hooks/useRejectReasons';
 import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
 import { useFunnelTemplates } from '@/api/hooks/useFunnelTemplates';
+import { useMessageTemplates } from '@/api/hooks/useMessageTemplates';
 import { api } from '@/api/client';
 import {
   useAddVacancyRejectReason,
@@ -49,6 +50,8 @@ type VacancyFormData = VacancyCreate & {
   auto_move_stage: string | null;
   auto_qa_stage: string | null;
   auto_qa_target_stage: string | null;
+  auto_qa_mode: string | null;
+  auto_qa_fixed_text: string | null;
 };
 
 type VacancyCreateExtended = VacancyCreate & {
@@ -58,6 +61,8 @@ type VacancyCreateExtended = VacancyCreate & {
   auto_move_stage: string | null;
   auto_qa_stage: string | null;
   auto_qa_target_stage: string | null;
+  auto_qa_mode: string | null;
+  auto_qa_fixed_text: string | null;
   stages: StageInput[];
   reject_reasons: Array<{
     side: 'candidate' | 'company';
@@ -74,6 +79,8 @@ type VacancyUpdateExtended = VacancyUpdate & {
   auto_move_stage: string | null;
   auto_qa_stage: string | null;
   auto_qa_target_stage: string | null;
+  auto_qa_mode: string | null;
+  auto_qa_fixed_text: string | null;
 };
 
 // Защищённые (системные) этапы — зеркало с бэкенда
@@ -414,6 +421,8 @@ export default function VacancyFormPage() {
     auto_qa: false,
     auto_qa_stage: 'response',
     auto_qa_target_stage: 'selected',
+    auto_qa_mode: 'weak',
+    auto_qa_fixed_text: null,
     auto_reject: false,
     auto_reject_message: false,
     rejection_text: null,
@@ -453,6 +462,8 @@ export default function VacancyFormPage() {
         auto_qa: (vacancy as any).auto_qa || false,
         auto_qa_stage: (vacancy as any).auto_qa_stage || 'response',
         auto_qa_target_stage: (vacancy as any).auto_qa_target_stage || 'selected',
+        auto_qa_mode: (vacancy as any).auto_qa_mode || 'weak',
+        auto_qa_fixed_text: (vacancy as any).auto_qa_fixed_text ?? null,
         auto_reject: (vacancy as any).auto_reject || false,
         auto_reject_message: (vacancy as any).auto_reject_message || false,
         rejection_text: (vacancy as any).rejection_text || null,
@@ -1708,6 +1719,9 @@ function AutomationStep({
   const { data: glafiraSettings } = useGlafiraSettings();
   const defaultRejectionText =
     (glafiraSettings?.default_rejection_text?.trim() || '') || POLITE_REJECTION_FALLBACK;
+  // Шаблоны сообщений (Настройки) — для режима «определённые вопросы»: вставка готового текста.
+  const { data: msgTemplatesData } = useMessageTemplates();
+  const msgTemplates = msgTemplatesData ?? [];
 
   // Целевой этап автоперевода (П.1) — выбор из НЕ начальных/конечных этапов воронки.
   // Эффективное значение валидируем по доступным; нормализуем на первый, если выбранного нет.
@@ -1850,6 +1864,67 @@ function AutomationStep({
             </select>
             <span>по ответам.</span>
           </div>
+
+          {/* Развилка: какие вопросы задавать */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '10px 0 0' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+              <input
+                type="radio"
+                name="auto_qa_mode"
+                value="weak"
+                checked={(formData.auto_qa_mode || 'weak') === 'weak'}
+                onChange={() => onChange({ auto_qa_mode: 'weak' })}
+                disabled={!formData.auto_qa}
+              />
+              <span>По слабым сторонам резюме <span className="nv-mute">— Глафира сама подбирает вопросы из оценки</span></span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+              <input
+                type="radio"
+                name="auto_qa_mode"
+                value="fixed"
+                checked={formData.auto_qa_mode === 'fixed'}
+                onChange={() => onChange({ auto_qa_mode: 'fixed' })}
+                disabled={!formData.auto_qa}
+              />
+              <span>Определённые вопросы <span className="nv-mute">— всегда одни и те же</span></span>
+            </label>
+          </div>
+
+          {formData.auto_qa_mode === 'fixed' && (
+            <div style={{ margin: '8px 0 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <textarea
+                className="nv-input"
+                value={formData.auto_qa_fixed_text || ''}
+                onChange={(e) => onChange({ auto_qa_fixed_text: e.target.value })}
+                disabled={!formData.auto_qa}
+                placeholder="Напишите вопросы кандидату — отправятся как есть, всегда одни и те же…"
+                rows={4}
+                style={{ width: '100%', resize: 'vertical', fontSize: '13px', padding: '8px', borderRadius: '6px', lineHeight: 1.5 }}
+              />
+              {msgTemplates.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="nv-mute">Вставить из шаблона:</span>
+                  <select
+                    className="nv-input"
+                    value=""
+                    onChange={(e) => {
+                      const t = msgTemplates.find((x) => x.id === e.target.value);
+                      if (t) onChange({ auto_qa_fixed_text: t.body });
+                    }}
+                    disabled={!formData.auto_qa}
+                    style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+                  >
+                    <option value="">— шаблон —</option>
+                    {msgTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="nv-auto-hint">
             <Icon name="sparkle" size={12} />
             Только для откликов с hh.ru (через переписку). Вопросы задаются один раз. В режиме «Под контролем» не работает.

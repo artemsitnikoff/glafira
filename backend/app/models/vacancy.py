@@ -76,6 +76,11 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     # не терминальный) при переводе.
     auto_qa_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     auto_qa_target_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Развилка вопросов П.2: 'weak' (NULL→) = по слабым сторонам резюме (LLM-вопросы из
+    # скоринга, AiEvaluation.questions); 'fixed' = определённые статические вопросы из
+    # auto_qa_fixed_text (рекрутёр пишет сам / вставляет из шаблона сообщений), всегда одни и те же.
+    auto_qa_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    auto_qa_fixed_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     auto_reject: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # Слать ли кандидату вежливое сообщение при переводе в отказ (поднимает «вежливость» на hh).
     # Гейтит отправку в sync_company_rejections; discard на hh идёт независимо от флага.

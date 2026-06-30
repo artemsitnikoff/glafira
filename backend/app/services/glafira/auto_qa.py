@@ -110,18 +110,27 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
     )).all()
 
     for app, vacancy, candidate in rows:
-        # Вопросы — из последней AiEvaluation заявки (скоринг их уже сгенерил)
-        ev = (await session.execute(
-            select(AiEvaluation)
-            .where(AiEvaluation.application_id == app.id)
-            .order_by(desc(AiEvaluation.created_at))
-            .limit(1)
-        )).scalar_one_or_none()
-        raw_q = ev.questions if (ev and isinstance(ev.questions, list)) else []
-        questions = [str(q).strip() for q in raw_q if str(q).strip()][:5]
-        if not questions:
-            stats["skipped_no_questions"] += 1  # нечего спрашивать — НЕ шлём пустое/генерик
-            continue
+        # Развилка вопросов П.2: 'fixed' = статический текст вакансии (рекрутёр задал сам/
+        # из шаблона), всегда один и тот же; иначе 'weak' = вопросы по слабым сторонам,
+        # сгенерированные при скоринге (AiEvaluation.questions). Пусто → НЕ шлём.
+        if (vacancy.auto_qa_mode or "weak") == "fixed":
+            body = (vacancy.auto_qa_fixed_text or "").strip()
+            if not body:
+                stats["skipped_no_questions"] += 1  # нет статического текста — НЕ шлём пустое
+                continue
+        else:
+            ev = (await session.execute(
+                select(AiEvaluation)
+                .where(AiEvaluation.application_id == app.id)
+                .order_by(desc(AiEvaluation.created_at))
+                .limit(1)
+            )).scalar_one_or_none()
+            raw_q = ev.questions if (ev and isinstance(ev.questions, list)) else []
+            questions = [str(q).strip() for q in raw_q if str(q).strip()][:5]
+            if not questions:
+                stats["skipped_no_questions"] += 1  # нечего спрашивать — НЕ шлём пустое/генерик
+                continue
+            body = _compose_questions_message(candidate, vacancy, questions)
 
         # Резолвим chat_id (лениво)
         chat_id = app.hh_chat_id
@@ -138,7 +147,6 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
             stats["skipped_no_channel"] += 1  # нет канала → НЕ ставим asked_at (ретрай позже)
             continue
 
-        body = _compose_questions_message(candidate, vacancy, questions)
         try:
             resp = await hh_client.send_chat_message(access_token, chat_id, body)
         except Exception as e:
@@ -156,8 +164,11 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
         app.auto_qa_asked_at = now  # анти-зацикливание: задаём ОДИН раз
         await audit(
             session, action="auto_qa_asked", entity_type="application", entity_id=app.id,
+            # Фиксируем РЕАЛЬНО отправленный текст + режим (§2.2). `body` определён в обеих
+            # ветках (weak/fixed); прежняя `questions` была доступна только в weak →
+            # UnboundLocalError в fixed-режиме (после отправки, до commit → повторный спам).
             after={"candidate_id": str(candidate.id), "vacancy_id": str(app.vacancy_id),
-                   "questions": questions},
+                   "mode": (vacancy.auto_qa_mode or "weak"), "body": body},
             actor_user_id=None, actor_type="ai", company_id=company_id,
         )
         await session.commit()  # покандидатно: сбой одного не откатывает остальных
