@@ -33,7 +33,8 @@ def _strip_html(s: str | None) -> str:
     text = (text.replace("&nbsp;", " ").replace("&amp;", "&")
                 .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"'))
     return re.sub(r"\n{3,}", "\n\n", text).strip()
-from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification
+from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification, VacancyStage
+from ...core.stages import PROTECTED_STAGE_KEYS
 from ...schemas.glafira import RequirementMatch
 from ...schemas.application import MoveRequest
 from ...services.audit import audit
@@ -541,7 +542,12 @@ async def _maybe_auto_advance_by_score(
     - glafira_mode: 'A'=Полуавтомат, 'B'=Автомат, 'C'=Под контролем.
     - Автоматика действует в 'A' и 'B'. В 'C' — НИКАКИХ авто-действий.
     - Условия: application.stage == 'response' И vacancy.auto_move И score >= vacancy.auto_move_threshold
-    - Действие: move_application(to_stage='selected', actor_type='ai')
+    - Действие: move_application(to_stage=<целевой этап>, actor_type='ai')
+
+    Целевой этап — vacancy.auto_move_stage (НАСТРАИВАЕМЫЙ), с валидацией:
+    должен быть реальным НЕ защищённым (не начальным/терминальным) этапом ЭТОЙ
+    вакансии. Невалиден/не задан → фолбэк на 'selected'. Если и 'selected' нет —
+    НЕ двигаем (безопаснее не тронуть, чем уехать на неверный/терминальный этап).
     """
     try:
         # Условия для автоперевода
@@ -550,10 +556,33 @@ async def _maybe_auto_advance_by_score(
             vacancy.glafira_mode in ('A', 'B') and
             score >= vacancy.auto_move_threshold):
 
+            # Реальные НЕ защищённые этапы этой вакансии (исключаем начальные/системные
+            # по PROTECTED_STAGE_KEYS И любые терминальные по is_terminal — в т.ч.
+            # КАСТОМНЫЕ терминальные, чей stage_key не входит в защищённый набор).
+            stage_rows = await session.execute(
+                select(VacancyStage.stage_key, VacancyStage.is_terminal).where(
+                    VacancyStage.vacancy_id == vacancy.id
+                )
+            )
+            valid_targets = {
+                k for (k, is_term) in stage_rows.all()
+                if k and k not in PROTECTED_STAGE_KEYS and not is_term
+            }
+            target = (vacancy.auto_move_stage or 'selected').strip()
+            if target not in valid_targets:
+                target = 'selected' if 'selected' in valid_targets else None
+
+            if not target:
+                logger.warning(
+                    f"Автоперевод пропущен: у вакансии {application.vacancy_id} нет валидного "
+                    f"целевого этапа (auto_move_stage={vacancy.auto_move_stage!r})"
+                )
+                return
+
             await move_application(
                 session=session,
                 application_id=application.id,
-                move_data=MoveRequest(to_stage='selected'),
+                move_data=MoveRequest(to_stage=target),
                 company_id=company_id,
                 actor_user_id=None,
                 actor_type='ai'
@@ -561,7 +590,7 @@ async def _maybe_auto_advance_by_score(
 
             logger.info(
                 f"Автоперевод: кандидат {application.candidate_id} на вакансии {application.vacancy_id} "
-                f"переведён с 'response' на 'selected' (score={score} >= threshold={vacancy.auto_move_threshold})"
+                f"переведён с 'response' на '{target}' (score={score} >= threshold={vacancy.auto_move_threshold})"
             )
 
     except Exception as e:

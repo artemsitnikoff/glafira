@@ -65,6 +65,10 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     # Automation fields
     auto_move: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     auto_move_threshold: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("80"))
+    # Целевой этап автоперевода по скорингу. NULL → дефолт 'selected' (обратная
+    # совместимость). Должен быть НЕ защищённым этапом (не начальный/терминальный)
+    # этой вакансии; валидируется при переводе (фолбэк на 'selected', иначе не двигаем).
+    auto_move_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     auto_qa: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     auto_reject: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     # Слать ли кандидату вежливое сообщение при переводе в отказ (поднимает «вежливость» на hh).

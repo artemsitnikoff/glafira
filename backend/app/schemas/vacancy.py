@@ -92,6 +92,7 @@ class VacancyDetail(ORMBase):
     # Automation fields
     auto_move: bool
     auto_move_threshold: int
+    auto_move_stage: str | None = None
     auto_qa: bool
     auto_reject: bool
     auto_reject_message: bool
@@ -132,6 +133,7 @@ class VacancyCreate(BaseModel):
     team: list[UUID] = []
     auto_move: bool = False
     auto_move_threshold: int = Field(default=80, ge=0, le=100)
+    auto_move_stage: str | None = None
     auto_qa: bool = False
     auto_reject: bool = False
     auto_reject_message: bool = False
@@ -167,6 +169,7 @@ class VacancyUpdate(BaseModel):
     team: list[UUID] | None = None
     auto_move: bool | None = None
     auto_move_threshold: int | None = Field(default=None, ge=0, le=100)
+    auto_move_stage: str | None = None
     auto_qa: bool | None = None
     auto_reject: bool | None = None
     auto_reject_message: bool | None = None

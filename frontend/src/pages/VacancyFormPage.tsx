@@ -46,12 +46,14 @@ type VacancyFormData = VacancyCreate & {
   auto_qa: boolean;
   auto_reject_message: boolean;
   rejection_text: string | null;
+  auto_move_stage: string | null;
 };
 
 type VacancyCreateExtended = VacancyCreate & {
   auto_qa: boolean;
   auto_reject_message: boolean;
   rejection_text: string | null;
+  auto_move_stage: string | null;
   stages: StageInput[];
   reject_reasons: Array<{
     side: 'candidate' | 'company';
@@ -65,6 +67,7 @@ type VacancyUpdateExtended = VacancyUpdate & {
   auto_qa: boolean;
   auto_reject_message: boolean;
   rejection_text: string | null;
+  auto_move_stage: string | null;
 };
 
 // Защищённые (системные) этапы — зеркало с бэкенда
@@ -401,6 +404,7 @@ export default function VacancyFormPage() {
     // Шаг 4 (автоматизация) — реальные поля (П.1/П.2/П.3/П.4 рабочие, дефолт OFF, opt-in)
     auto_move: false,
     auto_move_threshold: 80,
+    auto_move_stage: 'selected',
     auto_qa: false,
     auto_reject: false,
     auto_reject_message: false,
@@ -437,6 +441,7 @@ export default function VacancyFormPage() {
         glafira_mode: (vacancy as any).glafira_mode || 'A',
         auto_move: (vacancy as any).auto_move || false,
         auto_move_threshold: (vacancy as any).auto_move_threshold || 80,
+        auto_move_stage: (vacancy as any).auto_move_stage || 'selected',
         auto_qa: (vacancy as any).auto_qa || false,
         auto_reject: (vacancy as any).auto_reject || false,
         auto_reject_message: (vacancy as any).auto_reject_message || false,
@@ -721,6 +726,9 @@ export default function VacancyFormPage() {
               vacancy={vacancy}
               formData={formData}
               onChange={updateFormData}
+              autoStages={stages
+                .filter((s) => s.type === 'middle')
+                .map((s) => ({ key: getStageKey(s), name: s.name }))}
             />
           )}
 
@@ -1670,19 +1678,38 @@ function AutomationStep({
   vacancyId,
   vacancy,
   formData,
-  onChange
+  onChange,
+  autoStages = [],
 }: {
   editMode?: boolean;
   vacancyId?: string;
   vacancy?: any;
   formData: any;
   onChange: (updates: any) => void;
+  autoStages?: { key: string; name: string }[];
 }) {
   // Текст по умолчанию для префилла текстареа отказа: текст компании из Настроек,
   // иначе встроенный вежливый текст (зеркало backend).
   const { data: glafiraSettings } = useGlafiraSettings();
   const defaultRejectionText =
     (glafiraSettings?.default_rejection_text?.trim() || '') || POLITE_REJECTION_FALLBACK;
+
+  // Целевой этап автоперевода (П.1) — выбор из НЕ начальных/конечных этапов воронки.
+  // Эффективное значение валидируем по доступным; нормализуем на первый, если выбранного нет.
+  const autoMoveValue = autoStages.some((s) => s.key === formData.auto_move_stage)
+    ? formData.auto_move_stage
+    : (autoStages[0]?.key ?? 'selected');
+  const autoKeys = autoStages.map((s) => s.key).join(',');
+  useEffect(() => {
+    if (
+      formData.auto_move &&
+      autoStages.length > 0 &&
+      !autoStages.some((s) => s.key === formData.auto_move_stage)
+    ) {
+      onChange({ auto_move_stage: autoStages[0].key });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.auto_move, formData.auto_move_stage, autoKeys]);
 
   return (
     <div className="nv-step-body">
@@ -1700,11 +1727,21 @@ function AutomationStep({
         <div className="nv-auto-body">
           <div className="nv-auto-inline">
             <span>Автоматически переводить на этап</span>
-            <div className="nv-inline-select">
-              <span className="nv-stage-dot" style={{ background: 'var(--ark-purple-500)' }} />
-              <span>Отобран</span>
-              <Icon name="chevD" size={12} />
-            </div>
+            <select
+              className="nv-input"
+              value={autoMoveValue}
+              onChange={(e) => onChange({ auto_move_stage: e.target.value })}
+              disabled={!formData.auto_move}
+              style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+            >
+              {autoStages.length === 0 ? (
+                <option value="">нет доступных этапов</option>
+              ) : (
+                autoStages.map((s) => (
+                  <option key={s.key} value={s.key}>{s.name}</option>
+                ))
+              )}
+            </select>
             <span>при скоринге AI &gt;</span>
             <input
               className="nv-num-input"

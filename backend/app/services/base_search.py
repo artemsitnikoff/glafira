@@ -689,6 +689,7 @@ def _create_synthetic_vacancy_for_scoring(query_text: str):
             self.glafira_mode = None
             self.auto_move = False
             self.auto_move_threshold = None
+            self.auto_move_stage = None
 
     return SyntheticVacancy(query_text)
 

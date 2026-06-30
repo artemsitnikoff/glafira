@@ -1003,6 +1003,7 @@ async def _run_auto_evaluate(
                     "glafira_mode": getattr(vacancy, "glafira_mode", "A"),
                     "auto_move": getattr(vacancy, "auto_move", False),
                     "auto_move_threshold": getattr(vacancy, "auto_move_threshold", None),
+                    "auto_move_stage": getattr(vacancy, "auto_move_stage", None),
                 }
                 vacancy_proxy = type("AutoVacancyProxy", (), vacancy_data)()
             elif kind == "prompt":

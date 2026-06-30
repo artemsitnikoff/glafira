@@ -316,6 +316,7 @@ async def create_vacancy(
         glafira_mode=vacancy_data.glafira_mode,
         auto_move=vacancy_data.auto_move,
         auto_move_threshold=vacancy_data.auto_move_threshold,
+        auto_move_stage=vacancy_data.auto_move_stage,
         auto_qa=vacancy_data.auto_qa,
         auto_reject=vacancy_data.auto_reject,
         auto_reject_message=vacancy_data.auto_reject_message,
@@ -537,6 +538,8 @@ async def update_vacancy(
         vacancy.auto_move = vacancy_data.auto_move
     if vacancy_data.auto_move_threshold is not None:
         vacancy.auto_move_threshold = vacancy_data.auto_move_threshold
+    if vacancy_data.auto_move_stage is not None:
+        vacancy.auto_move_stage = vacancy_data.auto_move_stage
     if vacancy_data.auto_qa is not None:
         vacancy.auto_qa = vacancy_data.auto_qa
     if vacancy_data.auto_reject is not None:
