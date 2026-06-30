@@ -819,16 +819,17 @@ async def start_auto_evaluate(
     if auto_search.basis is None:
         raise ValidationError("Сначала задайте основу оценки")
 
-    to_eval = min(n or AUTO_MAX_EVALUATE, AUTO_MAX_EVALUATE)
-
     def _new_run() -> AutoSearchRun:
+        # to_evaluate=0 на старте — НЕ кап (1000). Реальное число воркер проставит
+        # через пару секунд (после загрузки списка из hh). Фронт при total=0 показывает
+        # «Оцениваю…», а не вводящее в заблуждение «0 из 1000».
         return AutoSearchRun(
             company_id=company_id,
             auto_search_id=auto_search_id,
             status="running",
             stage="evaluating",
             basis=dict(auto_search.basis),
-            to_evaluate=to_eval,
+            to_evaluate=0,
             evaluated=0,
             scored_candidates=[],
         )

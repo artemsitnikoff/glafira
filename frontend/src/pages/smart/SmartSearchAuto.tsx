@@ -105,9 +105,10 @@ function SSAutoEvalProgress({
   const d = done ?? 0;
   const t = total ?? 0;
   if (status === 'running') {
+    // Пока воркер не проставил реальное число (total=0) — «Оцениваю…», а не «0 из 0».
     return (
       <div className="ssa-eval-flag running">
-        <span className="ssa-spin" /> Оценивается {d} из {t}…
+        <span className="ssa-spin" /> {t > 0 ? `Оценивается ${d} из ${t}…` : 'Оцениваю…'}
       </div>
     );
   }

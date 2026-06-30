@@ -17,7 +17,17 @@ from uuid import UUID
 
 from ..config import settings
 
-logger = logging.getLogger(__name__)
+# Отдельный логгер с собственным INFO-хендлером и propagate=False — чтобы строки
+# постановки в очередь («[jobq] enqueued …») были ВИДНЫ в `docker logs backend`
+# (под uvicorn логгеры app.* по умолчанию на WARNING и INFO не печатают), но при
+# этом НЕ включать глобальный INFO и не заливать логи httpx/sqlalchemy.
+logger = logging.getLogger("glafira.jobq")
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
 
 async def enqueue_auto_evaluate(
