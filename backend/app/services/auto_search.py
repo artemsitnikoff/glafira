@@ -49,8 +49,26 @@ AUTO_TAKE_BATCH_CAP = 25
 # ОТДЕЛЬНЫЙ от GLAFIRA_MAX_EVALUATE (=100, умный подбор по своей базе) — Автоподбор
 # гоняет большие сохранённые поиски hh, поэтому кап выше (1000). Каждый = LLM-вызов = деньги.
 AUTO_MAX_EVALUATE = int(getattr(settings, "AUTO_MAX_EVALUATE", 1000))
+# Параллельность скоринга (резюме одновременно). Было последовательно → часы; 8 → ~8x.
+AUTO_EVAL_CONCURRENCY = max(1, int(getattr(settings, "AUTO_EVAL_CONCURRENCY", 8)))
 
 logger = logging.getLogger(__name__)
+
+
+def _auto_log(msg: str) -> None:
+    """Дописывает строку в персистентный журнал Автоподбора-оценки (общий том
+    backend_storage, виден из backend и worker). Чтобы статус оценки/self-heal был в
+    ОДНОМ читаемом файле (cat), без разбора docker logs. Лог НЕ должен ронять оценку."""
+    try:
+        path = getattr(settings, "AUTO_EVAL_LOG_PATH", "") or ""
+        if not path:
+            return
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{ts}Z {msg}\n")
+    except Exception:
+        pass
+
 
 _auto_active_tasks: dict = {}
 AUTO_STUCK_RECONCILE_SECONDS = 270
@@ -1096,65 +1114,84 @@ async def _run_auto_evaluate(
         scored_candidates: list[dict] = []
         evaluated = 0
         credits_note: str | None = None
+        _auto_log(
+            f"[eval] start run={run_id} autosearch={auto_search_id} "
+            f"items={len(items)} skip_scored={skip_scored} concurrency={AUTO_EVAL_CONCURRENCY}"
+        )
 
-        for item in items:
-            # Дооценка: уже оценён в прошлом прогоне → НЕ тратим AI-токены, лишь
-            # засчитываем в прогресс (балл подтянет мёрж в списке). Коммитим прогресс
-            # пореже (раз в 50), чтобы не плодить запись на каждый перенос.
-            if skip_scored and str(item.get("id")) in prior_ids:
-                evaluated += 1
-                if evaluated % 50 == 0:
-                    try:
-                        async with AsyncSessionLocal() as session:
-                            run = await session.get(AutoSearchRun, run_id)
-                            if run:
-                                run.scored_candidates = list(scored_candidates)
-                                run.evaluated = evaluated
-                                await session.commit()
-                    except Exception as e:
-                        logger.warning("[auto_eval] Прогресс (skip) не обновлён: %s", e)
-                continue
-            try:
-                result = await asyncio.wait_for(
-                    score_resume_dict(item, vacancy_proxy, company_id, api_key, model),
-                    timeout=180,
-                )
-                record = {
-                    "hh_resume_id": str(item.get("id")),
-                    "title": item.get("title"),
-                    "score": result.get("score"),
-                    "verdict": result.get("verdict"),
-                    "summary": result.get("summary"),
-                    "strengths": result.get("strengths") or [],
-                    "risks": result.get("risks") or [],
-                    "requirements_match": result.get("requirements_match") or [],
-                    "questions": result.get("questions") or [],
-                    "forecast": result.get("forecast"),
-                }
-                scored_candidates.append(record)
-                evaluated += 1
+        # ПАРАЛЛЕЛЬНЫЙ скоринг: AUTO_EVAL_CONCURRENCY резюме одновременно (раньше было
+        # строго по одному → ~40-50с/резюме → часы). Семафор ограничивает одновременные
+        # вызовы OpenRouter. Дооценка (skip_scored) — мгновенный пропуск без AI.
+        sem = asyncio.Semaphore(AUTO_EVAL_CONCURRENCY)
+
+        async def _score_one(item):
+            rid = str(item.get("id"))
+            if skip_scored and rid in prior_ids:
+                return ("skip", item, None)
+            async with sem:
                 try:
-                    async with AsyncSessionLocal() as session:
-                        run = await session.get(AutoSearchRun, run_id)
-                        if run:
-                            run.scored_candidates = list(scored_candidates)
-                            run.evaluated = evaluated
-                            await session.commit()
-                except Exception as e:
-                    logger.warning("[auto_eval] Не удалось обновить прогресс: %s", e)
-            except asyncio.TimeoutError:
-                logger.warning("[auto_eval] Таймаут оценки резюме %s", item.get("id"))
-                continue
-            except Exception as e:
-                reason = str(e)
-                if _is_ai_credits_error(reason, None):
-                    credits_note = "AI-кредиты исчерпаны"
-                    break
-                else:
-                    logger.warning(
-                        "[auto_eval] Ошибка оценки резюме %s: %s", item.get("id"), e
+                    result = await asyncio.wait_for(
+                        score_resume_dict(item, vacancy_proxy, company_id, api_key, model),
+                        timeout=180,
                     )
-                    continue
+                    return ("ok", item, result)
+                except asyncio.TimeoutError:
+                    return ("timeout", item, None)
+                except Exception as e:
+                    return ("err", item, e)
+
+        async def _persist_progress():
+            try:
+                async with AsyncSessionLocal() as session:
+                    run = await session.get(AutoSearchRun, run_id)
+                    if run:
+                        run.scored_candidates = list(scored_candidates)
+                        run.evaluated = evaluated
+                        await session.commit()
+            except Exception as e:
+                logger.warning("[auto_eval] Не удалось обновить прогресс: %s", e)
+
+        batch_size = AUTO_EVAL_CONCURRENCY
+        credits_hit = False
+        for start in range(0, len(items), batch_size):
+            batch = items[start:start + batch_size]
+            results = await asyncio.gather(*[_score_one(it) for it in batch])
+            for status, item, payload in results:
+                if status == "skip":
+                    evaluated += 1
+                elif status == "ok":
+                    result = payload
+                    scored_candidates.append({
+                        "hh_resume_id": str(item.get("id")),
+                        "title": item.get("title"),
+                        "score": result.get("score"),
+                        "verdict": result.get("verdict"),
+                        "summary": result.get("summary"),
+                        "strengths": result.get("strengths") or [],
+                        "risks": result.get("risks") or [],
+                        "requirements_match": result.get("requirements_match") or [],
+                        "questions": result.get("questions") or [],
+                        "forecast": result.get("forecast"),
+                    })
+                    evaluated += 1
+                elif status == "timeout":
+                    logger.warning("[auto_eval] Таймаут оценки резюме %s", item.get("id"))
+                else:  # err
+                    if _is_ai_credits_error(str(payload), None):
+                        credits_note = "AI-кредиты исчерпаны"
+                        credits_hit = True
+                    else:
+                        logger.warning("[auto_eval] Ошибка оценки резюме %s: %s", item.get("id"), payload)
+            await _persist_progress()  # коммитим прогресс после каждого батча
+            _auto_log(f"[eval] run={run_id} progress {evaluated}/{len(items)}")
+            if credits_hit:
+                _auto_log(f"[eval] run={run_id} STOP — AI-кредиты исчерпаны на {evaluated}/{len(items)}")
+                break
+
+        _auto_log(
+            f"[eval] run={run_id} DONE evaluated={evaluated}/{len(items)} "
+            f"scored={len(scored_candidates)}{' note=' + credits_note if credits_note else ''}"
+        )
 
         # ФИНАЛ
         try:
@@ -1176,6 +1213,7 @@ async def _run_auto_evaluate(
         timeout_s = min(6 * 3600, max(1800, (n or AUTO_MAX_EVALUATE) * 30))
         await asyncio.wait_for(_inner(), timeout=timeout_s)
     except asyncio.TimeoutError:
+        _auto_log(f"[eval] run={run_id} TIMEOUT (внешний таймаут {timeout_s}с) — self-heal продолжит")
         try:
             async with AsyncSessionLocal() as s:
                 run = await s.get(AutoSearchRun, run_id)
@@ -1189,6 +1227,7 @@ async def _run_auto_evaluate(
         except Exception as e:
             logger.error("[auto_eval] Финал по таймауту: %s", e)
     except Exception as e:
+        _auto_log(f"[eval] run={run_id} ERROR: {str(e)[:120]} — self-heal продолжит")
         try:
             async with AsyncSessionLocal() as s:
                 run = await s.get(AutoSearchRun, run_id)
@@ -1196,6 +1235,8 @@ async def _run_auto_evaluate(
                     run.status = "error"
                     run.error = str(e)[:500]
                     run.finished_at = _utc_naive_now()
+                    # Непредвиденный сбой — тоже даём self-heal продолжить (под капом 5/час).
+                    run.interrupted = True
                     await s.commit()
         except Exception as fe:
             logger.error("[auto_eval] Двойной сбой: %s", fe)
@@ -1346,6 +1387,7 @@ async def self_heal_interrupted_evals() -> None:
                         segment="all", skip_scored=True, note=SELF_HEAL_NOTE,
                     )
                     logger.info("[self-heal] автопоиск %s — авто-продолжение поставлено", auto_search_id)
+                    _auto_log(f"[self-heal] автопоиск={auto_search_id} — авто-продолжение поставлено (skip_scored)")
                 except ConflictError:
                     logger.info("[self-heal] автопоиск %s — уже идёт прогон, пропуск", auto_search_id)
                 except Exception as e:

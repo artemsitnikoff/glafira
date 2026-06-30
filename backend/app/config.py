@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     CHAT_LOG_PATH: str = "/app/storage/chat.log"
     # Текстовый журнал умного подбора (полный лог каждого прогона). Тот же том.
     SMART_SEARCH_LOG_PATH: str = "/app/storage/smart_search.log"
+    # Журнал Автоподбора-оценки (жизненный цикл: старт/прогресс/прерывание/self-heal/
+    # финал). Общий том backend_storage (виден и из backend, и из worker), переживает
+    # рестарт. Пусто → не вести. Читать: docker compose ... run --rm backend cat <path>.
+    AUTO_EVAL_LOG_PATH: str = "/app/storage/auto_eval.log"
+    # Параллельность скоринга в Автоподборе: сколько резюме оценивать ОДНОВРЕМЕННО.
+    # Раньше было последовательно (1) → ~40-50с/резюме → часы. 8 параллельно → ~8x быстрее.
+    AUTO_EVAL_CONCURRENCY: int = 8
 
     # Семантический поиск по собственной базе
     GLAFIRA_EMBED_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
