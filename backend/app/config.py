@@ -115,6 +115,15 @@ class Settings(BaseSettings):
 
     FERNET_KEY: str | None = None
 
+    # === Очередь фоновых задач (arq + Redis) ===
+    # USE_JOB_QUEUE=false (дефолт) → тяжёлые фоновые задачи идут как раньше, in-process
+    # (asyncio.create_task в backend-процессе) — поведение НЕ меняется при выкатке кода.
+    # =true + поднятые сервисы redis/worker → задачи уходят в durable-очередь, которая
+    # переживает рестарты backend (воркер — отдельный контейнер). Включать на VPS только
+    # после того, как redis+worker подняты и проверены (см. docker-compose.prod.yml).
+    REDIS_URL: str = "redis://redis:6379/0"
+    USE_JOB_QUEUE: bool = False
+
     # Deployment
     CORS_ORIGINS: str = "http://localhost:5173"  # comma-separated list
     SESSION_COOKIE_SECURE: bool = False  # True in production with HTTPS

@@ -23,8 +23,28 @@ services:
       timeout: 3s
       retries: 10
 
+  # Брокер очереди фоновых задач (arq). НАРУЖУ НЕ публикуется — доступ только внутри
+  # compose-сети (на общем VPS изолирован своей сетью). appendonly+том → очередь
+  # переживает рестарт самого redis.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --appendonly yes
+    volumes:
+      - glafira_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
+    # Явный тег образа — чтобы воркер (см. ниже) переиспользовал ТОТ ЖЕ собранный образ
+    # (image: glafira-app:latest без build), и `docker compose build backend` + `up -d`
+    # автоматически пересобирал и перезапускал воркер вместе с backend. Без отдельного
+    # build-шага в deploy.yml.
+    image: glafira-app:latest
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -41,6 +61,26 @@ services:
       - "127.0.0.1:8000:8000"
     # Production: без --reload, 2 worker'а. При мало RAM можно --workers 1.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+
+  # Воркер durable-очереди (arq). Тот же образ что backend (image: glafira-app:latest,
+  # БЕЗ build) — пересобирается/перезапускается вместе с backend через обычный
+  # `build backend` + `up -d`. Выполняет тяжёлые фоновые задачи (AI-оценка Автоподбора
+  # и далее), переживая рестарты backend. Активируется флагом USE_JOB_QUEUE=true в .env
+  # (без флага backend гоняет задачи in-process, а воркер просто простаивает на опросе redis).
+  worker:
+    build: ./backend
+    image: glafira-app:latest
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - backend_storage:/app/storage
+      - ${CLAUDE_TOKEN_DIR:-/var/www/ArkadyJarvis/data}:/app/claude-auth:ro
+    command: arq app.worker.WorkerSettings
 
   frontend:
     build:
@@ -83,3 +123,4 @@ services:
 volumes:
   glafira_pgdata:
   backend_storage:
+  glafira_redis:

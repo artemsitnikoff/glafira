@@ -1,0 +1,77 @@
+"""arq-воркер — durable фоновые задачи, переживающие рестарты backend.
+
+Запускается ОТДЕЛЬНЫМ контейнером (docker-compose service `worker`, тот же образ
+что backend, команда `arq app.worker.WorkerSettings`). Брокер/состояние — Redis,
+поэтому при падении/перезапуске воркера джоб не теряется: arq повторяет его
+(до max_tries), а сама задача резюмируемая (пропускает уже сделанное).
+
+Сейчас обслуживает AI-оценку Автоподбора. Постепенно сюда переедут остальные
+тяжёлые фоновые задачи (OSINT-верификация, реиндекс эмбеддингов, импорт и т.д.).
+"""
+from __future__ import annotations
+
+import logging
+from uuid import UUID
+
+from arq.connections import RedisSettings
+
+from .config import settings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("glafira.worker")
+
+
+def _redis_settings() -> RedisSettings:
+    return RedisSettings.from_dsn(settings.REDIS_URL)
+
+
+async def run_auto_evaluate(
+    ctx: dict,
+    run_id: str,
+    company_id: str,
+    auto_search_id: str,
+    segment: str,
+    n,
+    skip_scored: bool,
+) -> None:
+    """Джоб AI-оценки Автоподбора.
+
+    Резюмируемость: на ЛЮБОМ повторе (job_try>1 — после падения/перезапуска воркера)
+    форсим skip_scored, чтобы пропустить уже оценённых из прошлого прогресса и НЕ
+    переплачивать токенами. На первой попытке уважаем запрошенный режим
+    (полная переоценка vs дооценка)."""
+    from .services.auto_search import _run_auto_evaluate
+
+    job_try = ctx.get("job_try", 1)
+    effective_skip = bool(skip_scored) or job_try > 1
+    logger.info(
+        "[worker] run_auto_evaluate run=%s try=%s skip_scored=%s",
+        run_id, job_try, effective_skip,
+    )
+    await _run_auto_evaluate(
+        UUID(run_id),
+        UUID(company_id),
+        UUID(auto_search_id),
+        segment,
+        n,
+        effective_skip,
+    )
+    logger.info("[worker] run_auto_evaluate done run=%s", run_id)
+
+
+class WorkerSettings:
+    """Конфиг arq-воркера. Имя джоба = имя функции (`run_auto_evaluate`)."""
+
+    functions = [run_auto_evaluate]
+    redis_settings = _redis_settings()
+    # Параллельность джобов в одном воркере.
+    max_jobs = 4
+    # Оценка может идти часами (внутренний кап _run_auto_evaluate — 6ч). Берём с запасом,
+    # иначе arq убьёт джоб по своему дефолтному таймауту (300с).
+    job_timeout = 7 * 3600
+    # Ретрай при падении воркера. Резюмируемо (job_try>1 → skip_scored), без переплаты.
+    max_tries = 3
+    keep_result = 3600

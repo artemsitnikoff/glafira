@@ -874,11 +874,20 @@ async def start_auto_evaluate(
             raise ConflictError("Оценка уже идёт")
 
     run_id = run.id
-    task = asyncio.create_task(
-        _run_auto_evaluate(run_id, company_id, auto_search_id, segment, n, skip_scored)
+    # Durable-очередь (arq/Redis), если включена и доступна → выполнит отдельный
+    # воркер-контейнер, переживающий рестарты backend. Иначе фолбэк на in-process
+    # asyncio (прежнее поведение). См. services/job_queue.py.
+    from .job_queue import enqueue_auto_evaluate
+
+    enqueued = await enqueue_auto_evaluate(
+        run_id, company_id, auto_search_id, segment, n, skip_scored
     )
-    _auto_active_tasks[run_id] = task
-    task.add_done_callback(lambda t: _auto_active_tasks.pop(run_id, None))
+    if not enqueued:
+        task = asyncio.create_task(
+            _run_auto_evaluate(run_id, company_id, auto_search_id, segment, n, skip_scored)
+        )
+        _auto_active_tasks[run_id] = task
+        task.add_done_callback(lambda t: _auto_active_tasks.pop(run_id, None))
     return run_id
 
 
