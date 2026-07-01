@@ -362,6 +362,7 @@ async def move_application(
             application=application,
             company_id=company_id,
             actor_user_id=actor_user_id,
+            hire_date=move_data.hire_date,
         )
 
     await audit(

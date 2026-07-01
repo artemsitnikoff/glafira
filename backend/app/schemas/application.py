@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, date
 from typing import Literal
 from uuid import UUID
 
@@ -32,6 +32,9 @@ class ApplicationRow(ORMBase):
 
 class MoveRequest(BaseModel):
     to_stage: str
+    # Дата выхода — только при to_stage='hired'. Становится start_date сотрудника в
+    # Пульсе (двигает «День X» и дедлайны плана). None → сегодня (прежнее поведение).
+    hire_date: date | None = None
 
 
 class RejectRequest(BaseModel):

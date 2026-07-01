@@ -34,6 +34,9 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   const [movePopoverOpen, setMovePopoverOpen] = useState(false);
   const [rejectPopoverOpen, setRejectPopoverOpen] = useState(false);
   const [downloadPopoverOpen, setDownloadPopoverOpen] = useState(false);
+  // Шаг выбора даты выхода при найме (перевод в «Нанят»).
+  const [pickingHire, setPickingHire] = useState(false);
+  const [hireDate, setHireDate] = useState('');
 
   const isHired = application?.stage === 'hired';
   const isRejected = application?.stage === 'rejected';
@@ -57,6 +60,17 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
     }
     moveMutation.mutate({ id: application.id, data: { to_stage: stageKey } });
     setMovePopoverOpen(false);
+  }
+
+  function handleHire() {
+    if (!application || !hireDate) return;
+    // hire_date → start_date сотрудника в Пульсе (openapi отстаёт → cast).
+    moveMutation.mutate({
+      id: application.id,
+      data: { to_stage: 'hired', hire_date: hireDate } as { to_stage: string },
+    });
+    setMovePopoverOpen(false);
+    setPickingHire(false);
   }
 
   function handleRejectWithReason(reason: RejectReason) {
@@ -136,32 +150,58 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
 
           {movePopoverOpen && !isHired && (
             <>
-              <div className="cd-pop-backdrop" onClick={() => setMovePopoverOpen(false)} />
+              <div className="cd-pop-backdrop" onClick={() => { setMovePopoverOpen(false); setPickingHire(false); }} />
               <div className="cd-move-pop" role="menu">
-                <div className="cd-pop-head">На какой этап?</div>
-                {availableStages.map((stage, i) => (
-                  <button
-                    key={stage.stage_key}
-                    className={`cd-pop-item ${stage.stage_key === application?.stage ? 'cur' : ''} ${i === curStageIdx + 1 ? 'next' : ''}`}
-                    onClick={() => handleMoveToStage(stage.stage_key)}
-                    disabled={moveMutation.isPending}
-                  >
-                    <span className="stage-dot" style={{ background: stage.color }} />
-                    <span className="cd-pop-label">{stage.label}</span>
-                    {stage.stage_key === application?.stage && <span className="cd-pop-tag">сейчас</span>}
-                    {i === curStageIdx + 1 && <span className="cd-pop-tag cd-pop-tag-next">далее</span>}
-                  </button>
-                ))}
-                {hiredStage && (
-                  <button
-                    className="cd-pop-item cd-pop-hire"
-                    onClick={() => handleMoveToStage('hired')}
-                    disabled={moveMutation.isPending}
-                  >
-                    <span className="stage-dot" style={{ background: hiredStage.color }} />
-                    <span className="cd-pop-label">{hiredStage.label}</span>
-                    <span className="cd-pop-tag cd-pop-tag-hire">наём</span>
-                  </button>
+                {!pickingHire ? (
+                  <>
+                    <div className="cd-pop-head">На какой этап?</div>
+                    {availableStages.map((stage, i) => (
+                      <button
+                        key={stage.stage_key}
+                        className={`cd-pop-item ${stage.stage_key === application?.stage ? 'cur' : ''} ${i === curStageIdx + 1 ? 'next' : ''}`}
+                        onClick={() => handleMoveToStage(stage.stage_key)}
+                        disabled={moveMutation.isPending}
+                      >
+                        <span className="stage-dot" style={{ background: stage.color }} />
+                        <span className="cd-pop-label">{stage.label}</span>
+                        {stage.stage_key === application?.stage && <span className="cd-pop-tag">сейчас</span>}
+                        {i === curStageIdx + 1 && <span className="cd-pop-tag cd-pop-tag-next">далее</span>}
+                      </button>
+                    ))}
+                    {hiredStage && (
+                      <button
+                        className="cd-pop-item cd-pop-hire"
+                        onClick={() => { setHireDate(new Date().toISOString().slice(0, 10)); setPickingHire(true); }}
+                        disabled={moveMutation.isPending}
+                      >
+                        <span className="stage-dot" style={{ background: hiredStage.color }} />
+                        <span className="cd-pop-label">{hiredStage.label}</span>
+                        <span className="cd-pop-tag cd-pop-tag-hire">наём</span>
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="cd-pop-head">Дата выхода</div>
+                    <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <input
+                        type="date"
+                        value={hireDate}
+                        onChange={(e) => setHireDate(e.target.value)}
+                        style={{ fontSize: 13, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--ark-gray-300)' }}
+                      />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setPickingHire(false)}>Назад</button>
+                        <button
+                          className="btn btn-success btn-sm"
+                          disabled={!hireDate || moveMutation.isPending}
+                          onClick={handleHire}
+                        >
+                          Нанять
+                        </button>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </>

@@ -81,8 +81,10 @@ async def create_employee_from_hire(
     application: Application,
     company_id: UUID,
     actor_user_id: UUID,
+    hire_date: date | None = None,
 ) -> Employee:
-    """Создаёт сотрудника при переходе application в hired с идемпотентностью"""
+    """Создаёт сотрудника при переходе application в hired с идемпотентностью.
+    hire_date — дата выхода (start_date); None → сегодня (прежнее поведение)."""
 
     # 1. Проверка идемпотентности
     existing_query = select(Employee).where(Employee.application_id == application.id)
@@ -125,7 +127,7 @@ async def create_employee_from_hire(
         manager_user_id=vacancy.responsible_user_id,
         recruiter_user_id=actor_user_id,
         hire_source=hire_source,
-        start_date=date.today(),
+        start_date=hire_date or date.today(),
         status='onboarding',
         risk_level='low',
         # probation_days использует значение по умолчанию из БД
