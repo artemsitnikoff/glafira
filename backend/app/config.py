@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # финал). Общий том backend_storage (виден и из backend, и из worker), переживает
     # рестарт. Пусто → не вести. Читать: docker compose ... run --rm backend cat <path>.
     AUTO_EVAL_LOG_PATH: str = "/app/storage/auto_eval.log"
+    # Журнал синхронизации откликов hh (импорт кандидатов): ОТКУДА взяли (negotiation/
+    # resume_id/вакансия), догрузилось ли полное резюме или упали на урезанное (и почему),
+    # пустой ли кандидат. Общий том. Пусто → не вести. Читать: cat /app/storage/hh_sync.log.
+    HH_SYNC_LOG_PATH: str = "/app/storage/hh_sync.log"
     # Параллельность скоринга в Автоподборе: сколько резюме оценивать ОДНОВРЕМЕННО.
     # Раньше было последовательно (1) → ~40-50с/резюме → часы. 8 параллельно → ~8x быстрее.
     AUTO_EVAL_CONCURRENCY: int = 8

@@ -30,6 +30,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _hh_log(msg: str) -> None:
+    """Персистентный журнал синхронизации откликов hh (общий том, cat-абельный).
+    Пишет ОТКУДА взяли кандидата и что с резюме. Best-effort — НЕ ронять импорт."""
+    try:
+        path = getattr(settings, "HH_SYNC_LOG_PATH", "") or ""
+        if not path:
+            return
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{ts}Z {msg}\n")
+    except Exception:
+        pass
+
+
 def _resolve_app_creds(integration: Optional["HhIntegration"] = None) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Ключ приложения Глафиры (client_id, client_secret, redirect_uri).
 
@@ -857,13 +871,24 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     # --- Полное резюме (догрузка по url; краткое из списка откликов неполное) ---
     resume = item.get("resume") or {}
     resume_url = resume.get("url")
-    if access_token and resume_url:
+    # Источник данных резюме — для журнала: полное догружено / упали на урезанное (почему).
+    resume_source = "short"  # 'full' | 'short' | 'short(no_token)' | 'short(no_url)'
+    fetch_error: str | None = None
+    if not access_token:
+        resume_source = "short(no_token)"
+    elif not resume_url:
+        resume_source = "short(no_url)"
+    else:
         try:
             full = await hh_client.get_resume(access_token, resume_url)
             if isinstance(full, dict):
                 resume = full
-        except Exception:
-            pass  # нет доступа к полному резюме — остаёмся на кратком
+                resume_source = "full"
+        except Exception as e:
+            # НЕ глушим молча: фикс главной причины «пустых кандидатов» — при сбое
+            # догрузки остаёмся на урезанном резюме, но пишем ПОЧЕМУ (в лог ниже).
+            fetch_error = str(e)[:150]
+            logger.warning("[hh_sync] догрузка резюме %s не удалась: %s", resume_url, e)
 
     # --- Маппинг резюме hh → поля кандидата ---
     first_name = (resume.get("first_name") or "").strip()
@@ -1060,7 +1085,19 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         company_id=company_id,
     )
 
-    return "created" if existing is None else "updated"
+    result = "created" if existing is None else "updated"
+    # Журнал: ОТКУДА взяли + что с резюме. Пустой = ни опыта, ни навыков, ни должности
+    # (такой уйдёт в скоринг как 0/bad — по логу видно, что виноват урезанный/недогруженный
+    # резюме, а не сам кандидат). Причина обычно — fetch_error догрузки (см. resume_source).
+    is_empty = not experiences and not resume.get("skills") and not title
+    _hh_log(
+        f"{result} nid={nid} resume_id={resume_id} "
+        f'вакансия="{getattr(vacancy, "name", "") or ""}" этап={stage} '
+        f'имя="{(first_name + " " + last_name).strip() or "—"}" резюме={resume_source}'
+        f"{(' fetch_error=' + fetch_error) if fetch_error else ''}"
+        f"{' ⚠ПУСТОЙ' if is_empty else ''}"
+    )
+    return result
 
 
 async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
