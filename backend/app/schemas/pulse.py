@@ -122,6 +122,13 @@ class EmployeeStatusUpdate(BaseModel):
     left_reason: str | None = None
 
 
+class EmployeeHireDateUpdate(BaseModel):
+    """Правка даты найма (start_date) и, опц., срока адаптации. День X из 90 и дедлайны
+    плана (deadline_day — относительные) пересчитываются от start_date автоматически."""
+    start_date: date
+    probation_days: int | None = Field(default=None, ge=1, le=730)
+
+
 class BulkRunSurveyRequest(BaseModel):
     employee_ids: list[UUID]
     template_key: str

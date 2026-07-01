@@ -12,7 +12,7 @@ from ...schemas.pulse import (
     EmployeeListItem, EmployeeDetail, PulseKPI, EmployeeSummaryResponse,
     AlertOut, PlanItemOut, PlanItemUpdate,
     SurveyOut, SurveyCreate, NoteCreate,
-    EmployeeStatusUpdate, BulkRunSurveyRequest, BulkRunSurveyResult,
+    EmployeeStatusUpdate, EmployeeHireDateUpdate, BulkRunSurveyRequest, BulkRunSurveyResult,
 )
 from ...services.pulse import employee as employee_svc
 from ...services.pulse import kpi as kpi_svc
@@ -257,6 +257,59 @@ async def update_employee_status(
                 "created_at": note.get("created_at", ""),
             })
 
+    return EmployeeDetail(
+        id=employee.id,
+        full_name=employee.full_name,
+        position=employee.position,
+        department=employee.department,
+        start_date=employee.start_date,
+        probation_days=employee.probation_days,
+        adapt_day=adapt_day,
+        status=employee.status,
+        risk_level=risk_level,
+        enps=employee.enps,
+        manager_full_name=employee.manager_user.full_name if employee.manager_user else None,
+        recruiter_full_name=employee.recruiter_user.full_name if employee.recruiter_user else None,
+        hire_source=employee.hire_source,
+        candidate_id=employee.candidate_id,
+        left_at=employee.left_at,
+        left_reason=employee.left_reason,
+        ai_summary=employee.ai_summary,
+        ai_summary_generated_at=employee.ai_summary_generated_at,
+        plan=[PlanItemOut.model_validate(item) for item in employee.plan_items],
+        surveys=[SurveyOut.model_validate(survey) for survey in employee.surveys],
+        alerts=[AlertOut.model_validate(alert) for alert in employee.alerts],
+        notes=notes,
+    )
+
+
+@router.patch("/employees/{employee_id}/hire-date", response_model=EmployeeDetail)
+async def update_employee_hire_date(
+    employee_id: UUID,
+    data: EmployeeHireDateUpdate,
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Изменить дату найма (start_date) сотрудника + опц. срок адаптации. «День X из N»
+    и дедлайны плана (относительные) пересчитываются от start_date автоматически."""
+    await _assert_employee_access(session, employee_id, current_user, company_id)
+
+    employee = await employee_svc.update_employee_hire_date(
+        session, employee_id, data.start_date, data.probation_days, company_id, current_user.id
+    )
+    await session.commit()
+
+    adapt_day = employee_svc.compute_adapt_day(employee.start_date)
+    risk_level = await employee_svc.compute_risk_level(session, employee)
+    notes = []
+    for note in (employee.notes or []):
+        if isinstance(note, dict) and 'text' in note:
+            notes.append({
+                "text": note.get("text", ""),
+                "author_user_id": note.get("author_user_id", ""),
+                "created_at": note.get("created_at", ""),
+            })
     return EmployeeDetail(
         id=employee.id,
         full_name=employee.full_name,

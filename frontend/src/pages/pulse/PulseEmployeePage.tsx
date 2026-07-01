@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import './Pulse.css';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { usePulseEmployee } from '@/api/hooks/usePulse';
+import { usePulseEmployee, useUpdateEmployeeHireDate } from '@/api/hooks/usePulse';
 import { useAddNote, useRegenerateAiSummary } from '@/api/mutations/pulse';
 import { OverviewTab } from './components/tabs/OverviewTab';
 import { PlanTab } from './components/tabs/PlanTab';
@@ -58,6 +58,10 @@ export function PulseEmployeePage() {
   const addNoteMutation = useAddNote();
   const regenerateAiSummaryMutation = useRegenerateAiSummary();
   const [showLaunchModal, setShowLaunchModal] = useState(false);
+  // Редактор даты найма (правит start_date → «День X» и дедлайны плана пересчитаются).
+  const [editHire, setEditHire] = useState(false);
+  const [hireVal, setHireVal] = useState('');
+  const hireDate = useUpdateEmployeeHireDate(employeeId ?? '');
 
   const setActiveTab = (tabId: string) => {
     if (tabId === 'overview') {
@@ -214,7 +218,36 @@ export function PulseEmployeePage() {
             <div className="ec-day-line">
               <span className="ec-day-num">День {employee.adapt_day} из {employee.probation_days}</span>
               <span style={{color:'var(--fg-3)'}}>·</span>
-              <span>Нанят: {new Date(employee.start_date).toLocaleDateString('ru-RU')}</span>
+              {!editHire ? (
+                <span>
+                  Нанят: {new Date(employee.start_date).toLocaleDateString('ru-RU')}
+                  <button
+                    onClick={() => { setHireVal(String(employee.start_date).slice(0, 10)); setEditHire(true); }}
+                    title="Изменить дату найма"
+                    style={{ marginLeft: 6, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                  >изменить</button>
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  Нанят:
+                  <input
+                    type="date"
+                    value={hireVal}
+                    onChange={(e) => setHireVal(e.target.value)}
+                    style={{ fontSize: 13, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--ark-gray-300)' }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={!hireVal || hireDate.isPending}
+                    onClick={() => hireDate.mutate({ start_date: hireVal }, { onSuccess: () => setEditHire(false) })}
+                  >
+                    {hireDate.isPending ? '…' : <Icon name="check" size={12} />}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setEditHire(false)}>
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              )}
             </div>
             <div style={{marginTop:8}}>
               <AdaptBar day={employee.adapt_day}/>

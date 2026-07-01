@@ -525,3 +525,51 @@ async def update_employee_status(
 
     await session.flush()
     return employee
+
+
+async def update_employee_hire_date(
+    session: AsyncSession,
+    employee_id: UUID,
+    start_date: date,
+    probation_days: int | None,
+    company_id: UUID,
+    actor_user_id: UUID,
+) -> Employee:
+    """Правит дату найма (start_date) и, опц., срок адаптации (probation_days). «День X из
+    N» и дедлайны плана (deadline_day — относительные) пересчитываются от start_date
+    автоматически. Audit (§2.2) + Event в ленту."""
+    employee = await get_employee(session, employee_id, company_id)
+    old = {
+        "start_date": employee.start_date.isoformat(),
+        "probation_days": employee.probation_days,
+    }
+    employee.start_date = start_date
+    if probation_days is not None:
+        employee.probation_days = probation_days
+    await session.flush()
+
+    await audit(
+        session,
+        action="employee_hire_date_change",
+        entity_type="employee",
+        entity_id=employee_id,
+        before=old,
+        after={
+            "start_date": employee.start_date.isoformat(),
+            "probation_days": employee.probation_days,
+        },
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+    event = Event(
+        company_id=company_id,
+        type="move",
+        text=f"Дата найма изменена: {old['start_date']} → {employee.start_date.isoformat()}",
+        entities=[{"type": "employee", "id": str(employee_id)}],
+        candidate_id=employee.candidate_id,
+        actor_user_id=actor_user_id,
+        actor_type="human",
+    )
+    session.add(event)
+    await session.flush()
+    return employee

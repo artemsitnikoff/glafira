@@ -53,6 +53,24 @@ export function usePulseEmployee(id: string | undefined) {
   });
 }
 
+// Правка даты найма сотрудника (start_date) + опц. срок адаптации. День X и дедлайны
+// плана пересчитываются на беке от start_date.
+export function useUpdateEmployeeHireDate(employeeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { start_date: string; probation_days?: number }) => {
+      const response = await client.patch<EmployeeDetail>(
+        `/pulse/employees/${employeeId}/hire-date`, body,
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pulse', 'employee', employeeId] });
+      queryClient.invalidateQueries({ queryKey: ['pulse', 'employees'] });
+    },
+  });
+}
+
 type AlertFilters = {
   dismissed?: boolean | null;
   period_days?: number | null;
