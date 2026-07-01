@@ -97,6 +97,7 @@ from ...services.auto_search import (
     list_auto_searches,
     get_auto_candidates,
     get_auto_candidate_detail,
+    score_auto_candidate,
     set_basis,
     set_auto_eval,
     start_auto_evaluate,
@@ -807,6 +808,24 @@ async def get_auto_candidate_full_resume(
         raise ForbiddenError("Доступ запрещён")
     data = await get_auto_candidate_detail(session, company_id, hh_resume_id)
     return AutoCandidateDetail(**data)
+
+
+@router.post(
+    "/auto/searches/{auto_search_id}/candidate/{hh_resume_id}/score",
+    summary="Точечная AI-оценка одного кандидата автопоиска против его основы",
+)
+async def score_auto_candidate_endpoint(
+    auto_search_id: UUID,
+    hh_resume_id: str,
+    session: AsyncSession = Depends(get_db),
+    company_id: UUID = Depends(get_current_company_id),
+    current_user: User = Depends(get_current_user),
+):
+    """Оценить ТОЛЬКО этого кандидата (из карточки), если у автопоиска задана основа
+    (вакансия/промт). Без основы — 400. 1 просмотр резюме + 1 LLM-вызов, синхронно."""
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ запрещён")
+    return await score_auto_candidate(session, company_id, auto_search_id, hh_resume_id)
 
 
 @router.post(

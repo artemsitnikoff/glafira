@@ -806,6 +806,18 @@ export function useAutoEvalRun(runId: string | null, enabled: boolean) {
   });
 }
 
+// Точечная AI-оценка одного кандидата автопоиска (из карточки) против основы.
+export function useScoreAutoCandidate(searchId: string) {
+  return useMutation<AutoScored, Error, string>({
+    mutationFn: async (hhResumeId: string): Promise<AutoScored> => {
+      const response = await api.post(
+        `/smart/auto/searches/${searchId}/candidate/${hhResumeId}/score`,
+      );
+      return response.data as AutoScored;
+    },
+  });
+}
+
 // === ЗАБОР КОНТАКТА / ПЕРЕВОД (чанк C2) ===
 // ⚠️ ПЛАТНО — списывает контакт из пула hh. Бек гейтит has_paid_access; пул 0 → 429/ошибка.
 

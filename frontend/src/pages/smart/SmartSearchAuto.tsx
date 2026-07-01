@@ -22,6 +22,7 @@ import {
   useRunAutoEval,
   useAutoEvalRun,
   useAutoTake,
+  useScoreAutoCandidate,
   type AutoCandidate,
   type AutoCandidateDetail,
   type AutoSearch,
@@ -731,7 +732,16 @@ function SSAutoCandidatesView({
   const [toast, setToast] = useState<Toast>(null);
   const navigate = useNavigate();
   const takeMutation = useAutoTake(search.id);
+  const scoreOne = useScoreAutoCandidate(search.id);
   const [takenLocal, setTakenLocal] = useState<Record<string, 'pool' | 'vacancy'>>({});
+
+  // Точечная оценка одного кандидата из карточки (когда основа задана, а он не оценён).
+  function doScoreOne(hhResumeId: string) {
+    scoreOne.mutate(hhResumeId, {
+      onSuccess: (rec) => setScoredMap((prev) => ({ ...prev, [hhResumeId]: rec })),
+      onError: (e) => setToast({ kind: 'err', text: e.message || 'Не удалось оценить' }),
+    });
+  }
   const { data: takeVacData } = useVacancies({ status: 'active', page_size: 100 });
 
   // Авто-скрытие тоста через 4000мс
@@ -1169,6 +1179,8 @@ function SSAutoCandidatesView({
           scored={scoredMap[openCand.hh_resume_id] ?? null}
           basis={search.basis}
           onRunScoring={startEval}
+          onScoreOne={() => doScoreOne(openCand.hh_resume_id)}
+          scoringOne={scoreOne.isPending}
           running={isEvalRunning}
           onClose={() => setOpenId(null)}
           onTake={doTake}
@@ -1357,6 +1369,8 @@ function SSAutoSheet({
   scored,
   basis,
   onRunScoring,
+  onScoreOne,
+  scoringOne,
   running,
   onClose,
   onTake,
@@ -1371,6 +1385,8 @@ function SSAutoSheet({
   scored: AutoScored | null;
   basis: AutoSearchBasis | null;
   onRunScoring: () => void;
+  onScoreOne: () => void;
+  scoringOne: boolean;
   running: boolean;
   onClose: () => void;
   onTake: (c: AutoCandidate, target: 'pool' | 'vacancy', opts?: { vacancyId?: string; vacName?: string }) => void;
@@ -1626,7 +1642,7 @@ function SSAutoSheet({
                   errorMsg={detailErrObj?.message ?? null}
                 />
               ) : (
-                <SSAutoAI scored={scored} basis={basis} onRunScoring={onRunScoring} running={running} />
+                <SSAutoAI scored={scored} basis={basis} onRunScoring={onRunScoring} onScoreOne={onScoreOne} scoringOne={scoringOne} running={running} />
               )}
             </div>
           </div>
@@ -1871,12 +1887,15 @@ function SSAutoCompactResume({
 function SSAutoAI({
   scored,
   basis,
-  onRunScoring,
+  onScoreOne,
+  scoringOne,
   running,
 }: {
   scored: AutoScored | null;
   basis: AutoSearchBasis | null;
   onRunScoring: () => void;
+  onScoreOne: () => void;
+  scoringOne: boolean;
   running: boolean;
 }) {
   if (scored == null) {
@@ -1889,19 +1908,27 @@ function SSAutoAI({
           <h3>Резюме ещё не оценено</h3>
           <p>
             Оценка относительна: Глафира сравнивает резюме с конкретной вакансией или с описанием
-            идеального кандидата. Выберите основу — и она выставит балл.
+            идеального кандидата. Кнопка оценит только этого кандидата против основы автопоиска.
           </p>
           <button
             className="btn btn-primary btn-sm"
-            onClick={onRunScoring}
-            disabled={running}
+            onClick={onScoreOne}
+            disabled={!basis || scoringOne || running}
+            title={!basis
+              ? 'Сначала привяжите вакансию или промт к автопоиску'
+              : 'Оценить этого кандидата против основы'}
           >
-            {running ? (
+            {scoringOne ? (
               <><span className="ssa-spin dark" /> Оцениваю…</>
             ) : (
-              <><Icon name="sparkles" size={14} /> Оценить относительно…</>
+              <><Icon name="sparkles" size={14} /> Оценить</>
             )}
           </button>
+          {!basis && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-3)' }}>
+              Кнопка активна, когда у автопоиска задана основа оценки (вакансия или промт).
+            </div>
+          )}
         </div>
       </div>
     );

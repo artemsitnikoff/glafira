@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit, parse_qsl, quote
 from uuid import UUID
 
-from sqlalchemy import select, desc, nullslast, update, and_, func
+from sqlalchemy import select, desc, nullslast, update, and_, or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -287,7 +287,17 @@ async def list_auto_searches(session: AsyncSession, company_id: UUID) -> list[Au
 
     last_runs_res = await session.execute(
         select(AutoSearchRun)
-        .where(AutoSearchRun.company_id == company_id)
+        .where(
+            AutoSearchRun.company_id == company_id,
+            # single-прогоны (точечная оценка из карточки, evaluated=1) НЕ отражают
+            # прогресс bulk-оценки — исключаем из «последнего прогона», иначе список
+            # покажет вводящее в заблуждение «Оценено 1 из 1». В мёрж баллов
+            # (_build_auto_score_map) они по-прежнему входят — балл кандидата виден.
+            or_(
+                AutoSearchRun.note.is_(None),
+                AutoSearchRun.note.notlike("[single]%"),
+            ),
+        )
         .order_by(AutoSearchRun.auto_search_id, desc(AutoSearchRun.created_at))
         .distinct(AutoSearchRun.auto_search_id)
     )
@@ -798,6 +808,106 @@ async def set_basis(session: AsyncSession, company_id: UUID, auto_search_id: UUI
     auto_search.basis = basis
     await session.commit()
     return auto_search
+
+
+async def _basis_to_vacancy_proxy(session: AsyncSession, company_id: UUID, basis: dict):
+    """Строит vacancy_proxy из основы автопоиска (vacancy|prompt) для score_resume_dict.
+    Зеркалит логику _run_auto_evaluate. ValidationError при невалидной основе."""
+    kind = (basis or {}).get("kind")
+    if kind == "vacancy":
+        from uuid import UUID as _UUID
+        try:
+            vacancy_uuid = _UUID(str(basis.get("vacancy_id")))
+        except Exception:
+            raise ValidationError("Некорректный ID вакансии-основы")
+        vacancy = (await session.execute(
+            select(Vacancy).where(
+                Vacancy.id == vacancy_uuid,
+                Vacancy.company_id == company_id,
+                Vacancy.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if vacancy is None:
+            raise ValidationError("Вакансия-основа удалена")
+        vacancy_data = {
+            "name": getattr(vacancy, "name", None),
+            "city": getattr(vacancy, "city", None),
+            "salary_from": getattr(vacancy, "salary_from", None),
+            "salary_to": getattr(vacancy, "salary_to", None),
+            "currency": getattr(vacancy, "currency", None),
+            "description": getattr(vacancy, "description", None),
+            "recruiter_scoring_instructions": getattr(vacancy, "recruiter_scoring_instructions", None),
+            "glafira_mode": getattr(vacancy, "glafira_mode", "A"),
+            "auto_move": getattr(vacancy, "auto_move", False),
+            "auto_move_threshold": getattr(vacancy, "auto_move_threshold", None),
+            "auto_move_stage": getattr(vacancy, "auto_move_stage", None),
+        }
+        return type("AutoVacancyProxy", (), vacancy_data)()
+    if kind == "prompt":
+        return _create_synthetic_vacancy_for_scoring(basis.get("prompt", ""))
+    raise ValidationError("Некорректная основа оценки")
+
+
+async def score_auto_candidate(
+    session: AsyncSession, company_id: UUID, auto_search_id: UUID, hh_resume_id: str
+) -> dict:
+    """Точечная AI-оценка ОДНОГО кандидата автопоиска против его основы (vacancy|prompt).
+
+    Требует заданной основы (иначе 400) — «оценить только его» из карточки. Синхронно:
+    1 просмотр резюме hh (квота просмотров, НЕ контакт/деньги) + 1 LLM-вызов. Результат
+    персистится отдельным done-прогоном (evaluated=1) → виден в списке через мёрж."""
+    auto_search = (await session.execute(
+        select(AutoSearch).where(
+            AutoSearch.company_id == company_id,
+            AutoSearch.id == auto_search_id,
+        )
+    )).scalar_one_or_none()
+    if auto_search is None:
+        raise NotFoundError("Автопоиск")
+    if auto_search.basis is None:
+        raise ValidationError("Сначала задайте основу оценки (вакансию или промт)")
+
+    has_access, _hp, reason = await check_access(session, company_id)
+    if not has_access:
+        raise ValidationError(reason or "hh.ru не подключён")
+
+    token = await get_valid_access_token(session, company_id)
+    api_key = await get_company_openrouter_key(session, company_id)
+    model = await get_company_llm_model(session, company_id)
+    vacancy_proxy = await _basis_to_vacancy_proxy(session, company_id, auto_search.basis)
+
+    full = await hh_client.get_resume_by_id(token, str(hh_resume_id))
+    result = await asyncio.wait_for(
+        score_resume_dict(full, vacancy_proxy, company_id, api_key, model), timeout=180
+    )
+    record = {
+        "hh_resume_id": str(hh_resume_id),
+        "title": full.get("title") if isinstance(full, dict) else None,
+        "score": result.get("score"),
+        "verdict": result.get("verdict"),
+        "summary": result.get("summary"),
+        "strengths": result.get("strengths") or [],
+        "risks": result.get("risks") or [],
+        "requirements_match": result.get("requirements_match") or [],
+        "questions": result.get("questions") or [],
+        "forecast": result.get("forecast"),
+    }
+    # Персист отдельным done-прогоном (один кандидат) → мёрж в списке подхватит балл.
+    run = AutoSearchRun(
+        company_id=company_id,
+        auto_search_id=auto_search_id,
+        status="done",
+        stage="done",
+        basis=dict(auto_search.basis),
+        to_evaluate=1,
+        evaluated=1,
+        scored_candidates=[record],
+        note="[single] точечная оценка кандидата",
+        finished_at=_utc_naive_now(),
+    )
+    session.add(run)
+    await session.commit()
+    return record
 
 
 async def set_auto_eval(session: AsyncSession, company_id: UUID, auto_search_id: UUID, enabled: bool) -> AutoSearch:
