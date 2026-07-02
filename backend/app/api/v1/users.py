@@ -44,7 +44,7 @@ async def get_user_by_id(
     return UserShort.model_validate(user)
 
 
-@router.post("/", response_model=UserCreateResult, status_code=201)
+@router.post("", response_model=UserCreateResult, status_code=201)
 async def create_new_user(
     user_data: UserCreate,
     session: AsyncSession = Depends(get_db),
