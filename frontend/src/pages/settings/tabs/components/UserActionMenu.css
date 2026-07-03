@@ -21,6 +21,14 @@
   min-width: 200px;
 }
 
+/* Открытие вверх (последний ряд / мало места снизу) — чтобы меню не уезжало за экран. */
+.user-menu-content.up {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
 .user-menu-item {
   display: flex;
   align-items: center;

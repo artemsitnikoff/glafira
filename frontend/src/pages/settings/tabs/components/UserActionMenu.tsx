@@ -12,7 +12,19 @@ interface Props {
 export function UserActionMenu({ user, currentUserId, onError }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Если снизу мало места (последний ряд) — открываем меню вверх, чтобы не уезжало за экран.
+  const [openUp, setOpenUp] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const handleToggle = () => {
+    if (!isOpen && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      // ~140px — высота меню (2 пункта / подтверждение) с запасом.
+      setOpenUp(window.innerHeight - rect.bottom < 140);
+    }
+    setIsOpen((o) => !o);
+  };
 
   const updateUserMutation = useUpdateUser();
   const deleteUserMutation = useDeleteUser();
@@ -59,7 +71,7 @@ export function UserActionMenu({ user, currentUserId, onError }: Props) {
   if (showDeleteConfirm) {
     return (
       <div className="user-menu" ref={menuRef}>
-        <div className="user-menu-content confirm">
+        <div className={`user-menu-content confirm${openUp ? ' up' : ''}`}>
           <div className="confirm-text">
             Удалить пользователя {user.full_name}?
           </div>
@@ -86,14 +98,15 @@ export function UserActionMenu({ user, currentUserId, onError }: Props) {
   return (
     <div className="user-menu" ref={menuRef}>
       <button
+        ref={btnRef}
         className="row-icon-btn"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
       >
         <Icon name="more" size={16} />
       </button>
 
       {isOpen && (
-        <div className="user-menu-content">
+        <div className={`user-menu-content${openUp ? ' up' : ''}`}>
           <button
             className="user-menu-item"
             onClick={handleToggleActive}
