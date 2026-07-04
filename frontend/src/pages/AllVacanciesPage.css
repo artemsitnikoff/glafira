@@ -91,8 +91,19 @@
   font-size: 14px;
 }
 
-.av-page .av-truncated {
-  margin-top: 16px;
-  color: var(--fg-3);
-  font-size: 13px;
+.av-page .av-pager { display: flex; flex-direction: column; align-items: center; gap: 9px; margin-top: 20px; }
+.av-page .av-pager-info { font-size: 12.5px; color: var(--fg-3); }
+.av-page .av-pager-info b { color: var(--fg-1); font-weight: 600; }
+.av-page .av-pager-ctrls { display: flex; align-items: center; gap: 4px; }
+.av-page .av-pg, .av-page .av-pg-nav {
+  min-width: 32px; height: 32px; padding: 0 7px; border-radius: var(--radius-md);
+  border: 1px solid var(--border-1); background: var(--ark-white); cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--fg-1);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-feature-settings: 'tnum';
+  transition: all var(--dur-fast) var(--ease-out);
 }
+.av-page .av-pg:hover, .av-page .av-pg-nav:hover:not(:disabled) { border-color: var(--ark-gray-400); background: var(--bg-3-hover); }
+.av-page .av-pg.active { background: var(--accent); border-color: var(--accent); color: var(--ark-white); font-weight: 600; }
+.av-page .av-pg-nav:disabled { opacity: .4; cursor: not-allowed; }
+.av-page .av-pg-ell { padding: 0 4px; color: var(--fg-3); user-select: none; }
