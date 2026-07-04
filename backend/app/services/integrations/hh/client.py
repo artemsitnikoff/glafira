@@ -168,6 +168,45 @@ async def get_me(access_token: str) -> dict:
             raise ValidationError(f"Ошибка получения данных пользователя hh.ru: {e}")
 
 
+async def get_vacancy_by_id(access_token: str, vacancy_id: str) -> dict | None:
+    """
+    Получает полный объект вакансии работодателя по ID (БЕСПЛАТНО — не тратит квоту).
+
+    Args:
+        access_token: access token
+        vacancy_id: ID вакансии на hh.ru
+
+    Returns:
+        dict: полный объект вакансии, или None при 403/404/429/сетевой ошибке
+    """
+    async with _get_client() as client:
+        try:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/vacancies/{vacancy_id}",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            if response.status_code == 403:
+                logger.warning("[hh] get_vacancy_by_id: 403 vacancy_id=%s", vacancy_id)
+                return None
+            if response.status_code == 404:
+                logger.warning("[hh] get_vacancy_by_id: 404 vacancy_id=%s", vacancy_id)
+                return None
+            if response.status_code == 429:
+                logger.warning("[hh] get_vacancy_by_id: 429 (rate limit) vacancy_id=%s", vacancy_id)
+                return None
+            if response.status_code != 200:
+                logger.warning("[hh] get_vacancy_by_id: HTTP %s vacancy_id=%s", response.status_code, vacancy_id)
+                return None
+            result = response.json()
+            if not isinstance(result, dict):
+                logger.warning("[hh] get_vacancy_by_id: некорректный формат ответа vacancy_id=%s", vacancy_id)
+                return None
+            return result
+        except httpx.HTTPError as exc:
+            logger.warning("[hh] get_vacancy_by_id: сетевая ошибка vacancy_id=%s exc=%s", vacancy_id, exc)
+            return None
+
+
 async def get_employer_vacancies(access_token: str, employer_id: str, page: int = 0, per_page: int = 50) -> dict:
     """
     Получает активные вакансии работодателя

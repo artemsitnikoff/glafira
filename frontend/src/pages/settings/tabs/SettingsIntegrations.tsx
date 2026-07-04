@@ -1,9 +1,9 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
 import { PhoneInput } from '@/components/ui/PhoneInput';
-import { useHhStatus } from '@/api/hooks/useHhIntegration';
-import { useHhAuthorize, useHhDisconnect, useHhPollResponses } from '@/api/mutations/hhIntegration';
-import type { HhPollResult } from '@/api/mutations/hhIntegration';
+import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
+import { useHhAuthorize, useHhDisconnect, useHhPollResponses, useImportHhVacancies } from '@/api/mutations/hhIntegration';
+import type { HhPollResult, HhImportVacanciesResult } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
@@ -19,7 +19,6 @@ import { useAvitoStatus } from '@/api/hooks/useAvitoIntegration';
 import { useAvitoSaveConfig, useAvitoPollResponses, useAvitoDisconnect } from '@/api/mutations/avitoIntegration';
 import type { AvitoPollResult } from '@/api/mutations/avitoIntegration';
 import { useAuthStore } from '@/store/authStore';
-import { useBackfillPhotos } from '@/api/hooks/useCandidatePhotos';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -83,11 +82,11 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const hhPollMutation = useHhPollResponses();
   const [hhPollResult, setHhPollResult] = useState<HhPollResult | null>(null);
 
-  // Бэкфилл фото кандидатов с hh (admin-only)
-  const backfillPhotosMutation = useBackfillPhotos();
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoProgress, setPhotoProgress] = useState<string | null>(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
+  // Вакансии с hh (admin-only)
+  const [hhVacanciesEnabled, setHhVacanciesEnabled] = useState(false);
+  const { data: hhVacanciesList, isFetching: hhVacanciesFetching, refetch: refetchHhVacancies } = useHhVacancies(hhVacanciesEnabled);
+  const importHhVacanciesMutation = useImportHhVacancies();
+  const [hhImportResult, setHhImportResult] = useState<HhImportVacanciesResult | null>(null);
 
   const handleHhPollResponses = async () => {
     setHhPollResult(null);
@@ -205,36 +204,16 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
     }
   };
 
-  const handleBackfillPhotos = async () => {
-    if (photoBusy || readOnly) return;
-    setPhotoBusy(true);
-    setPhotoError(null);
-    setPhotoProgress('Подтягиваем фото…');
-    let totalUpdated = 0;
+  const handleImportHhVacancies = async () => {
+    if (readOnly) return;
+    setHhImportResult(null);
     try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const res = await backfillPhotosMutation.mutateAsync();
-        totalUpdated += res.updated;
-        if (res.quota_exhausted) {
-          setPhotoProgress(
-            `Суточный лимит просмотров hh исчерпан. Подтянуто ${totalUpdated}, осталось ~${res.remaining} — продолжите завтра.`
-          );
-          break;
-        }
-        if (res.remaining <= 0) {
-          setPhotoProgress(`Готово: подтянуто ${totalUpdated} фото.`);
-          break;
-        }
-        setPhotoProgress(`Подтянуто ${totalUpdated} фото… осталось ~${res.remaining}`);
-        await new Promise((r) => setTimeout(r, 300));
-      }
+      const res = await importHhVacanciesMutation.mutateAsync();
+      setHhImportResult(res);
+      refetchHhVacancies();
     } catch (error) {
       const e = error as unknown as ApiError;
-      setPhotoError(e.error?.message || 'Не удалось подтянуть фото с hh');
-      setPhotoProgress(null);
-    } finally {
-      setPhotoBusy(false);
+      setNotification({ type: 'error', message: e.error?.message || 'Не удалось импортировать вакансии с hh' });
     }
   };
 
@@ -805,27 +784,90 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 </div>
                 {currentUser?.role === 'admin' && (
                   <div className="integ-section" style={{ marginTop: 16 }}>
-                    <div className="integ-section-title">Фото кандидатов с hh</div>
+                    <div className="integ-section-title">Вакансии с hh</div>
                     <p style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '12px' }}>
-                      Подтянуть фотографии для уже имеющихся откликов с hh. Каждый кандидат расходует 1 просмотр из суточного лимита hh.
+                      Загрузить список ваших вакансий с hh.ru и создать новые в системе — они привяжутся и отклики начнут поступать автоматически.
                     </p>
-                    <div className="integ-actions">
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={handleBackfillPhotos}
-                        disabled={photoBusy || readOnly}
-                      >
-                        {photoBusy ? 'Подтягиваем…' : 'Подтянуть фото с hh'}
-                      </button>
-                    </div>
-                    {photoProgress && (
-                      <div className="info-banner small" style={{ marginTop: 10 }}>
-                        {photoProgress}
+                    {!hhVacanciesEnabled ? (
+                      <div className="integ-actions">
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setHhVacanciesEnabled(true)}
+                          disabled={readOnly}
+                        >
+                          Показать вакансии с hh
+                        </button>
                       </div>
-                    )}
-                    {photoError && (
-                      <div className="error-banner" role="alert" style={{ marginTop: 10 }}>
-                        {photoError}
+                    ) : hhVacanciesFetching ? (
+                      <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '8px 0' }}>Загрузка…</div>
+                    ) : hhVacanciesList && hhVacanciesList.length > 0 ? (
+                      <>
+                        {(() => {
+                          const newCount = hhVacanciesList.filter(v => !v.linked).length;
+                          return (
+                            <>
+                              <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginBottom: '8px' }}>
+                                Всего {hhVacanciesList.length}, новых {newCount}
+                              </div>
+                              <div style={{ marginBottom: '12px' }}>
+                                {hhVacanciesList.map(v => (
+                                  <div key={v.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '6px 0', borderBottom: '1px solid var(--border-1)',
+                                    fontSize: '13px'
+                                  }}>
+                                    <span style={{ flex: 1, color: 'var(--fg-1)' }}>{v.name}</span>
+                                    {v.area && (
+                                      <span style={{ color: 'var(--fg-3)', fontSize: '12px' }}>{v.area}</span>
+                                    )}
+                                    {v.linked && (
+                                      <span className="conn-pill ok" style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                        уже в системе
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="integ-actions">
+                                <button
+                                  className="btn btn-primary btn-sm"
+                                  onClick={handleImportHhVacancies}
+                                  disabled={newCount === 0 || importHhVacanciesMutation.isPending || readOnly}
+                                >
+                                  {importHhVacanciesMutation.isPending
+                                    ? 'Создаём…'
+                                    : `Создать все новые (${newCount})`}
+                                </button>
+                                <button
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => { setHhVacanciesEnabled(false); setHhImportResult(null); }}
+                                  disabled={importHhVacanciesMutation.isPending}
+                                >
+                                  Скрыть
+                                </button>
+                              </div>
+                              {hhImportResult && (
+                                <div className="info-banner small" style={{ marginTop: 10 }}>
+                                  <Icon name="check" size={14} />
+                                  <div>
+                                    Создано: <strong>{hhImportResult.created}</strong>, пропущено: <strong>{hhImportResult.skipped}</strong>, ошибок: <strong>{hhImportResult.failed}</strong>.
+                                    {hhImportResult.errors.length > 0 && (
+                                      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                                        {hhImportResult.errors.map((err, i) => (
+                                          <li key={i} style={{ fontSize: 12, color: 'var(--ark-red-600)' }}>{err}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '8px 0' }}>
+                        Вакансии на hh не найдены.
                       </div>
                     )}
                   </div>

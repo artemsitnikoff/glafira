@@ -16,6 +16,7 @@ export interface HhVacancy {
   id: string;
   name: string;
   area: string | null;
+  linked: boolean;
 }
 
 export interface HhAuthorizeResponse {

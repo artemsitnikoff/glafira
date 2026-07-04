@@ -42,7 +42,6 @@ from ...services.resume_export import (
 )
 from ...services.glafira.resume_parse import parse_resume_to_dict
 from ...services.settings.glafira import get_company_openrouter_key
-from ...services.photo_backfill import backfill_candidate_photos
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -87,21 +86,6 @@ async def get_candidates(
         sort=page_params.sort,
         order=page_params.order
     )
-
-
-# ВАЖНО: все статические роуты ОБЯЗАНЫ быть объявлены ДО динамических /{candidate_id}.
-# Порядок объявления = порядок матчинга в FastAPI.
-@router.post("/photos/backfill")
-async def backfill_photos_route(
-    limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
-    company_id: UUID = Depends(get_current_company_id),
-    session: AsyncSession = Depends(get_db),
-):
-    """Бэкфилл фото существующих hh-кандидатов. Admin only. Синхронный батч."""
-    if current_user.role != "admin":
-        raise ForbiddenError("Только администратор может запускать бэкфилл фото")
-    return await backfill_candidate_photos(session, company_id, limit=limit)
 
 
 # ВАЖНО: статический роут /check-duplicate ОБЯЗАН быть объявлен ДО динамического

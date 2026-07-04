@@ -235,4 +235,245 @@ class TestHhPollingJob:
             stats = await poll_company_responses(db_session, test_company.id)
 
         assert stats["imported"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Тесты: list_hh_vacancies с полем linked
+# ---------------------------------------------------------------------------
+
+class TestListHhVacanciesLinked:
+    """list_hh_vacancies возвращает linked=True для уже привязанных вакансий."""
+
+    async def test_linked_flag(self, db_session, test_company, test_vacancy, admin_user):
+        """Одна вакансия уже привязана → linked=True, другая → linked=False."""
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+        from cryptography.fernet import Fernet
+
+        # Генерируем FERNET_KEY для шифрования
+        import app.config as _cfg
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            # Создаём hh-интеграцию с employer_id
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_001",
+                access_token=encrypt_text("tok"),
+                refresh_token=encrypt_text("ref"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+
+            # Привязываем test_vacancy к hh_id "hh_111"
+            test_vacancy.hh_vacancy_id = "hh_111"
+            await db_session.commit()
+
+            # Мокаем hh API: две вакансии — одна привязана (hh_111), другая нет (hh_222)
+            mock_data = {
+                "items": [
+                    {"id": "hh_111", "name": "Вакансия привязана", "area": {"name": "Москва"}},
+                    {"id": "hh_222", "name": "Вакансия свободна", "area": None},
+                ],
+                "pages": 1,
+                "page": 0,
+            }
+
+            with patch(
+                "app.services.integrations.hh.client.get_employer_vacancies",
+                new_callable=AsyncMock,
+                return_value=mock_data,
+            ), patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ):
+                result = await hh_service.list_hh_vacancies(db_session, test_company.id)
+
+            assert len(result) == 2
+            by_id = {r["id"]: r for r in result}
+            assert by_id["hh_111"]["linked"] is True
+            assert by_id["hh_222"]["linked"] is False
+            # Проверяем поле area
+            assert by_id["hh_111"]["area"] == "Москва"
+            assert by_id["hh_222"]["area"] is None
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
+            # Убираем hh_vacancy_id с test_vacancy чтобы не влиять на другие тесты
+            test_vacancy.hh_vacancy_id = None
+            await db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Тесты: import_hh_vacancies
+# ---------------------------------------------------------------------------
+
+class TestImportHhVacancies:
+    """import_hh_vacancies создаёт вакансии, пропускает уже привязанные, не падает на ошибке одной."""
+
+    async def test_creates_vacancy_and_sets_hh_id(self, db_session, test_company, admin_user):
+        """Успешный импорт: создаёт вакансию, проставляет hh_vacancy_id."""
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+        from cryptography.fernet import Fernet
+        import app.config as _cfg
+
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_002",
+                access_token=encrypt_text("tok2"),
+                refresh_token=encrypt_text("ref2"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+            await db_session.commit()
+
+            full_vacancy = {
+                "name": "Backend Python Developer",
+                "description": "<p>Ищем разработчика</p>",
+                "area": {"name": "Санкт-Петербург"},
+                "salary": {"from": 150000, "to": 250000, "currency": "RUR"},
+                "employment": {"id": "full"},
+            }
+
+            with patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tok2",
+            ), patch(
+                "app.services.integrations.hh.client.get_vacancy_by_id",
+                new_callable=AsyncMock,
+                return_value=full_vacancy,
+            ):
+                result = await hh_service.import_hh_vacancies(
+                    db_session, test_company.id, admin_user.id, ["hh_500"]
+                )
+
+            assert result["created"] == 1
+            assert result["skipped"] == 0
+            assert result["failed"] == 0
+            assert "Backend Python Developer" in result["created_names"]
+
+            # Проверяем что вакансия создана и hh_vacancy_id проставлен
+            from sqlalchemy import select as sa_select
+            from app.models import Vacancy as VacancyModel
+            rows = (await db_session.execute(
+                sa_select(VacancyModel).where(
+                    VacancyModel.company_id == test_company.id,
+                    VacancyModel.hh_vacancy_id == "hh_500",
+                )
+            )).scalars().all()
+            assert len(rows) == 1
+            vac = rows[0]
+            assert vac.salary_from == 150000
+            assert vac.salary_to == 250000
+            assert vac.currency == "RUB"  # RUR → RUB
+            assert vac.external_source == "hh"
+            assert vac.external_id == "hh_500"
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
+
+    async def test_skips_already_linked(self, db_session, test_company, test_vacancy, admin_user):
+        """Вакансия уже привязана → попадает в skipped, не создаётся дубль."""
+        from cryptography.fernet import Fernet
+        import app.config as _cfg
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_003",
+                access_token=encrypt_text("tok3"),
+                refresh_token=encrypt_text("ref3"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+            test_vacancy.hh_vacancy_id = "hh_already"
+            await db_session.commit()
+
+            with patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tok3",
+            ):
+                result = await hh_service.import_hh_vacancies(
+                    db_session, test_company.id, admin_user.id, ["hh_already"]
+                )
+
+            assert result["created"] == 0
+            assert result["skipped"] == 1
+            assert result["failed"] == 0
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
+            test_vacancy.hh_vacancy_id = None
+            await db_session.commit()
+
+    async def test_failed_vacancy_does_not_abort_others(self, db_session, test_company, admin_user):
+        """Ошибка на одной вакансии (get_vacancy_by_id→None) не ломает остальные."""
+        from cryptography.fernet import Fernet
+        import app.config as _cfg
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_004",
+                access_token=encrypt_text("tok4"),
+                refresh_token=encrypt_text("ref4"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+            await db_session.commit()
+
+            good_vacancy = {
+                "name": "QA Engineer",
+                "description": None,
+                "area": {"name": "Казань"},
+                "salary": None,
+                "employment": None,
+            }
+
+            # Первый вызов → None (ошибка), второй → хорошая вакансия
+            side_effects = [None, good_vacancy]
+
+            with patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tok4",
+            ), patch(
+                "app.services.integrations.hh.client.get_vacancy_by_id",
+                new_callable=AsyncMock,
+                side_effect=side_effects,
+            ):
+                result = await hh_service.import_hh_vacancies(
+                    db_session, test_company.id, admin_user.id, ["hh_bad", "hh_good"]
+                )
+
+            assert result["failed"] == 1
+            assert result["created"] == 1
+            assert "QA Engineer" in result["created_names"]
+            assert len(result["errors"]) == 1
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
         assert stats["skipped"] == 1

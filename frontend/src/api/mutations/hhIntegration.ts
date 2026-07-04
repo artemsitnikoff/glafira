@@ -117,6 +117,29 @@ export function useHhUnlinkVacancy() {
   });
 }
 
+// Импорт вакансий с hh в систему
+export interface HhImportVacanciesResult {
+  created: number;
+  skipped: number;
+  failed: number;
+  created_names: string[];
+  errors: string[];
+}
+
+export function useImportHhVacancies() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<HhImportVacanciesResult> => {
+      const response = await api.post('/integrations/hh/vacancies/import', {});
+      return response.data as HhImportVacanciesResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vacancies'] });
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'hh', 'vacancies'] });
+    },
+  });
+}
+
 export function useHhPublishVacancy() {
   const queryClient = useQueryClient();
   return useMutation({

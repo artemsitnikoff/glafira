@@ -86,6 +86,10 @@ class AvitoLinkVacancyRequest(BaseModel):
     avito_vacancy_id: str
 
 
+class HhVacanciesImportRequest(BaseModel):
+    hh_vacancy_ids: list[str] | None = None
+
+
 router = APIRouter()
 
 
@@ -167,6 +171,28 @@ async def list_hh_vacancies(
     """Получить список вакансий с hh.ru"""
     vacancies = await hh_service.list_hh_vacancies(session, current_user.company_id)
     return vacancies
+
+
+@router.post("/hh/vacancies/import", dependencies=[Depends(require_admin)])
+async def import_hh_vacancies(
+    body: HhVacanciesImportRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Импортировать вакансии с hh.ru в Глафиру (создать + привязать hh_vacancy_id).
+
+    Если hh_vacancy_ids не передан — импортируются все активные вакансии работодателя,
+    ещё не привязанные в системе.
+
+    Чтение вакансий (GET /vacancies) — БЕСПЛАТНО, суточную квоту не тратит.
+    """
+    result = await hh_service.import_hh_vacancies(
+        session,
+        current_user.company_id,
+        current_user.id,
+        body.hh_vacancy_ids,
+    )
+    return result
 
 
 @router.post("/hh/poll-responses", dependencies=[Depends(require_admin)])

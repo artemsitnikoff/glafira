@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta, date
 from uuid import UUID
 from typing import Optional
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,8 @@ from ....services.storage import storage_service
 from ....core.errors import ValidationError, NotFoundError
 from ....services.phone import normalize_phone
 from ....services.photo_proxy import build_photo_proxy_url
+from ....schemas.vacancy import VacancyCreate
+from ....services.vacancy import create_vacancy
 from . import client as hh_client
 
 import logging
@@ -562,6 +564,16 @@ async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dic
 
     access_token = await get_valid_access_token(session, company_id)
 
+    # Получаем set уже привязанных hh_vacancy_id для компании (одним запросом, не N+1)
+    linked_rows = await session.execute(
+        text(
+            "SELECT hh_vacancy_id FROM vacancies "
+            "WHERE company_id = :company_id AND hh_vacancy_id IS NOT NULL"
+        ),
+        {"company_id": str(company_id)}
+    )
+    linked_ids: set[str] = {str(row[0]) for row in linked_rows}
+
     # Получаем все страницы (начинаем с первой)
     all_items = []
     page = 0
@@ -583,16 +595,172 @@ async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dic
 
         page += 1
 
-    # Возвращаем упрощённый список
+    # Возвращаем упрощённый список с признаком привязки
     result = []
     for item in all_items:
+        hh_id = str(item["id"])
         result.append({
-            "id": str(item["id"]),
+            "id": hh_id,
             "name": item.get("name", ""),
-            "area": item.get("area", {}).get("name") if item.get("area") else None
+            "area": item.get("area", {}).get("name") if item.get("area") else None,
+            "linked": hh_id in linked_ids,
         })
 
     return result
+
+
+async def import_hh_vacancies(
+    session: AsyncSession,
+    company_id: UUID,
+    actor_user_id: UUID,
+    hh_vacancy_ids: list[str] | None = None,
+) -> dict:
+    """Импортирует вакансии с hh.ru в Глафиру и привязывает по hh_vacancy_id.
+
+    Соискателей НЕ импортирует — только создаёт вакансию и привязывает,
+    чтобы cron-джоб poll_hh_responses начал забирать отклики.
+
+    Args:
+        session: DB session
+        company_id: ID компании
+        actor_user_id: ID пользователя-импортёра (станет ответственным в team)
+        hh_vacancy_ids: конкретные hh-id для импорта; None = все активные у работодателя
+
+    Returns:
+        dict: {created, skipped, failed, created_names, errors}
+
+    Raises:
+        ValidationError: если hh не подключён или ошибка получения токена
+    """
+    token = await get_valid_access_token(session, company_id)
+
+    # Одним запросом: set уже привязанных hh_vacancy_id компании
+    linked_rows = await session.execute(
+        text(
+            "SELECT hh_vacancy_id FROM vacancies "
+            "WHERE company_id = :company_id AND hh_vacancy_id IS NOT NULL"
+        ),
+        {"company_id": str(company_id)}
+    )
+    already_linked: set[str] = {str(row[0]) for row in linked_rows}
+
+    # Целевые ID: переданные явно ИЛИ все с hh
+    if hh_vacancy_ids is not None:
+        target_ids = [vid for vid in hh_vacancy_ids if vid not in already_linked]
+        skipped = len(hh_vacancy_ids) - len(target_ids)
+    else:
+        # Получаем все вакансии работодателя пагинацией
+        integration = await get_integration(session, company_id)
+        if not integration or not integration.hh_employer_id:
+            raise ValidationError("hh.ru не подключён или отсутствует hh_employer_id")
+
+        all_hh_ids: list[str] = []
+        page = 0
+        while True:
+            data = await hh_client.get_employer_vacancies(
+                token, integration.hh_employer_id, page=page, per_page=50
+            )
+            items = data.get("items", [])
+            if not items:
+                break
+            for item in items:
+                hid = str(item["id"])
+                if hid not in already_linked:
+                    all_hh_ids.append(hid)
+            if page >= data.get("pages", 1) - 1:
+                break
+            page += 1
+
+        target_ids = all_hh_ids
+        skipped = len(already_linked)  # приближение: уже привязанных пропущено
+
+    created = 0
+    failed = 0
+    created_names: list[str] = []
+    errors: list[str] = []
+
+    for hh_id in target_ids:
+        try:
+            full = await hh_client.get_vacancy_by_id(token, hh_id)
+            if full is None:
+                errors.append(f"hh_id={hh_id}: не удалось получить данные вакансии")
+                failed += 1
+                continue
+
+            vac_name = (full.get("name") or "").strip()
+            if not vac_name:
+                errors.append(f"hh_id={hh_id}: пустое название вакансии, пропущено")
+                failed += 1
+                continue
+
+            # Зарплата
+            salary = full.get("salary") or {}
+            sal_from: int | None = salary.get("from") if salary else None
+            sal_to: int | None = salary.get("to") if salary else None
+            currency = (salary.get("currency") or "RUB") if salary else "RUB"
+            if currency == "RUR":
+                currency = "RUB"
+
+            # Занятость
+            employment = full.get("employment") or {}
+            employment_type: str | None = (employment.get("id") or None) if employment else None
+
+            # Город
+            area = full.get("area") or {}
+            city: str | None = (area.get("name") or None) if area else None
+
+            # Описание (HTML как есть)
+            description: str | None = full.get("description") or None
+
+            vacancy_data = VacancyCreate(
+                name=vac_name,
+                city=city,
+                description=description,
+                salary_from=int(sal_from) if sal_from is not None else None,
+                salary_to=int(sal_to) if sal_to is not None else None,
+                currency=currency,
+                employment_type=employment_type,
+                team=[actor_user_id],
+            )
+
+            # Каждая вакансия изолирована через savepoint
+            async with session.begin_nested():
+                vacancy = await create_vacancy(session, vacancy_data, company_id, actor_user_id)
+                vacancy.hh_vacancy_id = hh_id
+                vacancy.external_source = "hh"
+                vacancy.external_id = hh_id
+                await session.flush()
+
+                await audit(
+                    session,
+                    action="hh_vacancy_linked",
+                    entity_type="vacancy",
+                    entity_id=vacancy.id,
+                    after={"hh_vacancy_id": hh_id, "source": "import"},
+                    actor_user_id=actor_user_id,
+                    company_id=company_id,
+                )
+
+            await session.commit()
+            created += 1
+            created_names.append(vac_name)
+            logger.info("[hh] import_hh_vacancies: создана вакансия '%s' hh_id=%s", vac_name, hh_id)
+
+        except Exception as exc:
+            # Сбой одной вакансии не валит остальные
+            await session.rollback()
+            err_msg = f"hh_id={hh_id}: {exc}"
+            errors.append(err_msg[:200])
+            failed += 1
+            logger.warning("[hh] import_hh_vacancies: ошибка hh_id=%s exc=%s", hh_id, exc)
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "failed": failed,
+        "created_names": created_names,
+        "errors": errors,
+    }
 
 
 async def link_vacancy(session: AsyncSession, vacancy_id: UUID, hh_vacancy_id: str, company_id: UUID, user_id: UUID):
