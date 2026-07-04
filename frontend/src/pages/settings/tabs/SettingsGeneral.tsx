@@ -467,40 +467,6 @@ export function SettingsGeneral({ readOnly = false }: SettingsGeneralProps) {
         )}
       </Card>
 
-      {/* ── Настройки Глафиры ── */}
-      <Card
-        title="Настройки Глафиры"
-        desc="Голос и текст отказов по умолчанию"
-      >
-        {glafiraLoading ? (
-          <div className="tt-empty">Загрузка…</div>
-        ) : (
-          <div className="form-grid form-grid-1">
-            <FormRow label="Текст отказа по умолчанию">
-              <textarea
-                className="nv-textarea"
-                placeholder="Используется при отказе кандидата, если у вакансии не задан свой текст"
-                value={(glafira as any)?.default_rejection_text || ''}
-                onChange={(e) => {
-                  if (!readOnly) {
-                    // Cast: default_rejection_text ещё не в GlafiraSettingsUpdate
-                    updateGlafira.mutate({
-                      default_rejection_text: e.target.value || null
-                    } as any);
-                  }
-                }}
-                disabled={readOnly || updateGlafira.isPending}
-                rows={4}
-                style={{
-                  width: '100%',
-                  resize: 'vertical',
-                  minHeight: '80px'
-                }}
-              />
-            </FormRow>
-          </div>
-        )}
-      </Card>
     </div>
   );
 }

@@ -3,6 +3,10 @@ import { Icon } from '@/components/ui/Icon';
 import { PageHead, Card, Textarea } from '../components/FormComponents';
 import { useMessageTemplates, type MessageTemplateOut } from '@/api/hooks/useMessageTemplates';
 import { useCreateMessageTemplate, useUpdateMessageTemplate, useDeleteMessageTemplate } from '@/api/mutations/messageTemplates';
+import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
+import { useUpdateGlafiraSettings } from '@/api/mutations/settings';
+import { POLITE_REJECTION_FALLBACK } from '@/lib/rejection';
+import { useAuthStore } from '@/store/authStore';
 import type { ApiError } from '@/api/aliases';
 
 function formatDate(iso: string): string {
@@ -23,6 +27,14 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
   const createTemplate = useCreateMessageTemplate();
   const updateTemplate = useUpdateMessageTemplate();
   const deleteTemplate = useDeleteMessageTemplate();
+
+  // Текст отказа по умолчанию (GlafiraSettings). Читать может админ+рекрутёр, но
+  // PATCH /settings/glafira — только admin, поэтому редактирование гейтим isAdmin
+  // (рекрутёр видит текущее значение read-only, иначе словил бы 403 на сохранении).
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'admin';
+  const { data: glafira, isLoading: glafiraLoading } = useGlafiraSettings();
+  const updateGlafira = useUpdateGlafiraSettings();
+  const [rejectionDraft, setRejectionDraft] = useState<string | null>(null);
 
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [search, setSearch] = useState('');
@@ -91,6 +103,19 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
     } catch (e) {
       notifyErr(e, 'Не удалось удалить шаблон');
     }
+  };
+
+  const rejectionValue = rejectionDraft ?? (((glafira as any)?.default_rejection_text as string | null) ?? '');
+  const saveRejection = () => {
+    if (!isAdmin) return;
+    updateGlafira.mutate(
+      // Cast: default_rejection_text ещё не в сгенерированном GlafiraSettingsUpdate.
+      { default_rejection_text: rejectionValue.trim() || null } as any,
+      {
+        onSuccess: () => setNotification({ type: 'success', message: 'Текст отказа по умолчанию сохранён' }),
+        onError: (e) => notifyErr(e, 'Не удалось сохранить текст отказа'),
+      },
+    );
   };
 
   return (
@@ -232,6 +257,27 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
             )
           )}
         </div>
+      </Card>
+
+      {/* ── Текст отказа по умолчанию (перенесён из «Общие → Настройки Глафиры») ── */}
+      <Card
+        title="Текст отказа по умолчанию"
+        desc="Отправляется кандидату при отказе, если у вакансии не задан свой текст. Если оставить пустым — используется встроенный вежливый текст (показан подсказкой). Изменять может только администратор."
+      >
+        {glafiraLoading ? (
+          <div className="tt-empty">Загрузка…</div>
+        ) : (
+          <textarea
+            className="nv-textarea"
+            placeholder={POLITE_REJECTION_FALLBACK}
+            value={rejectionValue}
+            onChange={(e) => { if (isAdmin) setRejectionDraft(e.target.value); }}
+            onBlur={saveRejection}
+            disabled={!isAdmin || updateGlafira.isPending}
+            rows={5}
+            style={{ width: '100%', resize: 'vertical', minHeight: '110px' }}
+          />
+        )}
       </Card>
     </div>
   );

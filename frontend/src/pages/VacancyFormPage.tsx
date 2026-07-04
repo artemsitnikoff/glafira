@@ -4,6 +4,7 @@ import './vacancies/VacancyForm.css';
 import { CityAutocomplete } from './vacancies/CityAutocomplete';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
+import { POLITE_REJECTION_FALLBACK } from '@/lib/rejection';
 import {
   useCreateVacancy,
   useUpdateVacancy,
@@ -86,14 +87,6 @@ type VacancyUpdateExtended = VacancyUpdate & {
 // Защищённые (системные) этапы — зеркало с бэкенда
 const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
 
-// Встроенный вежливый текст отказа — зеркало backend POLITE_REJECTION_TEXT
-// (app/services/integrations/hh/service.py). Используется как префилл текстареа,
-// когда у компании не задан свой текст по умолчанию.
-const POLITE_REJECTION_FALLBACK =
-  'Здравствуйте! Благодарим за интерес к нашей вакансии и время, уделённое отклику. ' +
-  'К сожалению, по итогам рассмотрения мы приняли решение не продолжать общение по этой позиции. ' +
-  'Это не оценка вас как специалиста — на данном этапе мы остановились на другой кандидатуре. ' +
-  'Желаем успехов в поиске работы и будем рады видеть ваш отклик на наши будущие вакансии!';
 
 // Типы этапов
 const FUNNEL_STAGE_TYPES = {
