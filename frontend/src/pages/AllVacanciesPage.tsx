@@ -29,7 +29,7 @@ const EMPLOYMENT_LABELS: Record<string, string> = {
 
 export default function AllVacanciesPage() {
   const navigate = useNavigate();
-  const { data, isLoading } = useVacancies({ status: 'active', page_size: 200 });
+  const { data, isLoading, isError } = useVacancies({ status: 'active', page_size: 100 });
   const { data: sidebar } = useSidebar();
 
   const sidebarMap = new Map<string, number>(
@@ -42,8 +42,8 @@ export default function AllVacanciesPage() {
     <div className="av-page content-inner">
       <div className="av-header">
         <h1>Все вакансии</h1>
-        {!isLoading && (
-          <span className="av-header-count">{vacancies.length} активных</span>
+        {!isLoading && !isError && (
+          <span className="av-header-count">{data?.total ?? vacancies.length} активных</span>
         )}
       </div>
 
@@ -51,11 +51,15 @@ export default function AllVacanciesPage() {
         <div className="av-empty">Загрузка…</div>
       )}
 
-      {!isLoading && vacancies.length === 0 && (
+      {!isLoading && isError && (
+        <div className="av-empty">Не удалось загрузить вакансии. Обновите страницу.</div>
+      )}
+
+      {!isLoading && !isError && vacancies.length === 0 && (
         <div className="av-empty">Активных вакансий нет</div>
       )}
 
-      {!isLoading && vacancies.length > 0 && (
+      {!isLoading && !isError && vacancies.length > 0 && (
         <div className="av-grid">
           {vacancies.map((v) => {
             const candidateCount = sidebarMap.get(v.id) ?? 0;
@@ -100,6 +104,12 @@ export default function AllVacanciesPage() {
             );
           })}
         </div>
+      )}
+
+      {!isLoading && !isError && data && data.total > vacancies.length && (
+        <p className="av-truncated">
+          Показано {vacancies.length} из {data.total}. Остальные доступны через поиск в сайдбаре.
+        </p>
       )}
     </div>
   );

@@ -90,3 +90,9 @@
   padding: 60px 0;
   font-size: 14px;
 }
+
+.av-page .av-truncated {
+  margin-top: 16px;
+  color: var(--fg-3);
+  font-size: 13px;
+}
