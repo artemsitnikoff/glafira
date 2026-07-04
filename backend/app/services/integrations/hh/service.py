@@ -578,7 +578,8 @@ async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dic
     all_items = []
     page = 0
 
-    while True:
+    # Кап страниц (2000 вакансий при per_page=50) — защита от аномального pages в ответе hh.
+    while page < 40:
         data = await hh_client.get_employer_vacancies(
             access_token, integration.hh_employer_id, page=page, per_page=50
         )
@@ -655,8 +656,10 @@ async def import_hh_vacancies(
             raise ValidationError("hh.ru не подключён или отсутствует hh_employer_id")
 
         all_hh_ids: list[str] = []
+        skipped = 0
         page = 0
-        while True:
+        # Кап страниц (2000 вакансий при per_page=50) — защита от аномального pages в ответе hh.
+        while page < 40:
             data = await hh_client.get_employer_vacancies(
                 token, integration.hh_employer_id, page=page, per_page=50
             )
@@ -667,12 +670,13 @@ async def import_hh_vacancies(
                 hid = str(item["id"])
                 if hid not in already_linked:
                     all_hh_ids.append(hid)
+                else:
+                    skipped += 1  # реально попавшиеся в листинге и уже привязанные
             if page >= data.get("pages", 1) - 1:
                 break
             page += 1
 
         target_ids = all_hh_ids
-        skipped = len(already_linked)  # приближение: уже привязанных пропущено
 
     created = 0
     failed = 0
