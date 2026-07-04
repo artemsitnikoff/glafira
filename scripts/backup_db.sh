@@ -23,13 +23,23 @@ cd "$ROOT_DIR"
 COMPOSE="docker compose -f docker-compose.prod.yml"
 BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
 
-# Креды БД из .env (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB)
+# Креды БД из .env — читаем ТОЛЬКО нужные ключи, НЕ `source` всего файла.
+# Sourcing под `set -u` падает на значениях с `$` (напр. bcrypt SUPERADMIN_PASSWORD_HASH
+# `$2b$12$…` → «$2: unbound variable»), а ещё опасен command-substitution в значениях.
+read_env() {
+  local v
+  v="$(grep -E "^$1=" "$ROOT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)"
+  v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"   # снять обрамляющие кавычки
+  printf '%s' "$v"
+}
 if [ -f "$ROOT_DIR/.env" ]; then
-  set -a; . "$ROOT_DIR/.env"; set +a
+  DB_USER="$(read_env POSTGRES_USER)"
+  DB_NAME="$(read_env POSTGRES_DB)"
+  DB_PASS="$(read_env POSTGRES_PASSWORD)"
 fi
-DB_USER="${POSTGRES_USER:-postgres}"
-DB_NAME="${POSTGRES_DB:-glafira}"
-DB_PASS="${POSTGRES_PASSWORD:-}"
+DB_USER="${DB_USER:-postgres}"
+DB_NAME="${DB_NAME:-glafira}"
+DB_PASS="${DB_PASS:-}"
 
 mkdir -p "$BACKUP_DIR"
 TS="$(date +%Y-%m-%d_%H%M%S)"
