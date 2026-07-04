@@ -12,6 +12,7 @@ import SubscriptionExpiredScreen from '@/components/SubscriptionExpiredScreen';
 // Lazy-загружаемые страницы
 const HomePage = lazy(() => import('@/pages/HomePage'));
 const VacanciesPage = lazy(() => import('@/pages/VacanciesPage'));
+const AllVacanciesPage = lazy(() => import('@/pages/AllVacanciesPage'));
 const VacanciesArchivePage = lazy(() => import('@/pages/VacanciesArchivePage'));
 const VacancyFormPage = lazy(() => import('@/pages/VacancyFormPage'));
 const VacancyDetailPage = lazy(() => import('@/pages/VacancyDetailPage'));
@@ -93,6 +94,7 @@ export default function App() {
         <Route index element={<Navigate to="/home" replace />} />
         <Route path="home" element={<HomePage />} />
         <Route path="vacancies" element={<VacanciesPage />} />
+        <Route path="vacancies/all" element={<AllVacanciesPage />} />
         <Route path="vacancies/archive" element={<VacanciesArchivePage />} />
         <Route
           path="vacancies/new"

@@ -145,8 +145,8 @@ export function Sidebar() {
         )}
         <div className="sub-divider" />
         <div
-          className={`sub-archive ${location.pathname === '/vacancies' ? 'selected' : ''}`}
-          onClick={() => navigate('/vacancies')}
+          className={`sub-archive ${location.pathname === '/vacancies/all' ? 'selected' : ''}`}
+          onClick={() => navigate('/vacancies/all')}
         >
           <Icon name="layout-grid" size={15} />
           <span>Все вакансии</span>
