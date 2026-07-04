@@ -64,6 +64,7 @@ import {
   Cpu,
   Database,
   Radio,
+  LayoutGrid,
 } from 'lucide-react';
 
 const iconMap = {
@@ -145,6 +146,7 @@ const iconMap = {
   cpu: Cpu,
   database: Database,
   radio: Radio, // antenna-эквивалент для «Автоподбор»
+  'layout-grid': LayoutGrid,
 } as const;
 
 export type IconName = keyof typeof iconMap;

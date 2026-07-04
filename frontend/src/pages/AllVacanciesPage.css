@@ -1,0 +1,87 @@
+.av-page {
+  padding: 32px;
+}
+
+.av-page .av-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.av-page .av-header h1 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.av-page .av-header-count {
+  font-size: 14px;
+  color: var(--fg-2);
+}
+
+.av-page .av-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.av-page .av-card {
+  background: #fff;
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  cursor: pointer;
+  transition: all var(--dur-normal) ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.av-page .av-card:hover {
+  border-color: var(--ark-blue-100);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.av-page .av-card-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.av-page .av-card-desc {
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.av-page .av-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.av-page .av-badge {
+  font-size: 12px;
+  color: var(--fg-3);
+  background: var(--bg-2);
+  border-radius: var(--radius-md);
+  padding: 3px 8px;
+}
+
+.av-page .av-count {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.av-page .av-empty {
+  color: var(--fg-3);
+  text-align: center;
+  padding: 60px 0;
+  font-size: 14px;
+}
