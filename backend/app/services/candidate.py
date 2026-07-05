@@ -826,10 +826,10 @@ async def create_candidate(
 
     # Prepare extra data
     extra = {}
-    if candidate_data.comment:
-        extra["comment"] = candidate_data.comment
     if candidate_data.add_type and candidate_data.add_type != "manual":
         extra["add_type"] = candidate_data.add_type
+    # NB: comment из формы больше НЕ кладём в extra (там он не отображался и терялся) —
+    # ниже создаём реальную запись Comment в ленту «Комментарии» карточки.
 
     # Prepare messengers data
     messengers_data = []
@@ -953,6 +953,20 @@ async def create_candidate(
             selected_at=now,
         )
         session.add(application)
+
+    # Комментарий из формы добавления → реальная запись в ленту «Комментарии» карточки
+    # (раньше молча уходил в extra['comment'] и нигде не показывался). Если кандидата
+    # сразу привязали к вакансии — привязываем комментарий и к заявке (виден в воронке).
+    if candidate_data.comment:
+        from ..models import Comment
+        await session.flush()  # чтобы application.id (если создана заявка) был доступен
+        session.add(Comment(
+            company_id=company_id,
+            candidate_id=candidate.id,
+            application_id=application.id if candidate_data.vacancy_id else None,
+            author_user_id=actor_user_id,
+            body=candidate_data.comment,
+        ))
 
     # Audit
     audit_after = {
