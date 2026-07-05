@@ -707,6 +707,7 @@ async def fetch_candidate_inbound(
 
         peer_id = str(getattr(entity, "id", ""))
         out["peer_id"] = peer_id or None
+        out["username"] = getattr(entity, "username", None)
 
         msgs = await client.get_messages(entity, limit=per_chat)
         for msg in msgs:
@@ -773,7 +774,9 @@ async def send_to_peer(
         peer_id = str(getattr(entity, "id", ""))
         msg_id = str(getattr(msg, "id", ""))
         logger.info("[tg] send_to_peer: сообщение отправлено, peer_id=%s", peer_id)
-        return {"message_id": msg_id, "peer": peer_id}
+        # username резолва (если у кандидата задан в Telegram) — кэшируем у кандидата,
+        # чтобы дальше писать по нему, минуя контакты/лимит.
+        return {"message_id": msg_id, "peer": peer_id, "username": getattr(entity, "username", None)}
 
     except AppError:
         raise

@@ -451,7 +451,7 @@ async def _sync_one_candidate(session, company_id, candidate_id, session_str) ->
     if cand is None:
         return {"imported": 0, "connected": True}
 
-    username = extract_telegram_username(cand.messengers or [])
+    username = extract_telegram_username(cand.messengers or []) or (cand.extra or {}).get("tg_username")
     phone = cand.phone
     if not username and not phone:
         return {"imported": 0, "connected": True}  # нечем резолвить
@@ -471,9 +471,19 @@ async def _sync_one_candidate(session, company_id, candidate_id, session_str) ->
     if not peer_id:
         return {"imported": 0, "connected": True}
 
-    # Бэкфилл tg_user_id (для company-wide cron и блока «Последние сообщения»)
-    if str((cand.extra or {}).get("tg_user_id") or "") != str(peer_id):
-        cand.extra = {**(cand.extra or {}), "tg_user_id": str(peer_id)}
+    # Бэкфилл tg_user_id (матчинг входящих) + tg_username (если задан) — чтобы дальше
+    # писать/резолвить по ним, минуя контакты/лимит.
+    resolved_username = res.get("username")
+    cur_extra = cand.extra or {}
+    need_uid = str(cur_extra.get("tg_user_id") or "") != str(peer_id)
+    need_uname = bool(resolved_username) and cur_extra.get("tg_username") != resolved_username
+    if need_uid or need_uname:
+        _extra = {**cur_extra}
+        if need_uid:
+            _extra["tg_user_id"] = str(peer_id)
+        if need_uname:
+            _extra["tg_username"] = resolved_username
+        cand.extra = _extra
 
     imported = 0
     for m in res.get("messages", []):

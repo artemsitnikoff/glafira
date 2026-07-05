@@ -309,7 +309,12 @@ async def _send_telegram(session, company_id, candidate, message_data, validated
     После успешной отправки персистирует tg_user_id (Telegram peer id) в
     candidate.extra — он нужен входящему поллеру для матчинга ответов кандидата.
     """
-    username = tg_service.extract_telegram_username(candidate.messengers or [])
+    # username: сначала из messengers (ввёл рекрутёр), затем из кэша прошлого резолва
+    # (extra['tg_username']) — тогда пишем по нему, минуя контакты/лимит.
+    username = (
+        tg_service.extract_telegram_username(candidate.messengers or [])
+        or (candidate.extra or {}).get("tg_username")
+    )
     phone = candidate.phone
     if not username and not phone:
         raise ValidationError(
@@ -328,13 +333,18 @@ async def _send_telegram(session, company_id, candidate, message_data, validated
         contact_first=candidate.first_name,
         contact_last=candidate.last_name,
     )
-    # Сохраняем Telegram user-id кандидата (peer) для последующего матчинга
-    # входящих сообщений в poll_telegram_messages.
+    # Кэшируем реквизиты резолва: peer-id (матчинг входящих) + username (если задан в
+    # Telegram) — чтобы следующие сообщения шли по username/id, минуя контакты/лимит.
+    # Переприсваиваем dict целиком — SQLAlchemy видит изменение JSONB только при замене.
     peer = res.get("peer")
-    if peer:
-        # Переприсваиваем dict целиком — SQLAlchemy обнаруживает изменение JSONB только
-        # при замене объекта, не при мутации вложенного dict.
-        candidate.extra = {**(candidate.extra or {}), "tg_user_id": str(peer)}
+    resolved_username = res.get("username")
+    if peer or resolved_username:
+        _extra = {**(candidate.extra or {})}
+        if peer:
+            _extra["tg_user_id"] = str(peer)
+        if resolved_username:
+            _extra["tg_username"] = resolved_username
+        candidate.extra = _extra
     return res.get("message_id") or None
 
 
