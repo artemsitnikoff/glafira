@@ -1,10 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { useMessages, useSyncTelegramInbound } from '@/api/hooks/useMessages';
 import { useSendMessage } from '@/api/mutations/candidateDetail';
 import { useMessageTemplates } from '@/api/hooks/useMessageTemplates';
+
+// Разделитель дня в чате — по РЕАЛЬНОЙ дате сообщения (sent_at), а не «сегодня».
+function _dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function _dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (_dayKey(iso) === _dayKey(now.toISOString())) return 'Сегодня';
+  if (_dayKey(iso) === _dayKey(yest.toISOString())) return 'Вчера';
+  return d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
 
 type Props = {
   candidateId?: string;
@@ -127,12 +142,6 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
     );
   };
 
-  const today = new Date().toLocaleDateString('ru', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  });
-
   if (isLoading) {
     return (
       <div className="chat-tab">
@@ -149,19 +158,21 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
   return (
     <div className="chat-tab">
       <div className="chat-stream">
-        <div className="chat-day-divider"><span>{today}</span></div>
         {messages && messages.length > 0 ? (
           fromPool && messageGroups ? (
             // Группированный режим (можно упростить до плоского)
             messageGroups.map(([vacancyId, group]) => (
               <div key={vacancyId || 'null-group'}>
                 {/* Можно убрать разделитель групп для упрощения */}
-                {group.map(m => {
+                {group.map((m, i) => {
                   const ch = channelMeta(m.channel || 'tg');
                   const isMe = m.direction === 'out';
                   const who = isMe ? (m.sender_name || 'Вы') : (candidate?.full_name || 'Кандидат');
+                  const showDay = i === 0 || _dayKey(m.sent_at) !== _dayKey(group[i - 1].sent_at);
                   return (
-                    <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
+                    <Fragment key={m.id}>
+                    {showDay && <div className="chat-day-divider"><span>{_dayLabel(m.sent_at)}</span></div>}
+                    <div className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
                       {!isMe && <Avatar name={who} size="sm" />}
                       <div className="chat-bubble-wrap">
                         <div className="chat-meta">
@@ -183,18 +194,22 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
                       </div>
                       {isMe && <Avatar name={who} size="sm" />}
                     </div>
+                    </Fragment>
                   );
                 })}
               </div>
             ))
           ) : (
             // Плоский список (основной режим)
-            messages.map(m => {
+            messages.map((m, i) => {
               const ch = channelMeta(m.channel || 'telegram');
               const isMe = m.direction === 'out';
               const who = isMe ? (m.sender_name || 'Вы') : (candidate?.full_name || 'Кандидат');
+              const showDay = i === 0 || _dayKey(m.sent_at) !== _dayKey(messages[i - 1].sent_at);
               return (
-                <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
+                <Fragment key={m.id}>
+                {showDay && <div className="chat-day-divider"><span>{_dayLabel(m.sent_at)}</span></div>}
+                <div className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
                   {!isMe && <Avatar name={who} size="sm" />}
                   <div className="chat-bubble-wrap">
                     <div className="chat-meta">
@@ -216,6 +231,7 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
                   </div>
                   {isMe && <Avatar name={who} size="sm" />}
                 </div>
+                </Fragment>
               );
             })
           )

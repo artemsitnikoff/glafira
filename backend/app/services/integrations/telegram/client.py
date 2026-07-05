@@ -648,6 +648,7 @@ async def fetch_candidate_inbound(
     per_chat: int = 50,
     contact_first: str | None = None,
     contact_last: str | None = None,
+    tg_user_id: str | int | None = None,
 ) -> dict:
     """ПРЯМОЙ резолв диалога кандидата (как при отправке) + чтение входящих.
 
@@ -674,7 +675,7 @@ async def fetch_candidate_inbound(
 
         try:
             entity = await _resolve_peer(
-                client, username=username, phone=phone,
+                client, username=username, phone=phone, tg_user_id=tg_user_id,
                 contact_first=contact_first, contact_last=contact_last,
             )
         except AppError as e:

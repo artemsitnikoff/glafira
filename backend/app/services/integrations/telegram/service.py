@@ -460,6 +460,8 @@ async def _sync_one_candidate(session, company_id, candidate_id, session_str) ->
         res = await tg_client.fetch_candidate_inbound(
             session_str, username=username, phone=phone,
             contact_first=cand.first_name, contact_last=cand.last_name,
+            # Кому уже писали — резолвим по кэш peer-id, минуя ImportContacts (лимит).
+            tg_user_id=(cand.extra or {}).get("tg_user_id"),
         )
     except Exception as e:
         logger.warning("[tg_sync] fetch_candidate_inbound не удался (cand=%s): %s", candidate_id, e)
