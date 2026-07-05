@@ -21,6 +21,13 @@ from telethon.sessions import StringSession
 from telethon.tl.functions.auth import ResendCodeRequest, ExportLoginTokenRequest, ImportLoginTokenRequest
 from telethon.tl.functions.contacts import ImportContactsRequest
 from telethon.tl.types import InputPhoneContact
+# resolvePhone — резолв номера в аккаунт БЕЗ добавления в контакты (если приватность
+# номера позволяет). Защитный импорт: в старых версиях telethon может отсутствовать →
+# тогда просто пропускаем этот путь и идём в ImportContacts.
+try:
+    from telethon.tl.functions.contacts import ResolvePhoneRequest
+except ImportError:  # pragma: no cover
+    ResolvePhoneRequest = None
 from telethon.errors import (
     SessionPasswordNeededError,
     PhoneCodeInvalidError,
@@ -577,7 +584,21 @@ async def _resolve_peer(
         try:
             return await client.get_entity(phone)
         except Exception:
-            logger.info("[tg] resolve: get_entity по телефону не удался, пробуем ImportContacts")
+            logger.info("[tg] resolve: get_entity по телефону не удался")
+            # Сначала resolvePhone — резолв БЕЗ добавления в контакты (не копим контакты
+            # и часто минуем импорт-лимит). Срабатывает, если приватность номера позволяет
+            # находить по телефону; иначе — фолбэк на ImportContacts.
+            if ResolvePhoneRequest is not None:
+                try:
+                    rp = await client(ResolvePhoneRequest(phone=phone))
+                    rp_users = getattr(rp, "users", None) or []
+                    if rp_users:
+                        logger.info("[tg] resolve по resolvePhone — успех (без добавления в контакты)")
+                        _tg_log(f"resolve OK via resolvePhone (без контакта) phone={masked}")
+                        return rp_users[0]
+                except Exception as e:
+                    logger.info("[tg] resolvePhone не сработал (%s) — пробуем ImportContacts", type(e).__name__)
+            logger.info("[tg] resolve: пробуем ImportContacts")
             client_id = abs(hash(phone)) % (10 ** 18)
             try:
                 result = await client(
