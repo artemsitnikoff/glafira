@@ -4,6 +4,7 @@ import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
 import { useEvaluation } from '@/api/hooks/useEvaluation';
 import { useUploadDocument } from '@/api/mutations/candidateDetail';
 import { AIVerdictCard } from '@/components/candidates/AIVerdictCard';
+import { htmlToText } from '@/lib/htmlToText';
 
 // Разбор периодов опыта (перенос проверенной логики бэка app/services/candidate.py).
 // Сортировка свежих позиций сверху + расчёт длительности каждой позиции и общего стажа,
@@ -73,8 +74,11 @@ function formatExpDuration(months: number): string | null {
 // строки-заголовки (оканчивающиеся на ':') рендерятся жирным подзаголовком.
 type JobItem = string | { h: string };
 function parseJobItems(description?: string | null): JobItem[] {
-  if (!description) return [];
-  return description
+  // Описание из Потока приходит с HTML (<p>/<br>/&nbsp;) — снимаем разметку в
+  // текст с переводами строк, иначе весь HTML попадал бы одной строкой с тегами.
+  const text = htmlToText(description);
+  if (!text) return [];
+  return text
     .split('\n')
     .map((l) => l.trim().replace(/^[-–—•*·▪●‣◦]+\s*/, '').trim())
     .filter(Boolean)
@@ -160,7 +164,7 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
         <>
           <h3 className="cc-sec-title">Обо мне</h3>
           <div className="job-desc" style={{ whiteSpace: 'pre-line' }}>
-            {(candidate as any).resume_summary}
+            {htmlToText((candidate as any).resume_summary)}
           </div>
         </>
       )}

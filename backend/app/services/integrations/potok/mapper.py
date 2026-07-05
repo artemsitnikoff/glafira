@@ -1,12 +1,36 @@
 """Маппинг данных кандидата из Potok.io в формат Глафиры"""
 
+import html as _html
 import logging
+import re
 from datetime import date, datetime
 from typing import Dict, List, Optional, Any
 
 from ....services.phone import normalize_phone
 
 logger = logging.getLogger(__name__)
+
+_BR_RE = re.compile(r"<\s*br\s*/?\s*>", re.I)
+_BLOCK_END_RE = re.compile(r"</\s*(p|div|li|h[1-6]|tr)\s*>", re.I)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _html_to_text(value: Optional[str]) -> Optional[str]:
+    """HTML → плоский текст с сохранением переводов строк. Часть резюме из Потока
+    приходит с разметкой (<p>/<br>/&nbsp;) — храним чистый текст, чтобы теги не
+    протекали в карточку/экспорт/скоринг. Для чистого текста — no-op."""
+    if not value:
+        return value
+    if "<" not in value and "&" not in value:
+        return value
+    s = _BR_RE.sub("\n", value)
+    s = _BLOCK_END_RE.sub("\n", s)
+    s = _TAG_RE.sub("", s)
+    s = _html.unescape(s)
+    s = s.replace("\u00a0", " ")
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip() or None
 
 
 def _parse_date(date_str: str) -> Optional[date]:
@@ -117,7 +141,7 @@ def map_potok_applicant(raw: Dict[str, Any]) -> Dict[str, Any]:
                 resume_params = resumes[0].get("cv_params") or {}
 
         # Извлекаем данные резюме
-        about_me = (resume_params.get("about_me") or "").strip() or None
+        about_me = _html_to_text((resume_params.get("about_me") or "").strip() or None)
         skills_text = (resume_params.get("skills") or "").strip() or None
 
         # Опыт работы
@@ -136,7 +160,7 @@ def map_potok_applicant(raw: Dict[str, Any]) -> Dict[str, Any]:
             end = exp.get("end")
             now = bool(exp.get("now"))
             period = _format_period(start, end, now)
-            description = (exp.get("description") or "").strip() or None
+            description = _html_to_text((exp.get("description") or "").strip() or None)
 
             experience.append({
                 "position": position,
