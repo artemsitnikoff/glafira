@@ -303,13 +303,25 @@ async def get_candidates_paginated(
     ]
 
     if search:
+        search = search.strip()
         like = f"%{search}%"
+        # Имя: КАЖДОЕ слово запроса должно найтись в любой части ФИО (в ЛЮБОМ порядке).
+        # «Роман Г» находит «Грузо Роман» (роман→имя, г→фамилия). Слово — OR по
+        # фамилии/имени/отчеству; слова между собой — AND.
+        name_tokens = [t for t in search.split() if t]
         clauses = [
-            Candidate.last_name.ilike(like),
-            Candidate.first_name.ilike(like),
             Candidate.phone.ilike(like),
             Candidate.email.ilike(like),
         ]
+        if name_tokens:
+            clauses.append(and_(*[
+                or_(
+                    Candidate.last_name.ilike(f"%{tok}%"),
+                    Candidate.first_name.ilike(f"%{tok}%"),
+                    Candidate.middle_name.ilike(f"%{tok}%"),
+                )
+                for tok in name_tokens
+            ]))
         # Телефон бывает в любом формате — ищем по ЦИФРАМ (цифры телефона в БД vs в запросе).
         search_digits = _re.sub(r"\D", "", search)
         if len(search_digits) >= 4:

@@ -73,13 +73,25 @@ async def get_applications_for_vacancy_paginated(
     if stage and stage != "all":
         base_filters.append(Application.stage == stage)
     if search:
+        search = search.strip()
         like = f"%{search}%"
+        # Имя: КАЖДОЕ слово запроса должно найтись в любой части ФИО (в ЛЮБОМ порядке).
+        # «Роман Г» находит «Грузо Роман» (роман→имя, г→фамилия), а не только точный
+        # порядок. Каждое слово — OR по фамилии/имени/отчеству; слова между собой — AND.
+        name_tokens = [t for t in search.split() if t]
         clauses = [
-            Candidate.last_name.ilike(like),
-            Candidate.first_name.ilike(like),
             Candidate.phone.ilike(like),
             Candidate.email.ilike(like),
         ]
+        if name_tokens:
+            clauses.append(and_(*[
+                or_(
+                    Candidate.last_name.ilike(f"%{tok}%"),
+                    Candidate.first_name.ilike(f"%{tok}%"),
+                    Candidate.middle_name.ilike(f"%{tok}%"),
+                )
+                for tok in name_tokens
+            ]))
         # Телефон бывает в любом формате (+7 931 361-24-08 / +79313612408 / 8 931…):
         # ищем по ЦИФРАМ — сравниваем только цифры телефона в БД и в запросе.
         search_digits = re.sub(r"\D", "", search)
