@@ -528,7 +528,15 @@ async def fetch_inbound(
     return result
 
 
-async def _resolve_peer(client, *, username: str | None, phone: str | None, tg_user_id: str | int | None = None):
+async def _resolve_peer(
+    client,
+    *,
+    username: str | None,
+    phone: str | None,
+    tg_user_id: str | int | None = None,
+    contact_first: str | None = None,
+    contact_last: str | None = None,
+):
     """Резолвит Telegram-entity кандидата (приоритет username > телефон) — единая логика
     для отправки и для чтения диалога. Клиент должен быть уже подключён.
 
@@ -578,8 +586,10 @@ async def _resolve_peer(client, *, username: str | None, phone: str | None, tg_u
                             InputPhoneContact(
                                 client_id=client_id,
                                 phone=phone,
-                                first_name="Кандидат",
-                                last_name="",
+                                # Имя как в Глафире (а не безликий «Кандидат») — чтобы
+                                # в контактах аккаунта было видно, кто это.
+                                first_name=(contact_first or "").strip() or "Кандидат",
+                                last_name=(contact_last or "").strip(),
                             )
                         ]
                     )
@@ -636,6 +646,8 @@ async def fetch_candidate_inbound(
     username: str | None,
     phone: str | None,
     per_chat: int = 50,
+    contact_first: str | None = None,
+    contact_last: str | None = None,
 ) -> dict:
     """ПРЯМОЙ резолв диалога кандидата (как при отправке) + чтение входящих.
 
@@ -661,7 +673,10 @@ async def fetch_candidate_inbound(
             )
 
         try:
-            entity = await _resolve_peer(client, username=username, phone=phone)
+            entity = await _resolve_peer(
+                client, username=username, phone=phone,
+                contact_first=contact_first, contact_last=contact_last,
+            )
         except AppError as e:
             if e.code in ("TG_PEER_NOT_FOUND", "TG_NO_TG_ACCOUNT"):
                 logger.info("[tg_inbound] кандидат не резолвится (%s) — пропуск", e.code)
@@ -706,6 +721,8 @@ async def send_to_peer(
     phone: str | None,
     text: str,
     tg_user_id: str | int | None = None,
+    contact_first: str | None = None,
+    contact_last: str | None = None,
 ) -> dict:
     """Отправить сообщение кандидату по username или номеру телефона.
 
@@ -725,7 +742,10 @@ async def send_to_peer(
                 status_code=400,
             )
 
-        entity = await _resolve_peer(client, username=username, phone=phone, tg_user_id=tg_user_id)
+        entity = await _resolve_peer(
+            client, username=username, phone=phone, tg_user_id=tg_user_id,
+            contact_first=contact_first, contact_last=contact_last,
+        )
 
         msg = await client.send_message(entity, text)
         peer_id = str(getattr(entity, "id", ""))

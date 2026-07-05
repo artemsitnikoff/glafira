@@ -457,7 +457,10 @@ async def _sync_one_candidate(session, company_id, candidate_id, session_str) ->
         return {"imported": 0, "connected": True}  # нечем резолвить
 
     try:
-        res = await tg_client.fetch_candidate_inbound(session_str, username=username, phone=phone)
+        res = await tg_client.fetch_candidate_inbound(
+            session_str, username=username, phone=phone,
+            contact_first=cand.first_name, contact_last=cand.last_name,
+        )
     except Exception as e:
         logger.warning("[tg_sync] fetch_candidate_inbound не удался (cand=%s): %s", candidate_id, e)
         return {"imported": 0, "connected": True}
@@ -630,6 +633,8 @@ async def send_to_candidate(
     phone: str | None,
     text: str,
     tg_user_id: str | int | None = None,
+    contact_first: str | None = None,
+    contact_last: str | None = None,
 ) -> dict:
     """Отправить сообщение кандидату через подключённый Telegram-аккаунт компании.
 
@@ -646,4 +651,5 @@ async def send_to_candidate(
                 company_id, bool(username), bool(phone))
     return await tg_client.send_to_peer(
         session_str, username=username, phone=phone, text=text, tg_user_id=tg_user_id,
+        contact_first=contact_first, contact_last=contact_last,
     )

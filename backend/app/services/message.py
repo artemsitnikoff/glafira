@@ -324,6 +324,9 @@ async def _send_telegram(session, company_id, candidate, message_data, validated
         # Кому уже писали — есть кэш peer-id: резолвим напрямую, минуя ImportContacts
         # (который упирается в лимит аккаунта Telegram на импорт контактов).
         tg_user_id=(candidate.extra or {}).get("tg_user_id"),
+        # Имя как в Глафире — чтобы добавленный контакт был не «Кандидат», а ФИО.
+        contact_first=candidate.first_name,
+        contact_last=candidate.last_name,
     )
     # Сохраняем Telegram user-id кандидата (peer) для последующего матчинга
     # входящих сообщений в poll_telegram_messages.
