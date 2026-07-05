@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # resume_id/вакансия), догрузилось ли полное резюме или упали на урезанное (и почему),
     # пустой ли кандидат. Общий том. Пусто → не вести. Читать: cat /app/storage/hh_sync.log.
     HH_SYNC_LOG_PATH: str = "/app/storage/hh_sync.log"
+    # Журнал отправки в Telegram: путь резолва пира (username/tg_user_id/phone) и ИСХОД
+    # (OK / NO_ACCOUNT / LIMITED — аккаунт ограничен Telegram на импорт контактов).
+    # Общий том. Читать: cat /app/storage/tg_send.log.
+    TG_SEND_LOG_PATH: str = "/app/storage/tg_send.log"
     # Параллельность скоринга в Автоподборе: сколько резюме оценивать ОДНОВРЕМЕННО.
     # Раньше было последовательно (1) → ~40-50с/резюме → часы. 8 параллельно → ~8x быстрее.
     AUTO_EVAL_CONCURRENCY: int = 8

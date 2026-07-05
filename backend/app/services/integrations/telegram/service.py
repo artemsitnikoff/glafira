@@ -629,6 +629,7 @@ async def send_to_candidate(
     username: str | None,
     phone: str | None,
     text: str,
+    tg_user_id: str | int | None = None,
 ) -> dict:
     """Отправить сообщение кандидату через подключённый Telegram-аккаунт компании.
 
@@ -643,4 +644,6 @@ async def send_to_candidate(
     session_str = decrypt_text(row.config["session"])
     logger.info("[tg_service] send_to_candidate: company_id=%s username_set=%s phone_set=%s",
                 company_id, bool(username), bool(phone))
-    return await tg_client.send_to_peer(session_str, username=username, phone=phone, text=text)
+    return await tg_client.send_to_peer(
+        session_str, username=username, phone=phone, text=text, tg_user_id=tg_user_id,
+    )

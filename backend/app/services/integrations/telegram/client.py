@@ -33,12 +33,33 @@ from telethon.errors import (
     UsernameNotOccupiedError,
     UsernameInvalidError,
 )
+# PeerFloodError — защитный импорт: в некоторых версиях telethon путь иной. Если нет —
+# заглушка (never raised), чтобы битый импорт НЕ ронял старт бэкенда.
+try:
+    from telethon.errors import PeerFloodError
+except ImportError:  # pragma: no cover
+    class PeerFloodError(Exception):
+        pass
 from telethon.tl import types as tl_types
 
 from ....config import settings
 from ....core.errors import AppError, ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+def _tg_log(msg: str) -> None:
+    """Best-effort журнал отправки в Telegram (том backend_storage). Никогда не бросает.
+    PII не пишем (номер маскируется вызывающим)."""
+    try:
+        path = getattr(settings, "TG_SEND_LOG_PATH", "") or ""
+        if not path:
+            return
+        from datetime import datetime, timezone
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} {msg}\n")
+    except Exception:
+        pass
 
 
 def _mask_phone(p: str) -> str:
@@ -507,7 +528,7 @@ async def fetch_inbound(
     return result
 
 
-async def _resolve_peer(client, *, username: str | None, phone: str | None):
+async def _resolve_peer(client, *, username: str | None, phone: str | None, tg_user_id: str | int | None = None):
     """Резолвит Telegram-entity кандидата (приоритет username > телефон) — единая логика
     для отправки и для чтения диалога. Клиент должен быть уже подключён.
 
@@ -525,6 +546,18 @@ async def _resolve_peer(client, *, username: str | None, phone: str | None):
                 message="Не нашли Telegram по username кандидата",
                 status_code=400,
             )
+    # Быстрый путь: если кандидату уже писали, у него есть Telegram user-id (peer) —
+    # резолвим напрямую по id, МИНУЯ ImportContacts (который упирается в лимит аккаунта
+    # на импорт контактов). Работает, если entity в кэше сессии; иначе — фолбэк на телефон.
+    if tg_user_id:
+        try:
+            ent = await client.get_entity(int(tg_user_id))
+            logger.info("[tg] resolve по кэш tg_user_id — успех")
+            _tg_log("resolve OK via tg_user_id")
+            return ent
+        except Exception as e:
+            logger.info("[tg] resolve по tg_user_id не удался (%s) — фолбэк на телефон", type(e).__name__)
+
     if phone:
         phone = _normalize_phone(phone)
         # Хранение в БД без '+', а Telethon ждёт E.164 → гарантируем ведущий '+'.
@@ -538,20 +571,48 @@ async def _resolve_peer(client, *, username: str | None, phone: str | None):
         except Exception:
             logger.info("[tg] resolve: get_entity по телефону не удался, пробуем ImportContacts")
             client_id = abs(hash(phone)) % (10 ** 18)
-            result = await client(
-                ImportContactsRequest(
-                    contacts=[
-                        InputPhoneContact(
-                            client_id=client_id,
-                            phone=phone,
-                            first_name="Кандидат",
-                            last_name="",
-                        )
-                    ]
+            try:
+                result = await client(
+                    ImportContactsRequest(
+                        contacts=[
+                            InputPhoneContact(
+                                client_id=client_id,
+                                phone=phone,
+                                first_name="Кандидат",
+                                last_name="",
+                            )
+                        ]
+                    )
                 )
-            )
+            except (FloodWaitError, PeerFloodError) as e:
+                # Аккаунт ограничен Telegram (антиспам) — это НЕ «у кандидата нет TG».
+                logger.warning("[tg] resolve: ImportContacts ограничен (%s) для %s", type(e).__name__, masked)
+                _tg_log(f"resolve LIMITED {type(e).__name__} phone={masked}")
+                raise AppError(
+                    code="TG_IMPORT_LIMITED",
+                    message=(
+                        "Telegram временно ограничил ваш аккаунт на добавление контактов "
+                        "(антиспам). Это НЕ значит, что у кандидата нет Telegram — попробуйте "
+                        "позже или пишите тем, у кого указан @username."
+                    ),
+                    status_code=400,
+                )
             if not result.users:
-                logger.warning("[tg] resolve: ImportContacts пустой для %s", masked)
+                # retry_contacts заполнен → номер приняли «на повтор позже» = ЛИМИТ аккаунта,
+                # а не отсутствие TG у кандидата. Различаем, чтобы не вводить в заблуждение.
+                if getattr(result, "retry_contacts", None):
+                    logger.warning("[tg] resolve: ImportContacts retry_contacts (лимит) для %s", masked)
+                    _tg_log(f"resolve LIMITED retry_contacts phone={masked}")
+                    raise AppError(
+                        code="TG_IMPORT_LIMITED",
+                        message=(
+                            "Telegram временно ограничил ваш аккаунт на добавление контактов "
+                            "(антиспам). Это НЕ значит, что у кандидата нет Telegram — попробуйте позже."
+                        ),
+                        status_code=400,
+                    )
+                logger.warning("[tg] resolve: ImportContacts пустой (нет TG/скрыт) для %s", masked)
+                _tg_log(f"resolve NO_ACCOUNT phone={masked}")
                 raise AppError(
                     code="TG_NO_TG_ACCOUNT",
                     message=(
@@ -560,6 +621,7 @@ async def _resolve_peer(client, *, username: str | None, phone: str | None):
                     ),
                     status_code=400,
                 )
+            _tg_log(f"resolve OK via ImportContacts phone={masked}")
             return result.users[0]
     raise AppError(
         code="TG_PEER_NOT_FOUND",
@@ -643,6 +705,7 @@ async def send_to_peer(
     username: str | None,
     phone: str | None,
     text: str,
+    tg_user_id: str | int | None = None,
 ) -> dict:
     """Отправить сообщение кандидату по username или номеру телефона.
 
@@ -662,7 +725,7 @@ async def send_to_peer(
                 status_code=400,
             )
 
-        entity = await _resolve_peer(client, username=username, phone=phone)
+        entity = await _resolve_peer(client, username=username, phone=phone, tg_user_id=tg_user_id)
 
         msg = await client.send_message(entity, text)
         peer_id = str(getattr(entity, "id", ""))
