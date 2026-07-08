@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHomeEvents } from '@/api/hooks/useHomeEvents';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Pager } from '@/components/ui/Pager';
 import { formatRelativeTime } from '@/lib/time';
 
 import { Icon } from '@/components/ui/Icon';
+
+const EVENTS_PER_PAGE = 10;
 
 // Расширение типа события для контекста (openapi не регенерён)
 interface ExtendedEvent {
@@ -51,12 +54,19 @@ function parseEventText(text: string): React.ReactNode {
 }
 
 export function EventsFeed() {
-  const { data, isLoading } = useHomeEvents(30);
+  // Тянем последние 100 событий, показываем по 10 с пагинацией.
+  const { data, isLoading } = useHomeEvents(100);
   const navigate = useNavigate();
+  const [page, setPage] = useState(1);
 
   if (isLoading) return <Skeleton height={380} />;
 
-  const items = (data ?? []) as ExtendedEvent[];
+  const all = (data ?? []) as ExtendedEvent[];
+  const pages = Math.max(1, Math.ceil(all.length / EVENTS_PER_PAGE));
+  const curPage = Math.min(page, pages);
+  const items = all.slice((curPage - 1) * EVENTS_PER_PAGE, curPage * EVENTS_PER_PAGE);
+  const rangeStart = all.length === 0 ? 0 : (curPage - 1) * EVENTS_PER_PAGE + 1;
+  const rangeEnd = (curPage - 1) * EVENTS_PER_PAGE + items.length;
 
   return (
     <div className="card-block">
@@ -64,8 +74,8 @@ export function EventsFeed() {
         <div className="title">Лента событий</div>
         <span className="live-dot">live</span>
       </div>
-      <div style={{maxHeight: 380, overflowY: 'auto', margin: '0 -4px', padding: '0 4px'}}>
-        {items.length === 0 ? (
+      <div style={{margin: '0 -4px', padding: '0 4px'}}>
+        {all.length === 0 ? (
           <EmptyState title="Пока событий нет" />
         ) : (
           items.map(ev => (
@@ -104,6 +114,14 @@ export function EventsFeed() {
           ))
         )}
       </div>
+      <Pager
+        page={curPage}
+        pages={pages}
+        total={all.length}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        onPage={setPage}
+      />
     </div>
   );
 }
