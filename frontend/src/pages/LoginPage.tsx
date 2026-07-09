@@ -51,7 +51,15 @@ export default function LoginPage() {
           />
         </label>
 
-        {errMsg && <div className="login-error">{errMsg}</div>}
+        {/* Всегда в потоке — прячем через visibility, чтобы место было зарезервировано
+            и кнопка «Войти» не прыгала при появлении/исчезновении ошибки. */}
+        <div
+          className="login-error"
+          style={{ visibility: errMsg ? 'visible' : 'hidden' }}
+          aria-live="polite"
+        >
+          {errMsg || ' '}
+        </div>
 
         <button type="submit" disabled={login.isPending} className="login-submit">
           {login.isPending ? 'Вход…' : 'Войти'}

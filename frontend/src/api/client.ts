@@ -48,6 +48,9 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as RetriableConfig | undefined;
     const isRefreshCall = original?.url?.endsWith('/auth/refresh');
+    // Логин: 401 = неверные креды. НЕ гонять refresh/logout/redirect (сессии ещё нет) —
+    // иначе на неверном пароле страница перезагружалась, и ошибка мигала «показалась→ушла».
+    const isLoginCall = original?.url?.endsWith('/auth/login');
 
     // Handle subscription expired (402 SUBSCRIPTION_EXPIRED) before 401 logic
     if (error.response?.status === 402) {
@@ -58,7 +61,7 @@ api.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401 && original && !original._retry && !isRefreshCall) {
+    if (error.response?.status === 401 && original && !original._retry && !isRefreshCall && !isLoginCall) {
       original._retry = true;
       try {
         const newToken = await runRefresh();
