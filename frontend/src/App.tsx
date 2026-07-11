@@ -25,6 +25,8 @@ const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 // Публичная страница опроса — БЕЗ авторизации, вне AppLayout. /pulse/survey/#<token>
 const SurveyPublicPage = lazy(() => import('@/pages/public/SurveyPublicPage'));
+// Публичная страница выбора времени интервью — БЕЗ авторизации. /schedule/:token
+const SchedulePage = lazy(() => import('@/pages/public/SchedulePage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
@@ -80,6 +82,15 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <SurveyPublicPage />
+          </Suspense>
+        }
+      />
+      {/* Публичная страница выбора времени интервью — БЕЗ авторизации */}
+      <Route
+        path="/schedule/:token"
+        element={
+          <Suspense fallback={null}>
+            <SchedulePage />
           </Suspense>
         }
       />

@@ -28,6 +28,8 @@ const EVENT_ICON: Record<string, any> = {
   score: 'star',
   offer: 'check',
   move: 'chevR',
+  interview_scheduled: 'cal-clock',
+  interview: 'cal-clock',
 };
 
 // Экранируем пользовательский текст (ФИО/имя файла/комментарий) ДО подсветки —

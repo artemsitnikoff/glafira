@@ -46,7 +46,7 @@ class Event(Base, CreatedAtMixin, CompanyMixin):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "type IN ('qual', 'new', 'score', 'offer', 'move', 'verify', 'comment', 'document')",
+            "type IN ('qual', 'new', 'score', 'offer', 'move', 'verify', 'comment', 'document', 'interview')",
             name="check_event_type"
         ),
         CheckConstraint(

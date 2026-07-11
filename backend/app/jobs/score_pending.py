@@ -21,6 +21,7 @@ from ..config import settings
 from ..models import Application, Vacancy
 from ..services.glafira.scoring import score_pending_applications, MAX_SCORE_ATTEMPTS
 from ..services.glafira.auto_qa import ask_auto_qa_questions
+from ..services.glafira.interview_schedule import send_interview_links
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -97,6 +98,29 @@ async def main():
                 logger.error(f"Ошибка auto_qa (вопросы) компании {company_id}: {e}")
         if qa_total["asked"]:
             logger.info(f"Auto-QA: задано вопросов {qa_total['asked']}")
+
+        # Авто-рассылка ссылок на запись интервью (паттерн auto_qa)
+        interview_company_ids = (await session.execute(
+            select(Application.company_id)
+            .join(Vacancy, Application.vacancy_id == Vacancy.id)
+            .where(
+                Vacancy.auto_interview.is_(True),
+                Vacancy.auto_interview_stage.isnot(None),
+                Application.stage == Vacancy.auto_interview_stage,
+                Vacancy.deleted_at.is_(None),
+            )
+            .distinct()
+        )).scalars().all()
+        interview_total = {"sent": 0}
+        for company_id in interview_company_ids:
+            try:
+                iv_stats = await send_interview_links(session, company_id)
+                interview_total["sent"] += iv_stats.get("sent", 0)
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка авто-рассылки интервью компании {company_id}: {e}")
+        if interview_total["sent"]:
+            logger.info(f"Interview links: отправлено {interview_total['sent']}")
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")

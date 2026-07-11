@@ -16,6 +16,7 @@ from .verifications import router as verifications_router
 from .pulse import router as pulse_router
 from .public_surveys import router as public_surveys_router
 from .public_photo import router as public_photo_router
+from .public_schedule import router as public_schedule_router
 from .home import router as home_router
 from .analytics import router as analytics_router
 from .settings import router as settings_router
@@ -54,6 +55,9 @@ api_router.include_router(public_surveys_router, prefix="/public", tags=["public
 # Публичный прокси фото кандидата — БЕЗ авторизации (<img src> не шлёт токен).
 # SSRF-гард внутри (только hh-домены). Путь: /api/v1/public/photo. См. public_photo.py
 api_router.include_router(public_photo_router, prefix="/public", tags=["public"])
+# Публичная запись на интервью — БЕЗ авторизации (доступ по секретному токену).
+# Rate-limit in-memory (30/min per IP:token). Путь: /api/v1/public/schedule/...
+api_router.include_router(public_schedule_router, prefix="/public", tags=["public"])
 api_router.include_router(home_router, prefix="/home", tags=["home"])
 api_router.include_router(
     analytics_router,

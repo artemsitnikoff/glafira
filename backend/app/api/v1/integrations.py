@@ -394,6 +394,192 @@ async def disconnect_b24(
 
 
 # ---------------------------------------------------------------------------
+# Битрикс24 — настройки расписания интервью
+# ---------------------------------------------------------------------------
+
+class InterviewSlotSettingsRequest(BaseModel):
+    work_days: list[int] | None = None   # 1=пн..7=вс
+    work_start: str | None = None        # "HH:MM"
+    work_end: str | None = None          # "HH:MM"
+    duration_min: int | None = None
+    step_min: int | None = None
+    horizon_days: int | None = None
+    lead_hours: int | None = None
+    tz: str | None = None
+    interview_video_link: str | None = None
+
+
+_SLOT_DEFAULTS = {
+    "work_days": [1, 2, 3, 4, 5],
+    "work_start": "10:00",
+    "work_end": "18:00",
+    "duration_min": 60,
+    "step_min": 30,
+    "horizon_days": 14,
+    "lead_hours": 24,
+    "tz": "Europe/Moscow",
+    "interview_video_link": "",
+}
+
+
+def _read_slot_settings(cfg: dict) -> dict:
+    return {k: cfg.get(k, v) for k, v in _SLOT_DEFAULTS.items()}
+
+
+@router.get("/bitrix24/schedule-settings", dependencies=[Depends(require_settings_read_access)])
+async def get_b24_schedule_settings(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Настройки записи на интервью через Б24-календарь."""
+    from sqlalchemy import select as sa_select
+    from ...models import Integration
+    row = (await session.execute(
+        sa_select(Integration).where(
+            Integration.provider == "bitrix24",
+            Integration.company_id == current_user.company_id,
+        )
+    )).scalar_one_or_none()
+    cfg = (row.config or {}) if row else {}
+    return _read_slot_settings(cfg)
+
+
+@router.patch("/bitrix24/schedule-settings", dependencies=[Depends(require_admin)])
+async def patch_b24_schedule_settings(
+    data: InterviewSlotSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Обновляет настройки расписания интервью в integrations.config."""
+    from sqlalchemy import select as sa_select
+    from ...models import Integration
+    from ...services.integrations.bitrix24 import client as b24_client_mod
+    from ...services.settings.crypto import decrypt_text
+
+    row = (await session.execute(
+        sa_select(Integration).where(
+            Integration.provider == "bitrix24",
+            Integration.company_id == current_user.company_id,
+        )
+    )).scalar_one_or_none()
+
+    if not row or not (row.config or {}).get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    # Проверяем scope вебхука (user + calendar)
+    webhook_url = decrypt_text(row.config["webhook_url"])
+    try:
+        await b24_client_mod.get_current_user_b24(webhook_url)
+    except AppError as e:
+        raise ValidationError(
+            f"Вебхуку не хватает прав (user/calendar). Перевыпустите с нужными scope. Детали: {e.message}"
+        )
+
+    cfg = dict(row.config)
+    update_data = data.model_dump(exclude_none=True)
+    for key, val in update_data.items():
+        if key in _SLOT_DEFAULTS:
+            cfg[key] = val
+    row.config = cfg
+    await session.flush()
+    await session.commit()
+
+    return _read_slot_settings(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Битрикс24 — маппинг b24_user_id для пользователей Глафиры
+# ---------------------------------------------------------------------------
+
+class B24UserMapRequest(BaseModel):
+    b24_user_id: int | None
+
+
+@router.patch("/bitrix24/users/{user_id}/b24", dependencies=[Depends(require_admin)])
+async def set_b24_user_id(
+    user_id: str,
+    data: B24UserMapRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Вручную задаёт/сбрасывает b24_user_id для пользователя Глафиры (admin)."""
+    from sqlalchemy import select as sa_select
+    import uuid as _uuid
+    from ...models import User as UserModel
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise ValidationError("Неверный формат user_id")
+
+    target = (await session.execute(
+        sa_select(UserModel).where(
+            UserModel.id == uid,
+            UserModel.company_id == current_user.company_id,
+        )
+    )).scalar_one_or_none()
+
+    if not target:
+        raise ValidationError("Пользователь не найден")
+
+    target.b24_user_id = data.b24_user_id
+    await session.flush()
+    await session.commit()
+    return {"id": str(target.id), "b24_user_id": target.b24_user_id, "full_name": target.full_name}
+
+
+@router.post("/bitrix24/users/{user_id}/b24/sync", dependencies=[Depends(require_admin)])
+async def sync_b24_user_id(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Авто-подбор b24_user_id по email пользователя (admin)."""
+    from sqlalchemy import select as sa_select
+    import uuid as _uuid
+    from ...models import User as UserModel, Integration
+    from ...services.integrations.bitrix24 import client as b24_client_mod
+    from ...services.settings.crypto import decrypt_text
+
+    try:
+        uid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise ValidationError("Неверный формат user_id")
+
+    target = (await session.execute(
+        sa_select(UserModel).where(
+            UserModel.id == uid,
+            UserModel.company_id == current_user.company_id,
+        )
+    )).scalar_one_or_none()
+    if not target:
+        raise ValidationError("Пользователь не найден")
+
+    b24_row = (await session.execute(
+        sa_select(Integration).where(
+            Integration.provider == "bitrix24",
+            Integration.company_id == current_user.company_id,
+        )
+    )).scalar_one_or_none()
+    if not b24_row or not (b24_row.config or {}).get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    webhook_url = decrypt_text(b24_row.config["webhook_url"])
+    b24_user = await b24_client_mod.find_user_by_email(webhook_url, target.email)
+    if not b24_user:
+        raise ValidationError(f"Пользователь с email {target.email} не найден в Битрикс24")
+
+    b24_id = b24_user.get("ID")
+    if not b24_id:
+        raise ValidationError("Б24 не вернул ID пользователя")
+
+    target.b24_user_id = int(b24_id)
+    await session.flush()
+    await session.commit()
+    return {"id": str(target.id), "b24_user_id": target.b24_user_id, "full_name": target.full_name}
+
+
+# ---------------------------------------------------------------------------
 # Telegram (user-аккаунт, MTProto) — «писать из-под пользователя»
 # ---------------------------------------------------------------------------
 

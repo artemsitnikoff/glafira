@@ -41,6 +41,7 @@ from .base_search import BaseSearchRun
 from .candidate_embedding import CandidateEmbedding
 from .call import Call, CallSyncJob
 from .auto_search import AutoSearch, AutoSearchRun
+from .interview_link import InterviewLink
 
 __all__ = [
     "Base",
@@ -92,4 +93,5 @@ __all__ = [
     "CallSyncJob",
     "AutoSearch",
     "AutoSearchRun",
+    "InterviewLink",
 ]

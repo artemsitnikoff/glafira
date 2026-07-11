@@ -71,3 +71,28 @@ export function useBitrix24Disconnect() {
     },
   });
 }
+
+export interface B24SchedulePatch {
+  work_days?: number[];
+  work_start?: string;
+  work_end?: string;
+  duration_min?: number;
+  step_min?: number;
+  horizon_days?: number;
+  lead_hours?: number;
+  tz?: string;
+  interview_video_link?: string;
+}
+
+export function usePatchB24Schedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: B24SchedulePatch) => {
+      const response = await api.patch('/integrations/bitrix24/schedule-settings', data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'bitrix24', 'schedule-settings'] });
+    },
+  });
+}

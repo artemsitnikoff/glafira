@@ -28,6 +28,9 @@ const EVENT_MAPPING = {
   new: { icon: 'plus' as const, ai: false, who: 'Источник' },
   offer: { icon: 'check-circle' as const, ai: false, who: null },
   qual: { icon: 'sparkle' as const, ai: true, who: 'Глафира' },
+  // Интервью: ссылка выбора времени отправлена / встреча назначена
+  interview_scheduled: { icon: 'cal-clock' as const, ai: true, who: 'Глафира' },
+  interview: { icon: 'cal-clock' as const, ai: false, who: null },
 };
 
 export function AllActionsTab({ candidateId, candidate }: Props) {

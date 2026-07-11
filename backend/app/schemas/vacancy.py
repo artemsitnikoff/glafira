@@ -98,6 +98,8 @@ class VacancyDetail(ORMBase):
     auto_qa_target_stage: str | None = None
     auto_qa_mode: str | None = None
     auto_qa_fixed_text: str | None = None
+    auto_interview: bool = False
+    auto_interview_stage: str | None = None
     auto_reject: bool
     auto_reject_message: bool
     rejection_text: str | None = None
@@ -143,6 +145,8 @@ class VacancyCreate(BaseModel):
     auto_qa_target_stage: str | None = None
     auto_qa_mode: Literal["weak", "fixed"] | None = None
     auto_qa_fixed_text: str | None = None
+    auto_interview: bool = False
+    auto_interview_stage: str | None = None
     auto_reject: bool = False
     auto_reject_message: bool = False
     rejection_text: str | None = None
@@ -183,6 +187,8 @@ class VacancyUpdate(BaseModel):
     auto_qa_target_stage: str | None = None
     auto_qa_mode: Literal["weak", "fixed"] | None = None
     auto_qa_fixed_text: str | None = None
+    auto_interview: bool | None = None
+    auto_interview_stage: str | None = None
     auto_reject: bool | None = None
     auto_reject_message: bool | None = None
     rejection_text: str | None = None

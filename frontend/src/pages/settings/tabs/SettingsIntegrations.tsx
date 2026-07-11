@@ -6,8 +6,9 @@ import { useHhAuthorize, useHhDisconnect, useHhPollResponses, useImportHhVacanci
 import type { HhPollResult, HhImportVacanciesResult } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
-import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
-import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect } from '@/api/mutations/bitrix24Integration';
+import { useBitrix24Status, useB24ScheduleSettings } from '@/api/hooks/useBitrix24Integration';
+import type { B24ScheduleSettings } from '@/api/hooks/useBitrix24Integration';
+import { useBitrix24SaveConfig, useBitrix24Test, useBitrix24Disconnect, usePatchB24Schedule } from '@/api/mutations/bitrix24Integration';
 import { useTelegramStatus, useTelegramQrStart, useTelegramQrStatus } from '@/api/hooks/useTelegramIntegration';
 import { useTgSendCode, useTgResendCode, useTgConnectSession, useTgConfirmCode, useTgConfirmPassword, useTgTest, useTgDisconnect } from '@/api/mutations/telegramIntegration';
 import { useMangoStatus } from '@/api/hooks/useMangoIntegration';
@@ -302,6 +303,105 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
 
   const [b24Url, setB24Url] = useState('');
   const [b24Edit, setB24Edit] = useState(false);
+
+  // Расписание интервью (только когда Б24 подключён)
+  const b24Connected = !!b24Status?.configured;
+  const { data: b24Schedule, isLoading: b24ScheduleLoading } = useB24ScheduleSettings(b24Connected);
+  const patchB24ScheduleMutation = usePatchB24Schedule();
+
+  const SCHEDULE_TZ_OPTIONS = [
+    { value: 'Europe/Moscow',       label: 'Москва (UTC+3)' },
+    { value: 'Europe/Kaliningrad',  label: 'Калининград (UTC+2)' },
+    { value: 'Europe/Samara',       label: 'Самара (UTC+4)' },
+    { value: 'Asia/Yekaterinburg',  label: 'Екатеринбург (UTC+5)' },
+    { value: 'Asia/Novosibirsk',    label: 'Новосибирск (UTC+7)' },
+    { value: 'Asia/Almaty',         label: 'Алматы (UTC+6)' },
+    { value: 'Asia/Tashkent',       label: 'Ташкент (UTC+5)' },
+    { value: 'Europe/London',       label: 'Лондон (UTC±0)' },
+    { value: 'America/New_York',    label: 'Нью-Йорк (UTC-5)' },
+    { value: 'America/Los_Angeles', label: 'Лос-Анджелес (UTC-8)' },
+    { value: 'UTC',                 label: 'UTC' },
+  ];
+
+  const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+  // Локальный черновик настроек расписания (0=Пн..6=Вс, бек использует 1=Пн..7=Вс)
+  const defaultScheduleForm = {
+    work_days: [0, 1, 2, 3, 4],   // пн-пт
+    work_start: '10:00',
+    work_end: '18:00',
+    duration_min: 60,
+    step_min: 30,
+    horizon_days: 14,
+    lead_hours: 24,
+    tz: 'Europe/Moscow',
+    interview_video_link: '',
+  };
+
+  const [scheduleForm, setScheduleForm] = useState(defaultScheduleForm);
+  const [scheduleFormDirty, setScheduleFormDirty] = useState(false);
+
+  // Синхронизировать черновик из данных API
+  useEffect(() => {
+    if (b24Schedule) {
+      // Бек хранит 1=Пн..7=Вс, приводим к 0=Пн..6=Вс
+      const workDays = (b24Schedule.work_days || [1, 2, 3, 4, 5]).map((d: number) => d - 1);
+      setScheduleForm({
+        work_days: workDays,
+        work_start: b24Schedule.work_start || '10:00',
+        work_end: b24Schedule.work_end || '18:00',
+        duration_min: b24Schedule.duration_min ?? 60,
+        step_min: b24Schedule.step_min ?? 30,
+        horizon_days: b24Schedule.horizon_days ?? 14,
+        lead_hours: b24Schedule.lead_hours ?? 24,
+        tz: b24Schedule.tz || 'Europe/Moscow',
+        interview_video_link: b24Schedule.interview_video_link || '',
+      });
+      setScheduleFormDirty(false);
+    }
+  }, [b24Schedule]);
+
+  const handleToggleWorkDay = (dayIndex: number) => {
+    setScheduleForm(prev => {
+      const has = prev.work_days.includes(dayIndex);
+      const next = has
+        ? prev.work_days.filter(d => d !== dayIndex)
+        : [...prev.work_days, dayIndex].sort((a, b) => a - b);
+      return { ...prev, work_days: next };
+    });
+    setScheduleFormDirty(true);
+  };
+
+  const handleScheduleChange = (field: keyof typeof scheduleForm, value: string | number) => {
+    setScheduleForm(prev => ({ ...prev, [field]: value }));
+    setScheduleFormDirty(true);
+  };
+
+  const handleSaveSchedule = async () => {
+    try {
+      // Приводим 0-based к 1-based для бэка
+      await patchB24ScheduleMutation.mutateAsync({
+        work_days: scheduleForm.work_days.map(d => d + 1),
+        work_start: scheduleForm.work_start,
+        work_end: scheduleForm.work_end,
+        duration_min: scheduleForm.duration_min,
+        step_min: scheduleForm.step_min,
+        horizon_days: scheduleForm.horizon_days,
+        lead_hours: scheduleForm.lead_hours,
+        tz: scheduleForm.tz,
+        interview_video_link: scheduleForm.interview_video_link.trim(),
+      });
+      setScheduleFormDirty(false);
+      setNotification({ type: 'success', message: 'Расписание интервью сохранено.' });
+    } catch (error) {
+      const e = error as unknown as { error?: { message?: string } };
+      setNotification({ type: 'error', message: e.error?.message || 'Ошибка при сохранении расписания' });
+    }
+  };
+
+  // Временно используем тип явно чтобы ts не ругался (openapi не регенерён)
+  const _b24ScheduleTyped = b24Schedule as B24ScheduleSettings | undefined;
+  void _b24ScheduleTyped;
 
   const handleB24Save = async () => {
     try {
@@ -1286,6 +1386,194 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                 <div className="info-banner small">
                   <Icon name="sparkle" size={14} />
                   <div>Импорт сотрудников в Глафиру и отчёт «Текучка» — следующий этап (вебхук уже читает данные с портала).</div>
+                </div>
+
+                {/* Блок расписания интервью */}
+                <div className="integ-section" style={{ marginTop: 20 }}>
+                  <div className="integ-section-title">Расписание интервью</div>
+                  <p style={{ fontSize: '13px', color: 'var(--fg-2)', marginBottom: '14px' }}>
+                    Настройте рабочие часы и параметры слотов. Кандидаты выберут время по ссылке, которую Глафира вышлет автоматически.
+                  </p>
+
+                  {b24ScheduleLoading ? (
+                    <div style={{ fontSize: '13px', color: 'var(--fg-3)', padding: '8px 0' }}>Загрузка настроек…</div>
+                  ) : (
+                    <>
+                      {/* Рабочие дни */}
+                      <div className="form-grid form-grid-2">
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '6px' }}>
+                            Рабочие дни
+                          </label>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            {WEEKDAY_LABELS.map((label, idx) => {
+                              const active = scheduleForm.work_days.includes(idx);
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  disabled={readOnly}
+                                  onClick={() => handleToggleWorkDay(idx)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border-1)'}`,
+                                    borderRadius: 'var(--radius-md)',
+                                    background: active ? 'var(--bg-active)' : 'var(--bg-1)',
+                                    color: active ? 'var(--accent)' : 'var(--fg-2)',
+                                    fontSize: '12px',
+                                    fontWeight: active ? '600' : '400',
+                                    cursor: readOnly ? 'default' : 'pointer',
+                                    transition: 'all var(--dur-fast)',
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Начало рабочего дня
+                          </label>
+                          <input
+                            type="time"
+                            className="form-input"
+                            value={scheduleForm.work_start}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('work_start', e.target.value)}
+                            style={{ fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Конец рабочего дня
+                          </label>
+                          <input
+                            type="time"
+                            className="form-input"
+                            value={scheduleForm.work_end}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('work_end', e.target.value)}
+                            style={{ fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Длительность слота (мин)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            min={15}
+                            max={120}
+                            step={5}
+                            value={scheduleForm.duration_min}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('duration_min', parseInt(e.target.value) || 60)}
+                            style={{ fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Шаг между слотами (мин)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            min={15}
+                            max={60}
+                            step={5}
+                            value={scheduleForm.step_min}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('step_min', parseInt(e.target.value) || 30)}
+                            style={{ fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Горизонт бронирования (дней)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            min={1}
+                            max={90}
+                            value={scheduleForm.horizon_days}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('horizon_days', parseInt(e.target.value) || 14)}
+                            style={{ fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Лид-тайм (часов до встречи)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            min={0}
+                            max={72}
+                            value={scheduleForm.lead_hours}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('lead_hours', parseInt(e.target.value) || 0)}
+                            style={{ fontSize: '13px' }}
+                          />
+                        </div>
+
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Часовой пояс расписания
+                          </label>
+                          <select
+                            className="form-select"
+                            value={scheduleForm.tz}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('tz', e.target.value)}
+                            style={{ fontSize: '13px' }}
+                          >
+                            {SCHEDULE_TZ_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                            {!SCHEDULE_TZ_OPTIONS.some(o => o.value === scheduleForm.tz) && (
+                              <option value={scheduleForm.tz}>{scheduleForm.tz}</option>
+                            )}
+                          </select>
+                        </div>
+
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={{ fontSize: '12px', color: 'var(--fg-2)', display: 'block', marginBottom: '4px' }}>
+                            Ссылка на видеовстречу
+                          </label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="https://meet.example.com/..."
+                            value={scheduleForm.interview_video_link}
+                            disabled={readOnly}
+                            onChange={(e) => handleScheduleChange('interview_video_link', e.target.value)}
+                            style={{ fontSize: '13px', fontFamily: 'var(--font-mono)' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="integ-actions" style={{ marginTop: 12 }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={handleSaveSchedule}
+                          disabled={patchB24ScheduleMutation.isPending || !scheduleFormDirty || readOnly}
+                        >
+                          {patchB24ScheduleMutation.isPending ? 'Сохранение...' : 'Сохранить расписание'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (

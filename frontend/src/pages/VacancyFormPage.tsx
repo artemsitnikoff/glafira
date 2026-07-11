@@ -53,6 +53,9 @@ type VacancyFormData = VacancyCreate & {
   auto_qa_target_stage: string | null;
   auto_qa_mode: string | null;
   auto_qa_fixed_text: string | null;
+  // П.5: Отправлять ссылку выбора времени интервью (openapi не регенерён, as-cast)
+  auto_interview: boolean;
+  auto_interview_stage: string;
 };
 
 type VacancyCreateExtended = VacancyCreate & {
@@ -64,6 +67,8 @@ type VacancyCreateExtended = VacancyCreate & {
   auto_qa_target_stage: string | null;
   auto_qa_mode: string | null;
   auto_qa_fixed_text: string | null;
+  auto_interview: boolean;
+  auto_interview_stage: string;
   stages: StageInput[];
   reject_reasons: Array<{
     side: 'candidate' | 'company';
@@ -82,6 +87,8 @@ type VacancyUpdateExtended = VacancyUpdate & {
   auto_qa_target_stage: string | null;
   auto_qa_mode: string | null;
   auto_qa_fixed_text: string | null;
+  auto_interview: boolean;
+  auto_interview_stage: string;
 };
 
 // Защищённые (системные) этапы — зеркало с бэкенда
@@ -419,6 +426,9 @@ export default function VacancyFormPage() {
     auto_reject: false,
     auto_reject_message: false,
     rejection_text: null,
+    // П.5: Ссылка выбора времени интервью (openapi не регенерён, as-cast)
+    auto_interview: false,
+    auto_interview_stage: '',
   });
 
   // Состояние этапов воронки
@@ -460,6 +470,8 @@ export default function VacancyFormPage() {
         auto_reject: (vacancy as any).auto_reject || false,
         auto_reject_message: (vacancy as any).auto_reject_message || false,
         rejection_text: (vacancy as any).rejection_text || null,
+        auto_interview: (vacancy as any).auto_interview || false,
+        auto_interview_stage: (vacancy as any).auto_interview_stage || '',
       });
       setRecruiterScoring((vacancy as { recruiter_scoring_instructions?: string | null }).recruiter_scoring_instructions || '');
     }
@@ -1976,6 +1988,44 @@ function AutomationStep({
               minHeight: '80px'
             }}
           />
+        </div>
+      </div>
+
+      {/* П.5: Ссылка выбора времени интервью (auto_interview) */}
+      <div className={`nv-auto-block ${formData.auto_interview ? 'on' : 'off'}`}>
+        <div className="nv-auto-head" onClick={() => onChange({ auto_interview: !formData.auto_interview })}>
+          <span className={`nv-cb ${formData.auto_interview ? 'on' : ''}`}>
+            <Icon name="check" size={12} />
+          </span>
+          <span className="nv-auto-title">Отправлять ссылку выбора времени интервью</span>
+        </div>
+        <div className="nv-auto-body">
+          <div className="nv-auto-inline">
+            <span>Когда кандидат переходит на этап</span>
+            <select
+              className="nv-input"
+              value={autoStages.some((s) => s.key === formData.auto_interview_stage)
+                ? formData.auto_interview_stage
+                : (autoStages[0]?.key ?? '')}
+              onChange={(e) => onChange({ auto_interview_stage: e.target.value })}
+              disabled={!formData.auto_interview}
+              style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+            >
+              {autoStages.length === 0 ? (
+                <option value="">нет доступных этапов</option>
+              ) : (
+                autoStages.map((s) => (
+                  <option key={s.key} value={s.key}>{s.name}</option>
+                ))
+              )}
+            </select>
+            <span>— Глафира отправит ссылку для записи</span>
+          </div>
+          <div className="nv-auto-hint">
+            <Icon name="sparkle" size={12} />
+            {/* as-cast: поле auto_interview/auto_interview_stage не в openapi — передаётся через as VacancyCreateExtended */}
+            Кандидат получит персональную ссылку и сам выберет слот из календаря рекрутёра (Битрикс24). Требует настроенного расписания в Настройки→Интеграции→Битрикс24.
+          </div>
         </div>
       </div>
 

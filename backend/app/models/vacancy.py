@@ -87,6 +87,10 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     auto_reject_message: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Автозапись на интервью: авто-отправка ссылки кандидату при переходе на указанный этап
+    auto_interview: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    auto_interview_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # Constraints
     __table_args__ = (
         CheckConstraint(

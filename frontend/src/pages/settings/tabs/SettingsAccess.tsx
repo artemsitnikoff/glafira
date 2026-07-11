@@ -220,6 +220,7 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
                       user={u}
                       currentUserId={user?.id || ''}
                       onError={showError}
+                      showB24={canImportFromB24}
                     />
                   )}
                 </div>

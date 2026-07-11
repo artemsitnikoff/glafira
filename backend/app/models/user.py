@@ -53,6 +53,9 @@ class User(Base, TimestampMixin, CompanyMixin):
     # Откуда заведён пользователь: 'manual' (создан вручную) | 'b24' (импортирован из Битрикс24)
     source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'manual'"))
 
+    # Идентификатор пользователя в Битрикс24 (для calendar.event.add, маппинг вручную/авто)
+    b24_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     # Защита от брутфорса пароля (account lockout через БД, работает при 2+ воркерах)
     failed_login_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
