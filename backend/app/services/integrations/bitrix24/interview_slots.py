@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .....core.errors import AppError
+from ....core.errors import AppError
 from . import client as b24_client
 
 # In-memory кэш слотов: token -> (monotonic_ts, slots_list)
