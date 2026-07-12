@@ -122,6 +122,44 @@ def _slot_is_free(
     return True
 
 
+def _merge_intervals(
+    intervals: list[tuple[datetime, datetime]]
+) -> list[tuple[datetime, datetime]]:
+    """Сливает пересекающиеся/смежные интервалы. Отсортированный список без пересечений."""
+    if not intervals:
+        return []
+    ordered = sorted(intervals, key=lambda x: x[0])
+    merged = [ordered[0]]
+    for start, end in ordered[1:]:
+        if start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _split_into_chunks(
+    interval_from: datetime,
+    interval_to: datetime,
+    chunk_len: timedelta,
+    min_chunk: timedelta,
+) -> list[tuple[datetime, datetime]]:
+    """Режет свободный интервал на куски длиной ≤ chunk_len; хвост короче min_chunk отбрасывает.
+
+    Модель ArkadyJarvis: 09:00–12:00 → 09:00–10:00, 10:00–11:00, 11:00–12:00; окно
+    09:00–09:30 → один кусок 09:00–09:30 (30-минутные окна между встречами не теряются).
+    """
+    chunks: list[tuple[datetime, datetime]] = []
+    cursor = interval_from
+    while cursor < interval_to:
+        nxt = cursor + chunk_len
+        chunk_end = min(nxt, interval_to)
+        if chunk_end - cursor >= min_chunk:
+            chunks.append((cursor, chunk_end))
+        cursor = nxt
+    return chunks
+
+
 async def calculate_free_slots(
     webhook_url: str,
     b24_user_ids: list[int],
@@ -204,61 +242,56 @@ async def calculate_free_slots(
 
     busy = _parse_b24_accessibility(raw_accessibility, b24_user_ids, tz)
 
-    # Парсим рабочее время
+    # Парсим рабочее время (часы приёма в поясе компании)
     try:
         work_start_h, work_start_m = (int(x) for x in work_start.split(":"))
         work_end_h, work_end_m = (int(x) for x in work_end.split(":"))
     except (ValueError, AttributeError):
-        work_start_h, work_start_m = 10, 0
-        work_end_h, work_end_m = 18, 0
+        work_start_h, work_start_m = 9, 0
+        work_end_h, work_end_m = 19, 0
 
-    duration = timedelta(minutes=duration_min)
-    step = timedelta(minutes=step_min)
+    # Занятость ВСЕХ участников объединяем (слот свободен, только если свободны ВСЕ).
+    all_busy: list[tuple[datetime, datetime]] = []
+    for uid in b24_user_ids:
+        all_busy.extend(busy.get(uid, []))
+    merged_busy = _merge_intervals(all_busy)
 
-    # Генерируем сетку слотов
+    chunk_len = timedelta(minutes=duration_min)   # длина куска (по умолчанию 60 мин)
+    min_chunk = timedelta(minutes=step_min)        # мин. хвост (30 мин) — 30-минутные окна не теряются
+
+    # Свободные интервалы по дням = рабочее окно минус занятость, режем на куски
     free_slots: list[tuple[datetime, datetime]] = []
-
-    # Итерируем по дням в окне
     current_day_local = from_local.date()
     end_day_local = to_local.date()
 
     while current_day_local <= end_day_local:
-        # Проверяем рабочий день (1=пн..7=вс, совпадает с isoweekday())
-        isowd = current_day_local.isoweekday()  # 1=пн, 7=вс
-        if isowd in work_days:
-            # Начало и конец рабочего дня в TZ компании (aware)
+        if current_day_local.isoweekday() in work_days:  # 1=пн..7=вс
             day_start = datetime(
                 current_day_local.year, current_day_local.month, current_day_local.day,
                 work_start_h, work_start_m, 0, tzinfo=tz,
-            )
+            ).astimezone(timezone.utc)
             day_end = datetime(
                 current_day_local.year, current_day_local.month, current_day_local.day,
                 work_end_h, work_end_m, 0, tzinfo=tz,
-            )
+            ).astimezone(timezone.utc)
 
-            slot_start = max(day_start, window_from.astimezone(tz))
-            # Выравниваем до следующего step_min
-            if slot_start > day_start:
-                minutes_into_day = (slot_start.hour * 60 + slot_start.minute) - (work_start_h * 60 + work_start_m)
-                if minutes_into_day % step_min != 0:
-                    aligned_minutes = ((minutes_into_day // step_min) + 1) * step_min
-                    slot_start = day_start + timedelta(minutes=aligned_minutes)
-
-            while True:
-                slot_end = slot_start + duration
-                if slot_end > day_end:
-                    break
-                # Конец окна
-                if slot_start.astimezone(timezone.utc) >= window_to:
-                    break
-
-                slot_from_utc = slot_start.astimezone(timezone.utc)
-                slot_to_utc = slot_end.astimezone(timezone.utc)
-
-                if _slot_is_free(slot_from_utc, slot_to_utc, busy, b24_user_ids):
-                    free_slots.append((slot_from_utc, slot_to_utc))
-
-                slot_start += step
+            # окно дня с учётом лид-времени и горизонта
+            win_start = max(day_start, window_from)
+            win_end = min(day_end, window_to)
+            if win_start < win_end:
+                day_busy = _merge_intervals([
+                    (max(bf, win_start), min(bt, win_end))
+                    for bf, bt in merged_busy
+                    if bt > win_start and bf < win_end
+                ])
+                # свободные интервалы = окно минус занятость → куски
+                cursor = win_start
+                for bf, bt in day_busy:
+                    if cursor < bf:
+                        free_slots.extend(_split_into_chunks(cursor, bf, chunk_len, min_chunk))
+                    cursor = max(cursor, bt)
+                if cursor < win_end:
+                    free_slots.extend(_split_into_chunks(cursor, win_end, chunk_len, min_chunk))
 
         current_day_local += timedelta(days=1)
 

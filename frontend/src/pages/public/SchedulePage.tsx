@@ -577,7 +577,7 @@ export default function SchedulePage() {
                   className={`sched-slot-btn ${selectedSlot?.from_utc === slot.from_utc ? 'selected' : ''}`}
                   onClick={() => setSelectedSlot(slot)}
                 >
-                  {formatTime(parseUtc(slot.from_utc), tz)}
+                  {formatTime(parseUtc(slot.from_utc), tz)}–{formatTime(parseUtc(slot.to_utc), tz)}
                 </button>
               ))}
             </div>
