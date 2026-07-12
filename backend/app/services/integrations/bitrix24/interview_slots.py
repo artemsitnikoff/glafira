@@ -10,12 +10,15 @@ TZ-дисциплина:
 """
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ....core.errors import AppError
 from . import client as b24_client
+
+logger = logging.getLogger(__name__)
 
 # In-memory кэш слотов: token -> (monotonic_ts, slots_list)
 _slots_cache: dict[str, tuple[float, list[tuple[datetime, datetime]]]] = {}
@@ -30,15 +33,45 @@ def _get_tz(tz_str: str) -> ZoneInfo:
         return ZoneInfo("Europe/Moscow")
 
 
+def _parse_bitrix_dt(raw) -> datetime | None:
+    """Парсит datetime из ответа Б24 в НАИВНЫЙ datetime (локальное время портала).
+
+    Основной формат accessibility — '13.07.2026 09:00:00'; поддержаны и ISO-варианты.
+    TZ отбрасывается (как в рабочем ArkadyJarvis) — время трактуется как локальное
+    портала, привязка к поясу компании делается вызывающим.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    for fmt in (
+        "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M",
+        "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+    ):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            continue
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    except (ValueError, TypeError):
+        return None
+
+
 def _parse_b24_accessibility(
     raw: dict,
     user_ids: list[int],
     tz: ZoneInfo,
 ) -> dict[int, list[tuple[datetime, datetime]]]:
-    """Парсит ответ calendar.accessibility.get.
+    """Парсит ответ calendar.accessibility.get → {b24_user_id: [(from_utc, to_utc)]}.
 
-    Возвращает dict: b24_user_id -> list[(from_utc, to_utc)] занятых интервалов.
-    При ошибке парсинга конкретного интервала — пропускает (conservative: не считаем занятым).
+    Формат Б24 сверен с рабочим ArkadyJarvis: result = {user_id: [ {DATE_FROM, DATE_TO,
+    ACCESSIBILITY, ~USER_OFFSET_FROM, ~USER_OFFSET_TO}, ... ]}.
+    - поля именно DATE_FROM/DATE_TO (не FROM/TO — прежняя причина «все свободны»);
+    - ACCESSIBILITY='free' занятостью НЕ считаем (busy/absent/quest — считаем);
+    - время локальное; нормализуем вычитанием ~USER_OFFSET (как ArkadyJarvis), затем
+      привязываем к поясу компании tz и переводим в UTC.
+    При ошибке разбора конкретного интервала — пропускаем (не считаем занятым).
     """
     result: dict[int, list[tuple[datetime, datetime]]] = {uid: [] for uid in user_ids}
     for uid_str, intervals in (raw or {}).items():
@@ -46,46 +79,31 @@ def _parse_b24_accessibility(
             uid = int(uid_str)
         except (ValueError, TypeError):
             continue
-        if uid not in result:
-            result[uid] = []
+        result.setdefault(uid, [])
         if not isinstance(intervals, list):
             continue
-        for interval in intervals:
-            try:
-                from_raw = interval.get("FROM") or interval.get("from") or ""
-                to_raw = interval.get("TO") or interval.get("to") or ""
-                # Б24 отдаёт строки в формате 'YYYY-MM-DDTHH:MM:SS+TZ' или 'YYYY-MM-DD HH:MM:SS'
-                from_dt = _parse_b24_datetime(from_raw, tz)
-                to_dt = _parse_b24_datetime(to_raw, tz)
-                if from_dt and to_dt and from_dt < to_dt:
-                    result[uid].append((from_dt, to_dt))
-            except Exception:
+        for slot in intervals:
+            if not isinstance(slot, dict):
                 continue
+            acc = str(slot.get("ACCESSIBILITY") or "busy").lower()
+            if acc == "free":
+                continue
+            local_from = _parse_bitrix_dt(slot.get("DATE_FROM"))
+            local_to = _parse_bitrix_dt(slot.get("DATE_TO"))
+            if not local_from or not local_to:
+                continue
+            try:
+                off_from = int(slot.get("~USER_OFFSET_FROM", 0) or 0)
+                off_to = int(slot.get("~USER_OFFSET_TO", 0) or 0)
+            except (ValueError, TypeError):
+                off_from = off_to = 0
+            local_from -= timedelta(seconds=off_from)
+            local_to -= timedelta(seconds=off_to)
+            from_utc = local_from.replace(tzinfo=tz).astimezone(timezone.utc)
+            to_utc = local_to.replace(tzinfo=tz).astimezone(timezone.utc)
+            if from_utc < to_utc:
+                result[uid].append((from_utc, to_utc))
     return result
-
-
-def _parse_b24_datetime(raw: str, tz: ZoneInfo) -> datetime | None:
-    """Парсит строку datetime от Б24. Возвращает None при ошибке."""
-    if not raw:
-        return None
-    raw = raw.strip()
-    # Попытка 1: ISO с таймзоной
-    try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=tz)
-        return dt.astimezone(timezone.utc)
-    except (ValueError, TypeError):
-        pass
-    # Попытка 2: 'YYYY-MM-DD HH:MM:SS' без TZ → считаем в TZ компании
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            dt = datetime.strptime(raw[:len(fmt)], fmt)
-            dt = dt.replace(tzinfo=tz)
-            return dt.astimezone(timezone.utc)
-        except (ValueError, TypeError):
-            continue
-    return None
 
 
 def _slot_is_free(
@@ -169,6 +187,20 @@ async def calculate_free_slots(
             message=f"Ошибка получения занятости из Б24: {e}",
             status_code=503,
         )
+
+    # Диаг-лог: сырой семпл первого пользователя — чтобы запиннить точный формат
+    # полей (DATE_FROM/ACCESSIBILITY/~USER_OFFSET) на живом портале заказчика.
+    if isinstance(raw_accessibility, dict) and raw_accessibility:
+        try:
+            _uid = next(iter(raw_accessibility))
+            _lst = raw_accessibility.get(_uid) or []
+            logger.info(
+                "[interview_slots] accessibility uid=%s count=%s sample=%s",
+                _uid, len(_lst) if isinstance(_lst, list) else "n/a",
+                (_lst[0] if isinstance(_lst, list) and _lst else None),
+            )
+        except Exception:
+            pass
 
     busy = _parse_b24_accessibility(raw_accessibility, b24_user_ids, tz)
 

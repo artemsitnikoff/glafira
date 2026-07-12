@@ -273,8 +273,9 @@ async def add_calendar_event(
 ) -> str:
     """calendar.event.add — создаёт событие-встречу в Б24.
 
-    Параметры date_from/date_to: строка 'YYYY-MM-DD HH:MM:SS' в указанном TZ.
-    Возвращает event id как строку.
+    Формат параметров сверен с рабочим ArkadyJarvis: from/to (а не dateFrom/dateTo),
+    timezone_from/timezone_to, встреча через is_meeting/host/attendees/meeting.
+    date_from/date_to: строка '%d.%m.%Y %H:%M:%S' в поясе tz. Возвращает event id.
 
     Scope: calendar.
     """
@@ -283,15 +284,23 @@ async def add_calendar_event(
         "ownerId": host,
         "name": name,
         "description": description,
-        "location": location,
-        "dateFrom": date_from,
-        "dateTo": date_to,
-        "timezone": tz,
-        "is_meeting": "Y",
-        "accessibility": "busy",
-        "attendees": [str(uid) for uid in attendees],
-        "host": host,
+        "from": date_from,
+        "to": date_to,
+        "timezone_from": tz,
+        "timezone_to": tz,
     }
+    if location:
+        params["location"] = location
+    if attendees:
+        # host первым, без дублей — как в эталоне
+        all_ids = [host] + [aid for aid in attendees if aid != host]
+        params.update({
+            "is_meeting": "Y",
+            "accessibility": "busy",
+            "host": host,
+            "attendees": [str(uid) for uid in all_ids],
+            "meeting": {"notify": True, "open": False, "reinvite": False},
+        })
     if section is not None:
         params["sectionId"] = section
 

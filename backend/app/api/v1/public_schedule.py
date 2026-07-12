@@ -146,12 +146,12 @@ def _get_slot_settings(b24_row: Integration) -> dict:
 
 
 # Рабочие параметры сетки слотов ФИКСИРОВАНЫ (без UI-настроек — решение заказчика):
-# Пн–Пт 09:00–18:00, слот 60 мин / шаг 30, лид 24ч, горизонт 14 дней.
+# Пн–Пт 09:00–19:00, слот 60 мин / шаг 30, лид 24ч, горизонт 14 дней.
 # Часовой пояс — авто-определяется из Б24 (профиль ответственного рекрутёра).
 _FIXED_SLOTS = {
     "work_days": [1, 2, 3, 4, 5],
     "work_start": "09:00",
-    "work_end": "18:00",
+    "work_end": "19:00",
     "duration_min": 60,
     "step_min": 30,
     "horizon_days": 14,
@@ -471,8 +471,9 @@ async def book_schedule_slot(
         event_description += f"Видеовстреча: {video_link}\n"
 
     # Строки для Б24 в TZ компании
-    date_from_b24 = slot_from.astimezone(tz_info).strftime("%Y-%m-%d %H:%M:%S")
-    date_to_b24 = slot_to.astimezone(tz_info).strftime("%Y-%m-%d %H:%M:%S")
+    # Формат event.add сверен с ArkadyJarvis: '%d.%m.%Y %H:%M:%S' в поясе компании.
+    date_from_b24 = slot_from.astimezone(tz_info).strftime("%d.%m.%Y %H:%M:%S")
+    date_to_b24 = slot_to.astimezone(tz_info).strftime("%d.%m.%Y %H:%M:%S")
 
     # АТОМАРНЫЙ ЗАХВАТ токена (active→booked) ПЕРЕД созданием события: два запроса на
     # ОДИН токен (двойной клик / ретрай) → второй получит 0 строк → 409, событие
