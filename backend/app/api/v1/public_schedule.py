@@ -552,6 +552,17 @@ async def book_schedule_slot(
     # поэтому контакты кандидата кладём в описание, а полноценное приглашение шлём ему
     # ICS-письмом ниже.
     candidate_name = candidate.full_name if candidate else "Кандидат"
+
+    # Видео-ссылка: ручная из конфига имеет приоритет; иначе авто-генерим УНИКАЛЬНУЮ
+    # комнату Битрикс24 на это интервью (VIDEOCONF-чат → public.link). Участники команды
+    # добавляются в конференц-чат. Graceful: сбой генерации → без ссылки (не валим бронь).
+    if not video_link:
+        _gen_link = await b24_client.create_videoconference(
+            webhook_url, f"Интервью: {vacancy.name} — {candidate_name}", b24_ids
+        )
+        if _gen_link:
+            video_link = _gen_link
+
     event_name = f"Интервью: {vacancy.name} — {candidate_name}"
     event_description = (
         f"Вакансия: {vacancy.name}\n"
@@ -690,6 +701,11 @@ async def book_schedule_slot(
         except Exception as e:
             logger.warning("[public_schedule] Не удалось отправить подтверждение кандидату: %s", e)
 
+    # Локали для best-effort доставки в hh-чат ПОСЛЕ коммита (объекты сессии протухнут).
+    _hh_chat_id = app.hh_chat_id
+    _company_id = link.company_id
+    _vac_name = vacancy.name
+
     # Event + audit
     slot_text = slot_from.strftime("%Y-%m-%d %H:%M UTC")
     session.add(Event(
@@ -719,6 +735,22 @@ async def book_schedule_slot(
         company_id=link.company_id,
     )
     await session.commit()
+
+    # Best-effort: дублируем приглашение в hh-чат, если кандидат пришёл с hh.
+    if _hh_chat_id:
+        try:
+            from zoneinfo import ZoneInfo as _ZIhh
+            from ...services.integrations.hh.service import get_valid_access_token
+            from ...services.integrations.hh import client as hh_client
+
+            _slot_hh = slot_from.astimezone(_ZIhh(tz)).strftime("%d.%m.%Y %H:%M") + f" ({tz})"
+            hh_msg = f"Интервью по вакансии «{_vac_name}» назначено на {_slot_hh}."
+            if video_link:
+                hh_msg += f" Ссылка на видеовстречу: {video_link}"
+            hh_token = await get_valid_access_token(session, _company_id)
+            await hh_client.send_chat_message(hh_token, _hh_chat_id, hh_msg)
+        except Exception as e:
+            logger.warning("[public_schedule] Не удалось отправить приглашение в hh-чат: %s", e)
 
     return BookResponse(
         status="booked",

@@ -313,3 +313,39 @@ async def add_calendar_event(
             status_code=503,
         )
     return str(result)
+
+
+async def create_videoconference(
+    webhook_url: str,
+    title: str,
+    user_ids: list[int] | None = None,
+) -> str | None:
+    """Создаёт видеоконференцию Битрикс24 и возвращает публичную /video/-ссылку.
+
+    Механизм (проверен на живом портале): конференция = чат `ENTITY_TYPE=VIDEOCONF`.
+    `im.chat.add` создаёт его, `im.dialog.get` отдаёт `result.public.link` = ссылку
+    вида https://{портал}/video/{code}. Внешний кандидат заходит по ней как гость.
+
+    Scope: `im`. Graceful: любой сбой → None (бронь не валим — откат на фолбэк-ссылку).
+    """
+    add_params: dict = {
+        "TYPE": "CHAT",
+        "TITLE": (title or "Интервью")[:255],
+        "ENTITY_TYPE": "VIDEOCONF",
+    }
+
+    # Всё внутри try + широкий except: функция обещает «любой сбой → None» (бронь не
+    # валим). Коэрсинг user_ids тоже внутри — нечисловой id не должен пробить наружу.
+    try:
+        if user_ids:
+            add_params["USERS"] = [int(uid) for uid in user_ids]
+        add = await call(webhook_url, "im.chat.add", add_params)
+        chat_id = add.get("result")
+        if chat_id is None:
+            return None
+        dlg = await call(webhook_url, "im.dialog.get", {"DIALOG_ID": f"chat{chat_id}"})
+    except (AppError, ValueError, TypeError):
+        return None
+    public = (dlg.get("result") or {}).get("public") or {}
+    link = public.get("link")
+    return link if isinstance(link, str) and link.strip() else None
