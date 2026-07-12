@@ -218,6 +218,24 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 async def http_exception_handler(request: Request, exc: HTTPException | StarletteHTTPException) -> JSONResponse:
     """Convert FastAPI/Starlette HTTPException to unified error format"""
+    # Если detail уже несёт наш единый конверт {"error": {"code","message",...}} —
+    # пробрасываем как есть (иначе str(detail) заворачивал бы dict второй раз, и клиент
+    # получал бы message = строковое представление вложенного словаря). Так публичные
+    # роуты записи на интервью отдают читаемое сообщение об ошибке.
+    detail = exc.detail
+    if isinstance(detail, dict) and isinstance(detail.get("error"), dict):
+        err = detail["error"]
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": err.get("code", "HTTP_ERROR"),
+                    "message": err.get("message", ""),
+                    "details": err.get("details"),
+                }
+            },
+        )
+
     # Map HTTP status codes to error codes
     code_mapping = {
         401: "NOT_AUTHENTICATED",

@@ -155,8 +155,12 @@ async def get_accessibility(
     Scope: calendar.
     Бросает AppError при ошибке (НЕ возвращает пустой dict — fail-closed).
     """
+    # ВАЖНО: тело уходит как JSON (client.post(json=params)), поэтому массив передаём
+    # под ПЛОСКИМ ключом "users" — скобочная нотация "users[]" валидна только для
+    # url-encoded форм; в JSON Битрикс получил бы буквальный ключ "users[]" и не
+    # смапил бы его на параметр users → метод не видел участников (пустое расписание).
     params: dict = {
-        "users[]": [str(uid) for uid in user_ids],
+        "users": [str(uid) for uid in user_ids],
         "from": date_from,
         "to": date_to,
     }

@@ -183,6 +183,7 @@ export default function SchedulePage() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [infoError, setInfoError] = useState<'expired' | 'unknown' | null>(null);
   const [slotsError, setSlotsError] = useState(false);
+  const [slotsErrorMsg, setSlotsErrorMsg] = useState<string | null>(null);
 
   const [tz, setTz] = useState<string>(detectTz);
   // Отображаемый месяц/год
@@ -239,6 +240,7 @@ export default function SchedulePage() {
   const fetchSlots = () => {
     if (!token) return;
     setSlotsError(false);
+    setSlotsErrorMsg(null);
     setLoadingSlots(true);
     publicClient
       .get<{ slots: Slot[]; tz: string }>(`/public/schedule/${token}/slots`)
@@ -253,7 +255,12 @@ export default function SchedulePage() {
           setCalMonth(m);
         }
       })
-      .catch(() => setSlotsError(true))
+      .catch((e: unknown) => {
+        const msg = (e as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message;
+        setSlotsErrorMsg(msg && typeof msg === 'string' ? msg : null);
+        setSlotsError(true);
+      })
       .finally(() => setLoadingSlots(false));
   };
 
@@ -508,7 +515,7 @@ export default function SchedulePage() {
             </div>
           ) : slotsError ? (
             <div className="sched-slots-empty">
-              Не удалось получить расписание
+              {slotsErrorMsg || 'Не удалось получить расписание'}
               <br />
               <button className="sched-btn-retry" onClick={fetchSlots}>Повторить</button>
             </div>
