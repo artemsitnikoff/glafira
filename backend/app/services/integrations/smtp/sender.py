@@ -28,6 +28,7 @@ def _build_message(
     subject: str,
     body_text: str,
     body_html: str | None,
+    ics: str | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
@@ -38,6 +39,19 @@ def _build_message(
     msg.set_content(body_text)
     if body_html:
         msg.add_alternative(body_html, subtype="html")
+    if ics:
+        # Календарное приглашение (VCALENDAR/METHOD:REQUEST) — почтовые клиенты
+        # (Gmail/Outlook/Apple) показывают «Добавить в календарь». Структура письма
+        # становится multipart/mixed[ alternative(text,html), text/calendar ].
+        msg.add_attachment(
+            ics.encode("utf-8"),
+            maintype="text",
+            subtype="calendar",
+            filename="invite.ics",
+        )
+        cal_part = msg.get_payload()[-1]
+        cal_part.set_param("method", "REQUEST")
+        cal_part.set_param("charset", "UTF-8")
     return msg
 
 
@@ -83,12 +97,13 @@ async def send_via_smtp(
     subject: str,
     body_text: str,
     body_html: str | None = None,
+    ics: str | None = None,
 ) -> None:
     """Отправляет письмо. Бросает AppError с честным кодом/причиной при сбое.
 
     Возврат без исключения = сервер принял письмо.
     """
-    msg = _build_message(from_email, from_name, reply_to, to, subject, body_text, body_html)
+    msg = _build_message(from_email, from_name, reply_to, to, subject, body_text, body_html, ics)
 
     try:
         await asyncio.to_thread(

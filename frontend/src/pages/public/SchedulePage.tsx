@@ -360,7 +360,7 @@ export default function SchedulePage() {
   if (loadingInfo) {
     return (
       <div className="sched-bg">
-        <div className="sched-brand">Глафира</div>
+        <div className="sched-brand"><img className="sched-logo" src="/favicon.svg" alt="" />Глафира</div>
         <div className="sched-state">
           <div className="sched-spinner" />
           <div className="sched-state-msg">Загрузка…</div>
@@ -372,7 +372,7 @@ export default function SchedulePage() {
   if (infoError) {
     return (
       <div className="sched-bg">
-        <div className="sched-brand">Глафира</div>
+        <div className="sched-brand"><img className="sched-logo" src="/favicon.svg" alt="" />Глафира</div>
         <div className="sched-state">
           <div className="sched-err">
             {infoError === 'expired'
@@ -388,7 +388,7 @@ export default function SchedulePage() {
   if (booked && bookedAt) {
     return (
       <div className="sched-bg">
-        <div className="sched-brand">Глафира</div>
+        <div className="sched-brand"><img className="sched-logo" src="/favicon.svg" alt="" />Глафира</div>
         <div className="sched-state">
           <div className="sched-booked-card">
             <div className="sched-booked-icon">✅</div>
@@ -418,6 +418,7 @@ export default function SchedulePage() {
   return (
     <div className="sched-bg">
       <div className="sched-brand">
+        <img className="sched-logo" src="/favicon.svg" alt="" />
         <span>Глафира</span>
         {info?.vacancy_name && (
           <span style={{ color: 'var(--fg-3)', fontWeight: 400, fontSize: 'var(--fs-14)', marginLeft: 12 }}>

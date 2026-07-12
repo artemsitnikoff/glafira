@@ -184,10 +184,11 @@ async def send_email(
     subject: str,
     body_text: str,
     body_html: str | None = None,
+    ics: str | None = None,
 ) -> None:
     """Переиспользуемое ядро отправки письма через настроенный SMTP компании.
 
-    Используется тест-отправкой и (в будущем) оповещениями по событиям.
+    ics — опциональное календарное приглашение (VCALENDAR), приложится к письму.
     Бросает ValidationError, если SMTP не настроен; AppError при сбое отправки.
     """
     row = await _get_row(session, company_id)
@@ -210,6 +211,7 @@ async def send_email(
         subject=subject,
         body_text=body_text,
         body_html=body_html,
+        ics=ics,
     )
 
 

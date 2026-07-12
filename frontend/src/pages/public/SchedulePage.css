@@ -13,6 +13,9 @@
 }
 
 .sched-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: var(--fs-18);
   font-weight: 700;
   color: var(--fg-1);
@@ -21,6 +24,14 @@
   align-self: flex-start;
   max-width: 900px;
   width: 100%;
+}
+
+.sched-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: block;
 }
 
 .sched-brand span {
