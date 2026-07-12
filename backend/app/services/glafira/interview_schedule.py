@@ -143,6 +143,19 @@ async def send_interview_links(
                 "[interview_schedule] Участники без b24_user_id для вакансии %s: %s",
                 vacancy.id, unmapped_names,
             )
+            # Идемпотентность: событие «не привязаны» пишем ОДИН РАЗ, иначе крон (раз в
+            # 5 мин) спамит ленту. Если interview-событие для этой пары кандидат+вакансия
+            # уже писалось — молчим (при повторных прогонах ничего не добавляем).
+            already_notified = (await session.execute(
+                select(Event.id).where(
+                    Event.candidate_id == candidate.id,
+                    Event.vacancy_id == vacancy.id,
+                    Event.type == "interview",
+                ).limit(1)
+            )).scalar_one_or_none()
+            if already_notified is not None:
+                stats["skipped_unmapped"] += 1
+                continue
             session.add(Event(
                 company_id=company_id,
                 type="interview",
