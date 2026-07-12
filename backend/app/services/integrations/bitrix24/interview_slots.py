@@ -256,8 +256,8 @@ async def calculate_free_slots(
         all_busy.extend(busy.get(uid, []))
     merged_busy = _merge_intervals(all_busy)
 
-    chunk_len = timedelta(minutes=duration_min)   # длина куска (по умолчанию 60 мин)
-    min_chunk = timedelta(minutes=step_min)        # мин. хвост (30 мин) — 30-минутные окна не теряются
+    chunk_len = timedelta(minutes=duration_min)   # длина слота (60 мин)
+    min_chunk = chunk_len                          # только ПОЛНЫЕ слоты: хвост < 60 мин отбрасываем (получасовых нет)
 
     # Свободные интервалы по дням = рабочее окно минус занятость, режем на куски
     free_slots: list[tuple[datetime, datetime]] = []
