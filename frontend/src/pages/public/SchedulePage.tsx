@@ -501,8 +501,10 @@ export default function SchedulePage() {
           </div>
 
           {loadingSlots ? (
-            <div className="sched-slots-empty">
-              <div className="sched-spinner" style={{ margin: '0 auto' }} />
+            <div className="sched-slots-loading">
+              <div className="sched-dancer">💃</div>
+              <p className="sched-loading-title">Список слотов формируется…</p>
+              <div className="sched-load-dots"><span /><span /><span /></div>
             </div>
           ) : slotsError ? (
             <div className="sched-slots-empty">
