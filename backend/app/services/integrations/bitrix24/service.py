@@ -384,6 +384,10 @@ async def import_users(
         existing_user = existing_result.scalar_one_or_none()
 
         if existing_user:
+            # Пользователь уже есть — но проставим b24_user_id (для календаря интервью),
+            # если ещё пусто. Импорт из Б24 знает числовой ID — грех его не сохранить.
+            if not existing_user.b24_user_id and str(b24_id).isdigit():
+                existing_user.b24_user_id = int(b24_id)
             skipped.append({
                 "name": full_name,
                 "reason": f"Пользователь с email {email} уже существует"
@@ -399,6 +403,9 @@ async def import_users(
                 position=position
             )
             user, temp_password = await create_user(session, user_create, company_id, user_id, source="b24")
+            # Сразу сохраняем числовой b24_user_id (нужен для календаря интервью).
+            if str(b24_id).isdigit():
+                user.b24_user_id = int(b24_id)
 
             created.append({
                 "email": email,

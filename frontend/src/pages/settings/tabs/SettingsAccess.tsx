@@ -5,6 +5,7 @@ import { PageHead, Card, Select } from '../components/FormComponents';
 import { useUsers } from '@/api/hooks/useUsers';
 import { useAuthStore } from '@/store/authStore';
 import { useBitrix24Status } from '@/api/hooks/useBitrix24Integration';
+import { useMapAllB24Users } from '@/api/mutations/bitrix24Integration';
 import { BitrixImportModal } from './components/BitrixImportModal';
 import { CreateUserModal } from './components/CreateUserModal';
 import { UserActionMenu } from './components/UserActionMenu';
@@ -55,6 +56,23 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
   const { data: b24Status } = useBitrix24Status();
   const canImportFromB24 = b24Status?.verified === true;
 
+  // Массовое сопоставление b24_user_id по email (временная кнопка — нужна для календарей интервью)
+  const mapB24 = useMapAllB24Users();
+  const [mapResult, setMapResult] = useState<string | null>(null);
+  const handleMapAllB24 = async () => {
+    setMapResult(null);
+    try {
+      const r = await mapB24.mutateAsync();
+      const parts = [`Сопоставлено: ${r.mapped}`];
+      if (r.unmatched.length > 0) parts.push(`не найдены в Б24 по email: ${r.unmatched.join(', ')}`);
+      setMapResult(parts.join('. '));
+      setTimeout(() => setMapResult(null), 15000);
+    } catch (e) {
+      const err = e as { error?: { message?: string } };
+      setErrorMessage(err.error?.message || 'Не удалось сопоставить пользователей с Битрикс24');
+    }
+  };
+
   const usersFilters = useMemo(() => {
     const filters: any = {};
     if (debouncedSearch) filters.search = debouncedSearch;
@@ -99,6 +117,13 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
           <button onClick={() => setErrorMessage(null)}>
             <Icon name="x" size={16} />
           </button>
+        </div>
+      )}
+
+      {mapResult && (
+        <div className="info-banner small" style={{ marginBottom: 12 }}>
+          <Icon name="check" size={16} />
+          <div>{mapResult}</div>
         </div>
       )}
 
@@ -161,6 +186,16 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
               title={readOnly ? 'Только просмотр' : (!canImportFromB24 ? 'Подключите Битрикс24' : 'Импорт пользователей из Битрикс24')}
             >
               <Icon name="download" size={14} />Импорт из Б24
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleMapAllB24}
+              disabled={!canImportFromB24 || readOnly || mapB24.isPending}
+              title={!canImportFromB24 ? 'Подключите Битрикс24' : 'Проставить b24_user_id всем по email из Битрикс24 (нужно для календарей интервью)'}
+            >
+              <Icon name="refresh-cw" size={14} />{mapB24.isPending ? 'Сопоставление…' : 'Сопоставить с Б24'}
             </button>
           )}
           {isAdmin && (

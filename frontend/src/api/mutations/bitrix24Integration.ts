@@ -96,3 +96,22 @@ export function usePatchB24Schedule() {
     },
   });
 }
+
+// Массовый авто-подбор b24_user_id по email для ВСЕХ пользователей компании (временная кнопка)
+export interface MapAllB24Result {
+  mapped: number;
+  unmatched: string[];
+  total_b24_users: number;
+}
+export function useMapAllB24Users() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<MapAllB24Result> => {
+      const response = await api.post('/integrations/bitrix24/users/map-all');
+      return response.data as MapAllB24Result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}

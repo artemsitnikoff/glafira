@@ -579,6 +579,58 @@ async def sync_b24_user_id(
     return {"id": str(target.id), "b24_user_id": target.b24_user_id, "full_name": target.full_name}
 
 
+@router.post("/bitrix24/users/map-all", dependencies=[Depends(require_admin)])
+async def map_all_b24_users(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Массовый авто-подбор b24_user_id по email для ВСЕХ пользователей компании (admin).
+    Тянет юзеров Б24 один раз, матчит по email (регистронезависимо), проставляет
+    b24_user_id тем, у кого он ещё пуст. Возвращает {mapped, unmatched, total_b24_users}."""
+    from sqlalchemy import select as sa_select
+    from ...models import User as UserModel, Integration
+    from ...services.integrations.bitrix24 import client as b24_client_mod
+    from ...services.settings.crypto import decrypt_text
+
+    b24_row = (await session.execute(
+        sa_select(Integration).where(
+            Integration.provider == "bitrix24",
+            Integration.company_id == current_user.company_id,
+        )
+    )).scalar_one_or_none()
+    if not b24_row or not (b24_row.config or {}).get("webhook_url"):
+        raise ValidationError("Битрикс24 не настроен")
+
+    webhook_url = decrypt_text(b24_row.config["webhook_url"])
+    all_b24 = await b24_client_mod.get_all_users(webhook_url)
+
+    b24_by_email: dict[str, int] = {}
+    for u in all_b24:
+        em = (u.get("EMAIL") or "").strip().lower()
+        bid = str(u.get("ID") or "").strip()
+        if em and bid.isdigit():
+            b24_by_email.setdefault(em, int(bid))
+
+    users = (await session.execute(
+        sa_select(UserModel).where(UserModel.company_id == current_user.company_id)
+    )).scalars().all()
+
+    mapped = 0
+    unmatched: list[str] = []
+    for user in users:
+        if user.b24_user_id:
+            continue
+        em = (user.email or "").strip().lower()
+        bid = b24_by_email.get(em)
+        if bid:
+            user.b24_user_id = bid
+            mapped += 1
+        else:
+            unmatched.append(user.full_name)
+    await session.commit()
+    return {"mapped": mapped, "unmatched": unmatched, "total_b24_users": len(all_b24)}
+
+
 # ---------------------------------------------------------------------------
 # Telegram (user-аккаунт, MTProto) — «писать из-под пользователя»
 # ---------------------------------------------------------------------------
