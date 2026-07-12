@@ -13,6 +13,9 @@ URL вебхука (из офиц. доки apidocs.bitrix24.com):
 - department.get (scope `department`): оргструктура (опционально).
 """
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import httpx
 
 from ....core.errors import AppError
@@ -108,6 +111,85 @@ async def get_departments(webhook_url: str) -> list[dict]:
     """Отделы организации (department.get). Возвращает сырой результат B24."""
     data = await call(webhook_url, "department.get", {})
     return data.get("result") or []
+
+
+def _valid_iana_tz(name) -> str | None:
+    """Возвращает name, если это валидное IANA-имя часового пояса, иначе None."""
+    if not name or not isinstance(name, str):
+        return None
+    try:
+        ZoneInfo(name)
+        return name
+    except Exception:
+        return None
+
+
+def _offset_from_iso(iso_dt) -> str | None:
+    """Из ISO-строки с оффсетом ('2026-07-12T14:00:00+07:00') делает IANA-имя
+    фиксированного пояса 'Etc/GMT∓N'.
+
+    Знак в Etc/GMT ИНВЕРТИРОВАН по стандарту POSIX: UTC+7 → 'Etc/GMT-7'. Россия не
+    переходит на летнее время, поэтому фикс-оффсет для сетки слотов (горизонт ~2 недели)
+    корректен. Получасовые пояса Etc/GMT не выражает → None (упадём в дефолт).
+    """
+    if not iso_dt or not isinstance(iso_dt, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_dt)
+    except (ValueError, TypeError):
+        return None
+    off = dt.utcoffset()
+    if off is None:
+        return None
+    total = int(off.total_seconds())
+    if total % 3600 != 0:
+        return None
+    hours = total // 3600
+    name = f"Etc/GMT{'-' if hours >= 0 else '+'}{abs(hours)}"
+    return _valid_iana_tz(name)
+
+
+async def resolve_interview_tz(webhook_url: str, recruiter_b24_id: int | None) -> tuple[str, dict]:
+    """Определяет часовой пояс сетки слотов записи на интервью ИЗ Битрикс24.
+
+    Приоритет: TIME_ZONE ответственного рекрутёра (IANA-имя из профиля) → пояс портала
+    из служебного блока `time.date_start` ответа REST → 'Europe/Moscow'.
+
+    Возвращает (tz_name, debug). debug логируется вызывающим — семантику полей Б24
+    (TIME_ZONE/TIME_ZONE_OFFSET/date_start) пиннить на живом портале заказчика.
+
+    Scope: user.
+    """
+    debug: dict = {"recruiter_b24_id": recruiter_b24_id}
+    params = {"ID": recruiter_b24_id} if recruiter_b24_id else {}
+    try:
+        data = await call(webhook_url, "user.get", params)
+    except AppError as e:
+        debug["error"] = e.code
+        return "Europe/Moscow", debug
+
+    results = data.get("result") or []
+    if results:
+        u = results[0]
+        debug["TIME_ZONE"] = u.get("TIME_ZONE")
+        debug["TIME_ZONE_OFFSET"] = u.get("TIME_ZONE_OFFSET")
+        iana = _valid_iana_tz(u.get("TIME_ZONE"))
+        if iana:
+            debug["source"] = "recruiter_TIME_ZONE"
+            return iana, debug
+
+    # Фолбэк: пояс портала из служебного блока time ответа REST (= настройка портала,
+    # обычно совпадает с городом компании).
+    tblock = data.get("time") or {}
+    server_start = tblock.get("date_start")
+    debug["server_date_start"] = server_start
+    portal_tz = _offset_from_iso(server_start)
+    if portal_tz:
+        debug["source"] = "portal_time"
+        return portal_tz, debug
+
+    debug["source"] = "default_moscow"
+    return "Europe/Moscow", debug
 
 
 # ──────────────────────────────────────────────────────────────────────────────

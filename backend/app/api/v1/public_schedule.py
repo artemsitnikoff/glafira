@@ -145,6 +145,39 @@ def _get_slot_settings(b24_row: Integration) -> dict:
     }
 
 
+# Рабочие параметры сетки слотов ФИКСИРОВАНЫ (без UI-настроек — решение заказчика):
+# Пн–Пт 09:00–18:00, слот 60 мин / шаг 30, лид 24ч, горизонт 14 дней.
+# Часовой пояс — авто-определяется из Б24 (профиль ответственного рекрутёра).
+_FIXED_SLOTS = {
+    "work_days": [1, 2, 3, 4, 5],
+    "work_start": "09:00",
+    "work_end": "18:00",
+    "duration_min": 60,
+    "step_min": 30,
+    "horizon_days": 14,
+    "lead_hours": 24,
+}
+
+
+async def _resolve_slot_settings(
+    webhook_url: str, vacancy: Vacancy, b24_row: Integration
+) -> dict:
+    """Фикс. рабочие часы + часовой пояс, авто-определённый из Б24 (профиль рекрутёра).
+
+    Пояс берётся из ответственного за вакансию (его b24_user_id → TIME_ZONE), с фолбэком
+    на пояс портала и Москву. Видео-ссылка — из config интеграции (если задана).
+    """
+    recruiter = _get_recruiter(vacancy)
+    recruiter_b24 = recruiter.b24_user_id if recruiter and recruiter.b24_user_id else None
+    tz, tz_debug = await b24_client.resolve_interview_tz(webhook_url, recruiter_b24)
+    logger.info("[public_schedule] tz=%s (%s)", tz, tz_debug)
+    return {
+        **_FIXED_SLOTS,
+        "tz": tz,
+        "interview_video_link": (b24_row.config or {}).get("interview_video_link", ""),
+    }
+
+
 async def _load_context(session: AsyncSession, link: InterviewLink):
     """Загружает application, vacancy (с командой), candidate, b24 integration."""
     app = (await session.execute(
@@ -294,9 +327,6 @@ async def get_schedule_slots(
             detail={"error": {"code": "B24_NOT_CONFIGURED", "message": "Битрикс24 не настроен"}},
         )
 
-    slot_settings = _get_slot_settings(b24_row)
-    tz = slot_settings["tz"]
-
     b24_ids, unmapped = _collect_b24_user_ids(vacancy)
     if unmapped:
         raise HTTPException(
@@ -315,6 +345,8 @@ async def get_schedule_slots(
         )
 
     webhook_url = decrypt_text(b24_row.config["webhook_url"])
+    slot_settings = await _resolve_slot_settings(webhook_url, vacancy, b24_row)
+    tz = slot_settings["tz"]
 
     try:
         free_slots = await calculate_free_slots(
@@ -369,10 +401,6 @@ async def book_schedule_slot(
             detail={"error": {"code": "B24_NOT_CONFIGURED", "message": "Битрикс24 не настроен"}},
         )
 
-    slot_settings = _get_slot_settings(b24_row)
-    tz = slot_settings["tz"]
-    video_link = slot_settings.get("interview_video_link", "")
-
     b24_ids, unmapped = _collect_b24_user_ids(vacancy)
     if unmapped:
         raise HTTPException(
@@ -381,6 +409,9 @@ async def book_schedule_slot(
         )
 
     webhook_url = decrypt_text(b24_row.config["webhook_url"])
+    slot_settings = await _resolve_slot_settings(webhook_url, vacancy, b24_row)
+    tz = slot_settings["tz"]
+    video_link = slot_settings.get("interview_video_link", "")
 
     # Нормализуем slot_from/slot_to в UTC-aware
     slot_from = body.slot_from
