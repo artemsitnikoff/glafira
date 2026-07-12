@@ -706,14 +706,21 @@ async def book_schedule_slot(
     _company_id = link.company_id
     _vac_name = vacancy.name
 
-    # Event + audit
-    slot_text = slot_from.strftime("%Y-%m-%d %H:%M UTC")
+    # Event + audit. Время фиксируем В ПОЯСЕ КОМПАНИИ (то, что выбрал кандидат), не UTC,
+    # и вписываем видео-ссылку — всё это видно в ленте «Все действия» карточки.
+    slot_local_str = slot_from.astimezone(tz_info).strftime("%d.%m.%Y %H:%M") + f" ({tz})"
+    ev_text = (
+        f"Кандидат {candidate_name} выбрал время интервью: {slot_local_str} "
+        f"(вакансия: {vacancy.name})."
+    )
+    if video_link:
+        ev_text += f" Ссылка на видеовстречу: {video_link}"
     session.add(Event(
         company_id=link.company_id,
         type="interview",
         actor_type="system",
         actor_user_id=None,
-        text=f"Встреча назначена: {slot_text}. Кандидат: {candidate_name}, вакансия: {vacancy.name}.",
+        text=ev_text,
         entities=[],
         candidate_id=candidate.id if candidate else None,
         vacancy_id=vacancy.id,
@@ -726,6 +733,8 @@ async def book_schedule_slot(
         after={
             "slot_from": slot_from.isoformat(),
             "slot_to": slot_to.isoformat(),
+            "slot_local": slot_local_str,
+            "video_link": video_link or None,
             "b24_event_id": b24_event_id,
             "candidate_id": str(candidate.id) if candidate else None,
             "vacancy_id": str(vacancy.id),
