@@ -146,11 +146,11 @@ async def send_interview_links(
             session.add(Event(
                 company_id=company_id,
                 type="interview",
-                actor_type="system",
+                actor_type="ai",
                 actor_user_id=None,
                 text=(
-                    f"Ссылка на интервью НЕ отправлена: не замаплен b24_user_id "
-                    f"для участников: {unmapped_names}. "
+                    f"Автоматизация: ссылка на интервью НЕ отправлена — не привязаны к "
+                    f"Битрикс24 участники: {unmapped_names}. "
                     f"Кандидат: {candidate.full_name}, вакансия: {vacancy.name}."
                 ),
                 entities=[],
@@ -219,11 +219,11 @@ async def send_interview_links(
         session.add(Event(
             company_id=company_id,
             type="interview",
-            actor_type="system",
+            actor_type="ai",
             actor_user_id=None,
             text=(
-                f"Ссылка на запись интервью отправлена кандидату {candidate.full_name} "
-                f"(вакансия: {vacancy.name})."
+                f"Автоматизация: Глафира отправила кандидату {candidate.full_name} "
+                f"ссылку для записи на интервью (вакансия: {vacancy.name})."
             ),
             entities=[],
             candidate_id=candidate.id,

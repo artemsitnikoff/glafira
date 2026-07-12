@@ -23,7 +23,7 @@ from uuid import UUID
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...models import Application, Vacancy, Candidate, AiEvaluation, Message
+from ...models import Application, Vacancy, Candidate, AiEvaluation, Message, Event
 from ...schemas.application import MoveRequest, RejectRequest
 from ...services.audit import audit
 from ...services.application import move_application, reject_application
@@ -163,6 +163,22 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
             channel="hh", direction="out", sender_type="ai", sender_user_id=None,
             body=body, sent_at=now, created_at=now,
             external_id=str(resp.get("id", "")),
+        ))
+        # Автоматизация → лента «Все действия» (вид автоматизации + что произошло).
+        session.add(Event(
+            company_id=company_id,
+            type="qual",
+            actor_type="ai",
+            actor_user_id=None,
+            text=(
+                f"Автоматизация: Глафира задала кандидату {candidate.full_name} "
+                f"уточняющие вопросы ("
+                + ("по слабым местам резюме" if (vacancy.auto_qa_mode or "weak") == "weak" else "заготовленные")
+                + ")."
+            ),
+            entities=[],
+            candidate_id=candidate.id,
+            vacancy_id=app.vacancy_id,
         ))
         app.auto_qa_asked_at = now  # анти-зацикливание: задаём ОДИН раз
         await audit(
