@@ -13,6 +13,7 @@
 - Честная ошибка при незамапленных участниках (не рассылаем с пустыми данными).
 """
 
+import html as _html
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models import Application, Vacancy, Candidate, User, Event, Integration, InterviewLink, VacancyTeam
 from ...services.audit import audit
 from ...services.integrations.smtp.service import send_email
+from ...services.integrations.smtp.templates import render_simple_email
 from ...config import settings
 
 logger = logging.getLogger(__name__)
@@ -214,12 +216,40 @@ async def send_interview_links(
                         f"\n\nСсылка на видеовстречу: {slot_settings['interview_video_link']}"
                     )
 
+                # Брендированный HTML (шаблон Глафиры) — всегда используем красивый шаблон,
+                # body_text остаётся как фолбэк для клиентов без HTML.
+                _vac = _html.escape(vacancy.name or "")
+                _url = _html.escape(schedule_url)
+                _inner = (
+                    f'<p style="margin:0 0 14px;">Приглашаем вас на интервью по вакансии '
+                    f'<strong style="color:#0F1620;font-weight:600;">«{_vac}»</strong>. '
+                    f'Выберите удобное время — Глафира подберёт свободные слоты команды.</p>'
+                    f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 6px;"><tr>'
+                    f'<td style="border-radius:8px;background:#2A8AF0;"><a href="{_url}" target="_blank" '
+                    f'style="display:inline-block;font-family:\'Inter\',Arial,sans-serif;font-size:15px;'
+                    f'font-weight:600;color:#FFFFFF;padding:13px 26px;border-radius:8px;">Выбрать время интервью</a></td>'
+                    f'</tr></table>'
+                    f'<p style="margin:14px 0 0;font-size:13px;color:#5B6573;">Ссылка действительна {horizon_days} дней.</p>'
+                )
+                if slot_settings["interview_video_link"]:
+                    _vlink = _html.escape(slot_settings["interview_video_link"])
+                    _inner += (
+                        f'<p style="margin:10px 0 0;font-size:13px;color:#5B6573;">'
+                        f'Ссылка на видеовстречу: <a href="{_vlink}">{_vlink}</a></p>'
+                    )
+                body_html = render_simple_email(
+                    f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!",
+                    _inner,
+                    preheader=f"Приглашение на интервью по вакансии {vacancy.name}",
+                )
+
                 await send_email(
                     session,
                     company_id,
                     to=candidate.email,
                     subject=f"Запись на интервью: {vacancy.name}",
                     body_text=body_text,
+                    body_html=body_html,
                 )
         except Exception as e:
             logger.warning(

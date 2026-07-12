@@ -216,7 +216,7 @@ export default function SchedulePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await publicClient.get<ScheduleInfo>(`/schedule/${token}`);
+        const res = await publicClient.get<ScheduleInfo>(`/public/schedule/${token}`);
         if (cancelled) return;
         setInfo(res.data);
         if (res.data.status === 'booked' && res.data.slot_from) {
@@ -241,7 +241,7 @@ export default function SchedulePage() {
     setSlotsError(false);
     setLoadingSlots(true);
     publicClient
-      .get<{ slots: Slot[]; tz: string }>(`/schedule/${token}/slots`)
+      .get<{ slots: Slot[]; tz: string }>(`/public/schedule/${token}/slots`)
       .then((res) => {
         const slotsArr = res.data?.slots ?? [];
         setSlots(slotsArr);
@@ -284,7 +284,7 @@ export default function SchedulePage() {
     if (!selectedSlot || !token) return;
     setBooking(true);
     try {
-      const res = await publicClient.post<{ video_link?: string | null }>(`/schedule/${token}/book`, {
+      const res = await publicClient.post<{ video_link?: string | null }>(`/public/schedule/${token}/book`, {
         slot_from: selectedSlot.from_utc,
         slot_to: selectedSlot.to_utc,
       });
