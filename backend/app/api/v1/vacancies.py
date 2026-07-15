@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
-from ...core.errors import ForbiddenError
+from ...core.errors import ForbiddenError, ValidationError
 from ...core.permissions import is_user_assigned_to_vacancy
 from ...services.integrations.hh import service as hh_service
 from ...schemas.vacancy import (
@@ -245,6 +245,13 @@ async def create_new_vacancy(
     if current_user.role == "manager":
         raise ForbiddenError("Менеджеры не могут создавать вакансии")
 
+    # Заказчик обязателен: его название Глафира называет кандидату во всех сообщениях.
+    # ⚠️ Валидация ТОЛЬКО здесь (в HTTP-роуте), НЕ в схеме и НЕ в БД: импорт вакансий с
+    # hh зовёт create_vacancy напрямую, без клиента, и ломаться не должен; старые
+    # вакансии без заказчика работают через фолбэк на компанию-арендатора.
+    if vacancy_data.client_id is None:
+        raise ValidationError("Укажите заказчика вакансии — его название Глафира называет кандидату.")
+
     vacancy = await create_vacancy(session, vacancy_data, company_id, current_user.id)
     await session.commit()
 
@@ -294,6 +301,11 @@ async def update_vacancy_by_id(
     if current_user.role == "manager":
         if not await is_user_assigned_to_vacancy(session, current_user.id, vacancy_id, company_id):
             raise ForbiddenError("Нет доступа к данной вакансии")
+
+    # Заказчика нельзя снять в None ЯВНЫМ PATCH (см. create). Поле НЕ прислано —
+    # не трогаем: старые вакансии без заказчика продолжают редактироваться.
+    if 'client_id' in vacancy_data.model_fields_set and vacancy_data.client_id is None:
+        raise ValidationError("Укажите заказчика вакансии — его название Глафира называет кандидату.")
 
     vacancy = await update_vacancy(session, vacancy_id, vacancy_data, company_id, current_user.id)
     await session.commit()

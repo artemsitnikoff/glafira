@@ -13,6 +13,7 @@ from ..settings.glafira import get_company_openrouter_key
 from ...core.errors import NotFoundError, GlafiraParseError
 from ...models import Application, Candidate, Vacancy, Message, Event, GlafiraSettings
 from ...services.audit import audit
+from ...services.company_display import resolve_company_display_name
 
 
 def _get_tone_description(tone: str) -> str:
@@ -98,8 +99,13 @@ async def start_screening(
         use_informal = glafira_settings.use_informal
         emoji_level = glafira_settings.emoji_level
 
+    # Компания вакансии (заказчик → фолбэк на арендатора): Глафира должна называть
+    # кандидату компанию, для которой ведёт подбор. Без вакансии — компания-арендатор.
+    company_name = await resolve_company_display_name(session, company_id, vacancy)
+
     # Build system prompt
     system_prompt = SCREENING_SYSTEM_PROMPT_TEMPLATE.format(
+        company_name=company_name,
         tone=tone,
         tone_description=_get_tone_description(tone),
         address_mode=_get_address_mode(use_informal),
@@ -108,9 +114,9 @@ async def start_screening(
 
     # Create user prompt
     if vacancy is not None:
-        context_text = f'на вакансию "{vacancy.name}"'
+        context_text = f'на вакансию "{vacancy.name}" компании «{company_name}»'
     else:
-        context_text = "(общий скрининг)"
+        context_text = f'(общий скрининг, компания «{company_name}»)'
 
     user_prompt = f"""Начни скрининг кандидата {context_text}.
 
@@ -268,8 +274,26 @@ async def reply_screening(
         use_informal = glafira_settings.use_informal
         emoji_level = glafira_settings.emoji_level
 
+    # Компания вакансии. В этой функции вакансии в скоупе НЕТ (есть только кандидат),
+    # поэтому догружаем ПОСЛЕДНЮЮ заявку кандидата (company-scoped!) и её вакансию.
+    # Заявок нет → хелпер отдаст компанию-арендатора. Глафира не должна вести диалог,
+    # не зная, для какой компании она ведёт подбор.
+    last_vacancy = (await session.execute(
+        select(Vacancy)
+        .join(Application, Application.vacancy_id == Vacancy.id)
+        .where(
+            Application.candidate_id == candidate.id,
+            Application.company_id == company_id,
+            Vacancy.company_id == company_id,
+        )
+        .order_by(Application.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    company_name = await resolve_company_display_name(session, company_id, last_vacancy)
+
     # Build system prompt
     system_prompt = SCREENING_SYSTEM_PROMPT_TEMPLATE.format(
+        company_name=company_name,
         tone=tone,
         tone_description=_get_tone_description(tone),
         address_mode=_get_address_mode(use_informal),
@@ -285,7 +309,7 @@ async def reply_screening(
     # Add current candidate message to history
     conversation_history.append(f"{candidate.full_name}: {message}")
 
-    user_prompt = f"""Продолжи скрининг кандидата {candidate.full_name}.
+    user_prompt = f"""Продолжи скрининг кандидата {candidate.full_name} для компании «{company_name}».
 
 История беседы:
 {chr(10).join(conversation_history)}

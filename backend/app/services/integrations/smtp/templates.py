@@ -12,9 +12,23 @@ import html as _html
 LOGIN_URL = "https://glafira.dclouds.ru/login"
 
 
-def _email_shell(content_html: str, preheader: str = "") -> str:
-    """Оборачивает контент письма в общий хедер (бренд) + подпись + футер."""
+def _email_shell(content_html: str, preheader: str = "", company_name: str = "") -> str:
+    """Оборачивает контент письма в общий хедер (бренд) + подпись + футер.
+
+    company_name — компания ВАКАНСИИ (заказчик агентства или сам арендатор). Задан →
+    шапка «Глафира · <Компания>» и подпись «Глафира — подбор персонала «<Компания>»».
+    Пусто (служебные письма: доступ к аккаунту, тест SMTP) → прежний обезличенный
+    бренд «Глафира Рекрутёр» / «Команда Глафира Рекрутёр».
+    """
     pre = _html.escape(preheader)
+    company = (company_name or "").strip()
+    company_e = _html.escape(company)
+    # Шапка: бренд + компания вакансии (если известна).
+    brand_suffix = f"&nbsp;· {company_e}" if company else "&nbsp;Рекрутёр"
+    # Подпись: с компанией — от лица подбора этой компании, иначе прежняя.
+    signature = (
+        f"Глафира — подбор персонала «{company_e}»" if company else "Команда Глафира Рекрутёр"
+    )
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -32,7 +46,7 @@ def _email_shell(content_html: str, preheader: str = "") -> str:
           <td style="width:32px;height:32px;border-radius:8px;background:#FFD2E8;background-image:linear-gradient(135deg,#FFD2E8 0%,#FFB1D6 100%);text-align:center;vertical-align:middle;font-size:19px;line-height:32px;">👩🏻</td>
           <td style="padding-left:10px;vertical-align:middle;">
             <span style="font-family:'Inter',Arial,sans-serif;font-size:16px;font-weight:700;letter-spacing:-0.01em;color:#0F1620;">Глафира</span>
-            <span style="font-family:'Inter',Arial,sans-serif;font-size:16px;font-weight:500;letter-spacing:-0.01em;color:#9AA3AE;">&nbsp;Рекрутёр</span>
+            <span style="font-family:'Inter',Arial,sans-serif;font-size:16px;font-weight:500;letter-spacing:-0.01em;color:#9AA3AE;">{brand_suffix}</span>
           </td>
         </tr></table>
       </td></tr>
@@ -40,7 +54,7 @@ def _email_shell(content_html: str, preheader: str = "") -> str:
       <tr><td style="padding:28px 40px 0;"><div style="border-top:1px solid #ECEFF2;height:1px;line-height:1px;font-size:0;">&nbsp;</div></td></tr>
       <tr><td style="padding:22px 40px 32px;">
         <p style="margin:0 0 3px;font-family:'Inter',Arial,sans-serif;font-size:14px;line-height:1.5;color:#3A4452;">С уважением,</p>
-        <p style="margin:0;font-family:'Inter',Arial,sans-serif;font-size:14px;font-weight:600;line-height:1.5;color:#0F1620;">Команда Глафира Рекрутёр</p>
+        <p style="margin:0;font-family:'Inter',Arial,sans-serif;font-size:14px;font-weight:600;line-height:1.5;color:#0F1620;">{signature}</p>
       </td></tr>
     </table>
     <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:560px;">
@@ -99,10 +113,14 @@ def render_credentials_email(full_name: str, login: str, temp_password: str, log
     return _email_shell(content, preheader="Для вас создан аккаунт в системе Глафира Рекрутёр. Данные для входа внутри.")
 
 
-def render_simple_email(heading: str, body_html: str, preheader: str = "") -> str:
+def render_simple_email(
+    heading: str, body_html: str, preheader: str = "", company_name: str = ""
+) -> str:
     """Универсальное письмо: заголовок + произвольный HTML-контент кода.
 
     body_html — внутренний HTML (формируется кодом, НЕ пользовательский ввод).
+    company_name — компания вакансии для шапки/подписи (см. `_email_shell`).
+    Служебные письма (не про конкретную вакансию) компанию НЕ передают.
     """
     content = f"""
       <tr><td style="padding:34px 40px 8px;">
@@ -110,4 +128,4 @@ def render_simple_email(heading: str, body_html: str, preheader: str = "") -> st
         <div style="font-family:'Inter',Arial,sans-serif;font-size:15px;line-height:1.6;color:#3A4452;">{body_html}</div>
       </td></tr>
     """
-    return _email_shell(content, preheader=preheader or heading)
+    return _email_shell(content, preheader=preheader or heading, company_name=company_name)

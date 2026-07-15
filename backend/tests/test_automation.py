@@ -10,13 +10,15 @@ from unittest.mock import AsyncMock, patch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Application, Vacancy, StageHistory, GlafiraSettings, VacancyStage
+from app.models import Application, Vacancy, StageHistory, GlafiraSettings, VacancyStage, Client
 from app.schemas.application import MoveRequest
 from app.schemas.vacancy import VacancyCreate, VacancyUpdate
 from app.services.application import move_application
 from app.services.vacancy import create_vacancy, update_vacancy, get_vacancy
 from app.services.glafira.scoring import score_candidate
-from app.services.integrations.hh.service import resolve_rejection_text, POLITE_REJECTION_TEXT
+from app.services.integrations.hh.service import (
+    resolve_rejection_text, build_polite_rejection_text,
+)
 
 
 def _mock_score(score: int, verdict: str = "good") -> dict:
@@ -198,13 +200,49 @@ async def test_resolve_rejection_text_falls_back_to_company_default(db_session: 
 
 
 async def test_resolve_rejection_text_builtin_fallback(db_session: AsyncSession, admin_user):
-    """Нет ни текста вакансии, ни дефолта → встроенный POLITE_REJECTION_TEXT."""
+    """Нет ни текста вакансии, ни дефолта → встроенный fallback С вакансией и компанией.
+
+    Компании-заказчика у вакансии нет → фолбэк на компанию-арендатора («Test Company»).
+    """
     cid = admin_user.company_id
     db_session.add(GlafiraSettings(company_id=cid, default_rejection_text=None))
     vac = await _make_vacancy(db_session, cid, rejection_text=None)
     await db_session.flush()
 
-    assert await resolve_rejection_text(db_session, cid, vac.id) == POLITE_REJECTION_TEXT
+    text = await resolve_rejection_text(db_session, cid, vac.id)
+    assert text == build_polite_rejection_text(vac.name, "Test Company")
+    assert f"«{vac.name}»" in text
+    assert "«Test Company»" in text
+
+
+async def test_resolve_rejection_text_builtin_fallback_names_client(
+    db_session: AsyncSession, admin_user
+):
+    """У вакансии есть заказчик → встроенный fallback называет ЕГО, не арендатора."""
+    cid = admin_user.company_id
+    client = Client(company_id=cid, name="ООО Диджитал Клаудс")
+    db_session.add(client)
+    await db_session.flush()
+    vac = await _make_vacancy(db_session, cid, rejection_text=None, client_id=client.id)
+    await db_session.flush()
+
+    text = await resolve_rejection_text(db_session, cid, vac.id)
+    assert "«ООО Диджитал Клаудс»" in text
+    assert "Test Company" not in text
+
+
+async def test_resolve_rejection_text_custom_is_not_decorated_with_company(
+    db_session: AsyncSession, admin_user
+):
+    """⚠️ Кастомный текст РЕКРУТЁРА отдаётся как есть — компанию к нему НЕ приписываем."""
+    cid = admin_user.company_id
+    client = Client(company_id=cid, name="ООО Диджитал Клаудс")
+    db_session.add(client)
+    await db_session.flush()
+    vac = await _make_vacancy(db_session, cid, rejection_text="Мой текст", client_id=client.id)
+    await db_session.flush()
+
+    assert await resolve_rejection_text(db_session, cid, vac.id) == "Мой текст"
 
 
 # ===== Персист автополей через сервис =====

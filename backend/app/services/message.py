@@ -14,6 +14,7 @@ from ..schemas.message import MessageOut, MessageCreate
 from ..schemas.base import Paginated
 from ..services.audit import audit
 from ..services.chat_log import log_chat
+from ..services.company_display import resolve_company_display_name
 from ..services.integrations.hh import client as hh_client
 from ..services.integrations.hh.service import get_valid_access_token
 from ..services.integrations.smtp.service import send_email
@@ -278,16 +279,32 @@ async def _send_email(session, company_id, candidate, message_data, validated_ap
     """Реальная отправка письма кандидату через SMTP-ядро + единый шаблон писем."""
     if not candidate.email:
         raise ValidationError("Канал email недоступен: у кандидата нет email")
-    subject = (
-        f"Сообщение по вакансии «{validated_application.vacancy.name}»"
+
+    # Компания вакансии (заказчик → фолбэк на арендатора). Вакансия известна только при
+    # attached application; без неё вакансию не назвать — письмо остаётся обезличенным
+    # (не выдумываем компанию для «сообщения вообще»).
+    vacancy = (
+        validated_application.vacancy
         if validated_application and validated_application.vacancy
-        else "Новое сообщение от работодателя"
+        else None
     )
+    company_name = ""
+    if vacancy is not None:
+        company_name = await resolve_company_display_name(session, company_id, vacancy)
+        subject = (
+            f"Сообщение по вакансии «{vacancy.name}» — {company_name}"
+            if company_name
+            else f"Сообщение по вакансии «{vacancy.name}»"
+        )
+    else:
+        subject = "Новое сообщение от работодателя"
+
     safe_body = html.escape(message_data.body).replace("\n", "<br>")
     body_html = render_simple_email(
         heading="Новое сообщение",
         body_html=f'<p style="margin:0;font-size:15px;line-height:1.6;color:#1A1F29;">{safe_body}</p>',
         preheader=message_data.body[:120],
+        company_name=company_name,
     )
     await send_email(
         session,

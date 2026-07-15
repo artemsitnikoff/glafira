@@ -19,6 +19,7 @@ from ....config import settings
 from ....services.settings.crypto import encrypt_text, decrypt_text
 from ....services.audit import audit
 from ....services.chat_log import log_chat
+from ....services.company_display import resolve_company_display_name
 from ....services.storage import storage_service
 from ....core.errors import ValidationError, NotFoundError
 from ....services.phone import normalize_phone
@@ -1421,31 +1422,59 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
     return stats
 
 
-# Константа вежливого текста отказа (fallback)
-POLITE_REJECTION_TEXT = (
-    "Здравствуйте! Благодарим за интерес к нашей вакансии и время, уделённое отклику. "
-    "К сожалению, по итогам рассмотрения мы приняли решение не продолжать общение по этой позиции. "
-    "Это не оценка вас как специалиста — на данном этапе мы остановились на другой кандидатуре. "
-    "Желаем успехов в поиске работы и будем рады видеть ваш отклик на наши будущие вакансии!"
-)
+def build_polite_rejection_text(vacancy_name: str = "", company_name: str = "") -> str:
+    """Встроенный вежливый текст отказа (fallback), названный по вакансии и компании.
+
+    ⚠️ Это ТОЛЬКО fallback. Кастомный `vacancy.rejection_text` и
+    `glafira_settings.default_rejection_text` — текст РЕКРУТЁРА, его не трогаем и
+    ничем не дополняем (см. `resolve_rejection_text`).
+
+    Без vacancy_name/company_name (напр. вакансия не найдена) деградирует к прежней
+    обезличенной формулировке — пустых «кавычек-дырок» кандидату не уходит.
+    """
+    if vacancy_name and company_name:
+        opening = (
+            f"Благодарим за интерес к вакансии «{vacancy_name}» компании «{company_name}» "
+            f"и время, уделённое отклику."
+        )
+    elif vacancy_name:
+        opening = f"Благодарим за интерес к вакансии «{vacancy_name}» и время, уделённое отклику."
+    elif company_name:
+        opening = (
+            f"Благодарим за интерес к вакансии компании «{company_name}» "
+            f"и время, уделённое отклику."
+        )
+    else:
+        opening = "Благодарим за интерес к нашей вакансии и время, уделённое отклику."
+    return (
+        f"Здравствуйте! {opening} "
+        "К сожалению, по итогам рассмотрения мы приняли решение не продолжать общение по этой позиции. "
+        "Это не оценка вас как специалиста — на данном этапе мы остановились на другой кандидатуре. "
+        "Желаем успехов в поиске работы и будем рады видеть ваш отклик на наши будущие вакансии!"
+    )
+
+
+# Обезличенный вариант встроенного текста (без вакансии/компании) — деградация,
+# когда вакансию определить не удалось.
+POLITE_REJECTION_TEXT = build_polite_rejection_text()
 
 
 async def resolve_rejection_text(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> str:
     """
     Возвращает настраиваемый текст отказа с приоритетом:
-    1. vacancy.rejection_text (непустой)
-    2. glafira_settings.default_rejection_text (непустой)
-    3. встроенный POLITE_REJECTION_TEXT (fallback)
+    1. vacancy.rejection_text (непустой) — текст рекрутёра, отдаём КАК ЕСТЬ
+    2. glafira_settings.default_rejection_text (непустой) — тоже текст рекрутёра, КАК ЕСТЬ
+    3. встроенный fallback — с названием вакансии и компании (заказчик → арендатор)
     """
-    # Получаем текст из вакансии
-    vacancy_result = await session.execute(
-        select(Vacancy.rejection_text).where(
+    # Вакансия целиком: нужны rejection_text (приоритет 1), name и client_id (fallback).
+    vacancy = (await session.execute(
+        select(Vacancy).where(
             Vacancy.id == vacancy_id,
             Vacancy.company_id == company_id
         )
-    )
-    vacancy_rejection_text = vacancy_result.scalar_one_or_none()
+    )).scalar_one_or_none()
 
+    vacancy_rejection_text = vacancy.rejection_text if vacancy else None
     if vacancy_rejection_text and vacancy_rejection_text.strip():
         return vacancy_rejection_text.strip()
 
@@ -1460,8 +1489,9 @@ async def resolve_rejection_text(session: AsyncSession, company_id: UUID, vacanc
     if default_rejection_text and default_rejection_text.strip():
         return default_rejection_text.strip()
 
-    # Fallback на встроенный текст
-    return POLITE_REJECTION_TEXT
+    # Fallback на встроенный текст — с вакансией и компанией.
+    company_name = await resolve_company_display_name(session, company_id, vacancy)
+    return build_polite_rejection_text(vacancy.name if vacancy else "", company_name)
 
 
 async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit: int = 20) -> dict:

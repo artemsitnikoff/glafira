@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models import Application, Vacancy, Candidate, AiEvaluation, Message, Event
 from ...schemas.application import MoveRequest, RejectRequest
 from ...services.audit import audit
+from ...services.company_display import resolve_company_display_name
 from ...services.application import move_application, reject_application
 from ...services.settings.reject_reasons import list_reject_reasons
 from ...services.integrations.hh import client as hh_client
@@ -66,10 +67,23 @@ def _first_name(full_name: str | None) -> str:
     return parts[0] if parts else "коллега"
 
 
-def _compose_questions_message(candidate: Candidate, vacancy: Vacancy, questions: list[str]) -> str:
+def _compose_questions_message(
+    candidate: Candidate, vacancy: Vacancy, questions: list[str], company_name: str = ""
+) -> str:
+    """Текст уточняющих вопросов кандидату.
+
+    company_name — компания вакансии (заказчик → фолбэк на арендатора). Резолвится
+    вызывающим (функция синхронная, лезть в БД тут нельзя). Пусто → знакомство без
+    компании (обезличенно), но такого быть не должно: хелпер даёт фолбэк.
+    """
+    intro = (
+        f"Меня зовут Глафира, я ассистент по подбору в компании «{company_name}»."
+        if company_name
+        else "Меня зовут Глафира, я ассистент по подбору."
+    )
     lines = [
-        f"Здравствуйте, {_first_name(candidate.full_name)}! Меня зовут Глафира, я ассистент по "
-        f"подбору. Спасибо за отклик на вакансию «{vacancy.name}». Чтобы лучше понять ваш опыт, "
+        f"Здравствуйте, {_first_name(candidate.full_name)}! {intro} "
+        f"Спасибо за отклик на вакансию «{vacancy.name}». Чтобы лучше понять ваш опыт, "
         f"уточните, пожалуйста, пару моментов:",
         "",
     ]
@@ -133,7 +147,9 @@ async def ask_auto_qa_questions(session: AsyncSession, company_id: UUID, *, limi
             if not questions:
                 stats["skipped_no_questions"] += 1  # нечего спрашивать — НЕ шлём пустое/генерик
                 continue
-            body = _compose_questions_message(candidate, vacancy, questions)
+            # Компания вакансии для знакомства («…ассистент по подбору в компании «X»»).
+            company_name = await resolve_company_display_name(session, company_id, vacancy)
+            body = _compose_questions_message(candidate, vacancy, questions, company_name)
 
         # Резолвим chat_id (лениво)
         chat_id = app.hh_chat_id

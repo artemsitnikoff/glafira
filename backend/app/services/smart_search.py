@@ -27,6 +27,7 @@ from ..services.glafira.scoring import score_resume_dict, _strip_html
 from ..services.glafira.client import call_json
 from ..services.settings.glafira import get_company_openrouter_key, get_company_llm_model
 from ..services.audit import audit
+from ..services.company_display import resolve_company_display_name
 from ..services.phone import normalize_phone
 from ..services.photo_proxy import build_photo_proxy_url
 from .smart_search_log import log_smart_search, log_and_append_to_run
@@ -1357,6 +1358,10 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     # Сохраняем данные для использования вне сессии
     vacancy_id = vacancy.id
     hh_vacancy_id = vacancy.hh_vacancy_id
+    # Компания вакансии (заказчик → фолбэк на арендатора) — резолвим ЗДЕСЬ, пока сессия
+    # открыта и vacancy под рукой. В цикл ниже уходит уже готовой СТРОКОЙ: там сессии
+    # нет по замыслу (сетевые вызовы hh без открытой транзакции).
+    invite_company_name = await resolve_company_display_name(session, company_id, vacancy)
 
     # ФИКС: освобождаем request-сессию перед входом в сетевой цикл
     # (коммит завершает транзакцию и возвращает коннект в пул)
@@ -1408,7 +1413,10 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
                         access_token,
                         resume_id,
                         hh_vacancy_id,
-                        message="Приглашение от Глафира Рекрутёр"
+                        message=(
+                            f"Приглашение от «{invite_company_name}»"
+                            if invite_company_name else "Приглашение от Глафира Рекрутёр"
+                        ),
                     ),
                     timeout=25
                 )

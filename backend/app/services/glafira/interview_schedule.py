@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Application, Vacancy, Candidate, User, Event, Integration, InterviewLink, VacancyTeam
 from ...services.audit import audit
+from ...services.company_display import resolve_company_display_name
 from ...services.integrations.smtp.service import send_email
 from ...services.integrations.smtp.templates import render_simple_email
 from ...config import settings
@@ -202,12 +203,21 @@ async def send_interview_links(
         # Формируем ссылку (FRONTEND_BASE_URL для публичной страницы)
         schedule_url = f"{settings.FRONTEND_BASE_URL}/schedule/{token}"
 
+        # Компания вакансии (заказчик → фолбэк на арендатора) — кандидат должен видеть,
+        # КУДА его зовут, а не только «Глафиру».
+        company_name = await resolve_company_display_name(session, company_id, vacancy)
+
+        # Хелпер всегда даёт название (заказчик → арендатор); "" практически недостижимо
+        # (Company.name NOT NULL) — но дырку «в компанию «»» кандидату не показываем.
+        _co_text = f"в компанию «{company_name}» " if company_name else ""
+
         # Шлём email кандидату (если есть email и настроен SMTP)
         try:
             if candidate.email:
                 body_text = (
                     f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!\n\n"
-                    f"Приглашаем вас на интервью по вакансии «{vacancy.name}».\n\n"
+                    f"Приглашаем вас на интервью {_co_text}"
+                    f"на вакансию «{vacancy.name}».\n\n"
                     f"Для выбора удобного времени перейдите по ссылке:\n{schedule_url}\n\n"
                     f"Ссылка действительна {horizon_days} дней."
                 )
@@ -219,10 +229,15 @@ async def send_interview_links(
                 # Брендированный HTML (шаблон Глафиры) — всегда используем красивый шаблон,
                 # body_text остаётся как фолбэк для клиентов без HTML.
                 _vac = _html.escape(vacancy.name or "")
+                _company = _html.escape(company_name)
                 _url = _html.escape(schedule_url)
+                _co_html = (
+                    f'в компанию <strong style="color:#0F1620;font-weight:600;">«{_company}»</strong> '
+                    if _company else ''
+                )
                 _inner = (
-                    f'<p style="margin:0 0 14px;">Приглашаем вас на интервью по вакансии '
-                    f'<strong style="color:#0F1620;font-weight:600;">«{_vac}»</strong>. '
+                    f'<p style="margin:0 0 14px;">Приглашаем вас на интервью {_co_html}'
+                    f'на вакансию <strong style="color:#0F1620;font-weight:600;">«{_vac}»</strong>. '
                     f'Выберите удобное время — Глафира подберёт свободные слоты команды.</p>'
                     f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 6px;"><tr>'
                     f'<td style="border-radius:8px;background:#2A8AF0;"><a href="{_url}" target="_blank" '
@@ -240,14 +255,20 @@ async def send_interview_links(
                 body_html = render_simple_email(
                     f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!",
                     _inner,
-                    preheader=f"Приглашение на интервью по вакансии {vacancy.name}",
+                    preheader=(
+                        f"Приглашение на интервью {_co_text}на вакансию {vacancy.name}"
+                    ),
+                    company_name=company_name,
                 )
 
                 await send_email(
                     session,
                     company_id,
                     to=candidate.email,
-                    subject=f"Запись на интервью: {vacancy.name}",
+                    subject=(
+                        f"Запись на интервью: {vacancy.name} — {company_name}"
+                        if company_name else f"Запись на интервью: {vacancy.name}"
+                    ),
                     body_text=body_text,
                     body_html=body_html,
                 )

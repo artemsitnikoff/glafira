@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timezone
 from sqlalchemy import select
 
-from app.services.integrations.hh.service import sync_company_rejections, POLITE_REJECTION_TEXT
+from app.services.integrations.hh.service import (
+    sync_company_rejections, build_polite_rejection_text,
+)
 from app.models import Application, Candidate, Message
 
 
@@ -53,9 +55,13 @@ class TestHhRejectionSync:
             assert stats["failed"] == 0
             assert stats["skipped_no_token"] == 0
 
+            # Встроенный текст отказа теперь называет вакансию и компанию (у вакансии
+            # нет заказчика → компания-арендатор).
+            expected_text = build_polite_rejection_text(test_vacancy.name, test_company.name)
+
             # Проверяем вызовы hh-клиента
             mock_discard.assert_called_once_with("test_token", "test_nego_123")
-            mock_send_msg.assert_called_once_with("test_token", "test_chat_456", POLITE_REJECTION_TEXT)
+            mock_send_msg.assert_called_once_with("test_token", "test_chat_456", expected_text)
 
             # Проверяем обновление application
             await db_session.refresh(application)
@@ -72,7 +78,7 @@ class TestHhRejectionSync:
             message = messages.scalar_one_or_none()
             assert message is not None
             assert message.sender_type == "ai"
-            assert message.body == POLITE_REJECTION_TEXT
+            assert message.body == expected_text
             assert message.external_id == "msg_789"
 
     @pytest.mark.asyncio
@@ -116,7 +122,8 @@ class TestHhRejectionSync:
             assert application.hh_chat_id == "resolved_chat_789"
 
             # Проверяем отправку сообщения с полученным chat_id
-            mock_send_msg.assert_called_once_with("test_token", "resolved_chat_789", POLITE_REJECTION_TEXT)
+            expected_text = build_polite_rejection_text(test_vacancy.name, test_company.name)
+            mock_send_msg.assert_called_once_with("test_token", "resolved_chat_789", expected_text)
 
             assert stats["discarded"] == 1
 

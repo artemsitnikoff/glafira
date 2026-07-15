@@ -26,6 +26,7 @@ from ...models import (
     Application, Candidate, Company, Integration, InterviewLink, User, Vacancy, VacancyTeam, Event
 )
 from ...services.audit import audit
+from ...services.company_display import resolve_company_display_name
 from ...services.integrations.bitrix24 import client as b24_client
 from ...services.integrations.bitrix24.interview_slots import (
     calculate_free_slots, invalidate_cache,
@@ -80,6 +81,9 @@ class ParticipantOut(BaseModel):
 class ScheduleInfoResponse(BaseModel):
     status: str  # 'active' | 'booked' | 'expired'
     vacancy_name: str
+    # Компания вакансии (заказчик → фолбэк на арендатора). Кандидат должен видеть,
+    # куда его зовут. Публично безопасно: имя компании и так в тексте письма.
+    company_name: str
     recruiter_name: str
     participants: list[ParticipantOut]
     tz: str
@@ -362,10 +366,12 @@ async def get_schedule_info(
 
     recruiter = _get_recruiter(vacancy)
     participants = _collect_participants(vacancy)
+    company_name = await resolve_company_display_name(session, link.company_id, vacancy)
 
     return ScheduleInfoResponse(
         status=link.status,
         vacancy_name=vacancy.name,
+        company_name=company_name,
         recruiter_name=recruiter.full_name if recruiter else "",
         participants=[
             ParticipantOut(name=u.full_name, avatar_url=u.avatar_url)
@@ -553,18 +559,27 @@ async def book_schedule_slot(
     # ICS-письмом ниже.
     candidate_name = candidate.full_name if candidate else "Кандидат"
 
+    # Компания вакансии (заказчик → фолбэк на арендатора). Резолвим ОДИН раз: идёт в
+    # письмо/ICS кандидату, в событие Б24 и в hh-чат.
+    company_name = await resolve_company_display_name(session, link.company_id, vacancy)
+
+    # Заголовки для команды: вакансия + компания (у агентства сотни заказчиков —
+    # без компании в календаре не разобрать, чьё это интервью).
+    _title_vac = f"{vacancy.name} ({company_name})" if company_name else vacancy.name
+
     # Видео-ссылка: ручная из конфига имеет приоритет; иначе авто-генерим УНИКАЛЬНУЮ
     # комнату Битрикс24 на это интервью (VIDEOCONF-чат → public.link). Участники команды
     # добавляются в конференц-чат. Graceful: сбой генерации → без ссылки (не валим бронь).
     if not video_link:
         _gen_link = await b24_client.create_videoconference(
-            webhook_url, f"Интервью: {vacancy.name} — {candidate_name}", b24_ids
+            webhook_url, f"Интервью: {_title_vac} — {candidate_name}", b24_ids
         )
         if _gen_link:
             video_link = _gen_link
 
-    event_name = f"Интервью: {vacancy.name} — {candidate_name}"
-    event_description = (
+    event_name = f"Интервью: {_title_vac} — {candidate_name}"
+    event_description = f"Компания: {company_name}\n" if company_name else ""
+    event_description += (
         f"Вакансия: {vacancy.name}\n"
         f"Кандидат: {candidate_name}\n"
     )
@@ -640,18 +655,26 @@ async def book_schedule_slot(
             slot_local = slot_from.astimezone(_tz)
             slot_str = slot_local.strftime("%d.%m.%Y %H:%M") + f" ({tz})"
 
+            # "" от хелпера практически недостижимо (Company.name NOT NULL) — но дырку
+            # «в компании «»» кандидату не показываем.
+            _co_text = f" в компании «{company_name}»" if company_name else ""
             body_text = (
                 f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!\n\n"
-                f"Интервью по вакансии «{vacancy.name}» подтверждено.\n"
+                f"Интервью по вакансии «{vacancy.name}»{_co_text} подтверждено.\n"
                 f"Время: {slot_str}\n"
             )
             if video_link:
                 body_text += f"Ссылка на встречу: {video_link}\n"
 
             _vac = _html.escape(vacancy.name or "")
+            _company = _html.escape(company_name)
+            _co_html = (
+                f' в компании <strong style="color:#0F1620;font-weight:600;">«{_company}»</strong>'
+                if _company else ''
+            )
             _inner = (
                 f'<p style="margin:0 0 14px;">Интервью по вакансии '
-                f'<strong style="color:#0F1620;font-weight:600;">«{_vac}»</strong> подтверждено.</p>'
+                f'<strong style="color:#0F1620;font-weight:600;">«{_vac}»</strong>{_co_html} подтверждено.</p>'
                 f'<p style="margin:0 0 6px;font-size:15px;">'
                 f'<strong style="color:#0F1620;">Когда:</strong> {_html.escape(slot_str)}</p>'
             )
@@ -671,7 +694,10 @@ async def book_schedule_slot(
             body_html = render_simple_email(
                 f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!",
                 _inner,
-                preheader=f"Интервью по вакансии {vacancy.name} подтверждено на {slot_str}",
+                preheader=(
+                    f"Интервью по вакансии {vacancy.name}{_co_text} подтверждено на {slot_str}"
+                ),
+                company_name=company_name,
             )
 
             recruiter_email = recruiter.email if recruiter and recruiter.email else ""
@@ -680,7 +706,10 @@ async def book_schedule_slot(
                 uid=f"{token}@glafira",
                 start_utc=slot_from,
                 end_utc=slot_to,
-                summary=f"Интервью: {vacancy.name}",
+                summary=(
+                    f"Интервью: {vacancy.name} — {company_name}"
+                    if company_name else f"Интервью: {vacancy.name}"
+                ),
                 description=(f"Ссылка на видеовстречу: {video_link}" if video_link else "Собеседование"),
                 location=video_link or "",
                 organizer_name=recruiter_name,
@@ -693,7 +722,10 @@ async def book_schedule_slot(
                 session,
                 link.company_id,
                 to=candidate.email,
-                subject=f"Интервью подтверждено: {vacancy.name}",
+                subject=(
+                    f"Интервью подтверждено: {vacancy.name} — {company_name}"
+                    if company_name else f"Интервью подтверждено: {vacancy.name}"
+                ),
                 body_text=body_text,
                 body_html=body_html,
                 ics=ics,
@@ -705,6 +737,7 @@ async def book_schedule_slot(
     _hh_chat_id = app.hh_chat_id
     _company_id = link.company_id
     _vac_name = vacancy.name
+    _company_name = company_name
 
     # Event + audit. Время фиксируем В ПОЯСЕ КОМПАНИИ (то, что выбрал кандидат), не UTC,
     # и вписываем видео-ссылку — всё это видно в ленте «Все действия» карточки.
@@ -753,7 +786,12 @@ async def book_schedule_slot(
             from ...services.integrations.hh import client as hh_client
 
             _slot_hh = slot_from.astimezone(_ZIhh(tz)).strftime("%d.%m.%Y %H:%M") + f" ({tz})"
-            hh_msg = f"Интервью по вакансии «{_vac_name}» назначено на {_slot_hh}."
+            hh_msg = (
+                f"Интервью по вакансии «{_vac_name}» в компании «{_company_name}» "
+                f"назначено на {_slot_hh}."
+                if _company_name
+                else f"Интервью по вакансии «{_vac_name}» назначено на {_slot_hh}."
+            )
             if video_link:
                 hh_msg += f" Ссылка на видеовстречу: {video_link}"
             hh_token = await get_valid_access_token(session, _company_id)
