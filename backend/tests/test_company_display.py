@@ -350,3 +350,116 @@ async def test_hh_vacancy_import_without_client_still_works(
     )
     assert vacancy.id is not None
     assert vacancy.client_id is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Фикс-форвард по адверс-ревью (v0.9.238): компания диалога скрининга + пустая
+# компания в промптах.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_screening_prompt_without_company_has_no_empty_quotes():
+    """Пустая компания → промпт БЕЗ дырки «в компании «»» и без приказа её называть.
+
+    Иначе LLM либо выдаёт пустые кавычки кандидату, либо выдумывает название (§0).
+    """
+    from app.services.glafira.prompts import build_screening_system_prompt
+
+    prompt = build_screening_system_prompt(
+        company_name="",
+        tone="friendly",
+        tone_description="дружелюбный",
+        address_mode="на «вы»",
+        emoji_level="никогда",
+    )
+    assert "«»" not in prompt
+    assert "в компании" not in prompt
+    assert "не выдумывай" in prompt or "неизвестно" in prompt
+
+
+def test_screening_prompt_with_company_names_it():
+    """Компания задана → она в промпте, и модели велено называть именно её."""
+    from app.services.glafira.prompts import build_screening_system_prompt
+
+    prompt = build_screening_system_prompt(
+        company_name="ООО Диджитал Клаудс",
+        tone="business",
+        tone_description="деловой",
+        address_mode="на «вы»",
+        emoji_level="никогда",
+    )
+    assert "в компании «ООО Диджитал Клаудс»" in prompt
+    assert "Никогда не называй другую компанию" in prompt
+    assert "«»" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_reply_screening_uses_dialog_vacancy_not_latest_application(
+    db_session: AsyncSession, admin_user: User, test_candidate
+):
+    """Компанию берём из вакансии ДИАЛОГА, а не из последней заявки кандидата.
+
+    Сценарий бага: кандидат откликнулся на вакансию заказчика «Альфа» (диалог идёт по
+    ней), позже — на вакансию «Бета». reply_screening брал последнюю заявку и посреди
+    разговора называл кандидату «Бету».
+    """
+    from app.models import Application, Client, Message
+    from app.schemas.vacancy import VacancyCreate
+    from app.services.vacancy import create_vacancy
+
+    company_id = admin_user.company_id
+    alfa = Client(company_id=company_id, name="Альфа")
+    beta = Client(company_id=company_id, name="Бета")
+    db_session.add_all([alfa, beta])
+    await db_session.flush()
+
+    vac_alfa = await create_vacancy(
+        db_session, VacancyCreate(name="Python-разработчик", client_id=alfa.id, team=[admin_user.id]),
+        company_id, admin_user.id,
+    )
+    vac_beta = await create_vacancy(
+        db_session, VacancyCreate(name="Go-разработчик", client_id=beta.id, team=[admin_user.id]),
+        company_id, admin_user.id,
+    )
+
+    now = datetime.now(timezone.utc)
+    app_alfa = Application(
+        company_id=company_id, candidate_id=test_candidate.id, vacancy_id=vac_alfa.id,
+        stage="response", created_at=now - timedelta(days=7),
+    )
+    # Заявка на «Бету» СВЕЖЕЕ — старый код взял бы именно её.
+    app_beta = Application(
+        company_id=company_id, candidate_id=test_candidate.id, vacancy_id=vac_beta.id,
+        stage="response", created_at=now,
+    )
+    db_session.add_all([app_alfa, app_beta])
+    await db_session.flush()
+
+    # Диалог скрининга начат по «Альфе» (start_screening пишет out-сообщение с application_id).
+    db_session.add(Message(
+        company_id=company_id, candidate_id=test_candidate.id, application_id=app_alfa.id,
+        channel="telegram", direction="out", sender_type="ai",
+        body="Здравствуйте! Меня зовут Глафира…", sent_at=now - timedelta(days=7), created_at=now - timedelta(days=7),
+    ))
+    await db_session.commit()
+
+    from app.services.glafira import screening as screening_mod
+
+    # call_json импортирован в screening.py как `from .client import call_json` →
+    # патчим ПО МЕСТУ ИМПОРТА. Вызов идёт kwargs `system=`/`user=` (screening.py:141,356)
+    # — читаем именно их, иначе ассерт проверял бы пустую строку («мимо поля»).
+    with patch.object(screening_mod, "call_json", AsyncMock(return_value={"message": "ок", "finished": False})) as m:
+        await screening_mod.reply_screening(
+            db_session,
+            candidate_id=test_candidate.id,
+            message="Расскажите про вакансию",
+            company_id=company_id,
+            actor_user_id=admin_user.id,
+        )
+        assert m.await_count == 1, "LLM должен быть вызван"
+        kwargs = m.await_args.kwargs
+        blob = f"{kwargs.get('system', '')}\n{kwargs.get('user', '')}"
+        assert blob.strip(), "промпты не прочитаны — проверь имена kwargs вызова call_json"
+
+    assert "Альфа" in blob, "должна называться компания вакансии ДИАЛОГА"
+    assert "Бета" not in blob, "компания чужой (более свежей) заявки не должна попасть в промпт"

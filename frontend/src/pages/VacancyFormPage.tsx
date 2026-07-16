@@ -27,6 +27,7 @@ import {
   useDeleteVacancyRejectReason
 } from '@/api/mutations/vacancyRejectReasons';
 import { useClients } from '@/api/hooks/useClients';
+import { useCreateClient } from '@/api/mutations/clients';
 import { useUsers } from '@/api/hooks/useUsers';
 import type { components } from '@/api/types';
 import type { ApiError } from '@/api/aliases';
@@ -931,6 +932,28 @@ function DescriptionStep({
   rubricError: string | null;
   onGenerateRubric: () => void;
 }) {
+  // Инлайн-создание заказчика: он обязателен для вакансии, а справочник живёт в
+  // Настройки→Общие (adminOnly) — рекрутёр туда не попадёт. Бек POST /clients роль не
+  // ограничивает, так что путь легальный.
+  const [addingClient, setAddingClient] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [clientError, setClientError] = useState<string | null>(null);
+  const createClient = useCreateClient();
+
+  const handleCreateClient = async () => {
+    const name = newClientName.trim();
+    if (!name) return;
+    setClientError(null);
+    try {
+      const created = await createClient.mutateAsync({ name });
+      onChange({ client_id: created.id });   // сразу выбираем созданного
+      setAddingClient(false);
+      setNewClientName('');
+    } catch (e: any) {
+      setClientError(e?.response?.data?.error?.message || 'Не удалось добавить заказчика');
+    }
+  };
+
   return (
     <div className="nv-step-body">
       <div className="nv-h1">Описание вакансии</div>
@@ -1005,7 +1028,10 @@ function DescriptionStep({
           <select
             className="nv-input"
             value={data.client_id || ''}
-            onChange={e => onChange({ client_id: e.target.value || null })}
+            onChange={e => {
+              if (e.target.value === '__new__') { setAddingClient(true); return; }
+              onChange({ client_id: e.target.value || null });
+            }}
             style={{
               height: '38px',
               borderRadius: '8px',
@@ -1013,13 +1039,55 @@ function DescriptionStep({
               color: data.client_id ? 'var(--fg-1)' : 'var(--fg-3)'
             }}
           >
-            <option value="">Выберите клиента…</option>
+            <option value="">
+              {clients.length ? 'Выберите клиента…' : 'Заказчиков пока нет — добавьте первого'}
+            </option>
             {clients.map(client => (
               <option key={client.id} value={client.id}>
                 {client.name}
               </option>
             ))}
+            {/* Заказчик обязателен, а его создание живёт в Настройки→Общие (adminOnly) —
+                рекрутёр туда не попадёт и без этого пункта не создал бы вакансию вовсе. */}
+            <option value="__new__">+ Добавить заказчика…</option>
           </select>
+
+          {addingClient && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <input
+                className="nv-input"
+                autoFocus
+                placeholder="Название заказчика"
+                value={newClientName}
+                disabled={createClient.isPending}
+                onChange={e => { setNewClientName(e.target.value); setClientError(null); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); void handleCreateClient(); }
+                  if (e.key === 'Escape') { setAddingClient(false); setNewClientName(''); setClientError(null); }
+                }}
+                style={{ height: '38px', borderRadius: '8px', fontSize: '13px' }}
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!newClientName.trim() || createClient.isPending}
+                onClick={() => void handleCreateClient()}
+              >
+                {createClient.isPending ? 'Добавление…' : 'Добавить'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={createClient.isPending}
+                onClick={() => { setAddingClient(false); setNewClientName(''); setClientError(null); }}
+              >
+                Отмена
+              </button>
+            </div>
+          )}
+          {clientError && (
+            <div className="error-banner" role="alert" style={{ marginTop: 6 }}>{clientError}</div>
+          )}
         </div>
 
         <div className="nv-field">

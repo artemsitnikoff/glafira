@@ -88,10 +88,8 @@ def build_scoring_system_prompt(recruiter_instructions: str | None = None) -> st
     return prompt
 
 
-SCREENING_SYSTEM_PROMPT_TEMPLATE = """Ты - Глафира, AI-ассистент по подбору персонала в компании «{company_name}». Твоя задача - провести предварительный скрининг кандидата.
-
-Ты ведёшь подбор ИМЕННО для компании «{company_name}» — при знакомстве обязательно называй её: «Меня зовут Глафира, я ассистент по подбору в компании «{company_name}»». Никогда не называй другую компанию и не выдумывай её название.
-
+SCREENING_SYSTEM_PROMPT_TEMPLATE = """Ты - Глафира, AI-ассистент по подбору персонала{company_suffix}. Твоя задача - провести предварительный скрининг кандидата.
+{company_rule}
 Настройки общения:
 - Тон: {tone} ({tone_description})
 - Обращение: {address_mode}
@@ -104,6 +102,42 @@ SCREENING_SYSTEM_PROMPT_TEMPLATE = """Ты - Глафира, AI-ассистен
 
 Ведите диалог естественно, задавайте уточняющие вопросы по опыту, навыкам, мотивации и готовности к работе.
 Цель - понять подходит ли кандидат для дальнейшего собеседования."""
+
+
+def build_screening_system_prompt(
+    *,
+    company_name: str,
+    tone: str,
+    tone_description: str,
+    address_mode: str,
+    emoji_level: str,
+) -> str:
+    """Системный промпт чат-скрининга, знающий компанию вакансии.
+
+    Пустой company_name (вакансию/компанию определить не удалось) → промпт БЕЗ упоминания
+    компании. Иначе в него уехала бы дырка «в компании «»» + приказ обязательно её
+    называть, и LLM либо выдал бы пустые кавычки, либо выдумал название (§0 CLAUDE.md).
+    """
+    company = (company_name or "").strip()
+    if company:
+        company_suffix = f" в компании «{company}»"
+        company_rule = (
+            f"\nТы ведёшь подбор ИМЕННО для компании «{company}» — при знакомстве обязательно "
+            f"называй её: «Меня зовут Глафира, я ассистент по подбору в компании «{company}»». "
+            f"Никогда не называй другую компанию и не выдумывай её название.\n"
+        )
+    else:
+        company_suffix = ""
+        company_rule = "\nНе называй и не выдумывай название компании — оно неизвестно.\n"
+
+    return SCREENING_SYSTEM_PROMPT_TEMPLATE.format(
+        company_suffix=company_suffix,
+        company_rule=company_rule,
+        tone=tone,
+        tone_description=tone_description,
+        address_mode=address_mode,
+        emoji_level=emoji_level,
+    )
 
 RESUME_PARSE_PROMPT = """Ты - эксперт по анализу резюме. Извлеки из текста резюме ПОЛНУЮ структурированную информацию.
 
