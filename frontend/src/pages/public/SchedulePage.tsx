@@ -14,6 +14,8 @@ interface Participant {
 interface ScheduleInfo {
   status: 'active' | 'booked' | 'expired';
   vacancy_name?: string | null;
+  /** Компания вакансии (заказчик → фолбэк на арендатора). Кандидат должен видеть, куда его зовут. */
+  company_name?: string | null;
   recruiter_name?: string | null;
   recruiter_role?: string | null;
   participants?: Participant[];
@@ -420,9 +422,11 @@ export default function SchedulePage() {
       <div className="sched-brand">
         <img className="sched-logo" src="/favicon.svg" alt="" />
         <span>Глафира</span>
-        {info?.vacancy_name && (
+        {/* Компания вакансии — кандидат должен видеть, куда его зовут.
+            Вакансия остаётся в блоке «Вакансия» ниже, здесь не дублируем. */}
+        {info?.company_name && (
           <span style={{ color: 'var(--fg-3)', fontWeight: 400, fontSize: 'var(--fs-14)', marginLeft: 12 }}>
-            · {info.vacancy_name}
+            · {info.company_name}
           </span>
         )}
       </div>
@@ -452,6 +456,9 @@ export default function SchedulePage() {
             <div className="sched-vacancy">
               <div className="sched-vacancy-label">Вакансия</div>
               {info.vacancy_name}
+              {info.company_name && (
+                <div className="sched-vacancy-company">{info.company_name}</div>
+              )}
             </div>
           )}
 

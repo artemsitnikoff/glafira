@@ -536,7 +536,9 @@ export default function VacancyFormPage() {
   // Валидация перехода
   const canProceed = () => {
     if (activeStep === 'desc') {
-      return formData.name.trim().length > 0;
+      // Заказчик обязателен: его название Глафира называет кандидату во всех сообщениях
+      // (письма, чат, страница записи на интервью). Бек отбивает пустой client_id 400.
+      return formData.name.trim().length > 0 && !!formData.client_id;
     }
     if (activeStep === 'funnel') {
       return stages.length >= 3;
@@ -564,6 +566,14 @@ export default function VacancyFormPage() {
 
   const handleSubmit = async () => {
     setSubmitError(null);
+    // Заказчик обязателен (его название Глафира называет кандидату). Ловим здесь, а не
+    // только по 400 с бека: у старой вакансии без заказчика «Сохранить» жмут с последнего
+    // шага — иначе непонятно, куда возвращаться.
+    if (!formData.client_id) {
+      setActiveStep('desc');
+      setSubmitError('Укажите заказчика вакансии — его название Глафира называет кандидату в письмах и чате.');
+      return;
+    }
     try {
       if (editMode && id) {
         // openapi отстаёт: новые поля auto_qa, rejection_text еще нет в VacancyUpdate
@@ -990,7 +1000,7 @@ function DescriptionStep({
 
       <div className="nv-grid-3">
         <div className="nv-field">
-          <label className="nv-label">Клиент</label>
+          <label className="nv-label">Клиент <span className="nv-req">*</span></label>
           {/* Упростим пока до простого селекта, стилизованного как nv-select */}
           <select
             className="nv-input"

@@ -183,6 +183,14 @@
   margin-bottom: 4px;
 }
 
+/* Компания вакансии под её названием — кандидат видит, куда его зовут. */
+.sched-vacancy-company {
+  font-size: var(--fs-13);
+  font-weight: 400;
+  color: var(--fg-2);
+  margin-top: 2px;
+}
+
 .sched-participants-label {
   font-size: var(--fs-12);
   color: var(--fg-3);
