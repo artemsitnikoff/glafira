@@ -359,6 +359,12 @@ async def move_request(
     valid = await _valid_status_keys(session, company_id)
     if target not in valid:
         raise ValidationError("Неизвестный этап заявки")
+    # Терминалы — только через свои пути (reject требует причину, close — итог). Общий move
+    # НЕ должен ставить 'rejected'/'done' в обход (иначе отказ без причины/rejected_at).
+    if target == "rejected":
+        raise ValidationError("Отклонение — кнопкой «Отклонить» с указанием причины")
+    if target == "done":
+        raise ValidationError("Закрытие — кнопкой «Закрыть» с итогом")
     # Перевод в «В подборе» без вакансии = запуск создания вакансии (делает фронт-мастер).
     if target == "sourcing" and not req.vacancy_id:
         raise ConflictError(
@@ -369,9 +375,13 @@ async def move_request(
     label = _stage_label(flow, target)
     before = req.status
     req.status = target
-    if target == "done" and not req.closed_note:
-        req.closed_note = "Закрыта вручную"
-        req.closed_at = datetime.now(timezone.utc)
+    # Реактивация из терминала (напр. done→work кастомным этапом) — чистим устаревшие
+    # терминальные поля, чтобы деталь не показывала «Закрыта»/причину при рабочем статусе.
+    if before in TERMINAL_REQUEST_STAGE_KEYS:
+        req.closed_note = None
+        req.closed_at = None
+        req.reject_reason = None
+        req.rejected_at = None
     await _write_event(
         session, company_id=company_id, request_id=req.id,
         text=f"Переведена на этап «{label}» · {user.full_name}",

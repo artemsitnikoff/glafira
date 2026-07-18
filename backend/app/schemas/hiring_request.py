@@ -41,7 +41,7 @@ class RequestVacancyProgress(BaseModel):
 # ── Заявка ────────────────────────────────────────────────────────────────────
 class HiringRequestBase(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    description: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=10000)
     department: Optional[str] = Field(default=None, max_length=120)
     city: Optional[str] = Field(default=None, max_length=120)
     positions: int = Field(default=1, ge=1, le=999)
@@ -169,7 +169,8 @@ class PublicFormInfo(BaseModel):
 
 class PublicRequestSubmit(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    description: str = Field(min_length=1)
+    # ⚠️ Публичный неаутентифицированный роут → верхняя граница обязательна (анти-DoS).
+    description: str = Field(min_length=1, max_length=10000)
     author_name: Optional[str] = Field(default=None, max_length=160)
     author_role: Optional[str] = Field(default=None, max_length=160)
     author_contact: Optional[str] = Field(default=None, max_length=200)

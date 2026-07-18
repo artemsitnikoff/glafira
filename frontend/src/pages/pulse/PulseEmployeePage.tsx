@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import './Pulse.css';
 import { Icon } from '@/components/ui/Icon';
@@ -11,6 +11,21 @@ import { SurveysTab } from './components/tabs/SurveysTab';
 import { SurveyLaunchModal } from './components/SurveyLaunchModal';
 import { ChatTab } from '@/pages/funnel/candidate-detail/tabs/ChatTab';
 import { AllActionsTab } from '@/pages/funnel/candidate-detail/tabs/AllActionsTab';
+// Вкладки «Чат»/«Действия» переиспуют классы карточки соискателя (скоуп
+// .cnd-funnel-wrap .cand-detail …) — грузим их CSS и даём нужные предки-обёртки,
+// иначе на /pulse/:id вкладки без стилей (см. shared-overlay-css-must-self-import).
+import '@/pages/funnel/candidate-detail/CandidateDetail.css';
+
+/** Обёртка, дающая вкладкам карточки соискателя их скоуп-предков + высоту для скролла. */
+function CandTabHost({ children }: { children: ReactNode }) {
+  return (
+    <div className="cnd-funnel-wrap" style={{ height: 'min(620px, calc(100vh - 260px))', minHeight: 380 }}>
+      <div className="cand-detail" style={{ position: 'static', height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 const TABS = [
   { id: 'overview', label: 'Обзор' },
@@ -145,7 +160,7 @@ export function PulseEmployeePage() {
         return <SurveysTab employee={employee} onLaunch={() => setShowLaunchModal(true)} />;
       case 'chat':
         return employee.candidate_id ? (
-          <ChatTab candidateId={employee.candidate_id} />
+          <CandTabHost><ChatTab candidateId={employee.candidate_id} /></CandTabHost>
         ) : (
           <div style={{padding: '40px', textAlign: 'center', color: 'var(--fg-3)'}}>
             Чат недоступен (нет связи с кандидатом)
@@ -153,7 +168,7 @@ export function PulseEmployeePage() {
         );
       case 'actions':
         return employee.candidate_id ? (
-          <AllActionsTab candidateId={employee.candidate_id} />
+          <CandTabHost><AllActionsTab candidateId={employee.candidate_id} /></CandTabHost>
         ) : (
           <div style={{padding: '40px', textAlign: 'center', color: 'var(--fg-3)'}}>
             История действий недоступна

@@ -723,7 +723,7 @@
 }
 .nv-soon-badge {
   background: var(--ark-yellow-100);
-  color: var(--ark-yellow-700);
+  color: var(--ark-yellow-600);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;

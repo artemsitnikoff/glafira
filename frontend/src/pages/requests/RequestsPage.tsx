@@ -5,7 +5,7 @@ import { Avatar } from '../../components/ui/Avatar';
 import { useAuthStore } from '@/store/authStore';
 import {
   useRequests, useRequest, useRequestStages,
-  useMoveRequest, useRejectRequest, useRestoreRequest, useAddRequestComment,
+  useMoveRequest, useRejectRequest, useRestoreRequest, useCloseRequest, useAddRequestComment,
   useRequestFormLink,
   type RequestListItem, type RequestDetail, type RequestStage,
 } from '@/api/hooks/useRequests';
@@ -96,16 +96,28 @@ function RequestDetailPanel({
   requestId, stages, readOnly, onClose,
 }: { requestId: string; stages: RequestStage[]; readOnly: boolean; onClose: () => void }) {
   const navigate = useNavigate();
-  const { data: req, isLoading } = useRequest(requestId);
+  const { data: req, isLoading, isError } = useRequest(requestId);
   const moveM = useMoveRequest();
   const rejectM = useRejectRequest();
   const restoreM = useRestoreRequest();
+  const closeM = useCloseRequest();
   const commentM = useAddRequestComment();
   const [moveOpen, setMoveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
+  if (isError) {
+    return (
+      <div className="cand-detail req-panel">
+        <div className="cd-toolbar">
+          <span className="req-ro-hint">Не удалось загрузить заявку</span>
+          <div style={{ flex: 1 }} />
+          <button className="icon-btn" onClick={onClose} title="Закрыть"><Icon name="x" size={18} /></button>
+        </div>
+      </div>
+    );
+  }
   if (isLoading || !req) return <div className="cand-detail req-panel" />;
 
   const createVacancy = () => {
@@ -130,19 +142,39 @@ function RequestDetailPanel({
     if (target === req.status) return;
     if (target === 'sourcing' && !req.vacancy_id) { createVacancy(); return; }
     setErr(null);
+    // Терминалы идут своими путями: «Закрыта» → закрытие с итогом; «Отклонена» — кнопкой.
+    if (target === 'done') {
+      closeM.mutate({ id: req.id }, {
+        onError: (e: any) => setErr(e?.response?.data?.error?.message || 'Не удалось закрыть заявку'),
+      });
+      return;
+    }
     moveM.mutate({ id: req.id, target }, {
       onError: (e: any) => setErr(e?.response?.data?.error?.message || 'Не удалось перевести'),
     });
   };
   const reject = (reason: string) => {
     setRejectOpen(false);
-    rejectM.mutate({ id: req.id, reason });
+    setErr(null);
+    rejectM.mutate({ id: req.id, reason }, {
+      onError: (e: any) => setErr(e?.response?.data?.error?.message || 'Не удалось отклонить заявку'),
+    });
+  };
+  const restore = () => {
+    setErr(null);
+    restoreM.mutate(req.id, {
+      onError: (e: any) => setErr(e?.response?.data?.error?.message || 'Не удалось вернуть заявку'),
+    });
   };
   const send = () => {
     const text = msg.trim();
     if (!text) return;
-    setMsg('');
-    commentM.mutate({ id: req.id, body: text });
+    // НЕ чистим инпут до успеха — иначе при ошибке текст комментария теряется молча (§0).
+    setErr(null);
+    commentM.mutate({ id: req.id, body: text }, {
+      onSuccess: () => setMsg(''),
+      onError: (e: any) => setErr(e?.response?.data?.error?.message || 'Сообщение не отправлено — попробуйте ещё раз'),
+    });
   };
 
   const flow = stages.filter((s) => s.key !== 'rejected');
@@ -196,7 +228,7 @@ function RequestDetailPanel({
             <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/vacancies/${req.vacancy_id}`)}><Icon name="open" size={14} /> Открыть вакансию</button>
           )}
           {req.status === 'rejected' && (
-            <button className="btn btn-secondary btn-sm" onClick={() => restoreM.mutate(req.id)}><Icon name="refresh" size={14} /> Вернуть в работу</button>
+            <button className="btn btn-secondary btn-sm" onClick={restore}><Icon name="refresh" size={14} /> Вернуть в работу</button>
           )}
           <div style={{ flex: 1 }} />
           <button className="icon-btn" onClick={onClose} title="Закрыть"><Icon name="x" size={18} /></button>

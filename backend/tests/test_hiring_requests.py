@@ -105,6 +105,17 @@ class TestTransitions:
         assert c.json()["status"] == "work"
 
     @pytest.mark.asyncio
+    async def test_move_to_terminal_blocked(self, async_client, auth_headers):
+        """Терминалы через общий /move запрещены — только своими путями (reject/close)."""
+        r = await async_client.post("/api/v1/requests", headers=auth_headers,
+                                    json={"title": "T", "description": "D"})
+        rid = r.json()["id"]
+        for target in ("rejected", "done"):
+            m = await async_client.patch(f"/api/v1/requests/{rid}/move",
+                                         headers=auth_headers, json={"target": target})
+            assert m.status_code == 400, f"{target}: {m.text}"
+
+    @pytest.mark.asyncio
     async def test_move_to_sourcing_without_vacancy_blocked(self, async_client, auth_headers):
         r = await async_client.post("/api/v1/requests", headers=auth_headers,
                                     json={"title": "T", "description": "D"})

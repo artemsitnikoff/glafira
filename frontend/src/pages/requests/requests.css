@@ -61,6 +61,8 @@
 .req-panel-body{flex:1;min-height:0;overflow:auto;padding:14px 20px 20px}
 .req-grid{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start}
 .req-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.req-col-side{min-width:0}
+.req-msg-body{flex:1;min-width:0}
 .req-card{background:#fff;border:1px solid var(--border-2);border-radius:12px;padding:16px}
 .req-card-title{font-size:12px;font-weight:650;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px}
 .req-desc{font-size:13.5px;line-height:1.55;color:var(--fg-1);margin:0;white-space:pre-wrap}
