@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/ui/Icon';
 import { useAuthStore } from '@/store/authStore';
 import { useCreateRequest, type RequestCreateBody } from '@/api/hooks/useRequests';
+// Шелл страницы (.nv-wrap/.nv-topbar/.nv-crumbs/.nv-input/.btn-*) — из формы вакансии.
+import '../vacancies/VacancyForm.css';
 import './requests.css';
 
 export default function NewRequestPage() {

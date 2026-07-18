@@ -30,8 +30,28 @@
 .req-num{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;flex:none}
 .req-mini.ok{color:var(--ark-green-600)}
 
-/* Панель — на всю ширину (нет закреплённой колонки) */
-.cand-detail.req-panel{left:0;border-left:0}
+/* Панель — на всю ширину (нет профиль-рельса). ⚠️ Специфичность должна БИТЬ funnel-правило
+   `.cnd-funnel-wrap.detail-mode .cand-detail { left: var(--profile-rail-width) }`. */
+.cnd-funnel-wrap.detail-mode .cand-detail.req-panel{left:0;border-left:0;box-shadow:none}
+.cand-detail.req-panel{display:flex;flex-direction:column}
+
+/* Б24-полоса этапов заявки (в реальном приложении .stage-strip/.ss-* нет — порт из эталона). */
+.req-strip-row .stage-strip{display:flex;gap:0;overflow-x:auto;scrollbar-width:thin}
+.req-strip-row .ss-step{position:relative;flex:0 0 auto;height:28px;background:#fff;border:1px solid var(--border-1);border-right:none;font:inherit;font-size:11.5px;color:var(--fg-2);cursor:pointer;padding:0 12px 0 20px;display:flex;align-items:center;justify-content:center;transition:background var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out);clip-path:polygon(0 0,calc(100% - 8px) 0,100% 50%,calc(100% - 8px) 100%,0 100%,8px 50%)}
+.req-strip-row .ss-step:first-child{clip-path:polygon(0 0,calc(100% - 8px) 0,100% 50%,calc(100% - 8px) 100%,0 100%);padding-left:12px}
+.req-strip-row .ss-step:last-child{clip-path:polygon(0 0,100% 0,100% 100%,0 100%,8px 50%);border-right:1px solid var(--border-1);padding-right:14px}
+.req-strip-row .ss-step.passed{background:var(--ss-color,var(--ark-blue-50));color:#fff}
+.req-strip-row .ss-step.active{background:var(--ss-color,var(--accent));color:#fff;font-weight:600}
+.req-strip-row .ss-step.upcoming{background:#fff}
+.req-strip-row .ss-step:hover{background:var(--ark-blue-50);color:var(--accent)}
+.req-strip-row .ss-step.passed:hover,.req-strip-row .ss-step.active:hover{filter:brightness(1.05);color:#fff}
+.req-strip-row .ss-final{background:#fff;color:var(--fg-2)}
+.req-strip-row .ss-final:hover{background:var(--ark-green-500,#22A06B);color:#fff}
+.req-strip-row .ss-step[disabled]{cursor:default}
+.req-strip-row .ss-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Инлайн-баннер ошибки (в реальном app .error-banner скоуплен по экранам — даём свой). */
+.cnd-funnel-wrap .error-banner,.nv-wrap .error-banner{background:var(--ark-red-100);color:var(--ark-red-600);border:1px solid var(--ark-red-200,#F5C2C2);border-radius:8px;padding:8px 12px;font-size:13px}
 
 .req-strip-row{padding:10px 20px 0}
 .req-p-head{padding:12px 20px 0}

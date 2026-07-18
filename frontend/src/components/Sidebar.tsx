@@ -120,6 +120,16 @@ export function Sidebar() {
 
   const renderVacanciesSub = () => (
     <div className="sub-block">
+      {/* «Заявки» — закреплённая строка СВЕРХУ подсписка (эталон: первый элемент sub-block). */}
+      <div
+        className={`sub-archive sub-requests ${location.pathname.startsWith('/requests') ? 'selected' : ''}`}
+        onClick={() => navigate('/requests')}
+      >
+        <Icon name="inbox" size={15} />
+        <span>Заявки</span>
+        {reqNew > 0 && <span className="sub-new">+{reqNew}</span>}
+        <span className="sub-count">{reqActive}</span>
+      </div>
       {/* Кнопку создания вакансии видят только admin и recruiter */}
       {user?.role !== 'manager' && (
         <button className="sub-add" onClick={handleNewVacancy}>
@@ -135,17 +145,6 @@ export function Sidebar() {
         />
       </div>
       <div className="sub-list">
-        {/* Заявки на подбор — закреплённая строка СВЕРХУ подсписка. */}
-        <div
-          className={`sub-archive sub-requests ${location.pathname.startsWith('/requests') ? 'selected' : ''}`}
-          onClick={() => navigate('/requests')}
-        >
-          <Icon name="inbox" size={15} />
-          <span>Заявки</span>
-          {reqNew > 0 && <span className="sub-new">+{reqNew}</span>}
-          <span className="sub-count">{reqActive}</span>
-        </div>
-        <div className="sub-divider" />
         {filteredVacancies.length === 0 ? (
           <div className="sub-empty">Ничего не найдено</div>
         ) : (

@@ -9,6 +9,10 @@ import {
   useRequestFormLink,
   type RequestListItem, type RequestDetail, type RequestStage,
 } from '@/api/hooks/useRequests';
+// Экран заявок переиспользует систему классов экрана «Кандидаты/Воронка» (всё скоупнуто
+// под .cnd-funnel-wrap) — грузим её CSS, иначе структура/кнопки/панель без стилей.
+import '../funnel/Funnel.css';
+import '../funnel/candidate-detail/CandidateDetail.css';
 import './requests.css';
 
 const FALLBACK_COLORS: Record<string, string> = {
@@ -376,7 +380,7 @@ export default function RequestsPage() {
   };
 
   return (
-    <div className="cand-list-wrap">
+    <div className={`cnd-funnel-wrap${selectedId ? ' detail-mode' : ''}`}>
       <div className="vac-header">
         <div className="vh-left">
           <h1 className="vh-title">{isMgr ? 'Мои заявки' : 'Заявки на подбор'}</h1>
@@ -475,12 +479,13 @@ export default function RequestsPage() {
               </div>
             )}
           </div>
-
-          {selectedId && (
-            <RequestDetailPanel key={selectedId} requestId={selectedId} stages={stages} readOnly={!!isMgr}
-              onClose={() => setSelectedId(null)} />
-          )}
         </div>
+
+        {/* Панель — прямой ребёнок .cand-body (якорь absolute-оверлея), как в воронке. */}
+        {selectedId && (
+          <RequestDetailPanel key={selectedId} requestId={selectedId} stages={stages} readOnly={!!isMgr}
+            onClose={() => setSelectedId(null)} />
+        )}
       </div>
     </div>
   );
