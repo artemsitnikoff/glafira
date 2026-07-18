@@ -143,20 +143,35 @@ async def test_calculate_free_slots_basic():
     """Базовый расчёт: один участник, одна занятость — слот в этот период не попадает."""
     # МСК (UTC+3): рабочие часы 10:00-18:00
     # Занятость: 11:00-12:00 МСК (08:00-09:00 UTC)
-    now_utc = datetime(2026, 7, 14, 7, 0, 0, tzinfo=timezone.utc)  # 10:00 МСК, пн
+    # Пинним "сейчас" на фикс. рабочий день (2026-07-14 — вторник), иначе с horizon_days=1
+    # в реальные выходные расчёт вернул бы 0 слотов и тест зависел бы от даты прогона.
+    now_utc = datetime(2026, 7, 14, 7, 0, 0, tzinfo=timezone.utc)  # 10:00 МСК, вт
 
     # Строим занятость
     busy_from = datetime(2026, 7, 14, 8, 0, 0, tzinfo=timezone.utc)   # 11:00 МСК
     busy_to = datetime(2026, 7, 14, 9, 0, 0, tzinfo=timezone.utc)     # 12:00 МСК
 
+    class _FrozenNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now_utc.astimezone(tz) if tz is not None else now_utc.replace(tzinfo=None)
+
+    # Поля занятости — DATE_FROM/DATE_TO (формат calendar.accessibility.get; старые FROM/TO
+    # парсер игнорирует → занятость «не видна»).
     mock_result = {
-        "42": [{"FROM": "2026-07-14 11:00:00", "TO": "2026-07-14 12:00:00"}]
+        "42": [{"DATE_FROM": "2026-07-14 11:00:00", "DATE_TO": "2026-07-14 12:00:00"}]
     }
 
-    with patch(
-        "app.services.integrations.bitrix24.interview_slots.b24_client.get_accessibility",
-        new_callable=AsyncMock,
-        return_value=mock_result,
+    with (
+        patch(
+            "app.services.integrations.bitrix24.interview_slots.datetime",
+            _FrozenNow,
+        ),
+        patch(
+            "app.services.integrations.bitrix24.interview_slots.b24_client.get_accessibility",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ),
     ):
         slots = await calculate_free_slots(
             WEBHOOK,
@@ -525,12 +540,14 @@ async def test_book_race_condition_409(
     slot_from = datetime(2026, 7, 21, 9, 0, 0, tzinfo=timezone.utc)
     slot_to = slot_from + timedelta(hours=1)
 
-    # accessibility показывает занятость именно в этот слот
+    # accessibility показывает занятость именно в этот слот (поля DATE_FROM/DATE_TO —
+    # формат calendar.accessibility.get; старые FROM/TO парсер игнорирует → слот считался
+    # бы свободным, бронь шла бы дальше к реальному event.add и падала 503 вместо 409).
     with patch(
         "app.api.v1.public_schedule.b24_client.get_accessibility",
         new_callable=AsyncMock,
         return_value={
-            "42": [{"FROM": "2026-07-21 12:00:00", "TO": "2026-07-21 13:00:00"}]
+            "42": [{"DATE_FROM": "2026-07-21 12:00:00", "DATE_TO": "2026-07-21 13:00:00"}]
         },
     ):
         resp = await async_client.post(
@@ -667,15 +684,24 @@ async def test_rate_limit_429(async_client, db_session, admin_user, application)
 
     import time
 
+    # Ключ rate-limit = "{ip}:{token}". IP берётся из X-Forwarded-For (первым), поэтому
+    # задаём его явно — ASGITransport отдаёт request.client.host='127.0.0.1', а не
+    # 'testclient', и без заголовка предзаполненный ключ не совпал бы (тогда 200, не 429).
+    xff_ip = "203.0.113.7"
+    rate_key = f"{xff_ip}:{token}"
+
     # Предзаполняем store: 30 запросов только что
     now = time.monotonic()
-    _rate_store[f"testclient:{token}"] = [now] * 30
+    _rate_store[rate_key] = [now] * 30
 
-    resp = await async_client.get(f"/api/v1/public/schedule/{token}")
+    resp = await async_client.get(
+        f"/api/v1/public/schedule/{token}",
+        headers={"X-Forwarded-For": xff_ip},
+    )
     assert resp.status_code == 429, f"Ожидали 429, получили {resp.status_code}: {resp.text}"
 
     # Очищаем после теста
-    _rate_store.pop(f"testclient:{token}", None)
+    _rate_store.pop(rate_key, None)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -727,15 +753,16 @@ async def test_send_interview_links_unmapped_participant(
     assert stats["skipped_unmapped"] >= 1
     assert stats["sent"] == 0
 
-    # Проверяем Event с типом 'interview'
+    # Проверяем Event с типом 'interview'. Текст события — человекочитаемый («не привязаны
+    # к Битрикс24 участники: <ФИО>»); внутреннее имя поля b24_user_id в ленту не выводится.
     events = (await db_session.execute(
         sa_select(EventModel).where(
             EventModel.company_id == admin_user.company_id,
             EventModel.type == "interview",
         )
     )).scalars().all()
-    assert any("b24_user_id" in (e.text or "") for e in events), (
-        "Должен быть Event с упоминанием b24_user_id"
+    assert any("не привязаны" in (e.text or "") for e in events), (
+        "Должен быть Event об участниках без привязки к Битрикс24"
     )
 
 

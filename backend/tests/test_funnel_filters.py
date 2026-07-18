@@ -4,10 +4,11 @@ import pytest
 from httpx import AsyncClient
 
 
-async def _vacancy(client: AsyncClient, hdr: dict, admin_user) -> str:
+async def _vacancy(client: AsyncClient, hdr: dict, admin_user, default_client: str) -> str:
     r = await client.post(
         "/api/v1/vacancies", headers=hdr,
-        json={"name": "VacFilter", "team": [str(admin_user.id)], "funnel_template": "default"},
+        json={"name": "VacFilter", "team": [str(admin_user.id)], "funnel_template": "default",
+              "client_id": default_client},
     )
     assert r.status_code == 201
     return r.json()["id"]
@@ -22,10 +23,10 @@ async def _add(client: AsyncClient, hdr: dict, vid: str, last_name: str, source:
 
 
 @pytest.mark.asyncio
-async def test_filter_by_source_multi(async_client: AsyncClient, admin_token: str, admin_user):
+async def test_filter_by_source_multi(async_client: AsyncClient, admin_token: str, admin_user, default_client: str):
     """source=hh&source=avito возвращает кандидатов обоих источников (in_), а одиночный — только свой."""
     hdr = {"Authorization": f"Bearer {admin_token}"}
-    vid = await _vacancy(async_client, hdr, admin_user)
+    vid = await _vacancy(async_client, hdr, admin_user, default_client)
     await _add(async_client, hdr, vid, "Адамов", "hh", "Москва")
     await _add(async_client, hdr, vid, "Борисов", "avito", "Казань")
     await _add(async_client, hdr, vid, "Власов", "manual", "Москва")
@@ -41,10 +42,10 @@ async def test_filter_by_source_multi(async_client: AsyncClient, admin_token: st
 
 
 @pytest.mark.asyncio
-async def test_filter_by_city_ilike(async_client: AsyncClient, admin_token: str, admin_user):
+async def test_filter_by_city_ilike(async_client: AsyncClient, admin_token: str, admin_user, default_client: str):
     """city — регистронезависимая подстрока (ILIKE)."""
     hdr = {"Authorization": f"Bearer {admin_token}"}
-    vid = await _vacancy(async_client, hdr, admin_user)
+    vid = await _vacancy(async_client, hdr, admin_user, default_client)
     await _add(async_client, hdr, vid, "Адамов", "hh", "Москва")
     await _add(async_client, hdr, vid, "Борисов", "avito", "Казань")
     await _add(async_client, hdr, vid, "Власов", "manual", "Москва")

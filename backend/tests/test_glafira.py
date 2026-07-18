@@ -11,7 +11,7 @@ from app.models import AiEvaluation, Event, Verification, Vacancy, Application
 class TestGlafiraScoring:
 
     async def test_scoring_with_mocked_claude_saves_ai_evaluation(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test that AI scoring saves evaluation correctly"""
 
@@ -22,7 +22,7 @@ class TestGlafiraScoring:
             "description": "Требуется Python разработчик",
             "salary_from": 100000,
             "salary_to": 150000,
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_response = await async_client.post(
             "/api/v1/vacancies",
@@ -99,7 +99,7 @@ class TestGlafiraScoring:
         assert event.actor_type == 'ai'
 
     async def test_scoring_parse_error_returns_502(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test that Claude parse error returns 502"""
 
@@ -108,7 +108,7 @@ class TestGlafiraScoring:
             "name": "Python Developer",
             "city": "Москва",
             "description": "Требуется Python разработчик",
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_response = await async_client.post(
             "/api/v1/vacancies",
@@ -155,7 +155,7 @@ class TestGlafiraScoring:
         assert evaluation is None
 
     async def test_score_and_get_evaluation_per_vacancy_not_mixed(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test that evaluations are properly isolated per vacancy"""
 
@@ -165,7 +165,7 @@ class TestGlafiraScoring:
             "city": "Москва",
             "description": "Требуется Python разработчик для проекта A",
             "salary_from": 100000,
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_a_response = await async_client.post(
             "/api/v1/vacancies",
@@ -180,7 +180,7 @@ class TestGlafiraScoring:
             "city": "Москва",
             "description": "Требуется Python разработчик для проекта B",
             "salary_from": 120000,
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_b_response = await async_client.post(
             "/api/v1/vacancies",
@@ -388,7 +388,7 @@ class TestGlafiraLLMClusterFixes:
     """Tests for LLM-cluster bugs #19 and #20"""
 
     async def test_scoring_validates_llm_structure_and_rejects_broken_data(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test #19: scoring validates structure of LLM response and rejects broken types"""
 
@@ -397,7 +397,7 @@ class TestGlafiraLLMClusterFixes:
             "name": "Test Position",
             "city": "Москва",
             "description": "Test requirement",
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_response = await async_client.post(
             "/api/v1/vacancies",
@@ -491,7 +491,7 @@ class TestGlafiraLLMClusterFixes:
         assert len(evaluations) == 0
 
     async def test_scoring_accepts_valid_structure_and_creates_evaluation(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test #19: valid complete LLM structure passes and creates AiEvaluation"""
 
@@ -500,7 +500,7 @@ class TestGlafiraLLMClusterFixes:
             "name": "Test Position",
             "city": "Москва",
             "description": "Test requirement",
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_response = await async_client.post(
             "/api/v1/vacancies",

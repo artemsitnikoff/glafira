@@ -111,10 +111,16 @@ async def test_resolve_never_touches_lazy_client_relationship(
     читать только client_id (обычная колонка).
     """
     cid = admin_user.company_id
-    client = await _make_client(db_session, cid, "ООО Заказчик")
+    # Фиксируем id заранее и создаём заказчика ИМЕННО с ним: у заглушки должен быть
+    # статичный client_id (обычная колонка). Имя переменной ОТЛИЧАЕТСЯ от атрибута
+    # класса — иначе `client_id = client_id` в теле класса даёт NameError
+    # (присваивание делает имя локальным для тела класса, LOAD_CLASSDEREF не срабатывает).
+    fixed_client_id = uuid.uuid4()
+    db_session.add(Client(id=fixed_client_id, company_id=cid, name="ООО Заказчик"))
+    await db_session.flush()
 
     class _VacancyStub:
-        client_id = client.id
+        client_id = fixed_client_id  # свободная переменная функции → LOAD_CLASSDEREF
 
         @property
         def client(self):  # pragma: no cover — не должно вызываться

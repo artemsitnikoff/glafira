@@ -297,7 +297,7 @@ async def test_generate_rubric_endpoint_llm_returns_none(async_client, auth_head
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_create_vacancy_auto_rubric_generated(async_client, auth_headers):
+async def test_create_vacancy_auto_rubric_generated(async_client, auth_headers, default_client):
     """При создании без recruiter_scoring_instructions + есть description → рубрикатор проставлен."""
     rubric_text = "Критерии оценки (сумма весов = 100):\n• [вес 100, обязательно] Python — опыт."
 
@@ -311,6 +311,7 @@ async def test_create_vacancy_auto_rubric_generated(async_client, auth_headers):
             json={
                 "name": "Python Backend",
                 "description": "<p>Требования: опыт Python от 3 лет.</p>",
+                "client_id": default_client,
             },
             headers=auth_headers,
         )
@@ -321,7 +322,7 @@ async def test_create_vacancy_auto_rubric_generated(async_client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_create_vacancy_existing_instructions_not_overwritten(async_client, auth_headers):
+async def test_create_vacancy_existing_instructions_not_overwritten(async_client, auth_headers, default_client):
     """Если recruiter_scoring_instructions уже заполнено — НЕ перезаписывать."""
     existing = "Мои ручные критерии оценки."
 
@@ -336,6 +337,7 @@ async def test_create_vacancy_existing_instructions_not_overwritten(async_client
                 "name": "Python Backend",
                 "description": "Требования: опыт Python.",
                 "recruiter_scoring_instructions": existing,
+                "client_id": default_client,
             },
             headers=auth_headers,
         )
@@ -347,7 +349,7 @@ async def test_create_vacancy_existing_instructions_not_overwritten(async_client
 
 
 @pytest.mark.asyncio
-async def test_create_vacancy_no_description_skips_rubric(async_client, auth_headers):
+async def test_create_vacancy_no_description_skips_rubric(async_client, auth_headers, default_client):
     """Нет description → авто-генерация не вызывается, вакансия создаётся нормально."""
     with patch(
         "app.services.vacancy.generate_scoring_rubric",
@@ -356,7 +358,7 @@ async def test_create_vacancy_no_description_skips_rubric(async_client, auth_hea
     ) as mock_gen:
         response = await async_client.post(
             "/api/v1/vacancies",
-            json={"name": "Менеджер"},
+            json={"name": "Менеджер", "client_id": default_client},
             headers=auth_headers,
         )
 
@@ -368,7 +370,7 @@ async def test_create_vacancy_no_description_skips_rubric(async_client, auth_hea
 
 
 @pytest.mark.asyncio
-async def test_create_vacancy_rubric_error_still_creates(async_client, auth_headers):
+async def test_create_vacancy_rubric_error_still_creates(async_client, auth_headers, default_client):
     """generate_scoring_rubric кидает исключение → вакансия всё равно создаётся, instructions=None."""
     with patch(
         "app.services.vacancy.generate_scoring_rubric",
@@ -380,6 +382,7 @@ async def test_create_vacancy_rubric_error_still_creates(async_client, auth_head
             json={
                 "name": "Java Developer",
                 "description": "Требования: Java 11+, Spring Boot.",
+                "client_id": default_client,
             },
             headers=auth_headers,
         )
@@ -392,7 +395,7 @@ async def test_create_vacancy_rubric_error_still_creates(async_client, auth_head
 
 
 @pytest.mark.asyncio
-async def test_create_vacancy_no_openrouter_key_still_creates(async_client, auth_headers):
+async def test_create_vacancy_no_openrouter_key_still_creates(async_client, auth_headers, default_client):
     """OpenRouterNotConfiguredError → пропускаем, вакансия создаётся без рубрикатора."""
     from app.core.errors import OpenRouterNotConfiguredError
 
@@ -406,6 +409,7 @@ async def test_create_vacancy_no_openrouter_key_still_creates(async_client, auth
             json={
                 "name": "Data Engineer",
                 "description": "Требования: Spark, Hadoop.",
+                "client_id": default_client,
             },
             headers=auth_headers,
         )
@@ -417,7 +421,7 @@ async def test_create_vacancy_no_openrouter_key_still_creates(async_client, auth
 
 
 @pytest.mark.asyncio
-async def test_create_vacancy_rubric_is_company_scoped(async_client, auth_headers, second_company):
+async def test_create_vacancy_rubric_is_company_scoped(async_client, auth_headers, second_company, default_client):
     """Рубрикатор берёт ключ scoped по company_id из контекста (не глобальный)."""
     # Проверяем: generate_scoring_rubric вызывается с api_key из get_company_openrouter_key
     # (который уже мокируется conftest на 'test-openrouter-key' — это и есть company-scoped мок)
@@ -433,6 +437,7 @@ async def test_create_vacancy_rubric_is_company_scoped(async_client, auth_header
             json={
                 "name": "ML Engineer",
                 "description": "Требования: опыт PyTorch.",
+                "client_id": default_client,
             },
             headers=auth_headers,
         )

@@ -225,6 +225,12 @@ class TestHiredProgressAutoclose:
     @pytest.mark.asyncio
     async def test_delete_vacancy_keeps_request(self, db_session, admin_user):
         req, vac, apps = await self._setup(db_session, admin_user.company_id, positions=1)
+        # В проде вакансия АРХИВИРУЕТСЯ, а не удаляется; hard-delete вакансии с откликами
+        # невозможен (applications.vacancy_id NOT NULL, без ondelete). Убираем отклики,
+        # затем проверяем SET NULL на связи заявка↔вакансия при удалении вакансии.
+        for a in apps:
+            await db_session.delete(a)
+        await db_session.flush()
         await db_session.delete(vac)
         await db_session.commit()
         # Заявка жива, связь обнулена (ondelete SET NULL)

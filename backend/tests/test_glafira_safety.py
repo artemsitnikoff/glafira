@@ -12,7 +12,7 @@ from app.core.errors import GlafiraParseError, FeatureNotImplementedError
 class TestGlafiraSafety:
 
     async def test_scoring_invalid_response_returns_502(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test that invalid LLM response returns 502 and doesn't create fake records"""
 
@@ -23,7 +23,7 @@ class TestGlafiraSafety:
             "description": "Требуется Python разработчик",
             "salary_from": 100000,
             "salary_to": 150000,
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_response = await async_client.post(
             "/api/v1/vacancies",
@@ -79,7 +79,7 @@ class TestGlafiraSafety:
         assert count == 0  # No fake evaluation records
 
     async def test_scoring_missing_field_returns_502(
-        self, async_client, auth_headers, test_candidate, db_session
+        self, async_client, auth_headers, test_candidate, db_session, default_client
     ):
         """Test that missing required field returns 502 and doesn't create fake records"""
 
@@ -88,7 +88,7 @@ class TestGlafiraSafety:
             "name": "Python Developer",
             "city": "Москва",
             "description": "Требуется Python разработчик",
-            "client_id": None
+            "client_id": default_client
         }
         vacancy_response = await async_client.post(
             "/api/v1/vacancies",

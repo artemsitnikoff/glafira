@@ -21,11 +21,16 @@ async def _seed_company_defaults(db_session, company_id):
     await db_session.commit()
 
 
-async def _create_vacancy(async_client, admin_token, admin_user):
+async def _create_vacancy(async_client, admin_token, admin_user, default_client):
     response = await async_client.post(
         "/api/v1/vacancies",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"name": "Vac RR", "team": [str(admin_user.id)], "funnel_template": "default"},
+        json={
+            "name": "Vac RR",
+            "team": [str(admin_user.id)],
+            "funnel_template": "default",
+            "client_id": default_client,
+        },
     )
     assert response.status_code == 201
     return response.json()["id"]
@@ -38,10 +43,11 @@ async def test_create_vacancy_copies_default_reasons(
     db_session: AsyncSession,
     default_company_id: str,
     admin_user,
+    default_client: str,
 ):
     """Создание вакансии копирует дефолты компании как причины вакансии (с сохранением is_system)."""
     await _seed_company_defaults(db_session, default_company_id)
-    vacancy_id = await _create_vacancy(async_client, admin_token, admin_user)
+    vacancy_id = await _create_vacancy(async_client, admin_token, admin_user, default_client)
 
     # У вакансии появились СВОИ причины (vacancy_id = vacancy)
     result = await db_session.execute(
@@ -66,10 +72,11 @@ async def test_get_vacancy_reasons_and_system_guard(
     db_session: AsyncSession,
     default_company_id: str,
     admin_user,
+    default_client: str,
 ):
     """GET отдаёт причины вакансии; системную удалить нельзя, обычную — можно."""
     await _seed_company_defaults(db_session, default_company_id)
-    vacancy_id = await _create_vacancy(async_client, admin_token, admin_user)
+    vacancy_id = await _create_vacancy(async_client, admin_token, admin_user, default_client)
 
     resp = await async_client.get(
         f"/api/v1/vacancies/{vacancy_id}/reject-reasons",
@@ -104,10 +111,11 @@ async def test_vacancy_reason_scope_isolation(
     db_session: AsyncSession,
     default_company_id: str,
     admin_user,
+    default_client: str,
 ):
     """Через эндпоинт вакансии нельзя удалить дефолт компании (vacancy_id IS NULL)."""
     await _seed_company_defaults(db_session, default_company_id)
-    vacancy_id = await _create_vacancy(async_client, admin_token, admin_user)
+    vacancy_id = await _create_vacancy(async_client, admin_token, admin_user, default_client)
 
     # id дефолта компании (vacancy_id IS NULL, не системного)
     result = await db_session.execute(

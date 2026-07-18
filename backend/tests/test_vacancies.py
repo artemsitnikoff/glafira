@@ -9,6 +9,7 @@ async def test_create_vacancy_default_template(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     payload = {
         "name": "Senior Python Developer",
@@ -18,6 +19,7 @@ async def test_create_vacancy_default_template(
         "currency": "RUB",
         "funnel_template": "default",
         "positions_count": 2,
+        "client_id": default_client,
     }
 
     response = await async_client.post("/api/v1/vacancies", headers=auth_headers, json=payload)
@@ -47,11 +49,12 @@ async def test_create_vacancy_mass_template_has_5_stages(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Курьер", "funnel_template": "mass"},
+        json={"name": "Курьер", "funnel_template": "mass", "client_id": default_client},
     )
     assert response.status_code == 201, response.text
     vacancy_id = response.json()["id"]
@@ -95,11 +98,12 @@ async def test_get_vacancy_sidebar(
 async def test_get_vacancy_stages(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Бэкенд-разработчик"},
+        json={"name": "Бэкенд-разработчик", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -117,13 +121,14 @@ async def test_get_vacancy_stages(
 async def test_restore_vacancy_from_archive(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Test 1: Restore archived vacancy clears archive_result and closed_at"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -153,6 +158,7 @@ async def test_restore_vacancy_audit_log(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test 2: Restore vacancy creates audit log with vacancy_restore action"""
     from app.models import AuditLog
@@ -161,7 +167,7 @@ async def test_restore_vacancy_audit_log(
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy 2"},
+        json={"name": "Test Vacancy 2", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -204,10 +210,12 @@ async def test_create_vacancy_with_custom_stages(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test creating vacancy with custom stages"""
     payload = {
         "name": "Custom Pipeline Vacancy",
+        "client_id": default_client,
         "stages": [
             {"stage_key": "apply", "label": "Заявка", "order_index": 1, "is_terminal": False},
             {"stage_key": "review", "label": "Рассмотрение", "order_index": 2, "is_terminal": False},
@@ -249,11 +257,13 @@ async def test_create_vacancy_with_template_still_works(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test backward compatibility - template-based creation still works"""
     payload = {
         "name": "Template Vacancy",
         "funnel_template": "mass",
+        "client_id": default_client,
         # No stages provided - should use template
     }
 

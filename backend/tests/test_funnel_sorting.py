@@ -4,10 +4,11 @@ import pytest
 from httpx import AsyncClient
 
 
-async def _create_vacancy(client: AsyncClient, hdr: dict, admin_user) -> str:
+async def _create_vacancy(client: AsyncClient, hdr: dict, admin_user, default_client: str) -> str:
     r = await client.post(
         "/api/v1/vacancies", headers=hdr,
-        json={"name": "VacSort", "team": [str(admin_user.id)], "funnel_template": "default"},
+        json={"name": "VacSort", "team": [str(admin_user.id)], "funnel_template": "default",
+              "client_id": default_client},
     )
     assert r.status_code == 201
     return r.json()["id"]
@@ -22,10 +23,10 @@ async def _add_candidate(client: AsyncClient, hdr: dict, vacancy_id: str, last_n
 
 
 @pytest.mark.asyncio
-async def test_manual_candidate_has_selected_at(async_client: AsyncClient, admin_token: str, admin_user):
+async def test_manual_candidate_has_selected_at(async_client: AsyncClient, admin_token: str, admin_user, default_client: str):
     """Вручную созданный кандидат, привязанный к вакансии, получает «Дату отбора» (selected_at)."""
     hdr = {"Authorization": f"Bearer {admin_token}"}
-    vid = await _create_vacancy(async_client, hdr, admin_user)
+    vid = await _create_vacancy(async_client, hdr, admin_user, default_client)
     await _add_candidate(async_client, hdr, vid, "Яковлев")
 
     apps = await async_client.get(f"/api/v1/vacancies/{vid}/applications", headers=hdr)
@@ -36,10 +37,10 @@ async def test_manual_candidate_has_selected_at(async_client: AsyncClient, admin
 
 
 @pytest.mark.asyncio
-async def test_sort_full_name_lexicographic(async_client: AsyncClient, admin_token: str, admin_user):
+async def test_sort_full_name_lexicographic(async_client: AsyncClient, admin_token: str, admin_user, default_client: str):
     """sort=full_name&order=asc — лексикографический порядок по фамилии."""
     hdr = {"Authorization": f"Bearer {admin_token}"}
-    vid = await _create_vacancy(async_client, hdr, admin_user)
+    vid = await _create_vacancy(async_client, hdr, admin_user, default_client)
     for ln in ("Яковлев", "Абрамов", "Миронов"):
         await _add_candidate(async_client, hdr, vid, ln)
 
@@ -58,10 +59,10 @@ async def test_sort_full_name_lexicographic(async_client: AsyncClient, admin_tok
 
 
 @pytest.mark.asyncio
-async def test_sort_by_stage_runs(async_client: AsyncClient, admin_token: str, admin_user):
+async def test_sort_by_stage_runs(async_client: AsyncClient, admin_token: str, admin_user, default_client: str):
     """sort=stage не падает (выполняет join VacancyStage по порядку воронки) и возвращает 200."""
     hdr = {"Authorization": f"Bearer {admin_token}"}
-    vid = await _create_vacancy(async_client, hdr, admin_user)
+    vid = await _create_vacancy(async_client, hdr, admin_user, default_client)
     await _add_candidate(async_client, hdr, vid, "Иванов")
     await _add_candidate(async_client, hdr, vid, "Петров")
 

@@ -39,11 +39,12 @@ async def test_application_move_and_reject_lifecycle(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Backend Developer"},
+        json={"name": "Backend Developer", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -100,11 +101,12 @@ async def test_get_applications_for_vacancy_paginated(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Курьер", "funnel_template": "mass"},
+        json={"name": "Курьер", "funnel_template": "mass", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -138,11 +140,12 @@ async def test_bulk_move_applications(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Менеджер по продажам"},
+        json={"name": "Менеджер по продажам", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -171,13 +174,14 @@ async def test_bulk_reject_skips_already_rejected(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Массовый отказ устойчив: уже отклонённая заявка в выборке ПРОПУСКАЕТСЯ,
     остальные отклоняются (раньше первая «уже отклонена» рушила весь батч → 400)."""
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Аналитик"},
+        json={"name": "Аналитик", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -207,6 +211,7 @@ async def test_applications_filter_added_period(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test added_period filter - 1 application 40 days ago + 1 fresh; added_period=30d → only fresh"""
     from datetime import datetime, timedelta, timezone
@@ -214,7 +219,7 @@ async def test_applications_filter_added_period(
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -255,6 +260,7 @@ async def test_applications_filter_repeat(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test repeat filter - Candidate A with 2 applications + candidate B with 1 application;
     repeat=true → A, repeat=false → B"""
@@ -262,7 +268,7 @@ async def test_applications_filter_repeat(
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -319,6 +325,7 @@ async def test_applications_filter_messenger(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test messenger filter - Candidate with preferred_channel=telegram + another with hh;
     messenger=['telegram'] → only first"""
@@ -326,7 +333,7 @@ async def test_applications_filter_messenger(
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 
@@ -371,6 +378,7 @@ async def test_applications_filter_ready_relocate(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test ready_relocate JSONB filter - 3 candidates with relocation: true/false/empty;
     ready_relocate=true → 1, ready_relocate=false → 1, no filter → 3"""
@@ -378,7 +386,7 @@ async def test_applications_filter_ready_relocate(
     vacancy_response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Remote Job"},
+        json={"name": "Remote Job", "client_id": default_client},
     )
     vacancy_id = vacancy_response.json()["id"]
 

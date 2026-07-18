@@ -10,7 +10,7 @@ from app.models import Application, Candidate, Employee, PulsePlanItem, PulseSur
 
 
 async def test_hired_creates_employee_and_plan_idempotent(
-    async_client: AsyncClient, auth_headers, admin_user, db_session: AsyncSession,
+    async_client: AsyncClient, auth_headers, admin_user, default_client, db_session: AsyncSession,
 ):
     # Mock plan generation response
     PLAN_RESPONSE = {
@@ -31,6 +31,7 @@ async def test_hired_creates_employee_and_plan_idempotent(
                 "name": "Backend Dev",
                 "funnel_template": "default",
                 "positions_count": 1,
+                "client_id": default_client,
             },
         )).json()
         vacancy_id = vac["id"]

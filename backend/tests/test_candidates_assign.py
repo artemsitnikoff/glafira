@@ -7,7 +7,7 @@ from app.core.stages import STAGES
 
 @pytest.mark.asyncio
 async def test_assign_candidate_to_vacancy_success(
-    async_client: AsyncClient, auth_headers: dict, test_candidate
+    async_client: AsyncClient, auth_headers: dict, test_candidate, default_client
 ):
     """Test successful assignment of candidate to vacancy"""
     # Create a vacancy for testing
@@ -19,7 +19,8 @@ async def test_assign_candidate_to_vacancy_success(
             "description": "Test vacancy description",
             "location": "Remote",
             "salary_from": 50000,
-            "salary_to": 80000
+            "salary_to": 80000,
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201
@@ -46,7 +47,7 @@ async def test_assign_candidate_to_vacancy_success(
 
 @pytest.mark.asyncio
 async def test_assign_candidate_duplicate_application(
-    async_client: AsyncClient, auth_headers: dict, test_candidate
+    async_client: AsyncClient, auth_headers: dict, test_candidate, default_client
 ):
     """Test creating duplicate application returns 409"""
     # Create a vacancy for testing
@@ -58,7 +59,8 @@ async def test_assign_candidate_duplicate_application(
             "description": "Test vacancy description",
             "location": "Remote",
             "salary_from": 50000,
-            "salary_to": 80000
+            "salary_to": 80000,
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201
@@ -90,7 +92,9 @@ async def test_assign_candidate_duplicate_application(
 
 
 @pytest.mark.asyncio
-async def test_assign_nonexistent_candidate(async_client: AsyncClient, auth_headers: dict):
+async def test_assign_nonexistent_candidate(
+    async_client: AsyncClient, auth_headers: dict, default_client
+):
     """Test assigning nonexistent candidate returns 404"""
     fake_candidate_id = str(uuid4())
 
@@ -103,7 +107,8 @@ async def test_assign_nonexistent_candidate(async_client: AsyncClient, auth_head
             "description": "Test vacancy description",
             "location": "Remote",
             "salary_from": 50000,
-            "salary_to": 80000
+            "salary_to": 80000,
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201
@@ -142,7 +147,7 @@ async def test_assign_to_nonexistent_vacancy(
 
 @pytest.mark.asyncio
 async def test_assign_unknown_stage_falls_back_to_real_stage(
-    async_client: AsyncClient, auth_headers: dict, test_candidate
+    async_client: AsyncClient, auth_headers: dict, test_candidate, default_client
 ):
     """A stage not present in the vacancy's funnel falls back to the first
     non-terminal stage of that vacancy (documented intentional behaviour:
@@ -160,7 +165,8 @@ async def test_assign_unknown_stage_falls_back_to_real_stage(
             "description": "Test vacancy description",
             "location": "Remote",
             "salary_from": 50000,
-            "salary_to": 80000
+            "salary_to": 80000,
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201
@@ -196,7 +202,7 @@ async def test_assign_unknown_stage_falls_back_to_real_stage(
 
 @pytest.mark.asyncio
 async def test_assign_default_stage(
-    async_client: AsyncClient, auth_headers: dict, test_candidate
+    async_client: AsyncClient, auth_headers: dict, test_candidate, default_client
 ):
     """Test assignment with default stage (response)"""
     # Create a vacancy for testing
@@ -208,7 +214,8 @@ async def test_assign_default_stage(
             "description": "Test vacancy description",
             "location": "Remote",
             "salary_from": 50000,
-            "salary_to": 80000
+            "salary_to": 80000,
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201
@@ -229,7 +236,7 @@ async def test_assign_default_stage(
 
 @pytest.mark.asyncio
 async def test_assign_candidate_has_pdn_true(
-    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session, admin_user
+    async_client: AsyncClient, auth_headers: dict, test_candidate, db_session, admin_user, default_client
 ):
     """Тест 3: кандидат + signed consent → assign → has_pdn == True"""
     from app.models import Consent, Vacancy
@@ -250,7 +257,8 @@ async def test_assign_candidate_has_pdn_true(
         headers=auth_headers,
         json={
             "name": "Test Vacancy PDN True",
-            "description": "Test vacancy description"
+            "description": "Test vacancy description",
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201
@@ -271,7 +279,7 @@ async def test_assign_candidate_has_pdn_true(
 
 @pytest.mark.asyncio
 async def test_assign_candidate_has_pdn_false(
-    async_client: AsyncClient, auth_headers: dict, test_candidate
+    async_client: AsyncClient, auth_headers: dict, test_candidate, default_client
 ):
     """Тест 4: кандидат без consent → assign → has_pdn == False"""
     # Create a vacancy for testing
@@ -280,7 +288,8 @@ async def test_assign_candidate_has_pdn_false(
         headers=auth_headers,
         json={
             "name": "Test Vacancy PDN False",
-            "description": "Test vacancy description"
+            "description": "Test vacancy description",
+            "client_id": default_client
         }
     )
     assert vacancy_response.status_code == 201

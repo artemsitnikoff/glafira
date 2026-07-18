@@ -92,6 +92,12 @@ class HhVacanciesImportRequest(BaseModel):
 
 router = APIRouter()
 
+# Публичный роутер для OAuth-callback'ов (hh/habr): провайдер редиректит браузер
+# СЮДА без нашей auth-куки → эндпоинты обязаны быть публичными. Основной router
+# монтируется с _deny_hm (forbid_hiring_manager → get_current_user), что делало бы
+# callback приватным (401). Безопасность callback'а — через параметр state, не куку.
+public_router = APIRouter()
+
 
 @router.get("/hh/status", dependencies=[Depends(require_settings_read_access)])
 async def get_hh_status(
@@ -116,7 +122,7 @@ async def start_hh_authorization(
     return {"authorize_url": authorize_url}
 
 
-@router.get("/hh/callback")
+@public_router.get("/hh/callback")
 async def hh_oauth_callback(
     code: str = Query(None),
     state: str = Query(None),
@@ -838,7 +844,7 @@ async def start_habr_authorization(
     return {"authorize_url": authorize_url}
 
 
-@router.get("/habr/callback")
+@public_router.get("/habr/callback")
 async def habr_oauth_callback(
     code: str = Query(None),
     state: str = Query(None),

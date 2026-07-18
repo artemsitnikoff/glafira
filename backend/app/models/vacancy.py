@@ -47,7 +47,11 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     # Вакансия создана из заявки на подбор (связь 1:1). SET NULL: удаление заявки не трогает вакансию.
     request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("hiring_requests.id", ondelete="SET NULL"),
+        # use_alter: vacancies↔hiring_requests образуют циклический FK — без этого
+        # metadata.create_all/drop_all (тесты) не может топологически отсортировать
+        # таблицы и падает CircularDependencyError. Прод создаётся миграциями
+        # (post-create FK) и это не затрагивает; влияет только на DDL по метаданным.
+        ForeignKey("hiring_requests.id", ondelete="SET NULL", use_alter=True, name="fk_vacancies_request_id"),
         nullable=True,
     )
     funnel_template: Mapped[str] = mapped_column(

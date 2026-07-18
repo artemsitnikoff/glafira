@@ -476,12 +476,12 @@ async def test_export_xlsx_contains_data(async_client, auth_headers, seeded_anal
     assert content_length > 5000  # Реальный XLSX должен быть больше 5KB
 
 
-async def test_funnel_conversion_exact_numbers(async_client, auth_headers, admin_user, db_session):
+async def test_funnel_conversion_exact_numbers(async_client, auth_headers, admin_user, db_session, default_client):
     """Засеить ровно: 10 applied → 5 selected → 2 hired. Проверить точный conversion_from_prev_pct."""
     from app.models import Vacancy, Application, StageHistory, Candidate
 
     # Создаём vacancy через API
-    v_resp = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "Test Funnel Vacancy"})
+    v_resp = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "Test Funnel Vacancy", "client_id": default_client})
     v = v_resp.json()
 
     # Создаём 10 кандидатов и заявок
@@ -617,13 +617,13 @@ async def test_turnover_avg_tenure_days_exact(async_client, auth_headers, admin_
     assert 99.0 <= tenure <= 101.0, f"expected ~100 days, got {tenure}"
 
 
-async def test_speed_dwell_median_from_history(async_client, auth_headers, admin_user, test_candidate, db_session):
+async def test_speed_dwell_median_from_history(async_client, auth_headers, admin_user, test_candidate, db_session, default_client):
     """Засеить application + stage_history где между entry в 'selected' и exit прошло 5 дней. Проверить median dwell для 'selected' ≈ 5 дней."""
     from datetime import datetime, timedelta, timezone
     from app.models import Vacancy, Application, StageHistory
 
     # Создаём vacancy + application
-    v_resp = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "Speed Test Vacancy"})
+    v_resp = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "Speed Test Vacancy", "client_id": default_client})
     v = v_resp.json()
 
     application = Application(

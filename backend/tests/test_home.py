@@ -215,14 +215,14 @@ async def test_home_sources_groups_by_source(async_client, auth_headers, db_sess
 
 @pytest.mark.asyncio
 async def test_home_kpi_extended_recruiter_response_speed(
-    async_client, auth_headers, admin_user, test_candidate, db_session
+    async_client, auth_headers, admin_user, test_candidate, db_session, default_client
 ):
     """Засеить application с известным временем первого ответа → recruiter_response_speed соответствует."""
     from datetime import datetime, timezone, timedelta
     from app.models import Vacancy, Application, Message
 
     # Создать vacancy через API
-    vr = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "V"})
+    vr = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={"name": "V", "client_id": default_client})
     vacancy_id = vr.json()["id"]
 
     # Application создан 10h назад

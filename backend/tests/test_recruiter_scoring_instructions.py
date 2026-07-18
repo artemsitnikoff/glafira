@@ -23,6 +23,7 @@ async def test_create_vacancy_persists_recruiter_scoring_instructions(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     instructions = "Обязателен опыт с asyncio. Английский B2+. Без джунов."
     response = await async_client.post(
@@ -31,6 +32,7 @@ async def test_create_vacancy_persists_recruiter_scoring_instructions(
         json={
             "name": "Backend Engineer",
             "recruiter_scoring_instructions": instructions,
+            "client_id": default_client,
         },
     )
     assert response.status_code == 201, response.text
@@ -49,11 +51,12 @@ async def test_create_vacancy_persists_recruiter_scoring_instructions(
 async def test_create_vacancy_without_instructions_is_null(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     response = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "No Instructions Vacancy"},
+        json={"name": "No Instructions Vacancy", "client_id": default_client},
     )
     assert response.status_code == 201, response.text
     assert response.json()["recruiter_scoring_instructions"] is None
@@ -63,11 +66,12 @@ async def test_update_vacancy_sets_recruiter_scoring_instructions(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Updatable Vacancy"},
+        json={"name": "Updatable Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
     assert created.json()["recruiter_scoring_instructions"] is None
@@ -97,13 +101,18 @@ async def test_update_vacancy_sets_recruiter_scoring_instructions(
 async def test_update_vacancy_preserves_instructions_when_omitted(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """PATCH без поля не должен затирать ранее сохранённые инструкции (None = не трогаем)."""
     instructions = "Только кандидаты с релокацией в Москву."
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Preserve Vacancy", "recruiter_scoring_instructions": instructions},
+        json={
+            "name": "Preserve Vacancy",
+            "recruiter_scoring_instructions": instructions,
+            "client_id": default_client,
+        },
     )
     vacancy_id = created.json()["id"]
 

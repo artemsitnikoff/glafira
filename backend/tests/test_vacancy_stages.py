@@ -9,13 +9,14 @@ async def test_add_vacancy_stage(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test adding a new stage to vacancy"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -54,10 +55,12 @@ async def test_add_vacancy_stage(
 async def test_stage_description_roundtrip(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Описание этапа сохраняется при создании, отдаётся в GET и меняется через PATCH."""
     created = await async_client.post(
-        "/api/v1/vacancies", headers=auth_headers, json={"name": "Desc Vacancy"},
+        "/api/v1/vacancies", headers=auth_headers,
+        json={"name": "Desc Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -100,13 +103,14 @@ async def test_stage_description_roundtrip(
 async def test_add_stage_duplicate_key_fails(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Test that adding stage with duplicate key fails"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -129,13 +133,14 @@ async def test_add_stage_duplicate_key_fails(
 async def test_add_stage_invalid_key_fails(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Test that adding stage with invalid key fails"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -158,13 +163,14 @@ async def test_rename_vacancy_stage(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test renaming stage (only label changes, stage_key immutable)"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -207,13 +213,14 @@ async def test_rename_vacancy_stage(
 async def test_rename_nonexistent_stage_fails(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Test that renaming nonexistent stage fails"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -231,13 +238,14 @@ async def test_delete_empty_custom_stage_succeeds(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test deleting empty custom stage succeeds"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -276,13 +284,14 @@ async def test_delete_empty_custom_stage_succeeds(
 async def test_delete_protected_stage_fails(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Test deleting protected stage fails"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -301,13 +310,14 @@ async def test_delete_nonempty_stage_fails(
     auth_headers: dict[str, str],
     db_session: AsyncSession,
     test_candidate,
+    default_client: str,
 ):
     """Test deleting stage with applications fails"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 
@@ -345,6 +355,7 @@ async def test_reorder_stages(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
     db_session: AsyncSession,
+    default_client: str,
 ):
     """Test reordering stages"""
     # Create vacancy with custom stages
@@ -353,6 +364,7 @@ async def test_reorder_stages(
         headers=auth_headers,
         json={
             "name": "Test Vacancy",
+            "client_id": default_client,
             "stages": [
                 {"stage_key": "first", "label": "Первый", "order_index": 1},
                 {"stage_key": "second", "label": "Второй", "order_index": 2},
@@ -389,13 +401,14 @@ async def test_reorder_stages(
 async def test_reorder_with_mismatched_stages_fails(
     async_client: AsyncClient,
     auth_headers: dict[str, str],
+    default_client: str,
 ):
     """Test reordering with wrong stage keys fails"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},  # Uses default template
+        json={"name": "Test Vacancy", "client_id": default_client},  # Uses default template
     )
     vacancy_id = created.json()["id"]
 
@@ -415,13 +428,14 @@ async def test_move_application_to_custom_stage_works(
     auth_headers: dict[str, str],
     db_session: AsyncSession,
     test_candidate,
+    default_client: str,
 ):
     """Test that moving application to custom stage works (proves CHECK removal)"""
     # Create vacancy
     created = await async_client.post(
         "/api/v1/vacancies",
         headers=auth_headers,
-        json={"name": "Test Vacancy"},
+        json={"name": "Test Vacancy", "client_id": default_client},
     )
     vacancy_id = created.json()["id"]
 

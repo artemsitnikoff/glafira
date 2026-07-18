@@ -215,7 +215,8 @@ class TestCandidates:
         async_client: AsyncClient,
         auth_headers: dict[str, str]
     ):
-        """Test creating candidate with comment and add_type saves to extra"""
+        """add_type сохраняется в extra; comment (v0.9.212) создаёт запись Comment
+        в ленте «Комментарии», а НЕ кладётся в extra['comment']."""
         response = await async_client.post(
             "/api/v1/candidates",
             headers=auth_headers,
@@ -234,10 +235,20 @@ class TestCandidates:
         assert candidate["first_name"] == "Тест"
         assert candidate["source"] == "manual"
 
-        # Check extra field contains comment and add_type
+        # add_type по-прежнему в extra; comment туда больше НЕ пишется
         assert candidate["extra"] is not None
-        assert candidate["extra"]["comment"] == "Отличный кандидат"
         assert candidate["extra"]["add_type"] == "import"
+        assert "comment" not in candidate["extra"]
+
+        # comment ушёл реальной записью Comment в ленту карточки
+        comments_response = await async_client.get(
+            f"/api/v1/candidates/{candidate['id']}/comments",
+            headers=auth_headers,
+        )
+        assert comments_response.status_code == 200
+        comments = comments_response.json()
+        assert len(comments) == 1
+        assert comments[0]["body"] == "Отличный кандидат"
 
     async def test_create_candidate_with_messengers(
         self,

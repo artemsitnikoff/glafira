@@ -279,6 +279,7 @@ async def test_create_vacancy_uses_default_stages(
     db_session: AsyncSession,
     default_company_id: str,
     admin_user,
+    default_client: str,
 ):
     """Test creating vacancy uses company default stages when available"""
     # Create company default stages
@@ -298,7 +299,8 @@ async def test_create_vacancy_uses_default_stages(
         json={
             "name": "Test Vacancy",
             "team": [str(admin_user.id)],
-            "funnel_template": "default"
+            "funnel_template": "default",
+            "client_id": default_client
         }
     )
 
@@ -328,6 +330,7 @@ async def test_create_vacancy_fallback_to_template(
     admin_token: str,
     db_session: AsyncSession,
     admin_user,
+    default_client: str,
 ):
     """Test creating vacancy falls back to template when no default stages"""
     # Ensure no default stages exist (clean test)
@@ -339,7 +342,8 @@ async def test_create_vacancy_fallback_to_template(
         json={
             "name": "Test Vacancy",
             "team": [str(admin_user.id)],
-            "funnel_template": "default"
+            "funnel_template": "default",
+            "client_id": default_client
         }
     )
 

@@ -22,6 +22,7 @@ from .analytics import router as analytics_router
 from .settings import router as settings_router
 from .audit import router as audit_router
 from .integrations import router as integrations_router
+from .integrations import public_router as integrations_public_router
 from .suggestions import router as suggestions_router
 from .smart import router as smart_router
 from .message_templates import router as message_templates_router
@@ -89,6 +90,13 @@ api_router.include_router(
     prefix="/integrations",
     tags=["integrations"],
     dependencies=_deny_hm,
+)
+# OAuth-callback'и (hh/habr) — БЕЗ _deny_hm: провайдер редиректит браузер сюда без
+# нашей auth-куки, эндпоинт обязан быть публичным (безопасность через state).
+api_router.include_router(
+    integrations_public_router,
+    prefix="/integrations",
+    tags=["integrations"],
 )
 api_router.include_router(suggestions_router, prefix="/suggestions", tags=["suggestions"], dependencies=_deny_hm)
 api_router.include_router(

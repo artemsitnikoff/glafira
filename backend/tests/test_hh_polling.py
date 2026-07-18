@@ -473,7 +473,8 @@ class TestImportHhVacancies:
             assert result["created"] == 1
             assert "QA Engineer" in result["created_names"]
             assert len(result["errors"]) == 1
+            # Ни одна из переданных не была привязана заранее → skipped=0
+            assert result["skipped"] == 0
 
         finally:
             _cfg.settings.FERNET_KEY = orig_key
-        assert stats["skipped"] == 1

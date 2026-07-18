@@ -488,8 +488,12 @@ async def add_comment(
     if not body:
         raise ValidationError("Пустое сообщение")
     side = "recruiter" if _is_staff(user) else "manager"
+    # request=req (а НЕ request_id=req.id) — чтобы back_populates добавил коммент в
+    # уже загруженную req.comments. Иначе при expire_on_commit=False повторный
+    # get_request_or_raise в роуте вернёт ТОТ ЖЕ инстанс со stale-пустой коллекцией
+    # (selectinload не перечитывает загруженную связь) → ответ POST без нового коммента.
     comment = RequestComment(
-        company_id=company_id, request_id=req.id, side=side,
+        company_id=company_id, request=req, side=side,
         author_user_id=user.id, author_name=user.full_name, body=body,
     )
     session.add(comment)

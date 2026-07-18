@@ -16,7 +16,7 @@ from app.config import settings
 from app.core.security import get_password_hash
 from app.database import get_db
 from app.main import app
-from app.models import Base, Company, User, Candidate, Consent, Vacancy
+from app.models import Base, Company, User, Candidate, Consent, Vacancy, Client
 from datetime import datetime, timezone
 
 # Тестовая БД — ОТДЕЛЬНАЯ от прод (conftest делает drop_all/create_all!).
@@ -116,6 +116,19 @@ async def manager_user(db_session: AsyncSession, admin_user: User) -> User:
 async def test_company(db_session: AsyncSession, admin_user: User) -> Company:
     """Компания тест-окружения (создаётся фикстурой admin_user)."""
     return await db_session.get(Company, admin_user.company_id)
+
+
+@pytest_asyncio.fixture
+async def default_client(db_session: AsyncSession, admin_user: User) -> str:
+    """Заказчик в компании админа — его id (str) для POST /vacancies.
+    Заказчик стал ОБЯЗАТЕЛЕН в роуте создания вакансии (v0.9.238): его название
+    Глафира называет кандидату. Тесты, создающие вакансию через API, передают
+    этот client_id в payload."""
+    client = Client(company_id=admin_user.company_id, name="ООО Тест-Заказчик")
+    db_session.add(client)
+    await db_session.commit()
+    await db_session.refresh(client)
+    return str(client.id)
 
 
 @pytest_asyncio.fixture
