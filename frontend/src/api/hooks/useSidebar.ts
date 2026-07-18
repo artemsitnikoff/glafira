@@ -4,7 +4,7 @@ import type { components } from '../types';
 
 type VacancySidebar = components['schemas']['VacancySidebar'];
 
-export function useSidebar() {
+export function useSidebar(enabled = true) {
   return useQuery({
     queryKey: ['vacancies', 'sidebar'],
     queryFn: async () => {
@@ -12,5 +12,6 @@ export function useSidebar() {
       return response.data;
     },
     refetchInterval: 30_000,
+    enabled,
   });
 }

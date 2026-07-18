@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
-from ...core.permissions import require_admin
+from ...core.permissions import require_admin, require_recruiter_or_admin
 from ...core.errors import ForbiddenError
 from ...models import User
 from ...schemas.hiring_request import (
@@ -150,7 +150,7 @@ async def patch_settings(
     )
 
 
-@router.get("/form-link", response_model=RequestFormLinkOut, dependencies=[Depends(require_admin)])
+@router.get("/form-link", response_model=RequestFormLinkOut, dependencies=[Depends(require_recruiter_or_admin)])
 async def get_form_link(
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
@@ -180,8 +180,9 @@ async def create_request(
     current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    # hiring_manager подаёт от своего имени (via=cabinet); recruiter/admin вносит со слов (via=manual).
-    if current_user.role == "hiring_manager":
+    # Не-персонал (hiring_manager/manager) подаёт от своего имени (via=cabinet), чтобы
+    # видеть свою заявку в author-scoped списке; recruiter/admin вносит со слов (via=manual).
+    if current_user.role not in ("admin", "recruiter"):
         req = await svc.create_request(
             session, company_id=company_id, user=current_user, data=body, via="cabinet",
         )

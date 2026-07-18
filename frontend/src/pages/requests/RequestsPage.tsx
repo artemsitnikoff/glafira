@@ -6,7 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import {
   useRequests, useRequest, useRequestStages,
   useMoveRequest, useRejectRequest, useRestoreRequest, useAddRequestComment,
-  useRequestFormLink, useRotateFormLink,
+  useRequestFormLink,
   type RequestListItem, type RequestDetail, type RequestStage,
 } from '@/api/hooks/useRequests';
 import './requests.css';
@@ -352,7 +352,6 @@ export default function RequestsPage() {
   const items: RequestListItem[] = data?.items || [];
 
   const formLink = useRequestFormLink(!isMgr);
-  const rotate = useRotateFormLink();
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: items.length };
@@ -365,16 +364,15 @@ export default function RequestsPage() {
   const nonTerminal = stages.filter((s) => !s.terminal);
 
   const copyLink = async () => {
-    let url = formLink.data?.url;
-    if (!url || !formLink.data?.enabled) {
-      const res = await rotate.mutateAsync();
-      url = res.url || undefined;
+    const url = formLink.data?.enabled ? formLink.data?.url : undefined;
+    // Копирование НЕ должно включать приём заявок как побочный эффект — это настройка админа.
+    if (!url) {
+      navigate('/settings?tab=requests');
+      return;
     }
-    if (url) {
-      try { await navigator.clipboard.writeText(url); } catch { /* clipboard недоступен — молча */ }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    try { await navigator.clipboard.writeText(url); } catch { /* clipboard недоступен — молча */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (

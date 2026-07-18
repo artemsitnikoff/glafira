@@ -545,8 +545,12 @@ export default function VacancyFormPage() {
       salary_from: requestPrefill.salary_from ?? prev.salary_from,
       salary_to: requestPrefill.salary_to ?? prev.salary_to,
       department: requestPrefill.department ?? prev.department,
+      // Описание заявки может прийти из ПУБЛИЧНОЙ формы (untrusted) → экранируем перед вставкой
+      // как HTML в RichTextField, иначе теги интерпретируются как разметка.
       description: requestPrefill.description
-        ? `<p>${String(requestPrefill.description).replace(/\n/g, '<br>')}</p>`
+        ? `<p>${String(requestPrefill.description)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>')}</p>`
         : prev.description,
     }));
   }, [editMode, requestPrefill]);

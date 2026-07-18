@@ -42,20 +42,27 @@ _FIXED_LABELS = {s.key: s.label for s in REQUEST_FIXED_STAGES}
 
 
 # ── Роль/доступ ───────────────────────────────────────────────────────────────
+# «Персонал рекрутинга» — видит и ведёт ВСЕ заявки компании. Остальные роли
+# (hiring_manager И manager-ассистент) — только СВОИ заявки, без управления этапами.
+# Обобщение закрывает least-privilege gap: до этого manager видел все заявки компании.
+def _is_staff(user: User) -> bool:
+    return user.role in ("admin", "recruiter")
+
+
 def _is_hiring_manager(user: User) -> bool:
     return user.role == "hiring_manager"
 
 
 def assert_request_access(request: HiringRequest, user: User) -> None:
-    """hiring_manager может касаться ТОЛЬКО своей заявки; иначе — как будто её нет (404)."""
-    if _is_hiring_manager(user) and request.author_user_id != user.id:
+    """Не-персонал может касаться ТОЛЬКО своей заявки; иначе — как будто её нет (404)."""
+    if not _is_staff(user) and request.author_user_id != user.id:
         raise NotFoundError("Заявка")
 
 
 def assert_can_manage(user: User) -> None:
     """Переводы/отклонение/закрытие/создание вакансии — только recruiter/admin."""
-    if _is_hiring_manager(user):
-        raise ForbiddenError("Нанимающий менеджер не может управлять заявкой")
+    if not _is_staff(user):
+        raise ForbiddenError("Недостаточно прав для управления заявкой")
 
 
 # ── Настройки / стадии ────────────────────────────────────────────────────────
@@ -275,8 +282,8 @@ async def list_requests(
     limit: int = 100, offset: int = 0,
 ) -> tuple[list[dict], int]:
     conds = [HiringRequest.company_id == company_id]
-    # hiring_manager: ФОРСИМ автора == он (fail-closed, присланные фильтры игнорируются).
-    if _is_hiring_manager(user):
+    # Не-персонал (hiring_manager/manager): ФОРСИМ автора == он (fail-closed, фильтры игнорируются).
+    if not _is_staff(user):
         conds.append(HiringRequest.author_user_id == user.id)
     if status and status != "all":
         conds.append(HiringRequest.status == status)
@@ -453,8 +460,7 @@ async def add_comment(
     body = (body or "").strip()
     if not body:
         raise ValidationError("Пустое сообщение")
-    is_mgr = _is_hiring_manager(user)
-    side = "manager" if is_mgr else "recruiter"
+    side = "recruiter" if _is_staff(user) else "manager"
     comment = RequestComment(
         company_id=company_id, request_id=req.id, side=side,
         author_user_id=user.id, author_name=user.full_name, body=body,
@@ -559,7 +565,7 @@ async def maybe_autoclose_request_for_vacancy(
 # ── Сайдбар-счётчики ──────────────────────────────────────────────────────────
 async def sidebar_counts(session: AsyncSession, company_id: UUID, user: User) -> dict:
     conds = [HiringRequest.company_id == company_id]
-    if _is_hiring_manager(user):
+    if not _is_staff(user):
         conds.append(HiringRequest.author_user_id == user.id)
     active = (await session.execute(
         select(func.count(HiringRequest.id)).where(

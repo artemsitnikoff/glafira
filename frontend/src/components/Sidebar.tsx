@@ -26,14 +26,16 @@ export function Sidebar() {
   const navigate = useNavigate();
 
   const { data: me } = useMe();
-  const { data: sidebar } = useSidebar();
-  const { count: alertsCount } = usePulseAlertsCount();
   const { data: reqCounts } = useRequestsSidebar();
   const reqActive = reqCounts?.active ?? 0;
   const reqNew = reqCounts?.new ?? 0;
   const ui = useUiStore();
   const user = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.logout);
+  // hiring_manager видит только «Мои заявки» — не дёргаем чужие счётчики (иначе 403 каждые 30с).
+  const isHiringManager = user?.role === 'hiring_manager';
+  const { data: sidebar } = useSidebar(!isHiringManager);
+  const { count: alertsCount } = usePulseAlertsCount(!isHiringManager);
 
   const handleLogout = async () => {
     // Гасим refresh-cookie на сервере; даже если запрос упал — разлогиниваем локально.

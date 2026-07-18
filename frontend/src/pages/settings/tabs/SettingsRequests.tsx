@@ -49,16 +49,13 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   const copyLink = async () => {
-    let url = formLink?.url;
-    if (!url || !formLink?.enabled) {
-      const res = await rotateLink.mutateAsync();
-      url = res.url || undefined;
-    }
-    if (url) {
-      try { await navigator.clipboard.writeText(url); } catch { /* clipboard недоступен */ }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    // Копируем только существующую ссылку. Создание/ротация — отдельной кнопкой «Обновить»,
+    // включение приёма — тумблером; копирование не должно менять настройку молча.
+    const url = formLink?.enabled ? formLink?.url : undefined;
+    if (!url) return;
+    try { await navigator.clipboard.writeText(url); } catch { /* clipboard недоступен */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const fixed = (stages || []).filter((s) => !s.custom);
@@ -154,7 +151,8 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <input className="nv-input" readOnly value={formLink?.url || 'Ссылка ещё не создана'}
               style={{ flex: 1, minWidth: 240, height: 34, color: formLink?.url ? 'var(--fg-1)' : 'var(--fg-3)' }} />
-            <button className="btn btn-secondary btn-sm" onClick={copyLink} disabled={readOnly}>
+            <button className="btn btn-secondary btn-sm" onClick={copyLink}
+              disabled={readOnly || !formLink?.enabled || !formLink?.url}>
               <Icon name={copied ? 'check' : 'link'} size={13} /> {copied ? 'Скопировано' : 'Скопировать'}
             </button>
             {!readOnly && (

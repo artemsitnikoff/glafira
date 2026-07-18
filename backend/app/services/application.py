@@ -387,6 +387,9 @@ async def move_application(
             )
         )).scalar_one_or_none()
         if _vac is not None and _vac.request_id:
+            # Явный flush: autoflush=False, а create_employee_from_hire на идемпотентном
+            # раннем возврате не флашит → compute_hired должен видеть ТЕКУЩИЙ hired.
+            await session.flush()
             await maybe_autoclose_request_for_vacancy(
                 session, company_id=company_id, vacancy=_vac,
                 actor_user_id=actor_user_id, actor_type=actor_type,

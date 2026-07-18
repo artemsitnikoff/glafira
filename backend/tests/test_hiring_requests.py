@@ -305,6 +305,26 @@ class TestManagerIsolation:
         assert resp.status_code == 403, f"{path} → {resp.status_code} (ожидался 403): {resp.text}"
 
     @pytest.mark.asyncio
+    async def test_assistant_manager_also_author_scoped(self, async_client, auth_headers, manager_user):
+        """Роль 'manager' (ассистент) тоже author-scoped в заявках: не видит/не двигает чужие
+        (закрытие least-privilege gap — фикс-форвард по ревью)."""
+        # рекрутер создаёт заявку
+        other = await async_client.post("/api/v1/requests", headers=auth_headers,
+                                        json={"title": "Чужая", "description": "D"})
+        other_id = other.json()["id"]
+        mgr_headers = await _login(async_client, manager_user.email)
+        # ассистент-manager не видит чужую в списке и по id
+        lst = await async_client.get("/api/v1/requests", headers=mgr_headers)
+        assert lst.status_code == 200
+        assert "Чужая" not in [i["title"] for i in lst.json()["items"]]
+        direct = await async_client.get(f"/api/v1/requests/{other_id}", headers=mgr_headers)
+        assert direct.status_code == 404
+        # и не может двигать
+        mv = await async_client.patch(f"/api/v1/requests/{other_id}/move",
+                                      headers=mgr_headers, json={"target": "work"})
+        assert mv.status_code in (403, 404)
+
+    @pytest.mark.asyncio
     async def test_manager_can_read_own_me(self, async_client, hm_headers):
         # /auth/me не должен быть закрыт — иначе менеджер не залогинится
         me = await async_client.get("/api/v1/auth/me", headers=hm_headers)
