@@ -747,7 +747,7 @@ async def duplicate_vacancy(
     src_stages = (await session.execute(
         select(VacancyStage)
         .where(VacancyStage.vacancy_id == vacancy_id, VacancyStage.company_id == company_id)
-        .order_by(VacancyStage.order_index)
+        .order_by(VacancyStage.order_index, VacancyStage.stage_key)
     )).scalars().all()
     for s in src_stages:
         session.add(VacancyStage(
@@ -824,7 +824,7 @@ async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id
             VacancyStage.is_terminal,
             VacancyStage.description
         )
-        .order_by(VacancyStage.order_index)
+        .order_by(VacancyStage.order_index, VacancyStage.stage_key)
     )
 
     result = await session.execute(query)
@@ -1035,7 +1035,7 @@ async def reorder_vacancy_stages(
         select(VacancyStage).where(
             VacancyStage.vacancy_id == vacancy_id,
             VacancyStage.company_id == company_id
-        ).order_by(VacancyStage.order_index)
+        ).order_by(VacancyStage.order_index, VacancyStage.stage_key)
     )
     existing_stages = result.scalars().all()
 
