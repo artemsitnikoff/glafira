@@ -155,10 +155,12 @@ async def get_form_link(
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    st = await svc.get_or_create_settings(session, company_id)
+    # У КАЖДОГО инстанса Глафиры (компании) своя ссылка формы, и она есть ВСЕГДА:
+    # ensure_form_token создаёт токен при первом обращении (НЕ включая приём). Поэтому
+    # url возвращаем всегда, а enabled лишь сообщает, принимает ли форма заявки.
+    token, enabled = await svc.ensure_form_token(session, company_id)
     await session.commit()
-    url = svc.form_url(st.form_token) if st.form_enabled else None
-    return RequestFormLinkOut(url=url, enabled=st.form_enabled)
+    return RequestFormLinkOut(url=svc.form_url(token), enabled=enabled)
 
 
 @router.post("/form-link/rotate", response_model=RequestFormLinkOut, dependencies=[Depends(require_admin)])

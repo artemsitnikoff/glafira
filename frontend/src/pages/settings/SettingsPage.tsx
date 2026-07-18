@@ -20,7 +20,7 @@ type SettingsTab = 'profile' | 'general' | 'funnel' | 'requests' | 'access' | 't
 const SET_SECTIONS = [
   { id: 'profile', label: 'Профиль', adminOnly: false },
   { id: 'general', label: 'Общие', adminOnly: true },
-  { id: 'funnel', label: 'Воронка по умолчанию', adminOnly: true },
+  { id: 'funnel', label: 'Воронка вакансии', adminOnly: true },
   { id: 'requests', label: 'Воронка заявок', adminOnly: true },
   { id: 'access', label: 'Права доступа', adminOnly: true },
   { id: 'tags', label: 'Теги', adminOnly: false },

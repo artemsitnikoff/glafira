@@ -425,3 +425,56 @@ class TestPublicForm:
         assert sub.json()["num"] is None
         lst = await async_client.get("/api/v1/requests", headers=auth_headers)
         assert "Спам" not in [i["title"] for i in lst.json()["items"]]
+
+
+# ── Ссылка формы: СВОЯ у каждого инстанса и существует СРАЗУ ─────────────────
+class TestFormLinkPerInstance:
+    @pytest.mark.asyncio
+    async def test_form_link_exists_even_when_disabled(self, async_client, auth_headers):
+        """GET /form-link ВСЕГДА отдаёт непустой url: ensure_form_token создаёт токен при
+        первом обращении, НЕ включая приём. enabled=False, пока форма не активирована."""
+        r = await async_client.get("/api/v1/requests/form-link", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["enabled"] is False              # приём по умолчанию выключен
+        assert body["url"] and "/apply/" in body["url"]  # но ссылка на инстанс уже есть
+
+    @pytest.mark.asyncio
+    async def test_form_link_available_to_recruiter(self, async_client, regular_user):
+        """Ссылка доступна рекрутёру (require_recruiter_or_admin), не только админу."""
+        rec_headers = await _login(async_client, regular_user.email)
+        r = await async_client.get("/api/v1/requests/form-link", headers=rec_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["url"] and "/apply/" in r.json()["url"]
+
+    @pytest.mark.asyncio
+    async def test_form_link_stable_across_calls(self, async_client, auth_headers):
+        """Повторный GET без ротации отдаёт ТУ ЖЕ ссылку (токен не пересоздаётся)."""
+        first = await async_client.get("/api/v1/requests/form-link", headers=auth_headers)
+        second = await async_client.get("/api/v1/requests/form-link", headers=auth_headers)
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()["url"] == second.json()["url"]
+
+    @pytest.mark.asyncio
+    async def test_form_token_differs_per_company(self, async_client, db_session, auth_headers):
+        """У каждой компании — СВОЯ ссылка: токен A ≠ токен B (изоляция инстансов)."""
+        a = await async_client.get("/api/v1/requests/form-link", headers=auth_headers)
+        assert a.status_code == 200, a.text
+        token_a = a.json()["url"].rsplit("/", 1)[-1]
+
+        # Компания B + её админ (образец TestCompanyIsolation)
+        comp_b = Company(id=uuid.uuid4(), name="Company B (form-link)")
+        db_session.add(comp_b)
+        await db_session.flush()
+        admin_b = User(company_id=comp_b.id, email="b.formlink.admin@example.com",
+                       password_hash=get_password_hash("Glafira2026!"),
+                       full_name="B Admin", role="admin", is_active=True)
+        db_session.add(admin_b)
+        await db_session.commit()
+        b_headers = await _login(async_client, admin_b.email)
+
+        b = await async_client.get("/api/v1/requests/form-link", headers=b_headers)
+        assert b.status_code == 200, b.text
+        token_b = b.json()["url"].rsplit("/", 1)[-1]
+
+        assert token_a and token_b and token_a != token_b

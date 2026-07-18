@@ -400,12 +400,9 @@ export default function RequestsPage() {
   const nonTerminal = stages.filter((s) => !s.terminal);
 
   const copyLink = async () => {
-    const url = formLink.data?.enabled ? formLink.data?.url : undefined;
-    // Копирование НЕ должно включать приём заявок как побочный эффект — это настройка админа.
-    if (!url) {
-      navigate('/settings?tab=requests');
-      return;
-    }
+    // Ссылка существует всегда (своя на компанию). Копируем; приём заявок включается в Настройках.
+    const url = formLink.data?.url;
+    if (!url) { navigate('/settings?tab=requests'); return; }
     try { await navigator.clipboard.writeText(url); } catch { /* clipboard недоступен — молча */ }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

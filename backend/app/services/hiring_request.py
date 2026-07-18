@@ -675,6 +675,16 @@ async def reorder_stages(session: AsyncSession, company_id: UUID, stage_keys: li
 
 
 # ── Публичная форма: токен/ротация ────────────────────────────────────────────
+async def ensure_form_token(session: AsyncSession, company_id: UUID) -> tuple[str, bool]:
+    """Гарантирует наличие СВОЕГО токена формы у компании (создаёт при первом обращении,
+    НЕ включая приём). Каждый инстанс Глафиры получает свою уникальную ссылку /apply/<token>."""
+    st = await get_or_create_settings(session, company_id)
+    if not st.form_token:
+        st.form_token = secrets.token_urlsafe(32)
+        await session.flush()
+    return st.form_token, st.form_enabled
+
+
 async def rotate_form_token(session: AsyncSession, company_id: UUID) -> str:
     st = await get_or_create_settings(session, company_id)
     st.form_token = secrets.token_urlsafe(32)

@@ -49,9 +49,9 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   const copyLink = async () => {
-    // Копируем только существующую ссылку. Создание/ротация — отдельной кнопкой «Обновить»,
-    // включение приёма — тумблером; копирование не должно менять настройку молча.
-    const url = formLink?.enabled ? formLink?.url : undefined;
+    // Ссылка существует всегда (своя на компанию, генерится бэком). Копируем её как есть;
+    // включение приёма — тумблером, ротация — кнопкой «Обновить» (копирование ничего не меняет).
+    const url = formLink?.url;
     if (!url) return;
     try { await navigator.clipboard.writeText(url); } catch { /* clipboard недоступен */ }
     setCopied(true);
@@ -101,7 +101,7 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
           </div>
           {!readOnly && (
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <input className="nv-input" placeholder="Название своего этапа" value={newLabel}
+              <input className="rq-set-input" placeholder="Название своего этапа" value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addStage()}
                 style={{ maxWidth: 280, height: 34 }} />
@@ -138,9 +138,10 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
         <div className="set-card-head">
           <div className="set-card-title">Ссылка на форму заявки</div>
           <div className="set-card-desc">
-            Длинная непубличная ссылка — отправьте её нанимающим менеджерам, чтобы они подавали заявки
-            без входа в систему. Заявки с формы помечаются «по ссылке-форме». Обновление ссылки делает
-            старую недействительной.
+            Уникальная ссылка ИМЕННО вашей компании — отправьте её нанимающим менеджерам, чтобы они
+            подавали заявки анонимно, без входа в систему. Заявки с формы помечаются «по ссылке-форме».
+            Чтобы ссылка заработала, включите приём заявок ниже. «Обновить» выдаёт новую ссылку и мгновенно
+            гасит прежнюю.
           </div>
         </div>
         <div className="set-card-body">
@@ -149,10 +150,11 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
             value={!!settings?.form_enabled} disabled={readOnly}
             onChange={(v) => setToggle({ form_enabled: v })} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input className="nv-input" readOnly value={formLink?.url || 'Ссылка ещё не создана'}
-              style={{ flex: 1, minWidth: 240, height: 34, color: formLink?.url ? 'var(--fg-1)' : 'var(--fg-3)' }} />
+            <input className="rq-set-input" readOnly value={formLink?.url || 'Загрузка ссылки…'}
+              onFocus={(e) => e.currentTarget.select()}
+              style={{ flex: 1, minWidth: 240, height: 34 }} />
             <button className="btn btn-secondary btn-sm" onClick={copyLink}
-              disabled={readOnly || !formLink?.enabled || !formLink?.url}>
+              disabled={!formLink?.url}>
               <Icon name={copied ? 'check' : 'link'} size={13} /> {copied ? 'Скопировано' : 'Скопировать'}
             </button>
             {!readOnly && (
@@ -161,6 +163,11 @@ export function SettingsRequests({ readOnly = false }: { readOnly?: boolean }) {
               </button>
             )}
           </div>
+          {!settings?.form_enabled && formLink?.url && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-3)' }}>
+              Ссылку можно скопировать уже сейчас, но пока приём выключен она открывает «форма не найдена».
+            </div>
+          )}
         </div>
       </div>
     </div>

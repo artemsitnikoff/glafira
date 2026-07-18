@@ -139,6 +139,12 @@
 .req-page-ta{resize:vertical;min-height:96px;line-height:1.5;padding-top:8px}
 .req-fp-scroll select.nv-input{appearance:auto;height:34px}
 
+/* Инпут для вкладки «Воронка заявок» в Настройках (там .nv-input из VacancyForm.css
+   не грузится — даём самодостаточный класс, requests.css грузится на /settings). */
+.rq-set-input{height:38px;padding:0 12px;border:1px solid var(--border-1);border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--fg-1);box-sizing:border-box;width:100%}
+.rq-set-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(42,138,240,.18)}
+.rq-set-input:read-only{color:var(--fg-2);background:var(--bg-panel-2)}
+
 /* Режим нанимающего менеджера (read-only) */
 .req-ro-hint{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--fg-2);background:var(--bg-panel-2);border:1px solid var(--border-2);border-radius:8px;padding:5px 10px}
 .req-ro-hint svg{color:var(--fg-3);flex:none}
