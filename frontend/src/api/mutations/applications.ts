@@ -22,6 +22,10 @@ export function useMoveApplication(vacancyId?: string) {
       }
       // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
       queryClient.invalidateQueries({ queryKey: ['home'] });
+      // Счётчики вакансий в сайдбаре (кандидатов/новых) — иначе висят старыми до 30-сек поллинга.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
+      // Наём (move→hired) может авто-закрыть связанную заявку — обновим её счётчики/список.
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
     },
   });
 }
@@ -41,6 +45,10 @@ export function useRejectApplication(vacancyId?: string) {
       }
       // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
       queryClient.invalidateQueries({ queryKey: ['home'] });
+      // Счётчики вакансий в сайдбаре (кандидатов/новых) — иначе висят старыми до 30-сек поллинга.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
+      // Наём (move→hired) может авто-закрыть связанную заявку — обновим её счётчики/список.
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
     },
   });
 }
@@ -60,6 +68,10 @@ export function useRestoreApplication(vacancyId?: string) {
       }
       // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
       queryClient.invalidateQueries({ queryKey: ['home'] });
+      // Счётчики вакансий в сайдбаре (кандидатов/новых) — иначе висят старыми до 30-сек поллинга.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
+      // Наём (move→hired) может авто-закрыть связанную заявку — обновим её счётчики/список.
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
     },
   });
 }
@@ -79,6 +91,10 @@ export function useBulkMove(vacancyId?: string) {
       }
       // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
       queryClient.invalidateQueries({ queryKey: ['home'] });
+      // Счётчики вакансий в сайдбаре (кандидатов/новых) — иначе висят старыми до 30-сек поллинга.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
+      // Наём (move→hired) может авто-закрыть связанную заявку — обновим её счётчики/список.
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
     },
   });
 }
@@ -98,6 +114,10 @@ export function useBulkReject(vacancyId?: string) {
       }
       // Лента «Все действия» / KPI на Главной зависят от move/reject/restore
       queryClient.invalidateQueries({ queryKey: ['home'] });
+      // Счётчики вакансий в сайдбаре (кандидатов/новых) — иначе висят старыми до 30-сек поллинга.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
+      // Наём (move→hired) может авто-закрыть связанную заявку — обновим её счётчики/список.
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
     },
   });
 }

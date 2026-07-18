@@ -685,12 +685,14 @@ async def ensure_form_token(session: AsyncSession, company_id: UUID) -> tuple[st
     return st.form_token, st.form_enabled
 
 
-async def rotate_form_token(session: AsyncSession, company_id: UUID) -> str:
+async def rotate_form_token(session: AsyncSession, company_id: UUID) -> tuple[str, bool]:
+    """Перегенерировать токен (старая ссылка мгновенно мертва). Приём заявок НЕ трогаем —
+    им управляет отдельный тумблер form_enabled (иначе «Обновить» молча включал бы форму,
+    а UI показывал бы «выключено» — §0 молчаливая активация)."""
     st = await get_or_create_settings(session, company_id)
     st.form_token = secrets.token_urlsafe(32)
-    st.form_enabled = True
     await session.flush()
-    return st.form_token
+    return st.form_token, st.form_enabled
 
 
 def form_url(token: str | None) -> str | None:

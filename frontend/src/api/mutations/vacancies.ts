@@ -38,7 +38,7 @@ export function useCreateVacancy() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
     },
   });
 }
@@ -54,7 +54,7 @@ export function useUpdateVacancy() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['vacancies', id] });
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
     },
   });
 }
@@ -71,7 +71,7 @@ export function useArchiveVacancy() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['vacancies', id] });
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
     },
   });
 }
@@ -86,7 +86,7 @@ export function useDuplicateVacancy() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
     },
   });
 }

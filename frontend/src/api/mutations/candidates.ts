@@ -21,6 +21,8 @@ export function useCreateCandidate(vacancyId?: string) {
       }
       // KPI/«Требуют внимания»/лента на Главной устаревают после добавления кандидата
       queryClient.invalidateQueries({ queryKey: ['home'] });
+      // Счётчики вакансий в сайдбаре — добавление кандидата меняет count/new_count.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', 'sidebar'] });
     },
   });
 }
@@ -34,6 +36,9 @@ export function useDeleteCandidate() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates'] });
+      // Удаление кандидата снимает его заявки из воронок → обновить сайдбар-счётчики и Главную.
+      queryClient.invalidateQueries({ queryKey: ['vacancies'] });
+      queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 }

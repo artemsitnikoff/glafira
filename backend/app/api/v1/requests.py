@@ -168,10 +168,10 @@ async def rotate_form_link(
     session: AsyncSession = Depends(get_db),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    """Сгенерировать/ротировать токен формы. Старая ссылка мгновенно перестаёт работать."""
-    token = await svc.rotate_form_token(session, company_id)
+    """Ротировать токен формы. Старая ссылка мгновенно мертва; приём заявок не меняется."""
+    token, enabled = await svc.rotate_form_token(session, company_id)
     await session.commit()
-    return RequestFormLinkOut(url=svc.form_url(token), enabled=True)
+    return RequestFormLinkOut(url=svc.form_url(token), enabled=enabled)
 
 
 # ── Создание заявки ───────────────────────────────────────────────────────────

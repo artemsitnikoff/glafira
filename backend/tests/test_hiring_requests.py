@@ -377,11 +377,14 @@ class TestCompanyIsolation:
 class TestPublicForm:
     @pytest.mark.asyncio
     async def test_submit_creates_form_request(self, async_client, auth_headers, admin_user, db_session):
-        # admin активирует ссылку
+        # admin создаёт ссылку и ВКЛЮЧАЕТ приём (ротация сама приём не включает)
         rot = await async_client.post("/api/v1/requests/form-link/rotate", headers=auth_headers)
         assert rot.status_code == 200, rot.text
         url = rot.json()["url"]
         token = url.rsplit("/", 1)[-1]
+        en = await async_client.patch("/api/v1/requests/settings", headers=auth_headers,
+                                      json={"form_enabled": True})
+        assert en.status_code == 200, en.text
 
         # публичный GET info
         info = await async_client.get(f"/api/v1/public/request-form/{token}")
@@ -417,6 +420,8 @@ class TestPublicForm:
     async def test_honeypot_silently_drops(self, async_client, auth_headers):
         rot = await async_client.post("/api/v1/requests/form-link/rotate", headers=auth_headers)
         token = rot.json()["url"].rsplit("/", 1)[-1]
+        await async_client.patch("/api/v1/requests/settings", headers=auth_headers,
+                                 json={"form_enabled": True})  # ротация приём не включает
         # honeypot заполнен → ok, но заявка НЕ создана
         sub = await async_client.post(f"/api/v1/public/request-form/{token}", json={
             "title": "Спам", "description": "бот", "website": "http://spam.example",
@@ -446,6 +451,18 @@ class TestFormLinkPerInstance:
         r = await async_client.get("/api/v1/requests/form-link", headers=rec_headers)
         assert r.status_code == 200, r.text
         assert r.json()["url"] and "/apply/" in r.json()["url"]
+
+    @pytest.mark.asyncio
+    async def test_rotate_does_not_enable_form(self, async_client, auth_headers):
+        """Ротация НЕ включает приём молча (иначе UI-тумблер «выключено» врал бы — §0).
+        Приёмом управляет только тумблер form_enabled."""
+        # приём выключен (дефолт) → ротация меняет url, но enabled остаётся False
+        before = await async_client.get("/api/v1/requests/form-link", headers=auth_headers)
+        assert before.json()["enabled"] is False
+        rot = await async_client.post("/api/v1/requests/form-link/rotate", headers=auth_headers)
+        assert rot.status_code == 200, rot.text
+        assert rot.json()["enabled"] is False           # приём НЕ включился сам
+        assert rot.json()["url"] != before.json()["url"]  # но ссылка новая
 
     @pytest.mark.asyncio
     async def test_form_link_stable_across_calls(self, async_client, auth_headers):
