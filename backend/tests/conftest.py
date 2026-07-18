@@ -44,16 +44,28 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    # Циклический FK vacancies↔hiring_requests ломает metadata.drop_all (нужны имена
+    # констрейнтов для DROP CONSTRAINT, а в персистентной тест-БД имена другие). Дропаем
+    # все таблицы разом через DROP TABLE ... CASCADE — снимает и FK-циклы, и не зависит
+    # от порядка. metadata.tables (dict, без сортировки) не падает CircularDependencyError.
+    def _drop_all_tables_sql() -> str:
+        names = ", ".join(f'"{t.name}"' for t in Base.metadata.tables.values())
+        return f"DROP TABLE IF EXISTS {names} CASCADE" if names else ""
+
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
         # pgvector нужен для модели candidate_embeddings (Vector(384)) — иначе create_all
         # упадёт на DDL `vector(384)`. Требует образ pgvector/pgvector:pg16 (как на проде).
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.drop_all)
+        drop_sql = _drop_all_tables_sql()
+        if drop_sql:
+            await conn.execute(text(drop_sql))
         await conn.run_sync(Base.metadata.create_all)
     yield engine
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        drop_sql = _drop_all_tables_sql()
+        if drop_sql:
+            await conn.execute(text(drop_sql))
     await engine.dispose()
 
 
