@@ -25,6 +25,9 @@ const AnalyticsPage = lazy(() => import('@/pages/analytics/AnalyticsPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 // Публичная страница опроса — БЕЗ авторизации, вне AppLayout. /pulse/survey/#<token>
 const SurveyPublicPage = lazy(() => import('@/pages/public/SurveyPublicPage'));
+const RequestsPage = lazy(() => import('@/pages/requests/RequestsPage'));
+const NewRequestPage = lazy(() => import('@/pages/requests/NewRequestPage'));
+const ApplyPage = lazy(() => import('@/pages/public/ApplyPage'));
 // Публичная страница выбора времени интервью — БЕЗ авторизации. /schedule/:token
 const SchedulePage = lazy(() => import('@/pages/public/SchedulePage'));
 
@@ -94,6 +97,15 @@ export default function App() {
           </Suspense>
         }
       />
+      {/* Публичная форма подачи заявки на подбор — БЕЗ авторизации */}
+      <Route
+        path="/apply/:token"
+        element={
+          <Suspense fallback={null}>
+            <ApplyPage />
+          </Suspense>
+        }
+      />
       <Route
         path="/"
         element={
@@ -144,6 +156,9 @@ export default function App() {
         />
         <Route path="pulse" element={<PulsePage />} />
         <Route path="pulse/:employeeId" element={<PulseEmployeePage />} />
+        {/* Заявки на подбор — доступны всем ролям (hiring_manager видит только свои). */}
+        <Route path="requests" element={<RequestsPage />} />
+        <Route path="requests/new" element={<NewRequestPage />} />
         <Route
           path="analytics"
           element={

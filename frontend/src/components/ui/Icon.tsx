@@ -65,11 +65,15 @@ import {
   Database,
   Radio,
   LayoutGrid,
+  Flame,
+  Inbox,
 } from 'lucide-react';
 
 const iconMap = {
   home: Home,
   briefcase: Briefcase,
+  flame: Flame,
+  inbox: Inbox,
   users: Users,
   activity: Activity,
   'bar-chart': BarChart3,

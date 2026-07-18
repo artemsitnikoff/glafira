@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useDuplicateVacancy, useArchiveVacancy } from '@/api/mutations/vacancies';
 import type { components } from '@/api/types';
 import type { ApiError } from '@/api/aliases';
+import '../requests/requests.css';
 
 type VacancyDetail = components['schemas']['VacancyDetail'];
 
@@ -83,6 +84,18 @@ export default function VacancyHeader({ vacancy, onEdit, onAddCandidate }: Props
           <span>{vacancy.city || 'Удалённо'}</span>
           <span className="sep">·</span>
           <span>создана {new Date(vacancy.created_at).toLocaleDateString('ru-RU')}</span>
+          {(vacancy as any).request_num != null && (
+            <>
+              <span className="sep">·</span>
+              <button
+                className="vh-req-link"
+                title="Открыть заявку на подбор"
+                onClick={() => navigate(`/requests?open=${(vacancy as any).request_id}`)}
+              >
+                <Icon name="link" size={11} /> по заявке №{(vacancy as any).request_num}
+              </button>
+            </>
+          )}
         </div>
       </div>
 

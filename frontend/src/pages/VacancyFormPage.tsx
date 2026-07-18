@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import './vacancies/VacancyForm.css';
 import { CityAutocomplete } from './vacancies/CityAutocomplete';
 import { Icon } from '@/components/ui/Icon';
@@ -285,6 +285,15 @@ export default function VacancyFormPage() {
   const [rejectReasons, setRejectReasons] = useState<RejectReasonLocal[]>([]);
   const seededReasonsRef = useRef(false);
 
+  // Предзаполнение мастера из заявки на подбор (кнопка «Создать вакансию» в панели заявки).
+  const location = useLocation();
+  const requestPrefill = (location.state as any)?.requestPrefill as
+    | { request_id: string; name?: string; city?: string | null; deadline?: string | null;
+        positions_count?: number; salary_from?: number | null; salary_to?: number | null;
+        description?: string | null; department?: string | null } | undefined;
+  const [requestId] = useState<string | null>(requestPrefill?.request_id ?? null);
+  const prefillAppliedRef = useRef(false);
+
   const createMutation = useCreateVacancy();
   const updateMutation = useUpdateVacancy();
   const addStageMutation = useAddVacancyStage();
@@ -523,6 +532,25 @@ export default function VacancyFormPage() {
     // companyDefaultStages == null (дефолт пуст) → остаётся NV_DEFAULT_STAGES (fallback)
   }, [editMode, defaultFunnel, companyDefaultStages]);
 
+  // Create-режим: предзаполнение из заявки на подбор (один раз, не затирая правки).
+  useEffect(() => {
+    if (editMode || !requestPrefill || prefillAppliedRef.current) return;
+    prefillAppliedRef.current = true;
+    setFormData((prev) => ({
+      ...prev,
+      name: requestPrefill.name || prev.name,
+      city: requestPrefill.city ?? prev.city,
+      deadline: requestPrefill.deadline ?? prev.deadline,
+      positions_count: requestPrefill.positions_count ?? prev.positions_count,
+      salary_from: requestPrefill.salary_from ?? prev.salary_from,
+      salary_to: requestPrefill.salary_to ?? prev.salary_to,
+      department: requestPrefill.department ?? prev.department,
+      description: requestPrefill.description
+        ? `<p>${String(requestPrefill.description).replace(/\n/g, '<br>')}</p>`
+        : prev.description,
+    }));
+  }, [editMode, requestPrefill]);
+
   // Create-режим: сид причин отказа из дефолтов компании (один раз).
   useEffect(() => {
     if (editMode) return;
@@ -608,10 +636,13 @@ export default function VacancyFormPage() {
           stages: stageInputs,
           reject_reasons: rejectReasonInputs,
           recruiter_scoring_instructions: recruiterScoring.trim() || null,
+          // Создание ИЗ заявки: бек привяжет 1:1 и переведёт заявку в «В подборе».
+          ...(requestId ? { request_id: requestId } : {}),
         } as VacancyCreateExtended;
 
         const result = await createMutation.mutateAsync(payload);
-        navigate(`/vacancies/${result.id}`);
+        // Если создавали из заявки — вернуться к заявкам (панель покажет связь), иначе в вакансию.
+        navigate(requestId ? '/requests' : `/vacancies/${result.id}`);
       }
     } catch (error) {
       const e = error as ApiError;

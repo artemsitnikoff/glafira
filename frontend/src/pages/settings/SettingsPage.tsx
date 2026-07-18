@@ -12,14 +12,16 @@ import { SettingsTags } from './tabs/SettingsTags';
 import { SettingsIntegrations } from './tabs/SettingsIntegrations';
 import { SettingsAI } from './tabs/SettingsAI';
 import { SettingsMessageTemplates } from './tabs/SettingsMessageTemplates';
+import { SettingsRequests } from './tabs/SettingsRequests';
 import './Settings.css';
 
-type SettingsTab = 'profile' | 'general' | 'funnel' | 'access' | 'tags' | 'message-templates' | 'integrations' | 'ai';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'requests' | 'access' | 'tags' | 'message-templates' | 'integrations' | 'ai';
 
 const SET_SECTIONS = [
   { id: 'profile', label: 'Профиль', adminOnly: false },
   { id: 'general', label: 'Общие', adminOnly: true },
   { id: 'funnel', label: 'Воронка по умолчанию', adminOnly: true },
+  { id: 'requests', label: 'Воронка заявок', adminOnly: true },
   { id: 'access', label: 'Права доступа', adminOnly: true },
   { id: 'tags', label: 'Теги', adminOnly: false },
   { id: 'message-templates', label: 'Шаблоны сообщений', adminOnly: false },
@@ -79,6 +81,8 @@ export default function SettingsPage() {
         return <SettingsGeneral readOnly={readOnly} />;
       case 'funnel':
         return <SettingsFunnel readOnly={readOnly} />;
+      case 'requests':
+        return <SettingsRequests readOnly={readOnly} />;
       case 'access':
         return <SettingsAccess readOnly={readOnly} />;
       case 'tags':

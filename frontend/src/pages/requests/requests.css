@@ -1,0 +1,130 @@
+/* Заявки на подбор — порт project/styles/requests.css.
+   Карта подмен токенов (эталон → реальные из tokens.css):
+   --border-strong → --ark-gray-400 ; --border-focus → --accent (+box-shadow идиом) */
+
+.req-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;letter-spacing:-0.01em;flex:none;white-space:nowrap}
+.req-badge .stage-dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
+.req-badge.new{background:var(--ark-blue-50);color:var(--ark-blue-700)}
+.req-badge.work{background:var(--ark-yellow-100);color:var(--ark-yellow-600)}
+.req-badge.sourcing{background:var(--ark-violet-100);color:var(--ark-violet-500)}
+.req-badge.done{background:var(--ark-green-100);color:var(--ark-green-600)}
+.req-badge.rejected{background:var(--ark-gray-200);color:var(--fg-2)}
+.req-badge.custom{background:var(--ark-gray-200);color:var(--fg-2)}
+.req-urgent{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:3px 7px;border-radius:10px;background:var(--ark-red-100);color:var(--ark-red-600);flex:none}
+.req-mini{font-size:11.5px;color:var(--fg-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Список заявок — карточки */
+.req-cards{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--bg-panel-2)}
+.req-cardrow{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border-2);border-left:3px solid var(--stage-color, var(--border-2));border-radius:12px;padding:16px;cursor:pointer;transition:box-shadow .15s ease,border-color .15s ease}
+.req-cardrow:hover{border-color:var(--ark-gray-400);border-left-color:var(--stage-color);box-shadow:0 4px 14px -6px rgba(15,22,32,.16)}
+.req-cr-main{flex:1;min-width:0}
+.req-cr-title{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.req-name{font-size:14.5px;font-weight:600;color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-cr-sub{font-size:12.5px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-cr-sub2{font-size:12px;color:var(--fg-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-cr-facts{display:flex;gap:24px;flex:none;padding:0 10px}
+.req-cr-facts>div{display:flex;flex-direction:column;gap:3px;min-width:66px}
+.req-cr-facts span{font-size:10.5px;font-weight:600;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.05em}
+.req-cr-facts b{font-size:13px;font-weight:550;color:var(--fg-1);font-variant-numeric:tabular-nums}
+.req-cr-stage{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;min-width:118px}
+.req-num{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;flex:none}
+.req-mini.ok{color:var(--ark-green-600)}
+
+/* Панель — на всю ширину (нет закреплённой колонки) */
+.cand-detail.req-panel{left:0;border-left:0}
+
+.req-strip-row{padding:10px 20px 0}
+.req-p-head{padding:12px 20px 0}
+.req-p-head .cd-context{margin-bottom:6px}
+.req-p-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.req-p-title h1{font-size:20px;font-weight:650;letter-spacing:-0.02em;margin:0}
+.req-panel-body{flex:1;min-height:0;overflow:auto;padding:14px 20px 20px}
+.req-grid{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start}
+.req-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.req-card{background:#fff;border:1px solid var(--border-2);border-radius:12px;padding:16px}
+.req-card-title{font-size:12px;font-weight:650;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px}
+.req-desc{font-size:13.5px;line-height:1.55;color:var(--fg-1);margin:0;white-space:pre-wrap}
+.req-params{display:flex;flex-direction:column;gap:8px}
+.req-params>div{display:flex;justify-content:space-between;gap:12px;font-size:13px}
+.req-params span{color:var(--fg-2)}
+.req-params b{font-weight:550;color:var(--fg-1);text-align:right}
+
+.req-card-vac .req-vac-name{display:flex;align-items:center;gap:4px;font-size:14px;font-weight:600;color:var(--accent);cursor:pointer;margin-bottom:10px}
+.req-vac-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.req-vac-stats>div{background:var(--bg-panel-2);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.req-vac-stats b{font-size:15px;font-weight:650;font-variant-numeric:tabular-nums}
+.req-vac-stats span{font-size:11px;color:var(--fg-3)}
+.req-vac-note{display:flex;align-items:flex-start;gap:6px;font-size:12px;color:var(--fg-2);background:var(--ark-blue-50);border-radius:8px;padding:8px 10px}
+.req-vac-note svg{flex:none;margin-top:1px;color:var(--accent)}
+.req-card-done .req-done-line{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:550;color:var(--ark-green-600)}
+.req-card-rej{border-color:var(--ark-gray-300);background:var(--bg-panel-2)}
+
+.req-tl{display:flex;flex-direction:column}
+.req-tl-row{display:flex;gap:10px;position:relative;padding-bottom:12px}
+.req-tl-row:last-child{padding-bottom:0}
+.req-tl-row:not(:last-child)::before{content:'';position:absolute;left:3.5px;top:12px;bottom:0;width:1px;background:var(--border-1)}
+.req-tl-dot{width:8px;height:8px;border-radius:50%;background:var(--ark-gray-400);flex:none;margin-top:4px}
+.req-tl-row:last-child .req-tl-dot{background:var(--accent)}
+.req-tl-label{font-size:12.5px;color:var(--fg-1);line-height:1.4}
+.req-tl-time{font-size:11.5px;color:var(--fg-3);margin-top:1px}
+
+.req-msg{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--border-2)}
+.req-msg:first-of-type{border-top:0}
+.req-msg-head{font-size:12.5px;font-weight:600;margin-bottom:2px}
+.req-msg-head span{font-weight:400;color:var(--fg-3);margin-left:6px;font-size:11.5px}
+.req-msg-text{font-size:13px;line-height:1.5;color:var(--fg-1)}
+.req-msg.manager .req-msg-text{background:var(--bg-panel-2);border-radius:0 10px 10px 10px;padding:8px 10px;display:inline-block}
+.req-thread-empty{font-size:12.5px;color:var(--fg-3);margin-bottom:10px}
+.req-thread-input{display:flex;gap:8px;margin-top:10px}
+.req-thread-input input{flex:1;height:32px;border:1px solid var(--border-1);border-radius:8px;padding:0 10px;font-size:13px;font-family:inherit}
+.req-thread-input input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(42,138,240,.18)}
+
+/* Попап отклонения */
+.req-reject-pop{width:300px;padding-bottom:10px}
+.req-reject-pop textarea{width:calc(100% - 24px);margin:8px 12px 0;border:1px solid var(--border-1);border-radius:8px;padding:8px 10px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box}
+.req-reject-pop textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(42,138,240,.18)}
+.req-pop-foot{display:flex;justify-content:flex-end;gap:6px;padding:8px 12px 0}
+.req-btn-danger{background:var(--ark-red-500)}
+.req-btn-danger:hover{background:var(--ark-red-600)}
+
+/* Страница «Новая заявка» */
+.req-fp-scroll{flex:1;min-height:0;overflow:auto;padding:26px 20px 32px;background:var(--bg-panel-2)}
+.req-fp-card{max-width:620px;margin:0 auto;background:#fff;border:1px solid var(--border-2);border-radius:16px;padding:26px;box-shadow:0 10px 40px -18px rgba(15,22,32,.12)}
+.req-fp-h1{font-size:20px;font-weight:650;letter-spacing:-0.02em;margin:0 0 6px}
+.req-fp-sub{font-size:13px;color:var(--fg-2);line-height:1.5;margin:0 0 6px;text-wrap:pretty}
+.req-fp-sub2{font-size:12px;color:var(--fg-3);line-height:1.5;margin:0 0 20px;text-wrap:pretty}
+.req-fp-sub:last-of-type{margin-bottom:20px}
+.req-fp-field{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.req-fp-field>span{font-size:12.5px;font-weight:600;color:var(--fg-2)}
+.req-fp-req{color:var(--ark-red-500)}
+.req-fp-hint{font-size:11.5px;color:var(--fg-3);font-weight:400}
+.req-fp-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.req-fp-row3{display:grid;grid-template-columns:120px 1fr 1fr;gap:12px}
+.req-fp-seg{display:flex;border:1px solid var(--border-1);border-radius:9px;overflow:hidden}
+.req-fp-seg button{flex:1;border:0;background:#fff;padding:8px;font-size:13px;font-family:inherit;color:var(--fg-2);cursor:pointer;white-space:nowrap}
+.req-fp-seg button.on{background:var(--ark-blue-50);color:var(--accent);font-weight:600}
+.req-fp-inline{display:flex;align-items:center;gap:8px}
+.req-fp-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--fg-2);white-space:nowrap;cursor:pointer}
+.req-fp-check input{width:15px;height:15px;padding:0}
+.req-fp-salary{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.req-fp-suf{position:relative;display:block}
+.req-fp-suf i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--fg-3);font-size:13px}
+.req-fp-submit{width:100%;margin-top:4px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:14px;font-weight:600;padding:12px;cursor:pointer;font-family:inherit}
+.req-fp-submit:hover{background:var(--accent-hover)}
+.req-fp-submit[disabled]{opacity:.5;pointer-events:none}
+.req-fp-note{font-size:12px;color:var(--fg-3);text-align:center;margin:10px 0 0}
+.req-pill-form{background:var(--ark-violet-100);color:var(--ark-violet-500);display:inline-flex;align-items:center;gap:4px}
+.req-page-ta{resize:vertical;min-height:96px;line-height:1.5;padding-top:8px}
+.req-fp-scroll select.nv-input{appearance:auto;height:34px}
+
+/* Режим нанимающего менеджера (read-only) */
+.req-ro-hint{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--fg-2);background:var(--bg-panel-2);border:1px solid var(--border-2);border-radius:8px;padding:5px 10px}
+.req-ro-hint svg{color:var(--fg-3);flex:none}
+.req-strip-ro .ss-step{pointer-events:none}
+
+/* Чип «по заявке» в шапке вакансии */
+.vh-req-link{display:inline-flex;align-items:center;gap:4px;border:0;background:var(--ark-violet-100);color:var(--ark-violet-500);font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;cursor:pointer;font-family:inherit}
+.vh-req-link:hover{filter:brightness(0.96)}
+
+/* Строка «Заявки» в сайдбаре */
+.sub-requests span:first-of-type{flex:1}

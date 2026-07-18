@@ -5,6 +5,7 @@ import { api } from '@/api/client';
 import { useMe } from '@/api/hooks/useMe';
 import { useSidebar } from '@/api/hooks/useSidebar';
 import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
+import { useRequestsSidebar } from '@/api/hooks/useRequests';
 import { Avatar } from './ui/Avatar';
 import { Icon, type IconName } from './ui/Icon';
 import { APP_VERSION } from '@/lib/version';
@@ -27,6 +28,9 @@ export function Sidebar() {
   const { data: me } = useMe();
   const { data: sidebar } = useSidebar();
   const { count: alertsCount } = usePulseAlertsCount();
+  const { data: reqCounts } = useRequestsSidebar();
+  const reqActive = reqCounts?.active ?? 0;
+  const reqNew = reqCounts?.new ?? 0;
   const ui = useUiStore();
   const user = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.logout);
@@ -75,7 +79,7 @@ export function Sidebar() {
   const getVisibleNavItems = () => {
     const baseNav = [
       { id: 'home', label: 'Главная', icon: 'home' as IconName },
-      { id: 'vacancies', label: 'Вакансии', icon: 'briefcase' as IconName, expandable: 'vacancies' },
+      { id: 'vacancies', label: 'Вакансии', icon: 'briefcase' as IconName, expandable: 'vacancies', pip: reqNew },
       { id: 'candidates', label: 'Кандидаты', icon: 'users' as IconName },
       { id: 'smart', label: 'Умный подбор', icon: 'sparkles' as IconName, beta: true },
       { id: 'analytics', label: 'Аналитика', icon: 'chart' as IconName, expandable: 'analytics' },
@@ -83,7 +87,12 @@ export function Sidebar() {
       { id: 'settings', label: 'Настройки', icon: 'settings' as IconName },
     ];
 
-    // manager видит только Главная, Вакансии, Пульс
+    // Нанимающий менеджер видит ТОЛЬКО «Мои заявки».
+    if (user?.role === 'hiring_manager') {
+      return [{ id: 'requests', label: 'Мои заявки', icon: 'inbox' as IconName }];
+    }
+
+    // manager (ассистент) видит только Главная, Вакансии, Пульс
     if (user?.role === 'manager') {
       return baseNav.filter((item) => ['home', 'vacancies', 'pulse'].includes(item.id));
     }
@@ -124,6 +133,17 @@ export function Sidebar() {
         />
       </div>
       <div className="sub-list">
+        {/* Заявки на подбор — закреплённая строка СВЕРХУ подсписка. */}
+        <div
+          className={`sub-archive sub-requests ${location.pathname.startsWith('/requests') ? 'selected' : ''}`}
+          onClick={() => navigate('/requests')}
+        >
+          <Icon name="inbox" size={15} />
+          <span>Заявки</span>
+          {reqNew > 0 && <span className="sub-new">+{reqNew}</span>}
+          <span className="sub-count">{reqActive}</span>
+        </div>
+        <div className="sub-divider" />
         {filteredVacancies.length === 0 ? (
           <div className="sub-empty">Ничего не найдено</div>
         ) : (
