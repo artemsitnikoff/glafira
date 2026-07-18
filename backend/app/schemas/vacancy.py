@@ -88,6 +88,9 @@ class VacancyDetail(ORMBase):
     archive_result: str | None = None
     closed_at: date | None = None
     created_at: datetime
+    # Вакансия создана из заявки на подбор (чип «по заявке №N» в шапке).
+    request_id: UUID | None = None
+    request_num: int | None = None
 
     # Automation fields
     auto_move: bool
@@ -152,6 +155,8 @@ class VacancyCreate(BaseModel):
     rejection_text: str | None = None
     stages: list[StageInput] | None = None
     reject_reasons: list[RejectReasonInput] | None = None
+    # Создание вакансии ИЗ заявки на подбор: привязать 1:1 и перевести заявку в «В подборе».
+    request_id: UUID | None = None
 
     @field_validator('stages')
     @classmethod

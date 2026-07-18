@@ -67,7 +67,7 @@ class User(Base, TimestampMixin, CompanyMixin):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "role IN ('admin', 'recruiter', 'manager')",
+            "role IN ('admin', 'recruiter', 'manager', 'hiring_manager')",
             name="check_user_role"
         ),
     )

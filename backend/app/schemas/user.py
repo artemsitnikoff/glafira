@@ -1,8 +1,12 @@
 from pydantic import BaseModel, EmailStr
 from uuid import UUID
 from datetime import datetime
+from typing import Literal
 
 from .base import ORMBase
+
+# Роли пользователя компании. hiring_manager — нанимающий менеджер (видит только свои заявки).
+UserRole = Literal["admin", "recruiter", "manager", "hiring_manager"]
 
 
 class UserShort(ORMBase):
@@ -29,13 +33,13 @@ class UserListItem(ORMBase):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str
-    role: str
+    role: UserRole
     position: str | None = None
 
 
 class UserUpdate(BaseModel):
     full_name: str | None = None
-    role: str | None = None
+    role: UserRole | None = None
     position: str | None = None
     is_active: bool | None = None
 

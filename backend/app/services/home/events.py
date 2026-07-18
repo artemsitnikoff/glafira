@@ -12,7 +12,9 @@ from ...schemas.home import EventOut
 async def list_recent_events(session: AsyncSession, company_id: UUID, limit: int = 30, candidate_id: UUID | None = None, manager_user_id: UUID | None = None) -> list[EventOut]:
     """Получает список последних событий компании"""
     query = select(Event).where(
-        Event.company_id == company_id
+        Event.company_id == company_id,
+        # События истории заявок (type='request') — только в карточке заявки, не в общей ленте.
+        Event.request_id.is_(None),
     ).options(
         selectinload(Event.actor_user),
         selectinload(Event.candidate),

@@ -125,6 +125,22 @@ async def require_recruiter_or_admin(current_user: User = Depends(get_current_us
         raise ForbiddenError("Недостаточно прав")
 
 
+async def forbid_hiring_manager(current_user: User = Depends(get_current_user)) -> None:
+    """Deny-by-default гард для роли «нанимающий менеджер» (hiring_manager).
+
+    Нанимающий менеджер — класс изоляции ВНУТРИ компании: видит ТОЛЬКО свои заявки
+    (модуль /requests), больше ничего (ни кандидатов, ни вакансий, ни аналитики, ни
+    настроек, ни пула). Навешивается на include_router ВСЕХ роутеров данных в
+    api/v1/router.py; НЕ навешивается на auth, /requests и публичные роуты.
+
+    Безопасно добавлять широко: hiring_manager — новая роль, существующих юзеров с ней
+    ещё нет, поэтому гард никого не ломает, но делает изоляцию airtight (не зависит от
+    того, что каждый эндпоинт правильно проверит роль внутри).
+    """
+    if current_user.role == "hiring_manager":
+        raise ForbiddenError("Недостаточно прав")
+
+
 async def integrations_permission_dependency(
     request: Request,
     current_user: User = Depends(get_current_user)

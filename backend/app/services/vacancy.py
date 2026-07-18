@@ -276,6 +276,16 @@ async def get_vacancy(session: AsyncSession, vacancy_id: UUID, company_id: UUID)
     vacancy = result.scalar_one_or_none()
     if vacancy is None:
         raise NotFoundError("Вакансия")
+    # Номер заявки, из которой создана вакансия (для чипа «по заявке №N»). Транзиентно.
+    vacancy.request_num = None
+    if vacancy.request_id:
+        from ..models import HiringRequest
+        vacancy.request_num = (await session.execute(
+            select(HiringRequest.num).where(
+                HiringRequest.id == vacancy.request_id,
+                HiringRequest.company_id == company_id,
+            )
+        )).scalar_one_or_none()
     return vacancy
 
 
@@ -483,6 +493,14 @@ async def create_vacancy(
         actor_user_id=actor_user_id,
         company_id=company_id,
     )
+
+    # Создание вакансии ИЗ заявки на подбор: привязать 1:1 + перевести заявку в «В подборе».
+    if getattr(vacancy_data, "request_id", None):
+        from .hiring_request import link_vacancy_to_request
+        await link_vacancy_to_request(
+            session, company_id=company_id, vacancy=vacancy,
+            request_id=vacancy_data.request_id, actor_user_id=actor_user_id,
+        )
 
     return vacancy
 

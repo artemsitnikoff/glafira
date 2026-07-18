@@ -42,11 +42,18 @@ class Event(Base, CreatedAtMixin, CompanyMixin):
         ForeignKey("vacancies.id", ondelete="CASCADE"),
         nullable=True
     )
+    # Заявка на подбор — для истории заявки (события type='request'). NULL для всех прочих.
+    # Такие события ИСКЛЮЧАЮТСЯ из общей ленты Главной (services/home/events.py).
+    request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("hiring_requests.id", ondelete="CASCADE"),
+        nullable=True
+    )
 
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "type IN ('qual', 'new', 'score', 'offer', 'move', 'verify', 'comment', 'document', 'interview')",
+            "type IN ('qual', 'new', 'score', 'offer', 'move', 'verify', 'comment', 'document', 'interview', 'request')",
             name="check_event_type"
         ),
         CheckConstraint(

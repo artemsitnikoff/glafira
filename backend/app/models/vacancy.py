@@ -44,6 +44,12 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'active'"))
     archive_result: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     closed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # Вакансия создана из заявки на подбор (связь 1:1). SET NULL: удаление заявки не трогает вакансию.
+    request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("hiring_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     funnel_template: Mapped[str] = mapped_column(
         String(40),
         nullable=False,

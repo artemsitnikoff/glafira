@@ -376,6 +376,21 @@ async def move_application(
             actor_user_id=actor_user_id,
             hire_date=move_data.hire_date,
         )
+        # Автозакрытие связанной заявки на подбор при найме всех позиций.
+        # Единая точка на ВСЕ пути найма (ручной/bulk/AI) — все идут через move_application.
+        from app.services.hiring_request import maybe_autoclose_request_for_vacancy
+        from app.models import Vacancy
+        _vac = (await session.execute(
+            select(Vacancy).where(
+                Vacancy.id == application.vacancy_id,
+                Vacancy.company_id == company_id,
+            )
+        )).scalar_one_or_none()
+        if _vac is not None and _vac.request_id:
+            await maybe_autoclose_request_for_vacancy(
+                session, company_id=company_id, vacancy=_vac,
+                actor_user_id=actor_user_id, actor_type=actor_type,
+            )
 
     await audit(
         session,

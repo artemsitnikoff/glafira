@@ -42,6 +42,12 @@ from .candidate_embedding import CandidateEmbedding
 from .call import Call, CallSyncJob
 from .auto_search import AutoSearch, AutoSearchRun
 from .interview_link import InterviewLink
+from .hiring_request import (
+    HiringRequest,
+    RequestComment,
+    RequestFunnelStage,
+    RequestSettings,
+)
 
 __all__ = [
     "Base",
@@ -94,4 +100,8 @@ __all__ = [
     "AutoSearch",
     "AutoSearchRun",
     "InterviewLink",
+    "HiringRequest",
+    "RequestComment",
+    "RequestFunnelStage",
+    "RequestSettings",
 ]
