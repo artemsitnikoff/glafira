@@ -15,5 +15,8 @@ export function useVacancyStages(vacancyId: string) {
       return response.data as VacancyStageCount[];
     },
     enabled: !!vacancyId,
+    // Счётчики по этапам должны быть ЖИВЫМИ: без этого глобальный staleTime 30с отдаёт
+    // кэш при повторном заходе на воронку (<30с) → старые цифры на чипах этапов.
+    staleTime: 0,
   });
 }

@@ -76,5 +76,8 @@ export function useApplications(
       return response.data as Paginated;
     },
     enabled: !!vacancyId && (options.enabled ?? true),
+    // Список воронки — живой: без этого при повторном заходе (<30с глобального staleTime)
+    // показывался бы кэш, рассинхронный со счётчиками этапов.
+    staleTime: 0,
   });
 }
