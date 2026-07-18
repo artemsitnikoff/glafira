@@ -233,9 +233,12 @@ class TestHiredProgressAutoclose:
         await db_session.flush()
         await db_session.delete(vac)
         await db_session.commit()
-        # Заявка жива, связь обнулена (ondelete SET NULL)
+        # Заявка жива, связь обнулена (ondelete SET NULL). ⚠️ SET NULL сработал на уровне
+        # БД, но при expire_on_commit=False ORM-инстанс req в identity-map держит старый
+        # vacancy_id — принудительно перечитываем из БД (refresh), иначе увидим stale.
         survivor = await db_session.get(HiringRequest, req.id)
         assert survivor is not None
+        await db_session.refresh(survivor)
         assert survivor.vacancy_id is None
 
 
