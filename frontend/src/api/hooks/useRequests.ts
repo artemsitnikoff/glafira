@@ -70,6 +70,9 @@ export interface RequestStage {
   terminal: boolean;
   custom: boolean;
   description: string | null;
+  // Кол-во заявок на этапе — агрегат по ВСЕМ заявкам с бэка (author-scoped),
+  // НЕ из отфильтрованного списка. Чипы берут число отсюда.
+  count: number;
 }
 
 export interface RequestCreateBody {

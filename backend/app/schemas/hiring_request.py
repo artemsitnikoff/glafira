@@ -125,6 +125,9 @@ class RequestStageOut(BaseModel):
     terminal: bool
     custom: bool
     description: Optional[str] = None
+    # Кол-во заявок на этом этапе — стабильный агрегат по ВСЕМ заявкам (не по
+    # отфильтрованному списку), с той же изоляцией, что и список.
+    count: int = 0
 
 
 class RequestStageCreate(BaseModel):

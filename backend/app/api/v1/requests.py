@@ -67,8 +67,9 @@ async def request_stages(
     current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
-    """Полная воронка заявок (фиксированные + кастомные) — для рендера чипов/полосы."""
-    return await svc.get_stage_flow(session, company_id)
+    """Полная воронка заявок (фиксированные + кастомные) — для рендера чипов/полосы.
+    Отдаёт count на этап (author-scoped) — чипы берут число отсюда, не из списка."""
+    return await svc.get_stage_flow(session, company_id, current_user)
 
 
 # ── Настройки воронки заявок (admin) ─────────────────────────────────────────

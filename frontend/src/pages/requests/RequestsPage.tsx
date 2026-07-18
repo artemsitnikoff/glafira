@@ -389,12 +389,18 @@ export default function RequestsPage() {
 
   const formLink = useRequestFormLink(!isMgr);
 
+  // Счётчики чипов — из АГРЕГАТА этапов (stage.count с бэка), НЕ из отфильтрованного
+  // списка items: иначе клик по этапу схлопывал остальные счётчики в 0 (баг).
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: items.length };
-    stages.forEach((s) => (c[s.key] = 0));
-    items.forEach((r) => (c[r.status] = (c[r.status] || 0) + 1));
+    const c: Record<string, number> = {};
+    let all = 0;
+    stages.forEach((s) => {
+      c[s.key] = s.count ?? 0;
+      all += s.count ?? 0;
+    });
+    c.all = all;
     return c;
-  }, [items, stages]);
+  }, [stages]);
 
   const active = (counts['new'] || 0) + (counts['work'] || 0) + (counts['sourcing'] || 0);
   const nonTerminal = stages.filter((s) => !s.terminal);

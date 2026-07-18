@@ -90,8 +90,25 @@ async def _custom_stage_dicts(session: AsyncSession, company_id: UUID) -> list[d
     ]
 
 
-async def get_stage_flow(session: AsyncSession, company_id: UUID) -> list[dict]:
-    return build_stage_flow(await _custom_stage_dicts(session, company_id))
+async def get_stage_flow(
+    session: AsyncSession, company_id: UUID, user: User | None = None
+) -> list[dict]:
+    flow = build_stage_flow(await _custom_stage_dicts(session, company_id))
+    # Счётчики per-stage — стабильный агрегат по ВСЕМ заявкам (НЕ по отфильтрованному
+    # списку!), с той же изоляцией, что и список: не-персонал видит только СВОИ.
+    # Без этого чипы считались из отфильтрованного списка → клик по этапу схлопывал
+    # остальные счётчики в 0 (баг). user=None (CRUD этапов, admin) → счёт по компании.
+    conds = [HiringRequest.company_id == company_id]
+    if user is not None and not _is_staff(user):
+        conds.append(HiringRequest.author_user_id == user.id)
+    rows = (await session.execute(
+        select(HiringRequest.status, func.count(HiringRequest.id))
+        .where(*conds).group_by(HiringRequest.status)
+    )).all()
+    counts = {status: cnt for status, cnt in rows}
+    for s in flow:
+        s["count"] = counts.get(s["key"], 0)
+    return flow
 
 
 async def _valid_status_keys(session: AsyncSession, company_id: UUID) -> set[str]:
