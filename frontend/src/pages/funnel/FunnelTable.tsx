@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useRef } from 'react';
-import { useApplications, type ApplicationFilters } from '@/api/hooks/useApplications';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useApplicationsInfinite, type ApplicationFilters } from '@/api/hooks/useApplications';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Avatar } from '@/components/ui/Avatar';
@@ -40,7 +40,39 @@ export default function FunnelTable({
   detailMode,
   onCandidateSelect,
 }: Props) {
-  const { data, isLoading } = useApplications(vacancyId, filters);
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useApplicationsInfinite(vacancyId, filters);
+
+  // Плоский список из всех подгруженных страниц.
+  const items = useMemo(() => data?.pages?.flatMap(p => p.items) ?? [], [data]);
+
+  // Автодогрузка при скролле. ВАЖНО: скроллится не окно, а сам контейнер .cand-scroll,
+  // поэтому root у IntersectionObserver — этот элемент, иначе сентинел «виден» всегда.
+  // Ноды берём через callback-ref в state: разметка рендерится в нескольких ветках,
+  // и эффект должен перезапуститься ровно тогда, когда элементы реально примонтированы.
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!scrollRoot || !sentinel || !hasNextPage) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { root: scrollRoot, rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [scrollRoot, sentinel, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Лейбл/цвет этапа берём из этапов воронки (как доска воронки), иначе кастомные/
   // переименованные этапы показывались бы сырым ключом stage_<...>.
@@ -98,7 +130,7 @@ export default function FunnelTable({
     );
   }
 
-  if (!data?.items?.length) {
+  if (!items.length) {
     return (
       <div className="cand-table">
         <div className="cand-scroll">
@@ -140,7 +172,7 @@ export default function FunnelTable({
 
   return (
     <div className="cand-table">
-      <div className="cand-scroll">
+      <div className="cand-scroll" ref={setScrollRoot}>
         <div className="cand-thead">
           <div className="ct-profile">
             <div className="ct-prof-label">Профиль</div>
@@ -213,13 +245,13 @@ export default function FunnelTable({
             </div>
           )}
 
-          {detailMode && data.items.length > 0 && (
+          {detailMode && items.length > 0 && (
             <div className="ct-rest cd-thead-spacer" />
           )}
         </div>
 
         <div className="cand-tbody">
-          {data.items.map(candidate => (
+          {items.map(candidate => (
             <FunnelRow
               key={candidate.id}
               candidate={candidate}
@@ -232,6 +264,13 @@ export default function FunnelTable({
               onOpenRow={onOpenRow}
             />
           ))}
+
+          {/* Сентинел автодогрузки — внутри скроллящегося .cand-scroll */}
+          {hasNextPage && <div ref={setSentinel} className="cand-sentinel" />}
+
+          {isFetchingNextPage && (
+            <div className="cand-loadmore">Загрузка…</div>
+          )}
         </div>
       </div>
     </div>

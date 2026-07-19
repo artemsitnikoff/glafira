@@ -4,7 +4,7 @@ import './funnel/Funnel.css';
 import './funnel/FilterDrawer.css';
 import { useVacancy } from '@/api/hooks/useVacancy';
 import { useVacancyStages } from '@/api/hooks/useVacancyStages';
-import { useApplications } from '@/api/hooks/useApplications';
+import { useApplications, useApplicationsInfinite } from '@/api/hooks/useApplications';
 import VacancyHeader from '@/pages/funnel/VacancyHeader';
 import StageChipsBar from '@/pages/funnel/StageChipsBar';
 import SearchBar from '@/pages/funnel/SearchBar';
@@ -73,20 +73,20 @@ export default function VacancyDetailPage() {
     (filters.repeat ? 1 : 0) +
     arrLen(filters.tags);
 
-  // Get applications for finding current candidate's application
-  const { data: applicationsData } = useApplications(id!, filters);
+  // Тот же infinite-запрос, что и в таблице (общий ключ кэша → без второго HTTP-запроса).
+  const { data: applicationsData } = useApplicationsInfinite(id!, filters);
 
   const isDetailMode = !!cid;
 
-  // Find current application by candidate_id
-  const currentApplication = isDetailMode && applicationsData?.items
-    ? applicationsData.items.find(app => app.candidate_id === cid) || null
+  // Find current application by candidate_id — по плоскому списку всех подгруженных страниц
+  const currentApplication = isDetailMode
+    ? applicationsData?.pages?.flatMap(p => p.items).find(app => app.candidate_id === cid) || null
     : null;
 
   // Fallback query for direct links when candidate is not in current page/filter
   const fallbackQuery = useApplications(
     id!,
-    { candidate_id: cid, page: 1, size: 1 },
+    { candidate_id: cid, page: 1, page_size: 1 },
     { enabled: isDetailMode && !!cid && !currentApplication && !!applicationsData }
   );
 

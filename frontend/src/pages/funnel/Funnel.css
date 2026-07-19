@@ -893,3 +893,15 @@
 
 /* .submenu-search — общий примитив (поиск), перенесён целиком 1:1 по эталону
    в global.css. Раньше жил здесь неполным (без bg/border/focus). */
+/* Автодогрузка списка кандидатов при скролле (в эталоне нет — пагинации там не было вовсе).
+   Сентинел ловится IntersectionObserver'ом с root = .cand-scroll. */
+.cnd-funnel-wrap .cand-sentinel {
+  height: 1px;
+}
+
+.cnd-funnel-wrap .cand-loadmore {
+  padding: 12px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-3);
+}
