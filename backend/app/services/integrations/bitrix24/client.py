@@ -315,6 +315,28 @@ async def add_calendar_event(
     return str(result)
 
 
+async def delete_calendar_event(
+    webhook_url: str,
+    *,
+    event_id: str,
+    owner_id: int,
+) -> None:
+    """calendar.event.delete — удаляет событие-встречу в Б24.
+
+    Применяется при отмене интервью кандидатом: событие должно исчезнуть из календарей
+    команды, иначе рекрутёр придёт на несуществующую встречу.
+    owner_id — тот же, что был host при создании (calendar.event.add).
+
+    Scope: calendar. Бросает AppError (из call) при сбое — вызывающий решает,
+    fail-soft это или нет.
+    """
+    await call(
+        webhook_url,
+        "calendar.event.delete",
+        {"id": event_id, "ownerId": owner_id, "type": "user"},
+    )
+
+
 async def create_videoconference(
     webhook_url: str,
     title: str,

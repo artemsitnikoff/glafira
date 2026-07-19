@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, TIMESTAMP, ForeignKey, CheckConstraint, text
+from sqlalchemy import Integer, String, TIMESTAMP, ForeignKey, CheckConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,12 @@ class InterviewLink(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
     booked_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    # Сколько раз кандидат отменял/переносил встречу по этой ссылке. Отмена возвращает
+    # статус в 'active' (кандидат выбирает время заново), поэтому лимит переносов
+    # отслеживается этим счётчиком, а не статусом.
+    reschedule_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("'0'")
+    )
 
     __table_args__ = (
         CheckConstraint(

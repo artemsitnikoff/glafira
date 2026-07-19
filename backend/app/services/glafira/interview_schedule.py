@@ -219,6 +219,7 @@ async def send_interview_links(
                     f"Приглашаем вас на интервью {_co_text}"
                     f"на вакансию «{vacancy.name}».\n\n"
                     f"Для выбора удобного времени перейдите по ссылке:\n{schedule_url}\n\n"
+                    f"Выбранное время можно будет изменить по этой же ссылке.\n\n"
                     f"Ссылка действительна {horizon_days} дней."
                 )
                 if slot_settings["interview_video_link"]:
@@ -244,7 +245,9 @@ async def send_interview_links(
                     f'style="display:inline-block;font-family:\'Inter\',Arial,sans-serif;font-size:15px;'
                     f'font-weight:600;color:#FFFFFF;padding:13px 26px;border-radius:8px;">Выбрать время интервью</a></td>'
                     f'</tr></table>'
-                    f'<p style="margin:14px 0 0;font-size:13px;color:#5B6573;">Ссылка действительна {horizon_days} дней.</p>'
+                    f'<p style="margin:14px 0 0;font-size:13px;color:#5B6573;">'
+                    f'Выбранное время можно будет изменить по этой же ссылке.</p>'
+                    f'<p style="margin:6px 0 0;font-size:13px;color:#5B6573;">Ссылка действительна {horizon_days} дней.</p>'
                 )
                 if slot_settings["interview_video_link"]:
                     _vlink = _html.escape(slot_settings["interview_video_link"])

@@ -35,6 +35,7 @@ from ...services.integrations.smtp.service import send_email
 from ...services.integrations.smtp.templates import render_simple_email
 from ...services.settings.crypto import decrypt_text
 from ...core.errors import AppError
+from ...config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,18 @@ _rate_store: dict[str, list[float]] = defaultdict(list)
 _rate_lock = asyncio.Lock()
 _RATE_LIMIT = 30  # запросов
 _RATE_WINDOW = 60.0  # секунд
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Правила изменения записи кандидатом (решение заказчика)
+# ──────────────────────────────────────────────────────────────────────────────
+# Менять/отменять встречу можно не позднее чем за 24 часа до начала.
+_CHANGE_DEADLINE_HOURS = 24
+# Максимум переносов; дальше — «свяжитесь с рекрутёром».
+_MAX_RESCHEDULES = 2
+# На сколько продлевать ссылку при отмене, если она протухает слишком скоро (иначе
+# кандидат отменит встречу и не сможет записаться заново — ссылка уже недействительна).
+_CANCEL_RENEW_DAYS = 14
+_CANCEL_RENEW_THRESHOLD_DAYS = 7
 
 
 async def _check_rate_limit(request: Request, token: str) -> None:
@@ -89,6 +102,18 @@ class ScheduleInfoResponse(BaseModel):
     tz: str
     slot_from: datetime | None = None
     slot_to: datetime | None = None
+    # Управление записью (осмысленны при status == 'booked'). Считаются НА СЕРВЕРЕ,
+    # чтобы фронт не дублировал правила дедлайна/лимита и не разошёлся с беком.
+    reschedule_count: int = 0
+    reschedules_left: int = _MAX_RESCHEDULES
+    can_change: bool = False
+    # 'deadline' | 'limit' | None — почему кнопки отмены/переноса недоступны.
+    change_blocked_reason: str | None = None
+
+
+class CancelResponse(BaseModel):
+    status: str
+    reschedules_left: int
 
 
 class SlotOut(BaseModel):
@@ -225,6 +250,26 @@ def _collect_participants(vacancy: Vacancy) -> list[User]:
     return participants
 
 
+def _change_block_reason(link: InterviewLink, now: datetime) -> str | None:
+    """Почему кандидат НЕ может отменить/перенести встречу. None = может.
+
+    Порядок важен: лимит переносов проверяем ПЕРВЫМ — если он исчерпан, кандидату
+    надо связаться с рекрутёром независимо от того, сколько осталось до встречи.
+
+    'limit'    — исчерпан лимит переносов (_MAX_RESCHEDULES);
+    'deadline' — до начала встречи меньше _CHANGE_DEADLINE_HOURS часов.
+    """
+    if (link.reschedule_count or 0) >= _MAX_RESCHEDULES:
+        return "limit"
+    if link.slot_from is not None:
+        slot_from = link.slot_from
+        if slot_from.tzinfo is None:
+            slot_from = slot_from.replace(tzinfo=timezone.utc)
+        if slot_from - now < timedelta(hours=_CHANGE_DEADLINE_HOURS):
+            return "deadline"
+    return None
+
+
 def _get_recruiter(vacancy: Vacancy) -> User | None:
     """Ответственный за вакансию (первый is_responsible или первый в команде)."""
     for vt in (vacancy.team or []):
@@ -291,11 +336,19 @@ def _build_ics(
     organizer_email: str,
     attendee_name: str,
     attendee_email: str,
+    method: str = "REQUEST",
+    event_status: str = "CONFIRMED",
+    sequence: int = 0,
 ) -> str:
-    """VCALENDAR/VEVENT (METHOD:REQUEST) — приглашение кандидата на интервью.
+    """VCALENDAR/VEVENT — приглашение кандидата на интервью (или его отмена).
 
     Времена в UTC (…Z). Кандидат — ATTENDEE, ответственный рекрутёр — ORGANIZER.
     Почтовый клиент кандидата (Gmail/Outlook/Apple) покажет «Добавить в календарь».
+
+    Отмена: method='CANCEL', event_status='CANCELLED', sequence=<новый reschedule_count>.
+    ⚠️ UID должен совпадать с UID исходного приглашения (f"{token}@glafira") — по нему
+    почтовый клиент находит УЖЕ ДОБАВЛЕННУЮ встречу и снимает её, а не создаёт вторую.
+    SEQUENCE обязан расти при каждом обновлении, иначе клиент проигнорирует CANCEL.
     """
     def _z(dt: datetime) -> str:
         return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -306,7 +359,7 @@ def _build_ics(
         "VERSION:2.0",
         "PRODID:-//Glafira Recruiter//Interview//RU",
         "CALSCALE:GREGORIAN",
-        "METHOD:REQUEST",
+        f"METHOD:{method}",
         "BEGIN:VEVENT",
         f"UID:{uid}",
         f"DTSTAMP:{now_z}",
@@ -325,8 +378,8 @@ def _build_ics(
             f"PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{attendee_email}"
         )
     lines += [
-        "STATUS:CONFIRMED",
-        "SEQUENCE:0",
+        f"STATUS:{event_status}",
+        f"SEQUENCE:{sequence}",
         "TRANSP:OPAQUE",
         "END:VEVENT",
         "END:VCALENDAR",
@@ -368,6 +421,12 @@ async def get_schedule_info(
     participants = _collect_participants(vacancy)
     company_name = await resolve_company_display_name(session, link.company_id, vacancy)
 
+    # Управление записью: считаем на сервере, фронт только рисует. Менять можно
+    # ТОЛЬКО забронированную встречу — у 'active'/'expired' ссылки менять нечего.
+    used = link.reschedule_count or 0
+    blocked_reason = _change_block_reason(link, now) if link.status == "booked" else None
+    can_change = link.status == "booked" and blocked_reason is None
+
     return ScheduleInfoResponse(
         status=link.status,
         vacancy_name=vacancy.name,
@@ -380,6 +439,10 @@ async def get_schedule_info(
         tz=tz,
         slot_from=link.slot_from,
         slot_to=link.slot_to,
+        reschedule_count=used,
+        reschedules_left=max(0, _MAX_RESCHEDULES - used),
+        can_change=can_change,
+        change_blocked_reason=blocked_reason,
     )
 
 
@@ -687,9 +750,18 @@ async def book_schedule_slot(
                     f'font-weight:600;color:#FFFFFF;padding:13px 26px;border-radius:8px;">Ссылка на видеовстречу</a></td>'
                     f'</tr></table>'
                 )
+            # Ссылка на управление записью: без неё кандидат, закрывший письмо, не может
+            # ни перенести, ни отменить встречу.
+            _manage_url = _html.escape(f"{settings.FRONTEND_BASE_URL}/schedule/{token}")
+            body_text += (
+                f"\nНужно перенести или отменить встречу — управляйте записью по ссылке:\n"
+                f"{settings.FRONTEND_BASE_URL}/schedule/{token}\n"
+            )
             _inner += (
                 '<p style="margin:16px 0 0;font-size:13px;color:#5B6573;">'
                 'Приглашение приложено к письму — добавьте встречу в свой календарь.</p>'
+                f'<p style="margin:8px 0 0;font-size:13px;color:#5B6573;">'
+                f'Нужно перенести или отменить — <a href="{_manage_url}">управлять записью</a>.</p>'
             )
             body_html = render_simple_email(
                 f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!",
@@ -805,3 +877,398 @@ async def book_schedule_slot(
         slot_to=slot_to,
         video_link=video_link or None,
     )
+
+
+@router.post("/schedule/{token}/cancel", response_model=CancelResponse)
+async def cancel_schedule_slot(
+    token: str,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+):
+    """Отмена встречи кандидатом. Освобождает слот — ссылка возвращается в 'active',
+    кандидат может выбрать новое время тем же POST /book.
+
+    Отдельного роута «перенос» нет: перенос = отмена + повторная бронь (решение
+    заказчика). Ограничения: не позднее чем за 24ч до начала, максимум 2 переноса.
+    """
+    await _check_rate_limit(request, token)
+
+    link = await _get_link_or_raise(session, token)
+
+    if link.status != "booked":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "NOT_BOOKED", "message": "Встреча не забронирована"}},
+        )
+
+    now = datetime.now(timezone.utc)
+    block_reason = _change_block_reason(link, now)
+    if block_reason == "limit":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "RESCHEDULE_LIMIT",
+                    "message": "Достигнут лимит переносов, свяжитесь с рекрутёром",
+                }
+            },
+        )
+    if block_reason == "deadline":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "CHANGE_DEADLINE_PASSED",
+                    "message": "Изменить встречу можно не позднее чем за 24 часа до начала",
+                }
+            },
+        )
+
+    app, vacancy, candidate, b24_row = await _load_context(session, link)
+
+    # Прежний слот и событие Б24 сохраняем ДО обнуления — нужны для писем, ICS-отмены
+    # и удаления события в календаре.
+    prev_slot_from = link.slot_from
+    prev_slot_to = link.slot_to
+    prev_event_id = link.b24_event_id
+    if prev_slot_from is not None and prev_slot_from.tzinfo is None:
+        prev_slot_from = prev_slot_from.replace(tzinfo=timezone.utc)
+    if prev_slot_to is not None and prev_slot_to.tzinfo is None:
+        prev_slot_to = prev_slot_to.replace(tzinfo=timezone.utc)
+
+    # АТОМАРНОЕ освобождение (booked→active): защита от двойного клика/ретрая — второй
+    # запрос получит 0 строк и 409, событие в Б24 удалит только первый.
+    released = await session.execute(
+        update(InterviewLink)
+        .where(InterviewLink.token == token, InterviewLink.status == "booked")
+        .values(
+            status="active",
+            slot_from=None,
+            slot_to=None,
+            b24_event_id=None,
+            booked_at=None,
+            reschedule_count=InterviewLink.reschedule_count + 1,
+        )
+        .returning(InterviewLink.reschedule_count)
+    )
+    released_row = released.first()
+    if released_row is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "NOT_BOOKED", "message": "Встреча не забронирована"}},
+        )
+    new_count = int(released_row[0])
+    await session.flush()
+
+    # Синхронизируем ORM-инстанс: сырой UPDATE в загруженный объект не попадает
+    # (expire_on_commit=False → identity-map отдаст stale-поля дальше по коду).
+    link.status = "active"
+    link.slot_from = None
+    link.slot_to = None
+    link.b24_event_id = None
+    link.booked_at = None
+    link.reschedule_count = new_count
+
+    # Продлеваем ссылку: кандидат только что освободил слот и должен успеть выбрать
+    # новое время. Протухшая через день ссылка сделала бы отмену ловушкой.
+    expires_at = link.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is None or expires_at - now < timedelta(days=_CANCEL_RENEW_THRESHOLD_DAYS):
+        new_expires = now + timedelta(days=_CANCEL_RENEW_DAYS)
+        await session.execute(
+            update(InterviewLink)
+            .where(InterviewLink.token == token)
+            .values(expires_at=new_expires)
+        )
+        link.expires_at = new_expires
+        await session.flush()
+
+    webhook_url = (
+        decrypt_text(b24_row.config["webhook_url"])
+        if b24_row and (b24_row.config or {}).get("webhook_url")
+        else ""
+    )
+
+    # Часовой пояс: тем же путём, что и при брони (_resolve_slot_settings → авто из Б24),
+    # иначе отменённое время показалось бы кандидату в ДРУГОМ поясе, чем он его выбирал.
+    if webhook_url:
+        slot_settings = await _resolve_slot_settings(webhook_url, vacancy, b24_row)
+        tz = slot_settings["tz"]
+    else:
+        tz = "Europe/Moscow"
+    from zoneinfo import ZoneInfo
+    try:
+        tz_info = ZoneInfo(tz)
+    except Exception:
+        tz_info = ZoneInfo("Europe/Moscow")
+        tz = "Europe/Moscow"
+
+    # Удаляем событие в календаре Б24. FAIL-SOFT: отмену НЕ откатываем (кандидат уже
+    # освободил слот), но факт неудачи фиксируем честно — в audit и в письме рекрутёру.
+    b24_event_deleted = False
+    b24_delete_error: str | None = None
+    if prev_event_id and webhook_url:
+        try:
+            b24_ids, _unmapped = _collect_b24_user_ids(vacancy)
+            recruiter_for_owner = _get_recruiter(vacancy)
+            owner_b24_id = (
+                recruiter_for_owner.b24_user_id
+                if recruiter_for_owner and recruiter_for_owner.b24_user_id
+                else (b24_ids[0] if b24_ids else 0)
+            )
+            await b24_client.delete_calendar_event(
+                webhook_url, event_id=prev_event_id, owner_id=owner_b24_id
+            )
+            b24_event_deleted = True
+        except Exception as e:
+            b24_delete_error = str(e)
+            logger.warning(
+                "[public_schedule] Не удалось удалить событие Б24 %s (token=%s): %s",
+                prev_event_id, token, e,
+            )
+    elif not prev_event_id:
+        # Событие не создавалось — удалять нечего, это не сбой.
+        b24_event_deleted = True
+
+    # Инвалидируем кэш слотов — освободившееся время должно сразу стать доступным.
+    invalidate_cache(token)
+
+    prev_slot_str = (
+        prev_slot_from.astimezone(tz_info).strftime("%d.%m.%Y %H:%M") + f" ({tz})"
+        if prev_slot_from else "—"
+    )
+
+    company_name = await resolve_company_display_name(session, link.company_id, vacancy)
+    recruiter = _get_recruiter(vacancy)
+    candidate_name = candidate.full_name if candidate else "Кандидат"
+    reschedules_left = max(0, _MAX_RESCHEDULES - new_count)
+    schedule_url = f"{settings.FRONTEND_BASE_URL}/schedule/{token}"
+
+    # ── Письмо кандидату: подтверждение отмены + ICS CANCEL + ссылка на перезапись ──
+    if candidate and candidate.email:
+        try:
+            _vac = _html.escape(vacancy.name or "")
+            _company = _html.escape(company_name)
+            _url = _html.escape(schedule_url)
+            _co_html = (
+                f' в компании <strong style="color:#0F1620;font-weight:600;">«{_company}»</strong>'
+                if _company else ''
+            )
+            _co_text = f" в компании «{company_name}»" if company_name else ""
+
+            body_text = (
+                f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!\n\n"
+                f"Встреча по вакансии «{vacancy.name}»{_co_text} отменена.\n"
+                f"Отменённое время: {prev_slot_str}\n\n"
+            )
+            if reschedules_left > 0:
+                body_text += (
+                    f"Вы можете выбрать новое удобное время по ссылке:\n{schedule_url}\n"
+                )
+            else:
+                body_text += (
+                    "Лимит переносов исчерпан — пожалуйста, свяжитесь с рекрутёром "
+                    "для назначения нового времени.\n"
+                )
+
+            _inner = (
+                f'<p style="margin:0 0 14px;">Встреча по вакансии '
+                f'<strong style="color:#0F1620;font-weight:600;">«{_vac}»</strong>{_co_html} отменена.</p>'
+                f'<p style="margin:0 0 6px;font-size:15px;">'
+                f'<strong style="color:#0F1620;">Отменённое время:</strong> '
+                f'{_html.escape(prev_slot_str)}</p>'
+            )
+            if reschedules_left > 0:
+                _inner += (
+                    f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 6px;"><tr>'
+                    f'<td style="border-radius:8px;background:#2A8AF0;"><a href="{_url}" target="_blank" '
+                    f'style="display:inline-block;font-family:\'Inter\',Arial,sans-serif;font-size:15px;'
+                    f'font-weight:600;color:#FFFFFF;padding:13px 26px;border-radius:8px;">Выбрать новое время</a></td>'
+                    f'</tr></table>'
+                    f'<p style="margin:14px 0 0;font-size:13px;color:#5B6573;">'
+                    f'Осталось переносов: {reschedules_left}.</p>'
+                )
+            else:
+                _inner += (
+                    '<p style="margin:16px 0 0;font-size:13px;color:#5B6573;">'
+                    'Лимит переносов исчерпан — пожалуйста, свяжитесь с рекрутёром '
+                    'для назначения нового времени.</p>'
+                )
+            body_html = render_simple_email(
+                f"Здравствуйте, {candidate.full_name or 'уважаемый кандидат'}!",
+                _inner,
+                preheader=f"Встреча по вакансии {vacancy.name}{_co_text} отменена",
+                company_name=company_name,
+            )
+
+            # ICS-отмена: тот же UID, что у исходного приглашения, + выросший SEQUENCE →
+            # почтовый клиент снимет УЖЕ ДОБАВЛЕННУЮ встречу, а не создаст вторую.
+            ics = None
+            if prev_slot_from and prev_slot_to:
+                ics = _build_ics(
+                    uid=f"{token}@glafira",
+                    start_utc=prev_slot_from,
+                    end_utc=prev_slot_to,
+                    summary=(
+                        f"Интервью: {vacancy.name} — {company_name}"
+                        if company_name else f"Интервью: {vacancy.name}"
+                    ),
+                    description="Встреча отменена",
+                    location="",
+                    organizer_name=recruiter.full_name if recruiter else "Глафира Рекрутёр",
+                    organizer_email=recruiter.email if recruiter and recruiter.email else "",
+                    attendee_name=candidate.full_name or "",
+                    attendee_email=candidate.email,
+                    method="CANCEL",
+                    event_status="CANCELLED",
+                    sequence=new_count,
+                )
+
+            await send_email(
+                session,
+                link.company_id,
+                to=candidate.email,
+                subject=(
+                    f"Встреча отменена: {vacancy.name} — {company_name}"
+                    if company_name else f"Встреча отменена: {vacancy.name}"
+                ),
+                body_text=body_text,
+                body_html=body_html,
+                ics=ics,
+            )
+        except Exception as e:
+            logger.warning(
+                "[public_schedule] Не удалось отправить кандидату письмо об отмене: %s", e
+            )
+
+    # ── Письмо ответственному рекрутёру ────────────────────────────────────────
+    if recruiter and recruiter.email:
+        try:
+            _r_cand = _html.escape(candidate_name)
+            _r_vac = _html.escape(vacancy.name or "")
+            _r_slot = _html.escape(prev_slot_str)
+
+            r_body_text = (
+                f"Кандидат {candidate_name} отменил встречу.\n\n"
+                f"Вакансия: {vacancy.name}\n"
+                f"Освободившееся время: {prev_slot_str}\n"
+                f"Осталось переносов у кандидата: {reschedules_left}\n"
+            )
+            r_inner = (
+                f'<p style="margin:0 0 14px;">Кандидат '
+                f'<strong style="color:#0F1620;font-weight:600;">{_r_cand}</strong> '
+                f'отменил встречу.</p>'
+                f'<p style="margin:0 0 6px;font-size:15px;">'
+                f'<strong style="color:#0F1620;">Вакансия:</strong> {_r_vac}</p>'
+                f'<p style="margin:0 0 6px;font-size:15px;">'
+                f'<strong style="color:#0F1620;">Освободившееся время:</strong> {_r_slot}</p>'
+                f'<p style="margin:0 0 6px;font-size:15px;">'
+                f'<strong style="color:#0F1620;">Осталось переносов у кандидата:</strong> '
+                f'{reschedules_left}</p>'
+            )
+            # Честно сообщаем о несогласованности с календарём — молча глотать нельзя,
+            # иначе рекрутёр придёт на встречу, которой уже нет.
+            if prev_event_id and not b24_event_deleted:
+                r_body_text += (
+                    "\nВНИМАНИЕ: событие в календаре Битрикс24 удалить не удалось, "
+                    "проверьте вручную.\n"
+                )
+                r_inner += (
+                    '<p style="margin:16px 0 0;font-size:14px;color:#B4231F;">'
+                    '<strong>Внимание:</strong> событие в календаре Битрикс24 удалить '
+                    'не удалось — проверьте и удалите его вручную.</p>'
+                )
+            r_body_html = render_simple_email(
+                "Кандидат отменил встречу",
+                r_inner,
+                preheader=f"{candidate_name} отменил интервью по вакансии {vacancy.name}",
+                company_name=company_name,
+            )
+            await send_email(
+                session,
+                link.company_id,
+                to=recruiter.email,
+                subject=f"Кандидат отменил встречу: {vacancy.name}",
+                body_text=r_body_text,
+                body_html=r_body_html,
+            )
+        except Exception as e:
+            logger.warning(
+                "[public_schedule] Не удалось отправить рекрутёру письмо об отмене: %s", e
+            )
+
+    # Локали для best-effort доставки в hh-чат ПОСЛЕ коммита (объекты сессии протухнут).
+    _hh_chat_id = app.hh_chat_id
+    _company_id = link.company_id
+    _vac_name = vacancy.name
+    _company_name = company_name
+    _prev_slot_str = prev_slot_str
+    _schedule_url = schedule_url
+    _resched_left = reschedules_left
+
+    # Event + audit (инвариант §2.2: каждое изменяющее действие → audit_log).
+    ev_text = (
+        f"Кандидат {candidate_name} отменил встречу на {prev_slot_str} "
+        f"(вакансия: {vacancy.name}). Слот освобождён, осталось переносов: {reschedules_left}."
+    )
+    if prev_event_id and not b24_event_deleted:
+        ev_text += " Событие в календаре Битрикс24 удалить не удалось — проверьте вручную."
+    session.add(Event(
+        company_id=link.company_id,
+        type="interview",
+        actor_type="system",
+        actor_user_id=None,
+        text=ev_text,
+        entities=[],
+        candidate_id=candidate.id if candidate else None,
+        vacancy_id=vacancy.id,
+    ))
+    await audit(
+        session,
+        action="interview_cancelled",
+        entity_type="application",
+        entity_id=app.id,
+        before={
+            "slot_from": prev_slot_from.isoformat() if prev_slot_from else None,
+            "slot_to": prev_slot_to.isoformat() if prev_slot_to else None,
+            "slot_local": prev_slot_str,
+            "b24_event_id": prev_event_id,
+        },
+        after={
+            "status": "active",
+            "reschedule_count": new_count,
+            "reschedules_left": reschedules_left,
+            "b24_event_deleted": b24_event_deleted,
+            "b24_delete_error": b24_delete_error,
+            "candidate_id": str(candidate.id) if candidate else None,
+            "vacancy_id": str(vacancy.id),
+        },
+        actor_user_id=None,
+        actor_type="system",
+        company_id=link.company_id,
+    )
+    await session.commit()
+
+    # Best-effort: дублируем уведомление в hh-чат, если кандидат пришёл с hh.
+    if _hh_chat_id:
+        try:
+            from ...services.integrations.hh.service import get_valid_access_token
+            from ...services.integrations.hh import client as hh_client
+
+            hh_msg = (
+                f"Встреча по вакансии «{_vac_name}» в компании «{_company_name}» "
+                f"на {_prev_slot_str} отменена."
+                if _company_name
+                else f"Встреча по вакансии «{_vac_name}» на {_prev_slot_str} отменена."
+            )
+            if _resched_left > 0:
+                hh_msg += f" Выбрать новое время: {_schedule_url}"
+            else:
+                hh_msg += " Лимит переносов исчерпан — свяжитесь с рекрутёром."
+            hh_token = await get_valid_access_token(session, _company_id)
+            await hh_client.send_chat_message(hh_token, _hh_chat_id, hh_msg)
+        except Exception as e:
+            logger.warning("[public_schedule] Не удалось отправить отмену в hh-чат: %s", e)
+
+    return CancelResponse(status="active", reschedules_left=reschedules_left)
