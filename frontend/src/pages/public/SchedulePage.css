@@ -526,6 +526,154 @@
   color: var(--fg-3);
 }
 
+/* Действия над назначенной встречей — перенос / отмена */
+.sched-booked-actions {
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sched-booked-actions-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+}
+
+.sched-btn-reschedule,
+.sched-btn-cancel {
+  border-radius: var(--radius-md);
+  padding: 10px 20px;
+  font-size: var(--fs-14);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+.sched-btn-reschedule {
+  background: var(--accent);
+  color: var(--ark-white);
+  border: 1px solid var(--accent);
+}
+
+.sched-btn-reschedule:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Отмена — спокойный второстепенный стиль, не крикливо-красная кнопка */
+.sched-btn-cancel {
+  background: var(--bg-1);
+  color: var(--fg-2);
+  border: 1px solid var(--border-1);
+}
+
+.sched-btn-cancel:hover:not(:disabled) {
+  background: var(--bg-3-hover);
+  border-color: var(--ark-gray-400);
+}
+
+.sched-btn-reschedule:disabled,
+.sched-btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inline-подтверждение (свой UI, без браузерных диалогов) */
+.sched-cancel-confirm {
+  width: 100%;
+  background: var(--bg-3);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sched-cancel-confirm-q {
+  font-size: var(--fs-13);
+  color: var(--fg-1);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.sched-cancel-confirm-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.sched-btn-confirm-yes,
+.sched-btn-confirm-no {
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  font-size: var(--fs-13);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.sched-btn-confirm-yes {
+  background: var(--accent);
+  color: var(--ark-white);
+  border: 1px solid var(--accent);
+}
+
+.sched-btn-confirm-yes:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.sched-btn-confirm-no {
+  background: var(--bg-1);
+  color: var(--fg-2);
+  border: 1px solid var(--border-1);
+}
+
+.sched-btn-confirm-no:hover:not(:disabled) {
+  background: var(--bg-3-hover);
+}
+
+.sched-btn-confirm-yes:disabled,
+.sched-btn-confirm-no:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Пояснение, почему менять нельзя */
+.sched-change-blocked {
+  font-size: var(--fs-12);
+  color: var(--fg-3);
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* Тихая подпись про остаток переносов */
+.sched-reschedules-left {
+  font-size: var(--fs-12);
+  color: var(--fg-3);
+}
+
+.sched-cancel-err {
+  width: 100%;
+  font-size: var(--fs-12);
+  color: var(--error-fg);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  text-align: center;
+  line-height: 1.5;
+}
+
 /* Тост */
 .sched-toast {
   position: fixed;
@@ -580,6 +728,26 @@
 
   .sched-tz-row {
     flex-wrap: wrap;
+  }
+
+  /* Блок действий встречи — кнопки в столбец на узком экране */
+  .sched-booked-actions-row,
+  .sched-cancel-confirm-row {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .sched-btn-reschedule,
+  .sched-btn-cancel,
+  .sched-btn-confirm-yes,
+  .sched-btn-confirm-no {
+    width: 100%;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .sched-booked-card {
+    padding: 32px 20px;
   }
 }
 

@@ -21,6 +21,12 @@ interface ScheduleInfo {
   participants?: Participant[];
   slot_from?: string | null; // ISO UTC (только когда status='booked')
   video_link?: string | null;
+  /* Отмена/перенос — осмысленны при status='booked'. Правила (24ч, максимум 2 переноса)
+     считает СЕРВЕР; фронт только читает эти поля и НЕ дублирует арифметику. */
+  reschedule_count?: number;
+  reschedules_left?: number;
+  can_change?: boolean;
+  change_blocked_reason?: 'deadline' | 'limit' | null;
 }
 
 interface Slot {
@@ -199,6 +205,12 @@ export default function SchedulePage() {
   const [bookedAt, setBookedAt] = useState<string | null>(null);
   const [videoLink, setVideoLink] = useState<string | null>(null);
 
+  // Отмена/перенос встречи
+  const [confirmMode, setConfirmMode] = useState<'reschedule' | 'cancel' | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelled, setCancelled] = useState(false);
+
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -315,6 +327,71 @@ export default function SchedulePage() {
     }
   };
 
+  /**
+   * Перечитать состояние ссылки с сервера и синхронизировать локальный экран.
+   * Сервер — единственный источник правды по статусу/лимитам.
+   * Новый объект info меняет ссылку → эффект ниже сам перезапросит слоты, если ссылка снова активна.
+   */
+  const refreshInfo = async () => {
+    if (!token) return;
+    const res = await publicClient.get<ScheduleInfo>(`/public/schedule/${token}`);
+    setInfo(res.data);
+    if (res.data.status === 'booked' && res.data.slot_from) {
+      setBooked(true);
+      setBookedAt(res.data.slot_from);
+      setVideoLink(res.data.video_link ?? null);
+    } else {
+      setBooked(false);
+      setBookedAt(null);
+      setVideoLink(null);
+      setSelectedSlot(null);
+      setSelectedDayKey(null);
+    }
+  };
+
+  /**
+   * Отмена брони. Перенос = та же отмена: ссылка снова становится active,
+   * и кандидат выбирает новое время существующим потоком выбора слотов.
+   * Отдельного роута «перенести» на бэкенде нет.
+   */
+  const handleCancel = async (mode: 'reschedule' | 'cancel') => {
+    if (!token || cancelling) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await publicClient.post(`/public/schedule/${token}/cancel`);
+      setConfirmMode(null);
+      if (mode === 'cancel') setCancelled(true);
+      await refreshInfo();
+    } catch (e: unknown) {
+      const err = e as {
+        response?: { status?: number; data?: { error?: { code?: string; message?: string } } };
+      };
+      const status = err?.response?.status;
+      const code = err?.response?.data?.error?.code;
+      const message = err?.response?.data?.error?.message;
+
+      if (status === 429) {
+        setCancelError('Слишком много попыток. Подождите минуту и попробуйте снова.');
+      } else if (status === 409 && code === 'NOT_BOOKED') {
+        // Состояние разъехалось (например, отменили в другой вкладке) — не пугаем,
+        // просто показываем актуальное состояние с сервера.
+        setConfirmMode(null);
+        try {
+          await refreshInfo();
+        } catch {
+          setCancelError('Не удалось обновить состояние встречи. Обновите страницу.');
+        }
+      } else if (message) {
+        setCancelError(message);
+      } else {
+        setCancelError('Не удалось выполнить действие. Попробуйте ещё раз.');
+      }
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   // Построить сетку календаря для текущего месяца
   const buildCalDays = () => {
     // Первый день месяца
@@ -386,6 +463,32 @@ export default function SchedulePage() {
     );
   }
 
+  // Встреча отменена кандидатом — ссылка снова активна, можно выбрать другое время
+  if (cancelled) {
+    return (
+      <div className="sched-bg">
+        <div className="sched-brand"><img className="sched-logo" src="/favicon.svg" alt="" />Глафира</div>
+        <div className="sched-state">
+          <div className="sched-booked-card">
+            <div className="sched-booked-title">Встреча отменена</div>
+            <div className="sched-booked-time">
+              Рекрутёр уведомлён об отмене. Если передумаете — можно выбрать другое время
+              по этой же ссылке.
+            </div>
+            <div className="sched-booked-actions">
+              <button
+                className="sched-btn-reschedule"
+                onClick={() => { setCancelled(false); setCancelError(null); }}
+              >
+                Выбрать другое время
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Встреча уже назначена
   if (booked && bookedAt) {
     return (
@@ -411,6 +514,77 @@ export default function SchedulePage() {
                 {info.participants.map((p) => p.name).join(', ')}
               </div>
             )}
+
+            {/* Перенос / отмена. Можно ли менять — решает СЕРВЕР (can_change),
+                фронт не считает ни 24 часа, ни лимит переносов. */}
+            <div className="sched-booked-actions">
+              {confirmMode ? (
+                <div className="sched-cancel-confirm">
+                  <div className="sched-cancel-confirm-q">
+                    {confirmMode === 'reschedule'
+                      ? `Перенести встречу на другое время? Текущая бронь ${formatDateTime(parseUtc(bookedAt), tz)} будет снята.`
+                      : `Отменить встречу на ${formatDateTime(parseUtc(bookedAt), tz)}?`}
+                  </div>
+                  <div className="sched-cancel-confirm-row">
+                    <button
+                      className="sched-btn-confirm-yes"
+                      disabled={cancelling}
+                      onClick={() => handleCancel(confirmMode)}
+                    >
+                      {cancelling
+                        ? 'Отправляю…'
+                        : confirmMode === 'reschedule' ? 'Да, перенести' : 'Да, отменить'}
+                    </button>
+                    <button
+                      className="sched-btn-confirm-no"
+                      disabled={cancelling}
+                      onClick={() => { setConfirmMode(null); setCancelError(null); }}
+                    >
+                      {confirmMode === 'reschedule' ? 'Не переносить' : 'Не отменять'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="sched-booked-actions-row">
+                  <button
+                    className="sched-btn-reschedule"
+                    disabled={info?.can_change !== true}
+                    onClick={() => { setCancelError(null); setConfirmMode('reschedule'); }}
+                  >
+                    Перенести встречу
+                  </button>
+                  <button
+                    className="sched-btn-cancel"
+                    disabled={info?.can_change !== true}
+                    onClick={() => { setCancelError(null); setConfirmMode('cancel'); }}
+                  >
+                    Отменить встречу
+                  </button>
+                </div>
+              )}
+
+              {info?.can_change !== true && (
+                <div className="sched-change-blocked">
+                  {info?.change_blocked_reason === 'deadline'
+                    ? 'Изменить встречу можно не позднее чем за 24 часа до начала. Пожалуйста, свяжитесь с рекрутёром.'
+                    : info?.change_blocked_reason === 'limit'
+                      ? 'Лимит переносов исчерпан. Пожалуйста, свяжитесь с рекрутёром.'
+                      : 'Изменить встречу сейчас нельзя. Пожалуйста, свяжитесь с рекрутёром.'}
+                </div>
+              )}
+
+              {info?.can_change === true
+                && typeof info.reschedules_left === 'number'
+                && info.reschedules_left < 2 && (
+                <div className="sched-reschedules-left">
+                  Осталось переносов: {info.reschedules_left}
+                </div>
+              )}
+
+              {cancelError && (
+                <div className="sched-cancel-err">{cancelError}</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
