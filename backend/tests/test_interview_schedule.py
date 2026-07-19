@@ -197,16 +197,44 @@ async def test_calculate_free_slots_basic():
 @pytest.mark.asyncio
 async def test_calculate_slots_all_participants_must_be_free():
     """Слот исключается если занят ХОТЬ ОДИН участник."""
-    # Два участника, разные занятости — общий слот закрыт
+    # Пинним "сейчас" на фикс. рабочий день (2026-07-14 — вторник, 10:00 МСК): без заморозки
+    # расчёт шёл бы от реального now(), и результат зависел бы от дня прогона (в выходные
+    # список пуст сам по себе — assert выполнялся бы по НЕВЕРНОЙ причине).
+    now_utc = datetime(2026, 7, 14, 7, 0, 0, tzinfo=timezone.utc)  # 10:00 МСК, вт
+
+    class _FrozenNow(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now_utc.astimezone(tz) if tz is not None else now_utc.replace(tzinfo=None)
+
+    # Два участника, разные занятости — общий слот закрыт.
+    # Поля именно DATE_FROM/DATE_TO (формат calendar.accessibility.get). Со старыми FROM/TO
+    # парсер занятость НЕ видел вовсе → тест был вакуумным: слоты возвращались свободными,
+    # а `slots == []` выполнялся лишь потому, что горизонт упирался в выходной.
+    # horizon_days=1 при заморозке на 14.07 захватывает и 15.07 (среда, рабочий день),
+    # поэтому занятость объявляем на ОБА дня — иначе пустота держалась бы на совпадении
+    # границы окна, а не на проверяемом инварианте.
     mock_result = {
-        "1": [{"FROM": "2026-07-14 10:00:00", "TO": "2026-07-14 11:00:00"}],
-        "2": [{"FROM": "2026-07-14 11:00:00", "TO": "2026-07-14 12:00:00"}],
+        "1": [
+            {"DATE_FROM": "2026-07-14 10:00:00", "DATE_TO": "2026-07-14 11:00:00"},
+            {"DATE_FROM": "2026-07-15 10:00:00", "DATE_TO": "2026-07-15 11:00:00"},
+        ],
+        "2": [
+            {"DATE_FROM": "2026-07-14 11:00:00", "DATE_TO": "2026-07-14 12:00:00"},
+            {"DATE_FROM": "2026-07-15 11:00:00", "DATE_TO": "2026-07-15 12:00:00"},
+        ],
     }
 
-    with patch(
-        "app.services.integrations.bitrix24.interview_slots.b24_client.get_accessibility",
-        new_callable=AsyncMock,
-        return_value=mock_result,
+    with (
+        patch(
+            "app.services.integrations.bitrix24.interview_slots.datetime",
+            _FrozenNow,
+        ),
+        patch(
+            "app.services.integrations.bitrix24.interview_slots.b24_client.get_accessibility",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ),
     ):
         slots = await calculate_free_slots(
             WEBHOOK,
