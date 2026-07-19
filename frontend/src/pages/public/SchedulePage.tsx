@@ -472,8 +472,8 @@ export default function SchedulePage() {
           <div className="sched-booked-card">
             <div className="sched-booked-title">Встреча отменена</div>
             <div className="sched-booked-time">
-              Рекрутёр уведомлён об отмене. Если передумаете — можно выбрать другое время
-              по этой же ссылке.
+              Рекрутёр получит уведомление об отмене. Если передумаете — можно выбрать
+              другое время по этой же ссылке.
             </div>
             <div className="sched-booked-actions">
               <button
