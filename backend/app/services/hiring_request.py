@@ -241,12 +241,36 @@ def _to_list_item(req: HiringRequest, progress: dict | None) -> dict:
 async def create_request(
     session: AsyncSession, *, company_id: UUID, user: User | None, data,
     via: str, author_name: str | None = None, author_role: str | None = None,
-    author_contact: str | None = None,
+    author_contact: str | None = None, author_user_id: UUID | None = None,
 ) -> HiringRequest:
     """Создать заявку. via: cabinet (менеджер-юзер) | form (публичная) | manual (со слов).
 
     В via=cabinet автор — user; в form/manual — текстовые поля author_*.
+
+    author_user_id (только via=manual): рекрутер выбрал заказчика из СВОИХ сотрудников
+    Глафиры вместо ручного ввода → заявка привязывается к нему, ФИО/должность берутся
+    из записи пользователя. via при этом остаётся 'manual' — вносит всё равно рекрутер.
     """
+    # ⚠️ МУЛЬТИТЕНАНТНОСТЬ (§2.3): привязать можно ТОЛЬКО активного пользователя СВОЕЙ
+    # компании. Иначе рекрутер арендатора A привязал бы заявку к юзеру арендатора B, и тот
+    # увидел бы её у себя через author-scoped список — утечка между тенантами.
+    # Fail-closed: не нашли → бизнес-ошибка 400, НЕ молчаливый None.
+    linked_user: User | None = None
+    if via == "manual" and author_user_id is not None:
+        linked_user = (await session.execute(
+            select(User).where(
+                User.id == author_user_id,
+                User.company_id == company_id,
+                User.is_active.is_(True),
+            )
+        )).scalar_one_or_none()
+        if linked_user is None:
+            # Формулировка НЕ различает «нет такого» / «чужая компания» / «заблокирован» —
+            # чтобы нельзя было зондировать существование юзеров другого арендатора.
+            raise ValidationError(
+                "Выбранный сотрудник не найден в вашей компании или неактивен"
+            )
+
     # Защита от гонки номера: до 5 попыток при коллизии unique(company_id,num).
     # Каждая попытка insert — в savepoint, чтобы откат не задел транзакцию вызывающего.
     req = None
@@ -260,9 +284,20 @@ async def create_request(
             salary_from=data.salary_from, salary_to=data.salary_to,
             employment_format=data.employment_format, priority=data.priority,
             status="new", via=via,
-            author_user_id=(user.id if (via == "cabinet" and user) else None),
-            author_name=(user.full_name if (via == "cabinet" and user) else author_name),
-            author_role=(user.position if (via == "cabinet" and user) else author_role),
+            author_user_id=(
+                user.id if (via == "cabinet" and user)
+                else (linked_user.id if linked_user else None)
+            ),
+            author_name=(
+                user.full_name if (via == "cabinet" and user)
+                else (linked_user.full_name if linked_user else author_name)
+            ),
+            author_role=(
+                user.position if (via == "cabinet" and user)
+                else (linked_user.position if linked_user else author_role)
+            ),
+            # Контакт остаётся из формы и при выбранном сотруднике (рекрутер мог указать
+            # рабочий телефон/почту для связи именно по этой заявке).
             author_contact=(None if via == "cabinet" else author_contact),
         )
         try:
@@ -284,9 +319,13 @@ async def create_request(
         actor_type=("system" if via == "form" else "human"),
         actor_user_id=(user.id if user else None),
     )
+    after = {"status": "new", "via": via}
+    if linked_user is not None:
+        # Привязка к сотруднику — изменяющее решение о видимости заявки, фиксируем (§2.2).
+        after["author_user_id"] = str(linked_user.id)
     await audit(
         session, action="create", entity_type="request", entity_id=req.id,
-        before=None, after={"status": "new", "via": via},
+        before=None, after=after,
         actor_user_id=(user.id if user else None), company_id=company_id,
         actor_type=("system" if via == "form" else "human"),
     )

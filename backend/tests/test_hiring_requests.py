@@ -504,3 +504,136 @@ class TestFormLinkPerInstance:
         token_b = b.json()["url"].rsplit("/", 1)[-1]
 
         assert token_a and token_b and token_a != token_b
+
+
+# ── Заказчик заявки — выбор из пользователей Глафиры (v1.1.4) ────────────────
+class TestAuthorUserLink:
+    """POST /requests с author_user_id: привязка заявки к сотруднику компании.
+
+    Ключевое — ИЗОЛЯЦИЯ (§2.3): привязать можно ТОЛЬКО активного юзера СВОЕЙ компании,
+    иначе рекрутер арендатора A подсунул бы заявку в «Мои заявки» юзеру арендатора B.
+    """
+
+    @pytest.mark.asyncio
+    async def test_link_own_company_user_overrides_text(
+        self, async_client, auth_headers, hm_user
+    ):
+        """ФИО/должность берутся ИЗ ЗАПИСИ юзера, присланный текст игнорируется."""
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Аналитик", "description": "Нужен аналитик в отдел продаж",
+            "author_user_id": str(hm_user.id),
+            # заведомо неверный текст — сервер обязан его проигнорировать
+            "author_name": "ПОДДЕЛКА", "author_role": "ПОДДЕЛКА",
+            "author_contact": "+7 999 000-00-00",
+        })
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["author_user_id"] == str(hm_user.id)
+        assert body["author_name"] == hm_user.full_name
+        assert body["author_role"] == hm_user.position
+        # Вносил всё равно рекрутер → via остаётся manual, не подменяется на cabinet
+        assert body["via"] == "manual"
+        # Контакт из формы сохраняется как есть
+        assert body["author_contact"] == "+7 999 000-00-00"
+
+    @pytest.mark.asyncio
+    async def test_linked_user_sees_request_in_his_list(
+        self, async_client, auth_headers, hm_user, hm_headers
+    ):
+        """Смысл фичи: привязанный заказчик видит заявку в «Моих заявках»."""
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Логист", "description": "Нужен логист",
+            "author_user_id": str(hm_user.id),
+        })
+        assert r.status_code == 201, r.text
+        rid = r.json()["id"]
+
+        mine = await async_client.get("/api/v1/requests", headers=hm_headers)
+        assert mine.status_code == 200, mine.text
+        assert rid in [i["id"] for i in mine.json()["items"]]
+
+    @pytest.mark.asyncio
+    async def test_foreign_company_user_rejected(
+        self, async_client, db_session, auth_headers
+    ):
+        """⚠️ Юзер ДРУГОГО арендатора → fail-closed 400, заявка НЕ создана."""
+        comp_b = Company(id=uuid.uuid4(), name="Company B (author-link)")
+        db_session.add(comp_b)
+        await db_session.flush()
+        user_b = User(
+            company_id=comp_b.id, email="b.author.link@example.com",
+            password_hash=get_password_hash("Glafira2026!"),
+            full_name="Чужой Сотрудник", role="hiring_manager",
+            position="Директор B", is_active=True,
+        )
+        db_session.add(user_b)
+        await db_session.commit()
+
+        before = await async_client.get("/api/v1/requests", headers=auth_headers)
+        total_before = before.json()["total"]
+
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Утечка", "description": "Попытка привязать чужого юзера",
+            "author_user_id": str(user_b.id),
+        })
+        assert r.status_code == 400, r.text
+        assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+
+        after = await async_client.get("/api/v1/requests", headers=auth_headers)
+        assert after.json()["total"] == total_before   # заявка не создалась
+
+    @pytest.mark.asyncio
+    async def test_inactive_user_rejected(self, async_client, db_session, admin_user, auth_headers):
+        """Заблокированный сотрудник своей компании → тоже отказ."""
+        dead = User(
+            company_id=admin_user.company_id, email="fired.manager@example.com",
+            password_hash=get_password_hash("Glafira2026!"),
+            full_name="Уволенный Менеджер", role="hiring_manager",
+            position="Экс-РОП", is_active=False,
+        )
+        db_session.add(dead)
+        await db_session.commit()
+
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Заявка", "description": "Описание",
+            "author_user_id": str(dead.id),
+        })
+        assert r.status_code == 400, r.text
+
+    @pytest.mark.asyncio
+    async def test_unknown_user_id_rejected(self, async_client, auth_headers):
+        """Несуществующий id → отказ, а не молчаливый None."""
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Заявка", "description": "Описание",
+            "author_user_id": str(uuid.uuid4()),
+        })
+        assert r.status_code == 400, r.text
+
+    @pytest.mark.asyncio
+    async def test_without_author_user_id_keeps_text_behaviour(self, async_client, auth_headers):
+        """Обратная совместимость: без author_user_id — прежнее поведение с текстом."""
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Кладовщик", "description": "Нужен кладовщик",
+            "author_name": "Пётр Иванов", "author_role": "Начальник склада",
+        })
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["author_user_id"] is None
+        assert body["author_name"] == "Пётр Иванов"
+        assert body["author_role"] == "Начальник склада"
+        assert body["via"] == "manual"
+
+    @pytest.mark.asyncio
+    async def test_cabinet_ignores_author_user_id(
+        self, async_client, hm_headers, hm_user, admin_user
+    ):
+        """via=cabinet: автор — сам подающий; подсунутый чужой id не действует."""
+        r = await async_client.post("/api/v1/requests", headers=hm_headers, json={
+            "title": "Своя заявка", "description": "Подаю от себя",
+            "author_user_id": str(admin_user.id),
+        })
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["via"] == "cabinet"
+        assert body["author_user_id"] == str(hm_user.id)
+        assert body["author_name"] == hm_user.full_name

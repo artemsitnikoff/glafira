@@ -58,6 +58,13 @@ class HiringRequestCreate(HiringRequestBase):
     author_name: Optional[str] = Field(default=None, max_length=160)
     author_role: Optional[str] = Field(default=None, max_length=160)
     author_contact: Optional[str] = Field(default=None, max_length=200)
+    # Заказчик — сотрудник, уже заведённый в Глафире (рекрутер выбрал его из списка
+    # вместо ручного ввода). Если передан (via=manual), заявка ПРИВЯЗЫВАЕТСЯ к нему
+    # (author_user_id → он видит её в «Моих заявках» и следит за статусом), а
+    # author_name/author_role берутся ИЗ ЕГО ЗАПИСИ — источник правды сервер,
+    # присланный клиентом текст в этом случае игнорируется осознанно.
+    # Не передан → прежнее поведение: текстовые author_name/author_role.
+    author_user_id: Optional[UUID] = None
 
 
 class HiringRequestListItem(ORMBase):

@@ -194,6 +194,9 @@ async def create_request(
             session, company_id=company_id, user=current_user, data=body, via="manual",
             author_name=body.author_name, author_role=body.author_role,
             author_contact=body.author_contact,
+            # Заказчик выбран из сотрудников Глафиры → сервис проверит принадлежность
+            # компании и возьмёт ФИО/должность из его записи (см. create_request).
+            author_user_id=body.author_user_id,
         )
     await session.commit()
     req = await svc.get_request_or_raise(session, company_id, req.id)
