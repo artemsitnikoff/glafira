@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../../components/ui/Icon';
+import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/store/authStore';
+import { useDebounce } from '@/hooks/useDebounce';
+import { useUsers, type UserListItem } from '@/api/hooks/useUsers';
 import { useCreateRequest, type RequestCreateBody } from '@/api/hooks/useRequests';
 // Шелл страницы (.nv-wrap/.nv-topbar/.nv-crumbs/.nv-input/.btn-*) — из формы вакансии.
 import '../vacancies/VacancyForm.css';
@@ -23,6 +26,54 @@ export default function NewRequestPage() {
   const set = (k: keyof typeof f, v: any) => setF((s) => ({ ...s, [k]: v }));
   const ok = f.title.trim() && f.desc.trim();
 
+  // ── Заказчик: сотрудник Глафиры ↔ ручной ввод ───────────────────────────────
+  // Заказчика может не быть в системе (внешний / ещё не заведён) — ручной режим
+  // остаётся. Выбран сотрудник → шлём author_user_id, ФИО и должность берёт сервер.
+  const [authorMode, setAuthorMode] = useState<'user' | 'manual'>('user');
+  const [authorUser, setAuthorUser] = useState<UserListItem | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [userQuery, setUserQuery] = useState('');
+  const debouncedUserQuery = useDebounce(userQuery, 300);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Список тянем только когда меню открыто — не дёргаем /users на каждом заходе в форму.
+  const usersEnabled = pickerOpen && !isMgr;
+  const { data: usersData, isLoading: usersLoading } = useUsers(
+    { search: debouncedUserQuery || undefined, is_active: true, page_size: 20 },
+    { enabled: usersEnabled }
+  );
+  const userOptions = usersData?.items ?? [];
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [pickerOpen]);
+
+  const pickUser = (u: UserListItem) => {
+    setAuthorUser(u);
+    setPickerOpen(false);
+    setUserQuery('');
+    setErr(null);
+  };
+
+  const resetUser = () => {
+    setAuthorUser(null);
+    setUserQuery('');
+  };
+
+  const switchMode = (m: 'user' | 'manual') => {
+    setAuthorMode(m);
+    setPickerOpen(false);
+    setErr(null);
+    // Режимы взаимоисключающие — чистим данные другого, чтобы не ушло лишнее.
+    if (m === 'manual') resetUser();
+    else setF((s) => ({ ...s, authorName: '', authorRole: '' }));
+  };
+
   const submit = async () => {
     if (!ok) return;
     setErr(null);
@@ -39,8 +90,13 @@ export default function NewRequestPage() {
       priority: f.priority,
     };
     if (!isMgr) {
-      body.author_name = f.authorName.trim() || null;
-      body.author_role = f.authorRole.trim() || null;
+      if (authorMode === 'user' && authorUser) {
+        // ФИО и должность сервер возьмёт из записи пользователя — текст не шлём.
+        body.author_user_id = authorUser.id;
+      } else {
+        body.author_name = f.authorName.trim() || null;
+        body.author_role = f.authorRole.trim() || null;
+      }
       body.author_contact = f.authorContact.trim() || null;
     }
     try {
@@ -76,20 +132,91 @@ export default function NewRequestPage() {
           {err && <div className="error-banner" role="alert" style={{ marginBottom: 14 }}>{err}</div>}
 
           <div className="req-fp-row2">
-            <label className="req-fp-field"><span>Заказчик</span>
-              {isMgr ? (
-                <input className="nv-input" value={`${user?.full_name || ''}${(user as any)?.position ? ` · ${(user as any).position}` : ''}`} disabled />
-              ) : (
-                <input className="nv-input" placeholder="Имя заказчика" value={f.authorName} onChange={(e) => set('authorName', e.target.value)} />
-              )}
-            </label>
-            <label className="req-fp-field"><span>{isMgr ? 'Отдел' : 'Должность заказчика'}</span>
-              {isMgr ? (
-                <input className="nv-input" placeholder="Отдел продаж" value={f.dept} onChange={(e) => set('dept', e.target.value)} />
-              ) : (
-                <input className="nv-input" placeholder="Руководитель отдела" value={f.authorRole} onChange={(e) => set('authorRole', e.target.value)} />
-              )}
-            </label>
+            {isMgr ? (
+              <>
+                <label className="req-fp-field"><span>Заказчик</span>
+                  <input className="nv-input" value={`${user?.full_name || ''}${user?.position ? ` · ${user.position}` : ''}`} disabled />
+                </label>
+                <label className="req-fp-field"><span>Отдел</span>
+                  <input className="nv-input" placeholder="Отдел продаж" value={f.dept} onChange={(e) => set('dept', e.target.value)} />
+                </label>
+              </>
+            ) : (
+              <>
+                <div className="req-fp-field">
+                  <span className="req-up-head">
+                    Заказчик
+                    <span className="req-fp-seg req-up-seg">
+                      <button type="button" className={authorMode === 'user' ? 'on' : ''} onClick={() => switchMode('user')}>Из Глафиры</button>
+                      <button type="button" className={authorMode === 'manual' ? 'on' : ''} onClick={() => switchMode('manual')}>Вручную</button>
+                    </span>
+                  </span>
+                  {authorMode === 'manual' ? (
+                    <input className="nv-input" placeholder="Имя заказчика" value={f.authorName} onChange={(e) => set('authorName', e.target.value)} />
+                  ) : authorUser ? (
+                    <div className="req-up-picked">
+                      <Avatar name={authorUser.full_name} size="sm" src={authorUser.avatar_url} />
+                      <span className="req-up-picked-name">{authorUser.full_name}</span>
+                      <button type="button" className="req-up-reset" title="Выбрать другого сотрудника" onClick={resetUser}>
+                        <Icon name="x" size={13} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="req-up-wrap" ref={pickerRef}>
+                      <button type="button" className="nv-input req-up-trigger" onClick={() => setPickerOpen((o) => !o)}>
+                        <Icon name="search" size={14} />
+                        <span className="req-up-trigger-ph">Выберите сотрудника…</span>
+                        <Icon name="chevron-down" size={14} />
+                      </button>
+                      {pickerOpen && (
+                        <div className="req-up-menu">
+                          <div className="req-up-search">
+                            <Icon name="search" size={14} />
+                            <input
+                              autoFocus
+                              placeholder="Поиск по имени…"
+                              value={userQuery}
+                              onChange={(e) => setUserQuery(e.target.value)}
+                            />
+                          </div>
+                          <div className="req-up-list">
+                            {usersLoading ? (
+                              <div className="req-up-empty">Загрузка сотрудников…</div>
+                            ) : userOptions.length === 0 ? (
+                              <div className="req-up-empty">
+                                {userQuery ? 'Сотрудники не найдены' : 'Активных сотрудников нет'}
+                              </div>
+                            ) : (
+                              userOptions.map((u) => (
+                                <button key={u.id} type="button" className="req-up-item" onClick={() => pickUser(u)}>
+                                  <Avatar name={u.full_name} size="sm" src={u.avatar_url} />
+                                  <span className="req-up-item-txt">
+                                    <span className="req-up-item-name">{u.full_name}</span>
+                                    {u.position && <span className="req-up-item-pos">{u.position}</span>}
+                                  </span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <label className="req-fp-field"><span>Должность заказчика</span>
+                  {authorMode === 'user' ? (
+                    <input
+                      className="nv-input"
+                      value={authorUser?.position || ''}
+                      placeholder={authorUser ? 'Не указана в профиле сотрудника' : 'Подставится из профиля сотрудника'}
+                      disabled
+                    />
+                  ) : (
+                    <input className="nv-input" placeholder="Руководитель отдела" value={f.authorRole} onChange={(e) => set('authorRole', e.target.value)} />
+                  )}
+                </label>
+              </>
+            )}
           </div>
           {!isMgr && (
             <div className="req-fp-row2">

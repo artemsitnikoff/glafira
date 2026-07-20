@@ -159,3 +159,34 @@
 
 /* Строка «Заявки» в сайдбаре */
 .sub-requests span:first-of-type{flex:1}
+
+/* ── Выбор заказчика из сотрудников Глафиры (форма новой заявки) ──────────────
+   Идиом: поиск+список из AssignToVacancyModal (.avm-search/.avm-list/.avm-item),
+   якорный попап из CandidateTagPicker (.ctp-menu), переключатель режима —
+   существующий на этом же экране .req-fp-seg. Скоуплено под .req-fp-card. */
+.req-fp-card .req-up-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.req-fp-card .req-up-seg{border-radius:7px}
+.req-fp-card .req-up-seg button{flex:none;padding:3px 9px;font-size:11.5px;font-weight:500}
+
+.req-fp-card .req-up-wrap{position:relative}
+.req-fp-card .req-up-trigger{display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;font-family:inherit;font-size:13px;color:var(--fg-3)}
+.req-fp-card .req-up-trigger:hover{border-color:var(--ark-gray-400)}
+.req-fp-card .req-up-trigger svg{flex:none;color:var(--fg-3)}
+.req-fp-card .req-up-trigger-ph{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.req-fp-card .req-up-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;background:var(--bg-1);border:1px solid var(--border-1);border-radius:8px;box-shadow:var(--shadow-lg);overflow:hidden}
+.req-fp-card .req-up-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border-1)}
+.req-fp-card .req-up-search svg{flex:none;color:var(--fg-3)}
+.req-fp-card .req-up-search input{flex:1;border:0;outline:none;background:transparent;font-family:inherit;font-size:13px;color:var(--fg-1);padding:0;height:auto}
+.req-fp-card .req-up-list{max-height:260px;overflow-y:auto;padding:4px}
+.req-fp-card .req-up-item{display:flex;align-items:center;gap:9px;width:100%;padding:6px 8px;border:0;border-radius:6px;background:transparent;text-align:left;cursor:pointer;font-family:inherit}
+.req-fp-card .req-up-item:hover{background:var(--bg-3)}
+.req-fp-card .req-up-item-txt{display:flex;flex-direction:column;gap:1px;min-width:0}
+.req-fp-card .req-up-item-name{font-size:13px;color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-fp-card .req-up-item-pos{font-size:11.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-fp-card .req-up-empty{padding:10px 12px;font-size:12px;color:var(--fg-3)}
+
+.req-fp-card .req-up-picked{display:flex;align-items:center;gap:9px;height:38px;padding:0 8px 0 10px;border:1px solid var(--accent);border-radius:8px;background:var(--ark-blue-50)}
+.req-fp-card .req-up-picked-name{flex:1;min-width:0;font-size:13px;color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-fp-card .req-up-reset{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:5px;background:transparent;color:var(--fg-3);cursor:pointer}
+.req-fp-card .req-up-reset:hover{background:var(--ark-gray-200);color:var(--fg-1)}

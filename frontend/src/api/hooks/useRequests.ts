@@ -89,6 +89,10 @@ export interface RequestCreateBody {
   author_name?: string | null;
   author_role?: string | null;
   author_contact?: string | null;
+  // openapi не регенерён (бек v1.1.4) — привязка заявки к сотруднику компании.
+  // Передан → author_name/author_role сервер берёт ИЗ записи пользователя,
+  // текстовые значения этих полей игнорируются.
+  author_user_id?: string | null;
 }
 
 export interface RequestSettings {

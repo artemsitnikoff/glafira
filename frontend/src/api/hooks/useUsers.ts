@@ -30,8 +30,14 @@ interface UseUsersParams {
   page_size?: number;
 }
 
-export function useUsers(params: UseUsersParams = {}) {
+/**
+ * Список пользователей компании. `options.enabled` — чтобы не дёргать /users,
+ * пока список не нужен (закрытый пикер), и не бить в него ролями, которым
+ * эндпоинт запрещён (hiring_manager).
+ */
+export function useUsers(params: UseUsersParams = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: ['users', params],
     queryFn: async (): Promise<PaginatedUserList> => {
       const searchParams = new URLSearchParams();
