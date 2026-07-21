@@ -252,7 +252,9 @@ export default function NewRequestPage() {
             )}
           </div>
           {!isMgr && (
-            <div className="req-fp-row2">
+            /* Тот же модификатор, что и у строки выше: поля обеих строк блока «Заказчик»
+               выравниваются по низу ячейки, иначе правый столбец стоит выше левого. */
+            <div className="req-fp-row2 req-fp-row-author">
               <label className="req-fp-field"><span>Отдел</span><input className="nv-input" placeholder="Отдел продаж" value={f.dept} onChange={(e) => set('dept', e.target.value)} /></label>
               <label className="req-fp-field"><span>Контакт заказчика</span><input className="nv-input" placeholder="Телефон / @username" value={f.authorContact} onChange={(e) => set('authorContact', e.target.value)} /></label>
             </div>
