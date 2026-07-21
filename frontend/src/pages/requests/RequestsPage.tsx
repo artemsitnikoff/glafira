@@ -365,7 +365,13 @@ function RequestDetailPanel({
 export default function RequestsPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const isMgr = user?.role === 'hiring_manager';
+  // Гейт зеркалит бек, где «персонал» = admin+recruiter (`services/hiring_request.py:48`
+  // `_is_staff`). Для manager сервер: author-scope'ит список (:102), отбивает управление
+  // 403 (`assert_can_manage`, :62) и не отдаёт `/requests/form-link` (require_recruiter_or_admin).
+  // При гейте только по hiring_manager у manager рендерились кнопки «Ссылка на форму»/
+  // «Воронка», ведущие на /settings, откуда RoleGuard(['admin','recruiter']) выкидывает
+  // на /home, и активный тулбар панели, дающий 403 — мёртвые контролы (CLAUDE.md §0).
+  const isMgr = user?.role !== 'admin' && user?.role !== 'recruiter';
   const [searchParams, setSearchParams] = useSearchParams();
   const [stage, setStage] = useState('all');
   const [query, setQuery] = useState('');

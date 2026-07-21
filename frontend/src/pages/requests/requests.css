@@ -186,6 +186,17 @@
 .req-fp-card .req-up-item-pos{font-size:11.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .req-fp-card .req-up-empty{padding:10px 12px;font-size:12px;color:var(--fg-3)}
 
+/* Выравнивание строки «Заказчик / Должность заказчика».
+   Колонки .req-fp-row2 — flex-column, поля стартуют сразу под подписью. Слева подпись
+   это .req-up-head с сегмент-переключателем (кнопки 3px 9px / 11.5px → ~22px), справа
+   обычный .req-fp-field>span (12.5px → ~15px) — из-за разницы правое поле вставало выше
+   левого. Даём подписям ЭТОЙ строки общую min-height и центрируем по вертикали: поля
+   начинаются с одной горизонтали во всех состояниях левой колонки (чип .req-up-picked
+   38px / триггер .req-up-trigger 38px / .nv-input режима «Вручную» 38px).
+   Скоуплено под .req-fp-card + модификатор строки — глобальные .req-fp-row2 и
+   .req-fp-field>span делят другие строки формы (Город/Формат, Вилка, Дедлайн). */
+.req-fp-card .req-fp-row-author>.req-fp-field>span{min-height:24px;display:flex;align-items:center}
+
 .req-fp-card .req-up-picked{display:flex;align-items:center;gap:9px;height:38px;padding:0 8px 0 10px;border:1px solid var(--accent);border-radius:8px;background:var(--ark-blue-50)}
 .req-fp-card .req-up-picked-name{flex:1;min-width:0;font-size:13px;color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .req-fp-card .req-up-reset{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;padding:0;border:0;border-radius:5px;background:transparent;color:var(--fg-3);cursor:pointer}

@@ -494,6 +494,9 @@ async def restore_request(
         before={"status": "rejected"}, after={"status": "work"},
         actor_user_id=user.id, company_id=company_id,
     )
+    # Возврат из отказа — тоже смена статуса заявки: заказчик уже получил письмо
+    # «Отклонена», без этого он не узнает, что заявку вернули в работу.
+    await _notify_manager_stage_change(session, company_id, req, _FIXED_LABELS["work"])
     return req
 
 
@@ -550,6 +553,11 @@ async def add_comment(
             before={"status": "new"}, after={"status": "work"},
             actor_user_id=user.id, company_id=company_id,
         )
+        # Автоперевод «Новая»→«В работе» по первому вопросу — такая же смена статуса,
+        # как ручной /move, значит и письмо то же. ⚠️ Если вопрос задал сам автор,
+        # письмо придёт ему же — сознательно НЕ глушим: тумблер обещает письмо на
+        # ЛЮБОЕ изменение статуса, а решение о доп. фильтрах за заказчиком.
+        await _notify_manager_stage_change(session, company_id, req, _FIXED_LABELS["work"])
     await session.flush()
     return comment
 
@@ -575,6 +583,7 @@ async def link_vacancy_to_request(
         raise ConflictError("К заявке уже привязана вакансия", code="REQUEST_HAS_VACANCY")
     req.vacancy_id = vacancy.id
     vacancy.request_id = req.id
+    before_status = req.status
     if req.status not in TERMINAL_REQUEST_STAGE_KEYS:
         req.status = "sourcing"
     await session.flush()
@@ -588,6 +597,11 @@ async def link_vacancy_to_request(
         before={"status": "work"}, after={"status": "sourcing", "vacancy_id": str(vacancy.id)},
         actor_user_id=actor_user_id, company_id=company_id, actor_type=actor_type,
     )
+    # Самый значимый для заказчика переход: по его заявке реально начался подбор.
+    # Уведомляем только если статус ДЕЙСТВИТЕЛЬНО сменился (у терминальной заявки
+    # вакансия привязывается, но статус не трогаем — врать про «В подборе» нельзя).
+    if req.status != before_status:
+        await _notify_manager_stage_change(session, company_id, req, _FIXED_LABELS["sourcing"])
 
 
 # ── Автозакрытие при найме всех позиций (вызывается из move_application) ──────

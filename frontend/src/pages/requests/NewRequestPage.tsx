@@ -10,10 +10,28 @@ import { useCreateRequest, type RequestCreateBody } from '@/api/hooks/useRequest
 import '../vacancies/VacancyForm.css';
 import './requests.css';
 
+/**
+ * Минимум, нужный чипу заказчика. И `UserListItem` из пикера `/users`, и `UserMe` из
+ * authStore укладываются сюда структурно — так текущего пользователя можно предвыбрать
+ * без `as`-каста и без второго запроса за собственным профилем.
+ */
+type AuthorOption = {
+  id: string;
+  full_name: string;
+  position?: string | null;
+  avatar_url?: string | null;
+};
+
 export default function NewRequestPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const isMgr = user?.role === 'hiring_manager';
+  // Гейт зеркалит бек: `api/v1/requests.py:188` — `if current_user.role not in ("admin",
+  // "recruiter")` уводит создание в ветку via='cabinet', где author_user_id/author_name/
+  // author_role/author_contact из тела НЕ читаются вовсе (`services/hiring_request.py:287-301`:
+  // автором становится сам подающий, контакт затирается в None). Значит «не персонал» —
+  // это И hiring_manager, И manager: показать им пикер заказчика = контрол, который выглядит
+  // рабочим, а сервер молча выбрасывает выбор (запрещено CLAUDE.md §0). Правишь — правь бек.
+  const isMgr = user?.role !== 'admin' && user?.role !== 'recruiter';
   const createM = useCreateRequest();
   const [err, setErr] = useState<string | null>(null);
 
@@ -29,8 +47,15 @@ export default function NewRequestPage() {
   // ── Заказчик: сотрудник Глафиры ↔ ручной ввод ───────────────────────────────
   // Заказчика может не быть в системе (внешний / ещё не заведён) — ручной режим
   // остаётся. Выбран сотрудник → шлём author_user_id, ФИО и должность берёт сервер.
+  //
+  // Заказчик по умолчанию — залогиненный пользователь: чаще всего он и есть заказчик.
+  // Данные берём из уже загруженного authStore (роуты рендерятся только при непустом
+  // user — см. selectIsAuthenticated), поэтому запрос в /users здесь не нужен.
+  const currentAsAuthor: AuthorOption | null = user
+    ? { id: user.id, full_name: user.full_name, position: user.position, avatar_url: user.avatar_url }
+    : null;
   const [authorMode, setAuthorMode] = useState<'user' | 'manual'>('user');
-  const [authorUser, setAuthorUser] = useState<UserListItem | null>(null);
+  const [authorUser, setAuthorUser] = useState<AuthorOption | null>(currentAsAuthor);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [userQuery, setUserQuery] = useState('');
   const debouncedUserQuery = useDebounce(userQuery, 300);
@@ -71,7 +96,13 @@ export default function NewRequestPage() {
     setErr(null);
     // Режимы взаимоисключающие — чистим данные другого, чтобы не ушло лишнее.
     if (m === 'manual') resetUser();
-    else setF((s) => ({ ...s, authorName: '', authorRole: '' }));
+    else {
+      setF((s) => ({ ...s, authorName: '', authorRole: '' }));
+      // Возврат «Вручную» → «Из Глафиры» повторяет состояние при открытии формы: снова
+      // предвыбран текущий пользователь. Иначе режим оказывался бы пустым без причины —
+      // человек, просто передумавший вводить руками, вынужден выбирать себя заново.
+      setAuthorUser(currentAsAuthor);
+    }
   };
 
   const submit = async () => {
@@ -131,7 +162,9 @@ export default function NewRequestPage() {
 
           {err && <div className="error-banner" role="alert" style={{ marginBottom: 14 }}>{err}</div>}
 
-          <div className="req-fp-row2">
+          {/* Модификатор — только рекрутёрской ветке: там слева подпись с сегмент-переключателем,
+              справа обычная, и без выравнивания поля строки стоят на разной высоте. */}
+          <div className={`req-fp-row2${isMgr ? '' : ' req-fp-row-author'}`}>
             {isMgr ? (
               <>
                 <label className="req-fp-field"><span>Заказчик</span>

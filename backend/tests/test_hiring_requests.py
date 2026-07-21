@@ -8,16 +8,18 @@
 ТОЛЬКО свои заявки и получает 403 на всех прочих data-роутах.
 """
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
 from app.models import (
     User, Company, Client, Vacancy, Candidate, Application,
-    HiringRequest, RequestSettings,
+    AuditLog, HiringRequest, RequestSettings,
 )
 
 
@@ -624,6 +626,69 @@ class TestAuthorUserLink:
         assert body["via"] == "manual"
 
     @pytest.mark.asyncio
+    async def test_link_recorded_in_audit_log(
+        self, async_client, db_session, auth_headers, admin_user, hm_user
+    ):
+        """§2.2: привязка к сотруднику — изменяющее решение о ВИДИМОСТИ заявки → audit_log.
+
+        Читаем ИМЕННО changes['after']['author_user_id'] той записи, что создал этот POST
+        (audit хранит до/после в JSONB-колонке `changes`, атрибута .after нет).
+        Тест дискриминирующий: он завязан на конкретный ключ в `after`, а не на факт
+        существования записи — уберут из create_request строки, кладущие author_user_id
+        в after, и assert упадёт (парный негативный тест ниже доказывает, что ключ там
+        не «всегда есть»).
+        """
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Технолог", "description": "Нужен технолог на производство",
+            "author_user_id": str(hm_user.id),
+        })
+        assert r.status_code == 201, r.text
+        rid = uuid.UUID(r.json()["id"])
+
+        rec = (await db_session.execute(
+            select(AuditLog).where(
+                AuditLog.company_id == admin_user.company_id,
+                AuditLog.entity_type == "request",
+                AuditLog.entity_id == rid,
+                AuditLog.action == "create",
+            )
+        )).scalar_one()
+
+        assert rec.changes is not None
+        after = rec.changes["after"]
+        assert after.get("author_user_id") == str(hm_user.id), (
+            f"привязка заказчика не попала в audit_log: after={after}"
+        )
+        # Актор — тот рекрутер, который привязал (не привязанный менеджер), и своя компания.
+        assert rec.actor_type == "human"
+        assert rec.actor_user_id == admin_user.id
+
+    @pytest.mark.asyncio
+    async def test_audit_without_link_has_no_author_user_id(
+        self, async_client, db_session, auth_headers, admin_user
+    ):
+        """Парный негативный: без привязки ключа в `after` НЕТ (иначе прошлый тест был бы
+        вечнозелёным — проходил бы и на константе «ключ всегда есть»)."""
+        r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+            "title": "Кладовщик", "description": "Нужен кладовщик",
+            "author_name": "Пётр Иванов", "author_role": "Начальник склада",
+        })
+        assert r.status_code == 201, r.text
+        rid = uuid.UUID(r.json()["id"])
+
+        rec = (await db_session.execute(
+            select(AuditLog).where(
+                AuditLog.company_id == admin_user.company_id,
+                AuditLog.entity_type == "request",
+                AuditLog.entity_id == rid,
+                AuditLog.action == "create",
+            )
+        )).scalar_one()
+
+        assert rec.changes["after"]["status"] == "new"     # запись создания всё же есть
+        assert "author_user_id" not in rec.changes["after"]
+
+    @pytest.mark.asyncio
     async def test_cabinet_ignores_author_user_id(
         self, async_client, hm_headers, hm_user, admin_user
     ):
@@ -637,3 +702,141 @@ class TestAuthorUserLink:
         assert body["via"] == "cabinet"
         assert body["author_user_id"] == str(hm_user.id)
         assert body["author_name"] == hm_user.full_name
+
+
+# ── Уведомление заказчику о смене этапа (покрытие ВСЕХ переходов) ────────────
+@pytest_asyncio.fixture
+async def linked_request_id(async_client: AsyncClient, auth_headers: dict, hm_user: User) -> str:
+    """Заявка со статусом 'new', привязанная к сотруднику-заказчику (есть кому писать)."""
+    r = await async_client.post("/api/v1/requests", headers=auth_headers, json={
+        "title": "Технолог", "description": "Нужен технолог на производство",
+        "positions": 1, "author_user_id": str(hm_user.id),
+    })
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+class TestManagerNotifications:
+    """Письмо заказчику должно уходить на ВСЕХ сменах статуса его заявки.
+
+    Тумблер в настройках обещает безусловно («…письмо на email при изменении статуса
+    его заявки»), а вызовов _notify_manager_stage_change было четыре — переходы
+    sourcing (создание вакансии), restore (возврат из отказа) и автоперевод по вопросу
+    оставались немыми.
+
+    ⚠️ ТОЧКА ПАТЧА. hiring_request.py импортирует send_email ЛОКАЛЬНО, в теле
+    _notify_manager_stage_change (`from .integrations.smtp.service import send_email`),
+    поэтому модульного имени `app.services.hiring_request.send_email` НЕ существует —
+    патч по нему ничего бы не перехватил. Имя резолвится в момент вызова как атрибут
+    модуля smtp.service, его и патчим (это и есть «место импорта» для отложенного import).
+    """
+
+    @staticmethod
+    def _patch_send():
+        return patch("app.services.integrations.smtp.service.send_email",
+                     new_callable=AsyncMock)
+
+    @pytest.mark.asyncio
+    async def test_vacancy_created_notifies_about_sourcing(
+        self, async_client, auth_headers, client_row, hm_user, linked_request_id
+    ):
+        """Главный пропуск: подбор реально начался, а заказчик об этом не узнавал."""
+        with self._patch_send() as mock_send:
+            v = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={
+                "name": "Технолог", "client_id": str(client_row.id),
+                "positions_count": 1, "request_id": linked_request_id,
+            })
+        assert v.status_code == 201, v.text
+
+        got = await async_client.get(f"/api/v1/requests/{linked_request_id}", headers=auth_headers)
+        assert got.json()["status"] == "sourcing"   # переход реально произошёл
+
+        mock_send.assert_awaited_once()
+        kwargs = mock_send.await_args.kwargs
+        assert kwargs["to"] == hm_user.email
+        assert "В подборе" in kwargs["subject"]     # ярлык из справочника этапов
+        # Брендированный шаблон, а не голый plaintext (жёсткое правило проекта по письмам)
+        assert kwargs.get("body_html") and "<" in kwargs["body_html"]
+
+    @pytest.mark.asyncio
+    async def test_sourcing_notification_respects_toggle_off(
+        self, async_client, auth_headers, client_row, linked_request_id
+    ):
+        """Новый вызов уважает тумблер: notify_manager_on_stage=false → письма нет."""
+        off = await async_client.patch("/api/v1/requests/settings", headers=auth_headers,
+                                       json={"notify_manager_on_stage": False})
+        assert off.status_code == 200, off.text
+        with self._patch_send() as mock_send:
+            v = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={
+                "name": "Технолог", "client_id": str(client_row.id),
+                "positions_count": 1, "request_id": linked_request_id,
+            })
+        assert v.status_code == 201, v.text
+        mock_send.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_restore_notifies_about_work(
+        self, async_client, auth_headers, hm_user, linked_request_id
+    ):
+        """Возврат отклонённой заявки в работу: заказчик уже получил «Отклонена»."""
+        rj = await async_client.post(f"/api/v1/requests/{linked_request_id}/reject",
+                                     headers=auth_headers, json={"reason": "Бюджет заморожен"})
+        assert rj.status_code == 200, rj.text
+        with self._patch_send() as mock_send:
+            back = await async_client.post(f"/api/v1/requests/{linked_request_id}/restore",
+                                           headers=auth_headers)
+        assert back.status_code == 200, back.text
+        assert back.json()["status"] == "work"
+
+        mock_send.assert_awaited_once()
+        kwargs = mock_send.await_args.kwargs
+        assert kwargs["to"] == hm_user.email
+        assert "В работе" in kwargs["subject"]
+
+    @pytest.mark.asyncio
+    async def test_question_moves_to_work_notifies(
+        self, async_client, auth_headers, hm_user, linked_request_id
+    ):
+        """Автоперевод «Новая»→«В работе» по первому вопросу рекрутёра."""
+        with self._patch_send() as mock_send:
+            c = await async_client.post(f"/api/v1/requests/{linked_request_id}/comments",
+                                        headers=auth_headers, json={"body": "Уточните грейд"})
+        assert c.status_code == 200, c.text
+        assert c.json()["status"] == "work"
+
+        mock_send.assert_awaited_once()
+        kwargs = mock_send.await_args.kwargs
+        assert kwargs["to"] == hm_user.email
+        assert "В работе" in kwargs["subject"]
+
+    @pytest.mark.asyncio
+    async def test_comment_on_already_work_request_sends_nothing(
+        self, async_client, auth_headers, linked_request_id
+    ):
+        """Без смены статуса письма нет: второй вопрос по заявке «В работе» — молча."""
+        first = await async_client.post(f"/api/v1/requests/{linked_request_id}/comments",
+                                        headers=auth_headers, json={"body": "Первый вопрос"})
+        assert first.json()["status"] == "work"
+        with self._patch_send() as mock_send:
+            second = await async_client.post(f"/api/v1/requests/{linked_request_id}/comments",
+                                             headers=auth_headers, json={"body": "Второй вопрос"})
+        assert second.status_code == 200, second.text
+        mock_send.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_second_email_when_moving_to_current_stage(
+        self, async_client, auth_headers, client_row, linked_request_id
+    ):
+        """Задвоения нет: после привязки вакансии заявка уже 'sourcing', и повторный
+        /move sourcing уходит в ранний return move_request (target == req.status)."""
+        v = await async_client.post("/api/v1/vacancies", headers=auth_headers, json={
+            "name": "Технолог", "client_id": str(client_row.id),
+            "positions_count": 1, "request_id": linked_request_id,
+        })
+        assert v.status_code == 201, v.text
+        with self._patch_send() as mock_send:
+            m = await async_client.patch(f"/api/v1/requests/{linked_request_id}/move",
+                                         headers=auth_headers, json={"target": "sourcing"})
+        assert m.status_code == 200, m.text
+        assert m.json()["status"] == "sourcing"
+        mock_send.assert_not_awaited()
