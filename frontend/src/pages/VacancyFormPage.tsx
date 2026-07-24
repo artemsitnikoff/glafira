@@ -271,6 +271,12 @@ export default function VacancyFormPage() {
 
   const { data: vacancy } = useVacancy(id || '');
   const { data: vacancyStages } = useVacancyStages(id || '');
+
+  // Редактируем архивную вакансию? Бек возвращает её из архива только при status='active'
+  // в PATCH (services/vacancy.py::update_vacancy). Чекбокс ниже управляет отправкой status.
+  const isArchived = editMode && vacancy?.status === 'archived';
+  // По умолчанию включён: заказчик ждёт, что «жму сохранить» сразу вернёт из архива.
+  const [restoreFromArchive, setRestoreFromArchive] = useState(true);
   const { data: defaultFunnel } = useDefaultFunnel();
   const { data: clients } = useClients();
   const { data: users } = useUsers();
@@ -616,6 +622,9 @@ export default function VacancyFormPage() {
         const updateData = {
           ...formData,
           recruiter_scoring_instructions: recruiterScoring.trim() || null,
+          // Возврат из архива: бек чистит archive_result/closed_at только при status='active'.
+          // Чекбокс снят → status не шлём (правки сохранятся, вакансия останется в архиве).
+          ...(isArchived && restoreFromArchive ? { status: 'active' } : {}),
         } as VacancyUpdateExtended;
         await updateMutation.mutateAsync({ id, data: updateData });
         navigate(`/vacancies/${id}`);
@@ -808,6 +817,27 @@ export default function VacancyFormPage() {
                 .filter((s) => s.type !== 'finalOk' && s.type !== 'finalBad')
                 .map((s) => ({ key: getStageKey(s), name: s.name }))}
             />
+          )}
+
+          {isArchived && (
+            <div className={`nv-auto-block ${restoreFromArchive ? 'on' : 'off'}`}>
+              <div
+                className="nv-auto-head"
+                onClick={() => setRestoreFromArchive(v => !v)}
+              >
+                <span className={`nv-cb ${restoreFromArchive ? 'on' : ''}`}>
+                  <Icon name="check" size={12} />
+                </span>
+                <span className="nv-auto-title">Вернуть из архива</span>
+              </div>
+              <div className="nv-auto-body">
+                <div className="nv-auto-hint">
+                  <Icon name="refresh" size={12} />
+                  При сохранении вакансия вернётся в работу и появится в активном списке.
+                  Снимите галочку, чтобы просто поправить данные, оставив вакансию в архиве.
+                </div>
+              </div>
+            </div>
           )}
 
           {submitError && (

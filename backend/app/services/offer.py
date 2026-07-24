@@ -19,13 +19,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import OpenRouterNotConfiguredError, ValidationError
-from ..models import Event, Message, Vacancy
+from ..models import Document, Event, Message, Vacancy
 from .application import get_application
 from .audit import audit
 from .company_display import resolve_company_display_name
+from .document import _get_file_type
 from .glafira.offer import _fallback_offer_body, generate_offer_body
 from .integrations.smtp.service import send_email
 from .integrations.smtp.templates import render_simple_email
+from .storage import storage_service
 from .settings.glafira import (
     get_company_llm_model,
     get_company_openrouter_key,
@@ -127,6 +129,48 @@ async def build_offer_preview(
     return {"body": body, "header": header, "footer": footer}
 
 
+async def _persist_offer_attachment(
+    session: AsyncSession,
+    *,
+    company_id: UUID,
+    candidate_id: UUID,
+    uploaded_by: UUID,
+    attachment: dict,
+    now: datetime,
+) -> None:
+    """Сохранить файл, приложенный к офферу, как Document кандидата.
+
+    Байты кладём в storage (диск), строку Document — в сессию (коммит — в роуте).
+    source='offer' — чтобы в табе «Документы» было видно происхождение. filename уже
+    санитайзен в роуте (_build_offer_attachment → basename без путей). Отдельные
+    Event/audit тут НЕ пишем: эта отправка уже логируется (Event type='offer' +
+    audit send_offer с has_attachment=True) — ленту не дублируем.
+
+    ⚠️ Вызывать ТОЛЬКО из пост-send блока send_offer (после успешного send_email).
+    """
+    content: bytes = attachment["content"]
+    filename: str = attachment["filename"]
+    storage_path = await storage_service.save(
+        content,
+        company_id=company_id,
+        candidate_id=candidate_id,
+        filename=filename,
+    )
+    session.add(
+        Document(
+            company_id=company_id,
+            candidate_id=candidate_id,
+            filename=filename,
+            file_type=_get_file_type(filename),
+            size_bytes=len(content),
+            storage_path=storage_path,
+            source="offer",
+            uploaded_by=uploaded_by,
+            created_at=now,
+        )
+    )
+
+
 async def send_offer(
     session: AsyncSession,
     *,
@@ -144,8 +188,9 @@ async def send_offer(
 
     attachment (опционально) — одно вложение письма, уже прочитанное и провалидированное
     в роуте: {"filename": str, "content": bytes, "maintype": str, "subtype": str}.
-    Сам файл НЕ персистится (это письмо) — в Message добавляется лишь пометка о вложении,
-    чтобы в Чате остался след, что оффер ушёл с файлом.
+    Файл уходит вложением письма И (после успешной отправки) персистится как Document
+    кандидата — виден в табе «Документы» карточки (source='offer'). В Message добавляется
+    пометка о вложении, чтобы в Чате остался след, что оффер ушёл с файлом.
     """
     application = await get_application(session, application_id, company_id)
     if application.stage != OFFER_STAGE:
@@ -205,7 +250,7 @@ async def send_offer(
 
     # Оффер виден в табе «Чат» карточки как исходящее письмо. Тело — полный текст письма
     # (то, что реально ушло кандидату). При вложении — пометка отдельной строкой, чтобы в
-    # Чате остался след, что оффер ушёл с файлом (сам файл не персистим).
+    # Чате остался след, что оффер ушёл с файлом (сам файл персистим отдельно — ниже).
     message_body = full_text
     if attachment is not None:
         message_body = f"{full_text}\n\n📎 Вложение: {attachment['filename']}"
@@ -223,6 +268,20 @@ async def send_offer(
             created_at=now,
         )
     )
+
+    # Файл оффера сохраняем в Документы кандидата (таб «Документы»), чтобы он не жил только
+    # вложением в письме. ТОЛЬКО в пост-send блоке (после успешного send_email): сбой SMTP →
+    # сюда не доходим, документ не создаётся. Отдельный Event/audit по документу НЕ пишем —
+    # эта отправка уже даёт Event type='offer' + audit send_offer(has_attachment=True).
+    if attachment is not None:
+        await _persist_offer_attachment(
+            session,
+            company_id=company_id,
+            candidate_id=application.candidate_id,
+            uploaded_by=actor_user_id,
+            attachment=attachment,
+            now=now,
+        )
 
     # §2.2: событие в ленту «Все действия» карточки и на Главную (лента читает таблицу
     # events, НЕ audit_log). type='offer' уже в CHECK Event.type — миграция не нужна.

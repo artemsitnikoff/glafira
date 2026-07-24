@@ -26,7 +26,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ValidationError
 from app.core.security import get_password_hash
-from app.models import Application, AuditLog, Candidate, Client, Event, Message, User, Vacancy
+from app.models import (
+    Application,
+    AuditLog,
+    Candidate,
+    Client,
+    Document,
+    Event,
+    Message,
+    User,
+    Vacancy,
+)
 from app.services.offer import DEFAULT_OFFER_FOOTER, DEFAULT_OFFER_HEADER
 
 
@@ -349,6 +359,15 @@ async def test_send_offer_success_writes_message_and_audit(
     ).scalar_one()
     assert app_row.offer_sent_at is not None, "offer_sent_at не проставлен после отправки оффера"
 
+    # Оффер БЕЗ файла → Document не создаётся (персист только при attachment).
+    # Дискриминирующе: если бы Document писался безусловно, эта строка нашлась бы и тест краснел.
+    doc = (
+        await db_session.execute(
+            select(Document).where(Document.candidate_id == application.candidate_id)
+        )
+    ).scalar_one_or_none()
+    assert doc is None, "без вложения Document создаваться не должен"
+
 
 # ── 5. send: header/footer из настроек попадают в письмо ──────────────────────
 
@@ -487,10 +506,15 @@ async def test_send_offer_smtp_failure_no_fake_sent(
     """Сбой SMTP → 400 и НИКАКОГО фейкового «отправлено» (§0).
 
     Дискриминирующе: send_email кидает ValidationError (как при ненастроенном SMTP).
-    Инвариант фичи — отправка ДО записи Message/audit: при сбое в БД не должно появиться
-    ни Message (иначе оффер «виден в Чате», хотя не ушёл), ни audit_log send_offer.
-    Регресс, переставляющий запись перед отправкой ИЛИ глотающий ошибку с возвратом
+    Инвариант фичи — отправка ДО записи Message/audit/Document: при сбое в БД не должно
+    появиться ни Message (иначе оффер «виден в Чате», хотя не ушёл), ни audit_log send_offer,
+    ни Document (файл не должен «сохраниться в Документы», раз письмо не ушло).
+    Регресс, переставляющий запись/персист перед отправкой ИЛИ глотающий ошибку с возвратом
     status='sent', этот тест краснит — раньше такого теста не было вовсе.
+
+    К запросу ПРИЛОЖЕН файл + storage_service.save замокан: это делает проверку персиста
+    дискриминирующей — регресс, кладущий Document/зовущий save ДО send_email, засветил бы
+    и await у save, и строку Document.
     """
     from app.services import offer as offer_svc
 
@@ -500,16 +524,21 @@ async def test_send_offer_smtp_failure_no_fake_sent(
     with patch.object(
         offer_svc, "send_email",
         new=AsyncMock(side_effect=ValidationError("SMTP не настроен")),
-    ) as mock_send:
+    ) as mock_send, patch.object(
+        offer_svc.storage_service, "save", new=AsyncMock(return_value="should/not/be/called")
+    ) as mock_save:
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
             data={"body": "Рады предложить вам работу."},
+            files={"file": ("offer.pdf", b"%PDF fake", "application/pdf")},
         )
 
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
     mock_send.assert_awaited_once()
+    # Файл не должен уйти в storage — send_email упал ДО персиста.
+    mock_save.assert_not_awaited()
 
     # Никакого фейкового «отправлено»: ни сообщения в Чате, ни записи в аудите.
     msg = (
@@ -550,6 +579,15 @@ async def test_send_offer_smtp_failure_no_fake_sent(
         )
     ).scalar_one()
     assert app_row.offer_sent_at is None, "при сбое SMTP offer_sent_at должен остаться None"
+
+    # Файл НЕ должен «сохраниться в Документы»: письмо не ушло → персист не выполняется.
+    # Дискриминирующе: регресс, персистящий Document до send_email, оставил бы строку → краснеет.
+    doc = (
+        await db_session.execute(
+            select(Document).where(Document.candidate_id == application.candidate_id)
+        )
+    ).scalar_one_or_none()
+    assert doc is None, "при сбое SMTP файл оффера НЕ должен попасть в Документы"
 
 
 @pytest.mark.asyncio
@@ -618,20 +656,30 @@ async def test_offer_forbidden_for_hiring_manager(
 async def test_send_offer_with_attachment(
     async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
 ):
-    """Файл приложен → уходит вложением; в Чат-Message появляется пометка о файле.
+    """Файл приложен → уходит вложением; в Чат-Message пометка; файл персистится в Документы.
 
     Дискриминирующе: attachments в аргументах send_email = ровно один элемент с ИМЕННО
     этими байтами, именем и разобранным из content_type MIME (application/pdf) — доказывает,
     что файл реально дошёл до письма, а не «принят схемой и молча потерян» (антипаттерн §0).
     Пометка «📎 Вложение: offer.pdf» в Message.body — доказывает след в Чате.
+
+    Персист в Документы: storage_service.save мокается (без записи на диск) — проверяем, что
+    он вызван с байтами/company_id/candidate_id/именем файла, и что в БД появилась строка
+    Document(source='offer', filename='offer.pdf', size_bytes=len(bytes), storage_path непустой).
+    Без персиста строки Document нет → тест краснеет.
     """
     from app.services import offer as offer_svc
 
     application = await _setup_offer_app(db_session, admin_user.company_id)
     await db_session.commit()
+    candidate_id = application.candidate_id
 
     file_bytes = b"%PDF-1.4 fake offer content"
-    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send:
+    saved_path = f"{admin_user.company_id}/{candidate_id}/deadbeef_offer.pdf"
+    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send, \
+         patch.object(
+             offer_svc.storage_service, "save", new=AsyncMock(return_value=saved_path)
+         ) as mock_save:
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
@@ -651,7 +699,7 @@ async def test_send_offer_with_attachment(
     assert att["maintype"] == "application"
     assert att["subtype"] == "pdf"
 
-    # В Чате остаётся след, что оффер ушёл с файлом (сам файл не персистим).
+    # В Чате остаётся след, что оффер ушёл с файлом.
     msg = (
         await db_session.execute(
             select(Message).where(Message.application_id == application.id)
@@ -659,6 +707,31 @@ async def test_send_offer_with_attachment(
     ).scalar_one_or_none()
     assert msg is not None
     assert "📎 Вложение: offer.pdf" in msg.body
+
+    # storage_service.save вызван ровно один раз с байтами файла и правильным скоупом.
+    mock_save.assert_awaited_once()
+    assert mock_save.await_args.args[0] == file_bytes  # content — 1-й позиционный
+    save_kwargs = mock_save.await_args.kwargs
+    assert save_kwargs["company_id"] == admin_user.company_id
+    assert save_kwargs["candidate_id"] == candidate_id
+    assert save_kwargs["filename"] == "offer.pdf"
+
+    # Файл появился в Документах кандидата (source='offer') — виден в табе «Документы».
+    doc = (
+        await db_session.execute(
+            select(Document).where(
+                Document.candidate_id == candidate_id,
+                Document.source == "offer",
+            )
+        )
+    ).scalar_one_or_none()
+    assert doc is not None, "файл оффера не сохранён в Документы кандидата"
+    assert doc.filename == "offer.pdf"
+    assert doc.file_type == "pdf"
+    assert doc.size_bytes == len(file_bytes)
+    assert doc.storage_path == saved_path
+    assert doc.company_id == admin_user.company_id
+    assert doc.uploaded_by == admin_user.id
 
 
 @pytest.mark.asyncio

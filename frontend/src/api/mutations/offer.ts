@@ -54,6 +54,8 @@ export function useSendOffer(applicationId: string, candidateId: string) {
       // Зеркалим ПдН + инвалидируем воронку: ApplicationRow.offer_sent_at, который
       // читает бейдж «Отправлен ✓», живёт в списке заявок ['vacancies', id, 'applications', ...].
       queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'messages'] });
+      // Оффер с вложением сохраняется в Документы кандидата (бек) — обновляем таб «Документы».
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'documents'] });
       queryClient.invalidateQueries({ queryKey: ['candidates', candidateId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
