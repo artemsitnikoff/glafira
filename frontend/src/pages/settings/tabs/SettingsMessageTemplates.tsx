@@ -35,6 +35,10 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
   const { data: glafira, isLoading: glafiraLoading } = useGlafiraSettings();
   const updateGlafira = useUpdateGlafiraSettings();
   const [rejectionDraft, setRejectionDraft] = useState<string | null>(null);
+  // Приветствие/подпись письма с оффером (GlafiraSettings). Гейтим редактирование
+  // isAdmin — как «Текст отказа по умолчанию» (PATCH /settings/glafira admin-only).
+  const [offerHeaderDraft, setOfferHeaderDraft] = useState<string | null>(null);
+  const [offerFooterDraft, setOfferFooterDraft] = useState<string | null>(null);
 
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [search, setSearch] = useState('');
@@ -114,6 +118,36 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
       {
         onSuccess: () => setNotification({ type: 'success', message: 'Текст отказа по умолчанию сохранён' }),
         onError: (e) => notifyErr(e, 'Не удалось сохранить текст отказа'),
+      },
+    );
+  };
+
+  const offerHeaderValue = offerHeaderDraft ?? (glafira?.offer_email_header ?? '');
+  const offerFooterValue = offerFooterDraft ?? (glafira?.offer_email_footer ?? '');
+  const saveOfferHeader = () => {
+    if (!isAdmin) return;
+    updateGlafira.mutate(
+      // Cast: offer_email_header ещё не в сгенерированном GlafiraSettingsUpdate.
+      // Пустое поле шлём ПУСТОЙ СТРОКОЙ, а не null: бек применяет значение через
+      // `is not None`, поэтому null молча игнорируется (поле не очищается), а ''
+      // сохраняется и на сборке письма трактуется как «вернуть встроенный дефолт».
+      { offer_email_header: offerHeaderValue.trim() } as any,
+      {
+        onSuccess: () => setNotification({ type: 'success', message: 'Приветствие в оффере сохранено' }),
+        onError: (e) => notifyErr(e, 'Не удалось сохранить приветствие'),
+      },
+    );
+  };
+  const saveOfferFooter = () => {
+    if (!isAdmin) return;
+    updateGlafira.mutate(
+      // Cast: offer_email_footer ещё не в сгенерированном GlafiraSettingsUpdate.
+      // Пустую строку (а не null) — по той же причине, что и у приветствия: null
+      // бек игнорит (is not None), '' сохраняется и означает «вернуть дефолт».
+      { offer_email_footer: offerFooterValue.trim() } as any,
+      {
+        onSuccess: () => setNotification({ type: 'success', message: 'Подпись в оффере сохранена' }),
+        onError: (e) => notifyErr(e, 'Не удалось сохранить подпись'),
       },
     );
   };
@@ -276,6 +310,48 @@ export function SettingsMessageTemplates({ readOnly = false }: SettingsMessageTe
             disabled={!isAdmin || updateGlafira.isPending}
             rows={5}
             style={{ width: '100%', resize: 'vertical', minHeight: '110px' }}
+          />
+        )}
+      </Card>
+
+      {/* ── Приветствие в оффере (обрамляет письмо сверху) ── */}
+      <Card
+        title="Приветствие в оффере"
+        desc="Показывается в начале письма с оффером, над телом. Если оставить пустым — используется встроенный текст. Изменять может только администратор."
+      >
+        {glafiraLoading ? (
+          <div className="tt-empty">Загрузка…</div>
+        ) : (
+          <textarea
+            className="nv-textarea"
+            placeholder={'Здравствуйте!\n\nРады сообщить, что готовы предложить вам работу в нашей компании.'}
+            value={offerHeaderValue}
+            onChange={(e) => { if (isAdmin) setOfferHeaderDraft(e.target.value); }}
+            onBlur={saveOfferHeader}
+            disabled={!isAdmin || updateGlafira.isPending}
+            rows={4}
+            style={{ width: '100%', resize: 'vertical', minHeight: '90px' }}
+          />
+        )}
+      </Card>
+
+      {/* ── Подпись в оффере (обрамляет письмо снизу) ── */}
+      <Card
+        title="Подпись в оффере"
+        desc="Показывается в конце письма с оффером, под телом. Если оставить пустым — используется встроенный текст. Изменять может только администратор."
+      >
+        {glafiraLoading ? (
+          <div className="tt-empty">Загрузка…</div>
+        ) : (
+          <textarea
+            className="nv-textarea"
+            placeholder={'С уважением,\nкоманда подбора'}
+            value={offerFooterValue}
+            onChange={(e) => { if (isAdmin) setOfferFooterDraft(e.target.value); }}
+            onBlur={saveOfferFooter}
+            disabled={!isAdmin || updateGlafira.isPending}
+            rows={4}
+            style={{ width: '100%', resize: 'vertical', minHeight: '90px' }}
           />
         )}
       </Card>

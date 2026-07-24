@@ -106,6 +106,8 @@ async def update_glafira_settings(
         "default_mode": settings_obj.default_mode,
         "turnover_source": settings_obj.turnover_source,
         "default_rejection_text": settings_obj.default_rejection_text,
+        "offer_email_header": settings_obj.offer_email_header,
+        "offer_email_footer": settings_obj.offer_email_footer,
     }
 
     # Update fields
@@ -129,6 +131,10 @@ async def update_glafira_settings(
         settings_obj.turnover_source = data.turnover_source
     if data.default_rejection_text is not None:
         settings_obj.default_rejection_text = data.default_rejection_text
+    if data.offer_email_header is not None:
+        settings_obj.offer_email_header = data.offer_email_header
+    if data.offer_email_footer is not None:
+        settings_obj.offer_email_footer = data.offer_email_footer
 
     await session.flush()
     await session.refresh(settings_obj)
@@ -145,6 +151,8 @@ async def update_glafira_settings(
         "default_mode": settings_obj.default_mode,
         "turnover_source": settings_obj.turnover_source,
         "default_rejection_text": settings_obj.default_rejection_text,
+        "offer_email_header": settings_obj.offer_email_header,
+        "offer_email_footer": settings_obj.offer_email_footer,
     }
 
     await audit(

@@ -9,6 +9,9 @@ export type TurnoverSource = 'none' | 'bitrix24';
 export type GlafiraSettings = GlafiraSettingsOut & {
   turnover_source?: TurnoverSource;
   default_rejection_text?: string | null;
+  // openapi не реген (бек-фича оффера): приветствие/подпись письма с оффером.
+  offer_email_header?: string | null;
+  offer_email_footer?: string | null;
 };
 
 export function useGlafiraSettings() {

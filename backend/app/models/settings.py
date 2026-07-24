@@ -116,6 +116,10 @@ class GlafiraSettings(Base, TimestampMixin, CompanyMixin):
     turnover_source: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'none'"))
     # Текст отказа по умолчанию для компании
     default_rejection_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Верх (приветствие) и низ (подпись) письма-оффера — обрамляют тело оффера,
+    # которое генерит Глафира. Обычный текст, БЕЗ плейсхолдеров. NULL/пусто → дефолт из кода.
+    offer_email_header: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    offer_email_footer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # LLM-модель для оценки резюме (NULL = fallback на env GLAFIRA_MODEL)
     llm_model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     # API-ключ OpenRouter для компании (зашифрованный Fernet)

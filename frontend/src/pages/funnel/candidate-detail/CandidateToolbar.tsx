@@ -8,6 +8,7 @@ import { useVacancyStages } from '@/api/hooks/useVacancyStages';
 import { useVacancyRejectReasons } from '@/api/hooks/useVacancyRejectReasons';
 import { useResumeDownload } from '@/api/hooks/useResumeDownload';
 import { useAuthStore } from '@/store/authStore';
+import { OfferModal } from './OfferModal';
 
 type Props = {
   application?: ApplicationRow;
@@ -37,9 +38,15 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   // Шаг выбора даты выхода при найме (перевод в «Нанят»).
   const [pickingHire, setPickingHire] = useState(false);
   const [hireDate, setHireDate] = useState('');
+  // Попап отправки оффера (контекстная кнопка на этапе «Оффер»).
+  const [offerOpen, setOfferOpen] = useState(false);
 
   const isHired = application?.stage === 'hired';
   const isRejected = application?.stage === 'rejected';
+  // Кнопка «Отправить оффер» видна СТРОГО на этапе 'offer' (этап удаляемый —
+  // нет этапа → нет кнопки). Нет email → кнопка есть, но disabled с пояснением.
+  const isOffer = application?.stage === 'offer';
+  const hasEmail = !!candidate?.email;
 
   // Этапы воронки + причины отказа вакансии (привязаны к вакансии, не общие компании).
   const { data: stages } = useVacancyStages(vacancyId || '');
@@ -209,6 +216,20 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
         </div>
       )}
 
+      {/* Отправить оффер — контекстная кнопка этапа «Оффер». canEdit скрывает её у
+          роли manager: бек запрещает оффер (403) — кнопка ей была бы только ошибкой. */}
+      {isOffer && canEdit && (
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setOfferOpen(true)}
+          disabled={!hasEmail}
+          title={hasEmail ? 'Отправить оффер кандидату на email' : 'У кандидата не указан email'}
+        >
+          <Icon name="mail" size={14} />
+          Отправить оффер
+        </button>
+      )}
+
       {/* Отклонить / Восстановить */}
       {isRejected ? (
         <button className="btn btn-secondary btn-sm" onClick={handleRestore} disabled={restoreMutation.isPending}>
@@ -349,6 +370,15 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
       <button className="icon-btn" onClick={onClose} title="Закрыть">
         <Icon name="x" size={18} />
       </button>
+
+      {/* Попап отправки оффера (fixed-оверлей) */}
+      <OfferModal
+        applicationId={application?.id ?? ''}
+        candidateId={application?.candidate_id ?? ''}
+        candidateName={candidate?.full_name ?? application?.full_name ?? ''}
+        isOpen={offerOpen}
+        onClose={() => setOfferOpen(false)}
+      />
     </div>
   );
 }

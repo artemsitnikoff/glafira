@@ -16,6 +16,9 @@ from ...schemas.application import (
     BulkMoveResult,
     BulkRejectResult,
     MoveRequest,
+    OfferPreviewOut,
+    OfferSendRequest,
+    OfferStatusOut,
     RejectRequest,
     StageActionResult,
     StageHistoryItem,
@@ -30,6 +33,7 @@ from ...services.application import (
     reject_application,
     restore_application,
 )
+from ...services.offer import build_offer_preview, send_offer
 
 router = APIRouter()
 
@@ -213,6 +217,58 @@ async def restore_application_endpoint(
     )
     await session.commit()
     return {"new_stage": application.stage}
+
+
+@router.post(
+    "/applications/{application_id}/offer/generate",
+    response_model=OfferPreviewOut,
+)
+async def generate_offer_endpoint(
+    application_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Сгенерировать тело оффера + вернуть эффективные приветствие/подпись (read-only).
+
+    Только на этапе «Оффер». Роль manager — запрещена (hiring_manager отсечён _deny_hm).
+    Генерация может ходить в LLM (долго) → wait_for внутри сервиса; фолбэк при сбое.
+    Чтение — коммит не нужен.
+    """
+    if current_user.role == "manager":
+        raise ForbiddenError("Недостаточно прав для отправки оффера")
+    return await build_offer_preview(
+        session, application_id=application_id, company_id=company_id
+    )
+
+
+@router.post(
+    "/applications/{application_id}/offer/send",
+    response_model=OfferStatusOut,
+)
+async def send_offer_endpoint(
+    application_id: UUID,
+    payload: OfferSendRequest,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Собрать (header настроек + тело + footer настроек) и отправить письмо-оффер.
+
+    Обрамление — из настроек компании (сервер источник правды), клиент шлёт только тело.
+    Роль manager — запрещена. Мутирует (Message + audit) → коммит в роуте.
+    """
+    if current_user.role == "manager":
+        raise ForbiddenError("Недостаточно прав для отправки оффера")
+    await send_offer(
+        session,
+        application_id=application_id,
+        company_id=company_id,
+        actor_user_id=current_user.id,
+        body=payload.body,
+    )
+    await session.commit()
+    return {"status": "sent"}
 
 
 @router.get(

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, date
 from typing import Literal
 from uuid import UUID
@@ -73,3 +73,28 @@ class BulkMoveResult(BaseModel):
 class BulkRejectResult(BaseModel):
     rejected_count: int
     skipped_count: int = 0  # уже отклонённые / ненайденные — пропущены, не ошибка
+
+
+# ── Оффер (этап «Оффер») ──────────────────────────────────────────────────────
+class OfferPreviewOut(BaseModel):
+    body: str      # сгенерированное (или фолбэк) тело оффера — рекрутёр правит
+    header: str    # эффективное приветствие, которым сервер обрамит письмо (read-only)
+    footer: str    # эффективная подпись, которой сервер обрамит письмо (read-only)
+
+
+class OfferSendRequest(BaseModel):
+    # Тело оффера из попапа (возможно отредактированное). Пустой оффер не шлём → 422.
+    # min_length считает пробелы, а send_offer делает body.strip() → строка из одних
+    # пробелов прошла бы min_length и ушла бы пустым письмом; поэтому явный strip-валидатор.
+    body: str = Field(..., min_length=1)
+
+    @field_validator("body")
+    @classmethod
+    def _body_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Тело оффера не может быть пустым")
+        return v
+
+
+class OfferStatusOut(BaseModel):
+    status: str

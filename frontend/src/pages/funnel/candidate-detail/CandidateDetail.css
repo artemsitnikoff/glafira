@@ -40,6 +40,7 @@
 .cnd-funnel-wrap .cand-detail .cd-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px 22px;
   border-bottom: 1px solid var(--border-2);

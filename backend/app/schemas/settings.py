@@ -51,6 +51,8 @@ class GlafiraSettingsOut(ORMBase):
     default_mode: Literal['A', 'B', 'C']
     turnover_source: Literal['none', 'bitrix24']
     default_rejection_text: Optional[str] = None
+    offer_email_header: Optional[str] = None
+    offer_email_footer: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -73,6 +75,8 @@ class GlafiraSettingsUpdate(BaseModel):
     default_mode: Optional[Literal['A', 'B', 'C']] = None
     turnover_source: Optional[Literal['none', 'bitrix24']] = None
     default_rejection_text: Optional[str] = None
+    offer_email_header: Optional[str] = None
+    offer_email_footer: Optional[str] = None
 
 
 # Reject Reasons schemas

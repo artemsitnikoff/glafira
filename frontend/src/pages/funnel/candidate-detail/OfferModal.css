@@ -1,0 +1,140 @@
+/* Модалка «Отправить оффер» — самодостаточная, scoped к .offer-*. Токены проекта.
+   Каркас/скрим по идиому AssignToVacancyModal.css. */
+
+.offer-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(15, 22, 32, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 64px 16px 24px;
+  font-family: var(--font-sans);
+}
+
+.offer-modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--ark-white);
+  border: 1px solid var(--border-1);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(15, 22, 32, 0.20);
+  overflow: hidden;
+}
+
+.offer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border-1);
+}
+.offer-head h3 {
+  margin: 0;
+  font-size: var(--fs-16);
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.offer-sub {
+  margin-top: 2px;
+  font-size: var(--fs-13);
+  color: var(--fg-3);
+}
+.offer-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-3);
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 8px;
+}
+.offer-close:hover { background: var(--bg-3); color: var(--fg-1); }
+
+.offer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Состояние генерации (LLM отвечает не мгновенно) */
+.offer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 44px 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-14);
+}
+.offer-spin { animation: offerSpin 0.8s linear infinite; }
+@keyframes offerSpin { to { transform: rotate(360deg); } }
+
+/* Приветствие/подпись — read-only, приглушённые, обрамление письма */
+.offer-fixed {
+  white-space: pre-wrap;
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--fg-3);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+/* Редактируемое тело */
+.offer-textarea {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  padding: 12px 14px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  line-height: 1.55;
+  color: var(--fg-1);
+  background: var(--ark-white);
+  border: 1.5px solid var(--border-1);
+  border-radius: 10px;
+  outline: none;
+}
+.offer-textarea:focus { border-color: var(--accent); }
+
+.offer-note {
+  font-size: var(--fs-12);
+  color: var(--fg-3);
+  line-height: 1.5;
+}
+
+.offer-gen-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.offer-error {
+  padding: 10px 12px;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: 10px;
+  color: var(--error-fg);
+  font-size: var(--fs-13);
+}
+.offer-gen-error .offer-error { width: 100%; }
+.offer-error-send { margin: 0 20px; }
+
+.offer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border-1);
+}
