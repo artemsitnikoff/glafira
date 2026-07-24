@@ -134,12 +134,18 @@ async def send_offer(
     company_id: UUID,
     actor_user_id: UUID,
     body: str,
+    attachment: dict | None = None,
 ) -> None:
     """Собрать и отправить письмо-оффер кандидату.
 
     Обрамление (header/footer) берётся из НАСТРОЕК компании — клиент подменить его
     не может (передаёт только тело). Отправка идёт ПЕРЕД записью Message/audit: сбой
     SMTP → ValidationError наружу, «отправлено» в карточке не появляется.
+
+    attachment (опционально) — одно вложение письма, уже прочитанное и провалидированное
+    в роуте: {"filename": str, "content": bytes, "maintype": str, "subtype": str}.
+    Сам файл НЕ персистится (это письмо) — в Message добавляется лишь пометка о вложении,
+    чтобы в Чате остался след, что оффер ушёл с файлом.
     """
     application = await get_application(session, application_id, company_id)
     if application.stage != OFFER_STAGE:
@@ -177,7 +183,8 @@ async def send_offer(
     )
 
     # send_email кидает ValidationError, если SMTP не настроен → пусть дойдёт до клиента
-    # честной 400, а не превратится в фейковое «отправлено».
+    # честной 400, а не превратится в фейковое «отправлено». Вложение (если есть) — часть
+    # письма, уходит вместе с ним.
     await send_email(
         session,
         company_id,
@@ -185,11 +192,16 @@ async def send_offer(
         subject=subject,
         body_text=full_text,
         body_html=body_html,
+        attachments=[attachment] if attachment else None,
     )
 
     now = datetime.now(timezone.utc)
     # Оффер виден в табе «Чат» карточки как исходящее письмо. Тело — полный текст письма
-    # (то, что реально ушло кандидату).
+    # (то, что реально ушло кандидату). При вложении — пометка отдельной строкой, чтобы в
+    # Чате остался след, что оффер ушёл с файлом (сам файл не персистим).
+    message_body = full_text
+    if attachment is not None:
+        message_body = f"{full_text}\n\n📎 Вложение: {attachment['filename']}"
     session.add(
         Message(
             company_id=company_id,
@@ -199,20 +211,20 @@ async def send_offer(
             direction="out",
             sender_type="recruiter",
             sender_user_id=actor_user_id,
-            body=full_text,
+            body=message_body,
             sent_at=now,
             created_at=now,
         )
     )
 
-    # §2.2: каждое изменяющее действие → audit_log. PII (email/тело) НЕ кладём.
+    # §2.2: каждое изменяющее действие → audit_log. PII (email/тело/имя файла) НЕ кладём.
     await audit(
         session,
         action="send_offer",
         entity_type="application",
         entity_id=application.id,
         before=None,
-        after={"channel": "email", "to_present": True},
+        after={"channel": "email", "to_present": True, "has_attachment": attachment is not None},
         actor_user_id=actor_user_id,
         company_id=company_id,
         actor_type="human",

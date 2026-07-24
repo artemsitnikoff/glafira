@@ -29,6 +29,7 @@ def _build_message(
     body_text: str,
     body_html: str | None,
     ics: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
@@ -52,6 +53,17 @@ def _build_message(
         cal_part = msg.get_payload()[-1]
         cal_part.set_param("method", "REQUEST")
         cal_part.set_param("charset", "UTF-8")
+    # Произвольные вложения (напр. файл-оффер). Каждый элемент —
+    # {"filename": str, "content": bytes, "maintype": str, "subtype": str}.
+    # EmailMessage сам RFC2231-кодирует filename (инъекция через имя закрыта),
+    # но имя всё равно санитайзится вызывающей стороной.
+    for att in attachments or []:
+        msg.add_attachment(
+            att["content"],
+            maintype=att["maintype"],
+            subtype=att["subtype"],
+            filename=att["filename"],
+        )
     return msg
 
 
@@ -98,12 +110,18 @@ async def send_via_smtp(
     body_text: str,
     body_html: str | None = None,
     ics: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     """Отправляет письмо. Бросает AppError с честным кодом/причиной при сбое.
 
     Возврат без исключения = сервер принял письмо.
+
+    attachments — опциональный список произвольных вложений
+    ({filename, content(bytes), maintype, subtype}); прикладываются поверх ics.
     """
-    msg = _build_message(from_email, from_name, reply_to, to, subject, body_text, body_html, ics)
+    msg = _build_message(
+        from_email, from_name, reply_to, to, subject, body_text, body_html, ics, attachments
+    )
 
     try:
         await asyncio.to_thread(

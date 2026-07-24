@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import type { ApiError } from '@/api/aliases';
 import { useGenerateOffer, useSendOffer } from '@/api/mutations/offer';
 import './OfferModal.css';
+
+// Ограничения вложения (финальная валидация — на беке, здесь честная подсказка).
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 МБ
+const FILE_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.rtf';
+
+/** Человекочитаемый размер файла: «240 КБ» / «1,3 МБ». */
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} МБ`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} КБ`;
+  return `${bytes} Б`;
+}
 
 // Попап «Отправить оффер»: при открытии Глафира (LLM) генерирует тело письма,
 // рекрутёр правит его и отправляет кандидату на email. Приветствие (header) и
@@ -20,8 +31,10 @@ export function OfferModal({ applicationId, candidateId, candidateName, isOpen, 
   const [body, setBody] = useState('');
   const [header, setHeader] = useState('');
   const [footer, setFooter] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generate = useGenerateOffer(applicationId);
   const sendOffer = useSendOffer(applicationId, candidateId);
@@ -46,16 +59,39 @@ export function OfferModal({ applicationId, candidateId, candidateName, isOpen, 
     });
   }, [generateOffer]);
 
-  // При открытии попапа — сгенерировать тело оффера.
+  // При открытии попапа — сгенерировать тело оффера и сбросить вложение.
   useEffect(() => {
-    if (isOpen) runGenerate();
+    if (isOpen) {
+      setFile(null);
+      runGenerate();
+    }
   }, [isOpen, applicationId, runGenerate]);
+
+  // Выбор файла: мягкая проверка размера (бек проверит окончательно).
+  function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0] ?? null;
+    // Сбрасываем value, чтобы повторный выбор того же файла снова триггерил onChange.
+    e.target.value = '';
+    if (!picked) return;
+    if (picked.size > MAX_FILE_BYTES) {
+      setSendError('Файл больше 10 МБ. Выберите файл поменьше.');
+      setFile(null);
+      return;
+    }
+    setSendError(null);
+    setFile(picked);
+  }
+
+  function resetFile() {
+    setFile(null);
+    setSendError(null);
+  }
 
   function handleSend() {
     if (!body.trim()) return;
     setSendError(null);
     sendOffer.mutate(
-      { body },
+      { body, file },
       {
         onSuccess: () => onClose(),
         onError: (e) => {
@@ -111,6 +147,10 @@ export function OfferModal({ applicationId, candidateId, candidateName, isOpen, 
                 Приветствие и подпись берутся из «Настройки → Шаблоны сообщений» и добавятся
                 к письму автоматически. Отредактируйте только тело оффера.
               </div>
+              <div className="offer-note">
+                Можно прикрепить один файл (PDF, Word, Excel, изображение или текст, до 10 МБ) —
+                он уйдёт вложением в письме кандидату.
+              </div>
             </>
           )}
         </div>
@@ -118,6 +158,42 @@ export function OfferModal({ applicationId, candidateId, candidateName, isOpen, 
         {sendError && <div className="offer-error offer-error-send">{sendError}</div>}
 
         <div className="offer-actions">
+          <div className="offer-file">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="offer-file-input"
+              accept={FILE_ACCEPT}
+              onChange={handleFilePick}
+            />
+            {file ? (
+              <div className="offer-file-picked">
+                <Icon name="paperclip" size={14} />
+                <span className="offer-file-name">{file.name}</span>
+                <span className="offer-file-size">{formatFileSize(file.size)}</span>
+                <button
+                  type="button"
+                  className="offer-file-reset"
+                  title="Убрать файл"
+                  aria-label="Убрать файл"
+                  onClick={resetFile}
+                  disabled={sendOffer.isPending}
+                >
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="offer-attach"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sendOffer.isPending}
+              >
+                <Icon name="paperclip" size={14} />
+                Прикрепить файл
+              </button>
+            )}
+          </div>
           <button className="btn btn-secondary btn-sm" onClick={onClose} disabled={sendOffer.isPending}>
             Отмена
           </button>

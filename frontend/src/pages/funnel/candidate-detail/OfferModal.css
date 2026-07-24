@@ -133,8 +133,86 @@
 
 .offer-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 20px 18px;
   border-top: 1px solid var(--border-1);
 }
+
+/* Прикрепление файла — слева в панели действий, чип по идиому .req-up-picked */
+.offer-file {
+  margin-right: auto;
+  min-width: 0;
+  max-width: 280px;
+}
+.offer-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+.offer-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  cursor: pointer;
+}
+.offer-attach:hover:not(:disabled) { border-color: var(--ark-gray-400); color: var(--fg-1); }
+.offer-attach:disabled { opacity: 0.55; cursor: not-allowed; }
+.offer-attach svg { flex: none; color: var(--fg-3); }
+
+.offer-file-picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--ark-blue-50);
+}
+.offer-file-picked svg { flex: none; color: var(--accent); }
+.offer-file-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-13);
+  color: var(--fg-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.offer-file-size {
+  flex: none;
+  font-size: var(--fs-12);
+  color: var(--fg-3);
+}
+.offer-file-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.offer-file-reset:hover:not(:disabled) { background: var(--ark-gray-200); color: var(--fg-1); }
+.offer-file-reset:disabled { opacity: 0.55; cursor: not-allowed; }

@@ -1,13 +1,14 @@
+from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_db
 from ...deps import get_current_company_id, get_current_user
 from ...models import User, Application
-from ...core.errors import ForbiddenError, NotFoundError
+from ...core.errors import ForbiddenError, NotFoundError, ValidationError
 from ...core.permissions import is_user_assigned_to_vacancy
 from ...schemas.application import (
     ApplicationRow,
@@ -17,7 +18,6 @@ from ...schemas.application import (
     BulkRejectResult,
     MoveRequest,
     OfferPreviewOut,
-    OfferSendRequest,
     OfferStatusOut,
     RejectRequest,
     StageActionResult,
@@ -36,6 +36,78 @@ from ...services.application import (
 from ...services.offer import build_offer_preview, send_offer
 
 router = APIRouter()
+
+# ── Вложение письма-оффера ─────────────────────────────────────────────────────
+# Один необязательный файл к письму. Валидация — В РОУТЕ (сервис получает готовый
+# dict). Кап и белый список — по идиоме загрузки документов (services/document.py),
+# но с более широким набором форматов офиса + честной 400 (ValidationError), а не
+# 413/415, как требует контракт фичи.
+_OFFER_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 МБ
+_OFFER_ALLOWED_EXTENSIONS = {
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".rtf", ".png", ".jpg", ".jpeg",
+}
+_OFFER_ALLOWED_LABEL = "PDF, Word, Excel, изображения, текст"
+# Фолбэк-MIME по расширению, когда content_type пуст/битый.
+_OFFER_EXT_MIME = {
+    ".pdf": ("application", "pdf"),
+    ".doc": ("application", "msword"),
+    ".docx": ("application", "vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    ".xls": ("application", "vnd.ms-excel"),
+    ".xlsx": ("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ".txt": ("text", "plain"),
+    ".rtf": ("application", "rtf"),
+    ".png": ("image", "png"),
+    ".jpg": ("image", "jpeg"),
+    ".jpeg": ("image", "jpeg"),
+}
+
+
+def _sanitize_attachment_filename(raw: str | None) -> str:
+    """Только basename без путей/управляющих символов, ограниченный по длине.
+
+    Отрезает и '/'-, и '\\'-пути (path-traversal в имени), выкидывает control-символы
+    и переводы строк (инъекция заголовка), режет до 150. Пусто после чистки → 'attachment'.
+    """
+    base = (raw or "").replace("\\", "/").split("/")[-1]
+    cleaned = "".join(ch for ch in base if ord(ch) >= 32).strip()[:150].strip()
+    return cleaned or "attachment"
+
+
+def _resolve_attachment_mime(content_type: str | None, ext: str) -> tuple[str, str]:
+    """maintype/subtype из content_type ('application/pdf'→('application','pdf')).
+
+    Пустой/битый content_type → фолбэк по расширению → 'application/octet-stream'.
+    """
+    ct = (content_type or "").strip()
+    if ct and "/" in ct:
+        maintype, _, subtype = ct.partition("/")
+        maintype = maintype.strip().lower()
+        subtype = subtype.split(";")[0].strip().lower()
+        if maintype and subtype:
+            return maintype, subtype
+    if ext in _OFFER_EXT_MIME:
+        return _OFFER_EXT_MIME[ext]
+    return "application", "octet-stream"
+
+
+def _build_offer_attachment(file: UploadFile, content: bytes) -> dict:
+    """Провалидировать файл-вложение и собрать dict для send_email.
+
+    Ошибки — честная 400 (ValidationError): слишком большой файл / недопустимый тип.
+    Возвращает {"filename": str, "content": bytes, "maintype": str, "subtype": str}.
+    """
+    if len(content) > _OFFER_MAX_FILE_SIZE:
+        raise ValidationError("Файл слишком большой (макс 10 МБ)")
+
+    filename = _sanitize_attachment_filename(file.filename)
+    ext = Path(filename).suffix.lower()
+    if ext not in _OFFER_ALLOWED_EXTENSIONS:
+        raise ValidationError(
+            f"Недопустимый тип файла. Разрешены: {_OFFER_ALLOWED_LABEL}"
+        )
+
+    maintype, subtype = _resolve_attachment_mime(file.content_type, ext)
+    return {"filename": filename, "content": content, "maintype": maintype, "subtype": subtype}
 
 
 async def _get_application_vacancy_id(
@@ -248,24 +320,41 @@ async def generate_offer_endpoint(
 )
 async def send_offer_endpoint(
     application_id: UUID,
-    payload: OfferSendRequest,
+    body: str = Form(...),
+    file: UploadFile | None = File(None),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     company_id: UUID = Depends(get_current_company_id),
 ):
     """Собрать (header настроек + тело + footer настроек) и отправить письмо-оффер.
 
-    Обрамление — из настроек компании (сервер источник правды), клиент шлёт только тело.
-    Роль manager — запрещена. Мутирует (Message + audit) → коммит в роуте.
+    multipart/form-data: `body` — текст оффера (обязателен), `file` — необязательное
+    вложение (напр. PDF-оффер). Обрамление — из настроек компании (сервер источник
+    правды), клиент шлёт только тело. Роль manager — запрещена. Мутирует (Message +
+    audit) → коммит в роуте.
     """
     if current_user.role == "manager":
         raise ForbiddenError("Недостаточно прав для отправки оффера")
+
+    # Тело обязательно и не может быть пустым/из одних пробелов. При multipart
+    # Pydantic-валидация не применяется → проверяем вручную (честная 400).
+    if not body.strip():
+        raise ValidationError("Тело оффера не может быть пустым")
+
+    # Файл необязателен. 0 байт (пустая часть формы / файл не выбран) трактуем как «нет».
+    attachment: dict | None = None
+    if file is not None:
+        content = await file.read()
+        if content:
+            attachment = _build_offer_attachment(file, content)
+
     await send_offer(
         session,
         application_id=application_id,
         company_id=company_id,
         actor_user_id=current_user.id,
-        body=payload.body,
+        body=body,
+        attachment=attachment,
     )
     await session.commit()
     return {"status": "sent"}

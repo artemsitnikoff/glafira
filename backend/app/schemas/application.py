@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 from datetime import datetime, date
 from typing import Literal
 from uuid import UUID
@@ -82,18 +82,9 @@ class OfferPreviewOut(BaseModel):
     footer: str    # эффективная подпись, которой сервер обрамит письмо (read-only)
 
 
-class OfferSendRequest(BaseModel):
-    # Тело оффера из попапа (возможно отредактированное). Пустой оффер не шлём → 422.
-    # min_length считает пробелы, а send_offer делает body.strip() → строка из одних
-    # пробелов прошла бы min_length и ушла бы пустым письмом; поэтому явный strip-валидатор.
-    body: str = Field(..., min_length=1)
-
-    @field_validator("body")
-    @classmethod
-    def _body_not_blank(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Тело оффера не может быть пустым")
-        return v
+# NB: OfferSendRequest (JSON-тело оффера) удалён — эндпоинт /offer/send перешёл на
+# multipart/form-data (body: Form + file: UploadFile). Тело валидируется вручную в роуте
+# (при multipart Pydantic-валидация тела не применяется), файл — там же.
 
 
 class OfferStatusOut(BaseModel):

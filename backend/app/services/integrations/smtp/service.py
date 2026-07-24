@@ -185,10 +185,14 @@ async def send_email(
     body_text: str,
     body_html: str | None = None,
     ics: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     """Переиспользуемое ядро отправки письма через настроенный SMTP компании.
 
     ics — опциональное календарное приглашение (VCALENDAR), приложится к письму.
+    attachments — опциональный список произвольных вложений, каждый элемент —
+    {"filename": str, "content": bytes, "maintype": str, "subtype": str};
+    прикладываются поверх ics. Дефолт None → остальные письма не затронуты.
     Бросает ValidationError, если SMTP не настроен; AppError при сбое отправки.
     """
     row = await _get_row(session, company_id)
@@ -212,6 +216,7 @@ async def send_email(
         body_text=body_text,
         body_html=body_html,
         ics=ics,
+        attachments=attachments,
     )
 
 

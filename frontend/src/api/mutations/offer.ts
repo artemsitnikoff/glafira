@@ -12,7 +12,7 @@ export type OfferGenerateResponse = {
   footer: string;
 };
 
-type OfferSendRequest = { body: string };
+type OfferSendRequest = { body: string; file?: File | null };
 type OfferSendResponse = { status: string };
 
 /**
@@ -29,15 +29,25 @@ export function useGenerateOffer(applicationId: string) {
 }
 
 /**
- * Отправка оффера кандидату на email. Фронт шлёт только отредактированное тело —
- * сервер сам обрамляет header + body + footer и отправляет письмо.
+ * Отправка оффера кандидату на email. Фронт шлёт отредактированное тело и
+ * НЕОБЯЗАТЕЛЬНОЕ вложение (один файл) — сервер сам обрамляет header + body + footer,
+ * прикладывает файл и отправляет письмо. Тело уходит multipart/form-data (поля
+ * `body` + опциональный `file`), идиом загрузки — как в useUploadDocument.
  * candidateId нужен для инвалидации кэша Чата (оффер отражается сообщением) и ленты.
  */
 export function useSendOffer(applicationId: string, candidateId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: OfferSendRequest): Promise<OfferSendResponse> => {
-      const res = await api.post(`/applications/${applicationId}/offer/send`, data);
+    mutationFn: async ({ body, file }: OfferSendRequest): Promise<OfferSendResponse> => {
+      const fd = new FormData();
+      fd.append('body', body);
+      if (file) fd.append('file', file);
+      // Content-Type: multipart/form-data — идиом проекта (useUploadDocument/useParseResume).
+      // Для FormData браузерный адаптер axios сам подставит header с boundary, значение
+      // без boundary не перебивает его (проверено — загрузка документов работает так же).
+      const res = await api.post(`/applications/${applicationId}/offer/send`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       return res.data as OfferSendResponse;
     },
     onSuccess: () => {

@@ -197,7 +197,7 @@ async def test_send_offer_rejected_off_stage(
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
-            json={"body": "Рады предложить вам работу."},
+            data={"body": "Рады предложить вам работу."},
         )
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
@@ -240,7 +240,7 @@ async def test_send_offer_without_candidate_email(
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
-            json={"body": "Рады предложить вам работу."},
+            data={"body": "Рады предложить вам работу."},
         )
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
@@ -274,7 +274,7 @@ async def test_send_offer_success_writes_message_and_audit(
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
-            json={"body": sent_body},
+            data={"body": sent_body},
         )
 
     assert resp.status_code == 200, resp.text
@@ -293,6 +293,8 @@ async def test_send_offer_success_writes_message_and_audit(
     # Тема с вакансией
     assert "Python-разработчик" in kwargs["subject"]
     assert kwargs["to"] == "cand@example.com"
+    # Без файла вложений нет (обратная совместимость с обычным оффером)
+    assert kwargs.get("attachments") is None
 
     # Message в БД
     msg = (
@@ -352,7 +354,7 @@ async def test_send_offer_uses_settings_header_footer(
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
-            json={"body": "Готовы сделать вам предложение."},
+            data={"body": "Готовы сделать вам предложение."},
         )
 
     assert resp.status_code == 200, resp.text
@@ -388,40 +390,26 @@ async def test_offer_endpoints_forbidden_for_manager(
         snd = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=manager_headers,
-            json={"body": "Оффер"},
+            data={"body": "Оффер"},
         )
     assert snd.status_code == 403, snd.text
     assert snd.json()["error"]["code"] == "FORBIDDEN"
     mock_send.assert_not_awaited()
 
 
-# ── Валидация тела: пустой body → 422 ────────────────────────────────────────
+# ── Валидация тела: пустой/пробельный body → 400 ─────────────────────────────
+# NB: эндпоинт перешёл на multipart/form-data → прежняя Pydantic-валидация тела
+# (min_length/field_validator) не применяется; тело проверяется вручную в роуте →
+# честная 400 (ValidationError). ЕДИНЫЙ подход: и пустое, и пробельное = 400.
 
 @pytest.mark.asyncio
-async def test_send_offer_empty_body_422(
+async def test_send_offer_empty_body_400(
     async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
 ):
-    """Пустое тело оффера → 422 (Pydantic min_length), а не молчаливая отправка пустого."""
-    application = await _setup_offer_app(db_session, admin_user.company_id)
-    await db_session.commit()
+    """Пустое тело оффера → 400 (ручная проверка в роуте), а не отправка пустого письма.
 
-    resp = await async_client.post(
-        f"/api/v1/applications/{application.id}/offer/send",
-        headers=auth_headers,
-        json={"body": ""},
-    )
-    assert resp.status_code == 422, resp.text
-
-
-@pytest.mark.asyncio
-async def test_send_offer_blank_body_422(
-    async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
-):
-    """Тело из одних пробелов → 422; письмо не уходит.
-
-    Дискриминирующе: min_length=1 пропустил бы «   » (len 3), а send_offer сделал бы
-    body.strip()='' → ушёл бы оффер с пустым центром. field-валидатор это ловит.
-    Без валидатора тест краснеет (200 + send_email вызван).
+    Дискриминирующе: field присутствует (body=""), Form(...) его пропускает, а гейт
+    `if not body.strip()` даёт 400 VALIDATION_ERROR. Без гейта ушло бы пустое письмо (200).
     """
     from app.services import offer as offer_svc
 
@@ -432,9 +420,36 @@ async def test_send_offer_blank_body_422(
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
-            json={"body": "   \n  "},
+            data={"body": ""},
         )
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    mock_send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_offer_blank_body_400(
+    async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
+):
+    """Тело из одних пробелов → 400; письмо не уходит.
+
+    Дискриминирующе: «   \\n  » прошло бы наивную проверку «поле не пустое» (len>0),
+    а гейт `if not body.strip()` ловит пробельный центр → 400, send_email не вызван.
+    Без гейта ушёл бы оффер с пустым телом (200 + send_email вызван) — тест краснеет.
+    """
+    from app.services import offer as offer_svc
+
+    application = await _setup_offer_app(db_session, admin_user.company_id)
+    await db_session.commit()
+
+    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send:
+        resp = await async_client.post(
+            f"/api/v1/applications/{application.id}/offer/send",
+            headers=auth_headers,
+            data={"body": "   \n  "},
+        )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
     mock_send.assert_not_awaited()
 
 
@@ -462,7 +477,7 @@ async def test_send_offer_smtp_failure_no_fake_sent(
         resp = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=auth_headers,
-            json={"body": "Рады предложить вам работу."},
+            data={"body": "Рады предложить вам работу."},
         )
 
     assert resp.status_code == 400, resp.text
@@ -538,7 +553,163 @@ async def test_offer_forbidden_for_hiring_manager(
         snd = await async_client.post(
             f"/api/v1/applications/{application.id}/offer/send",
             headers=hm_headers,
-            json={"body": "Оффер"},
+            data={"body": "Оффер"},
         )
     assert snd.status_code == 403, snd.text
     mock_send.assert_not_awaited()
+
+
+# ── Вложение к письму-офферу ─────────────────────────────────────────────────
+# Валидное вложение → уходит с письмом; сбойные (большой/чужой тип) → 400 и письмо
+# не уходит; имя файла санитайзится. (Кейс «без файла → attachments=None» уже
+# покрыт test_send_offer_success_writes_message_and_audit — он шлёт data без files
+# и проверяет kwargs.get("attachments") is None → это и есть проверка (b).)
+
+@pytest.mark.asyncio
+async def test_send_offer_with_attachment(
+    async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
+):
+    """Файл приложен → уходит вложением; в Чат-Message появляется пометка о файле.
+
+    Дискриминирующе: attachments в аргументах send_email = ровно один элемент с ИМЕННО
+    этими байтами, именем и разобранным из content_type MIME (application/pdf) — доказывает,
+    что файл реально дошёл до письма, а не «принят схемой и молча потерян» (антипаттерн §0).
+    Пометка «📎 Вложение: offer.pdf» в Message.body — доказывает след в Чате.
+    """
+    from app.services import offer as offer_svc
+
+    application = await _setup_offer_app(db_session, admin_user.company_id)
+    await db_session.commit()
+
+    file_bytes = b"%PDF-1.4 fake offer content"
+    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send:
+        resp = await async_client.post(
+            f"/api/v1/applications/{application.id}/offer/send",
+            headers=auth_headers,
+            data={"body": "Рады предложить вам работу."},
+            files={"file": ("offer.pdf", file_bytes, "application/pdf")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "sent"
+
+    mock_send.assert_awaited_once()
+    attachments = mock_send.await_args.kwargs["attachments"]
+    assert attachments is not None and len(attachments) == 1
+    att = attachments[0]
+    assert att["filename"] == "offer.pdf"
+    assert att["content"] == file_bytes
+    assert att["maintype"] == "application"
+    assert att["subtype"] == "pdf"
+
+    # В Чате остаётся след, что оффер ушёл с файлом (сам файл не персистим).
+    msg = (
+        await db_session.execute(
+            select(Message).where(Message.application_id == application.id)
+        )
+    ).scalar_one_or_none()
+    assert msg is not None
+    assert "📎 Вложение: offer.pdf" in msg.body
+
+
+@pytest.mark.asyncio
+async def test_send_offer_file_too_large_400(
+    async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
+):
+    """Файл больше 10 МБ → 400; письмо НЕ уходит (send_email не вызван).
+
+    Дискриминирующе: кап проверяется ДО отправки → assert_not_awaited доказывает, что
+    великий файл не улетел кандидату. Без капа send_email вызвался бы (200).
+    """
+    from app.services import offer as offer_svc
+
+    application = await _setup_offer_app(db_session, admin_user.company_id)
+    await db_session.commit()
+
+    too_big = b"x" * (10 * 1024 * 1024 + 1)  # 10 МБ + 1 байт
+    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send:
+        resp = await async_client.post(
+            f"/api/v1/applications/{application.id}/offer/send",
+            headers=auth_headers,
+            data={"body": "Рады предложить вам работу."},
+            files={"file": ("big.pdf", too_big, "application/pdf")},
+        )
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    mock_send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_offer_disallowed_extension_400(
+    async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
+):
+    """Недопустимое расширение (.exe) → 400; письмо не уходит.
+
+    Дискриминирующе: белый список отбивает исполняемый файл ДО отправки (send_email не
+    вызван). Если бы валидации типа не было, .exe улетел бы кандидату вложением.
+    """
+    from app.services import offer as offer_svc
+
+    application = await _setup_offer_app(db_session, admin_user.company_id)
+    await db_session.commit()
+
+    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send:
+        resp = await async_client.post(
+            f"/api/v1/applications/{application.id}/offer/send",
+            headers=auth_headers,
+            data={"body": "Рады предложить вам работу."},
+            files={"file": ("evil.exe", b"MZ\x90\x00fake", "application/octet-stream")},
+        )
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    mock_send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_offer_attachment_filename_path_stripped(
+    async_client: AsyncClient, auth_headers: dict, db_session: AsyncSession, admin_user: User
+):
+    """Имя файла с путём → в письмо уходит только basename (защита от пути в имени).
+
+    Дискриминирующе: сырой «../../etc/evil.pdf» без санитайзации попал бы в
+    Content-Disposition как есть; проверяем, что в attachments осталось «evil.pdf» без «/».
+    (Стрип управляющих символов/переводов строки проверяется отдельным юнит-тестом ниже —
+    HTTP-клиент сам вычищает newline из заголовков, поэтому через эндпоинт его не протащить.)
+    """
+    from app.services import offer as offer_svc
+
+    application = await _setup_offer_app(db_session, admin_user.company_id)
+    await db_session.commit()
+
+    with patch.object(offer_svc, "send_email", new=AsyncMock()) as mock_send:
+        resp = await async_client.post(
+            f"/api/v1/applications/{application.id}/offer/send",
+            headers=auth_headers,
+            data={"body": "Рады предложить вам работу."},
+            files={"file": ("../../etc/evil.pdf", b"%PDF fake", "application/pdf")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    att = mock_send.await_args.kwargs["attachments"][0]
+    assert att["filename"] == "evil.pdf"
+    assert "/" not in att["filename"] and "\\" not in att["filename"]
+
+
+def test_sanitize_attachment_filename_unit():
+    """Юнит: basename без путей (оба разделителя) и без control-символов/переводов строк.
+
+    Дискриминирующе: «../../evil\\n.pdf» → «evil.pdf» доказывает, что и путь, и '\\n'
+    (ord 10 < 32) вычищены — это тот кейс инъекции заголовка, который через HTTP-слой
+    не воспроизвести (httpx санитайзит newline в заголовке сам). Пустое/None → «attachment».
+    """
+    from app.api.v1.applications import _sanitize_attachment_filename
+
+    assert _sanitize_attachment_filename("../../evil\n.pdf") == "evil.pdf"
+    assert _sanitize_attachment_filename(r"C:\Users\x\report.docx") == "report.docx"
+    assert _sanitize_attachment_filename("plain.pdf") == "plain.pdf"
+    assert _sanitize_attachment_filename("") == "attachment"
+    assert _sanitize_attachment_filename(None) == "attachment"
+    # Слишком длинное имя обрезается до 150 символов
+    assert len(_sanitize_attachment_filename("a" * 300 + ".pdf")) <= 150
