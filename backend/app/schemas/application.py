@@ -16,6 +16,10 @@ class ApplicationRow(ORMBase):
     last_position: str | None
     ai_score: int | None
     has_pdn: bool
+    # Момент последней отправки оффера (NULL = не отправляли). Дефолт None — чтобы
+    # конструкторы ApplicationRow, не касающиеся оффера (assign_candidate_to_vacancy),
+    # не падали Pydantic-ошибкой о недостающем поле: у свежей заявки оффер честно не слался.
+    offer_sent_at: datetime | None = None
     phone: str | None
     # Обе формы: старые засиженные — список строк-каналов (["telegram",...]);
     # новые из формы добавления — объекты {type, url}. Фронт рендерит обе.

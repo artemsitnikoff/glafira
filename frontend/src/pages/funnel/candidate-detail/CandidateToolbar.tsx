@@ -47,6 +47,11 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
   // нет этапа → нет кнопки). Нет email → кнопка есть, но disabled с пояснением.
   const isOffer = application?.stage === 'offer';
   const hasEmail = !!candidate?.email;
+  // Дата последней отправки оффера (из ApplicationRow.offer_sent_at). Формат ДД.ММ.ГГГГ
+  // через ru-RU локаль. Поле может ещё не приходить от бека → бейджа просто нет.
+  const offerSentDate = application?.offer_sent_at
+    ? new Date(application.offer_sent_at).toLocaleDateString('ru-RU')
+    : null;
 
   // Этапы воронки + причины отказа вакансии (привязаны к вакансии, не общие компании).
   const { data: stages } = useVacancyStages(vacancyId || '');
@@ -228,6 +233,18 @@ export function CandidateToolbar({ application, candidate, fromPool, onClose, on
           <Icon name="mail" size={14} />
           Отправить оффер
         </button>
+      )}
+
+      {/* Бейдж «Отправлен ✓ дата» — рядом с кнопкой (не вместо!), повторная отправка
+          остаётся доступной; при ней дата в бейдже обновится. По образцу «ПдН ✓». */}
+      {isOffer && offerSentDate && (
+        <span className="cd-offer-sent" title={`Оффер отправлен ${offerSentDate}`}>
+          Отправлен
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 6.2l2.4 2.4L9.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {offerSentDate}
+        </span>
       )}
 
       {/* Отклонить / Восстановить */}

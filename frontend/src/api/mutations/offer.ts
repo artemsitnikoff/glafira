@@ -51,7 +51,12 @@ export function useSendOffer(applicationId: string, candidateId: string) {
       return res.data as OfferSendResponse;
     },
     onSuccess: () => {
+      // Зеркалим ПдН + инвалидируем воронку: ApplicationRow.offer_sent_at, который
+      // читает бейдж «Отправлен ✓», живёт в списке заявок ['vacancies', id, 'applications', ...].
       queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'messages'] });
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies'] });
       queryClient.invalidateQueries({ queryKey: ['home', 'events'] });
     },
   });

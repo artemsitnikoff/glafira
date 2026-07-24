@@ -60,7 +60,8 @@
   letter-spacing: 0.02em;
 }
 
-.cnd-funnel-wrap .cand-detail .cd-pdn-confirmed {
+.cnd-funnel-wrap .cand-detail .cd-pdn-confirmed,
+.cnd-funnel-wrap .cand-detail .cd-offer-sent {
   display: inline-flex;
   align-items: center;
   gap: 5px;

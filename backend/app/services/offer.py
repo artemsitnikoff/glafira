@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import OpenRouterNotConfiguredError, ValidationError
-from ..models import Message, Vacancy
+from ..models import Event, Message, Vacancy
 from .application import get_application
 from .audit import audit
 from .company_display import resolve_company_display_name
@@ -196,6 +196,13 @@ async def send_offer(
     )
 
     now = datetime.now(timezone.utc)
+
+    # Per-application таймстамп отправки — фронт рисует бейдж «Отправлен ✓ дата» в строке
+    # кандидата воронки. Ставится ТОЛЬКО после успешного send_email (сбой SMTP → сюда не
+    # доходим → offer_sent_at остаётся NULL, «отправлено» не появляется). application —
+    # ORM-инстанс этой сессии; сохранится коммитом роута.
+    application.offer_sent_at = now
+
     # Оффер виден в табе «Чат» карточки как исходящее письмо. Тело — полный текст письма
     # (то, что реально ушло кандидату). При вложении — пометка отдельной строкой, чтобы в
     # Чате остался след, что оффер ушёл с файлом (сам файл не персистим).
@@ -214,6 +221,22 @@ async def send_offer(
             body=message_body,
             sent_at=now,
             created_at=now,
+        )
+    )
+
+    # §2.2: событие в ленту «Все действия» карточки и на Главную (лента читает таблицу
+    # events, НЕ audit_log). type='offer' уже в CHECK Event.type — миграция не нужна.
+    # Текст — натуральный, БЕЗ PII (имя/email/телефон кандидата не кладём; vacancy.name — ок).
+    session.add(
+        Event(
+            company_id=company_id,
+            type="offer",
+            actor_type="human",
+            actor_user_id=actor_user_id,
+            text=f"Отправлен оффер по вакансии «{vacancy.name}»",
+            entities=[],
+            candidate_id=application.candidate_id,
+            vacancy_id=application.vacancy_id,
         )
     )
 

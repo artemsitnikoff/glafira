@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ValidationError
 from app.core.security import get_password_hash
-from app.models import Application, AuditLog, Candidate, Client, Message, User, Vacancy
+from app.models import Application, AuditLog, Candidate, Client, Event, Message, User, Vacancy
 from app.services.offer import DEFAULT_OFFER_FOOTER, DEFAULT_OFFER_HEADER
 
 
@@ -322,6 +322,33 @@ async def test_send_offer_success_writes_message_and_audit(
     assert audit_row.entity_type == "application"
     assert audit_row.actor_type == "human"
 
+    # Event type='offer' в ленте «Все действия» / на Главной (лента читает events, не audit).
+    # Дискриминирующе: если Event не создавать, тест краснеет — запись просто отсутствует.
+    event = (
+        await db_session.execute(
+            select(Event).where(
+                Event.type == "offer",
+                Event.candidate_id == application.candidate_id,
+                Event.vacancy_id == application.vacancy_id,
+            )
+        )
+    ).scalar_one_or_none()
+    assert event is not None, "нет Event type='offer' — оффер не попал в ленту «Все действия»"
+    assert event.actor_type == "human"
+    assert event.company_id == admin_user.company_id
+    # Текст без PII (имя/email/телефон кандидата не кладём) — только vacancy.name.
+    assert "Python-разработчик" in event.text
+    assert "Петров" not in event.text and "cand@example.com" not in event.text
+
+    # offer_sent_at проставлен (per-application таймстамп) — читаем свежей выборкой.
+    # Дискриминирующе: если не проставлять, поле останется None и тест краснеет.
+    app_row = (
+        await db_session.execute(
+            select(Application).where(Application.id == application.id)
+        )
+    ).scalar_one()
+    assert app_row.offer_sent_at is not None, "offer_sent_at не проставлен после отправки оффера"
+
 
 # ── 5. send: header/footer из настроек попадают в письмо ──────────────────────
 
@@ -501,6 +528,28 @@ async def test_send_offer_smtp_failure_no_fake_sent(
         )
     ).scalar_one_or_none()
     assert audit_row is None, "при сбое SMTP не должно быть audit send_offer"
+
+    # Ни следа в ленте: Event type='offer' по этой заявке НЕ создан.
+    # Дискриминирующе: регресс, ставящий Event до send_email, оставил бы событие → краснеет.
+    event = (
+        await db_session.execute(
+            select(Event).where(
+                Event.type == "offer",
+                Event.candidate_id == application.candidate_id,
+                Event.vacancy_id == application.vacancy_id,
+            )
+        )
+    ).scalar_one_or_none()
+    assert event is None, "при сбое SMTP не должно быть Event type='offer'"
+
+    # offer_sent_at остался None — «отправлено» не зафиксировано.
+    # Дискриминирующе: регресс, ставящий offer_sent_at до send_email, дал бы не-None → краснеет.
+    app_row = (
+        await db_session.execute(
+            select(Application).where(Application.id == application.id)
+        )
+    ).scalar_one()
+    assert app_row.offer_sent_at is None, "при сбое SMTP offer_sent_at должен остаться None"
 
 
 @pytest.mark.asyncio

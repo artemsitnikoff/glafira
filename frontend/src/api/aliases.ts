@@ -16,7 +16,9 @@ export interface AssignToVacancyRequest {
   stage?: string;
 }
 export type UserMe = components['schemas']['UserMe'];
-export type ApplicationRow = components['schemas']['ApplicationRow'];
+// openapi не регенерён — расширяем ApplicationRow локально (offer_sent_at: ISO-дата
+// отправки оффера кандидату; читает бейдж «Отправлен ✓» в тулбаре карточки).
+export type ApplicationRow = components['schemas']['ApplicationRow'] & { offer_sent_at?: string | null };
 export type EvaluationOut = components['schemas']['EvaluationOut'];
 export type VerificationOut = components['schemas']['VerificationOut'];
 export type EmployeeListItem = components['schemas']['EmployeeListItem'];

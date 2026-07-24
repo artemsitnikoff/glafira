@@ -54,6 +54,9 @@ class Application(Base, TimestampMixin, CompanyMixin):
     # Automation tracking fields
     auto_qa_asked_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     auto_reject_suggested_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    # Момент последней успешной отправки письма-оффера по заявке (NULL = не отправляли).
+    # Проставляется в send_offer СТРОГО после send_email — фронт рисует бейдж «Отправлен ✓».
+    offer_sent_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     # Constraints
     __table_args__ = (
