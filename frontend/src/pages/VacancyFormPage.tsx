@@ -92,7 +92,10 @@ type VacancyUpdateExtended = VacancyUpdate & {
   auto_interview_stage: string;
 };
 
-// Защищённые (системные) этапы — зеркало с бэкенда
+// Системные этапы, помечаемые типом 'system' (зеркало бэкенда БЕЗ 'offer').
+// ⚠️ На беке PROTECTED_STAGE_KEYS также включает 'offer' (защита от удаления), но здесь
+// его НЕТ намеренно: оффер — обычный средний этап, мислейблить его в «Системный» нельзя.
+// Запрет удаления «Оффера» реализован отдельной проверкой stage_key==='offer'.
 const PROTECTED_STAGE_KEYS = new Set(['hired', 'rejected', 'added', 'response']);
 
 
@@ -1365,8 +1368,9 @@ function FunnelStep({
   // Удаление этапа
   const removeStage = async (idx: number) => {
     const s = stages[idx];
-    // Нельзя удалять первый этап, финальные и системные
-    if (idx === 0 || s.type === 'finalOk' || s.type === 'finalBad' || s.type === 'system') return;
+    // Нельзя удалять первый этап, финальные, системные и «Оффер» (к нему привязана
+    // отправка оффера — защищён на беке PROTECTED_STAGE_KEYS, тут дублируем).
+    if (idx === 0 || s.type === 'finalOk' || s.type === 'finalBad' || s.type === 'system' || s.stage_key === 'offer') return;
 
     if (editMode && vacancyId && deleteStageMutation && s.stage_key) {
       setStageError(null);
@@ -1482,6 +1486,9 @@ function FunnelStep({
     if (idx === 0) return 'Первый этап нельзя удалить';
     if (stage.type === 'finalOk' || stage.type === 'finalBad') return 'Финальный этап нельзя удалить';
     if (stage.type === 'system') return 'Системный этап нельзя удалить';
+    // «Оффер» защищён от удаления (к нему привязана отправка оффера), но остаётся обычным
+    // средним этапом — отдельная честная причина вместо ярлыка «Системный».
+    if (stage.stage_key === 'offer') return 'Этап «Оффер» нельзя удалить — к нему привязана отправка оффера';
     if (editMode && stage.stage_key && PROTECTED_STAGE_KEYS.has(stage.stage_key)) return 'Системный этап нельзя удалить';
     if (editMode && stage.count && stage.count > 0) return 'Переместите кандидатов с этапа перед удалением';
     return null;

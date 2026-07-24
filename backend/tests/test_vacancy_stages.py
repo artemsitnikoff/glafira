@@ -295,8 +295,8 @@ async def test_delete_protected_stage_fails(
     )
     vacancy_id = created.json()["id"]
 
-    # Try to delete protected stage
-    for protected_key in ["hired", "rejected", "added", "response"]:
+    # Try to delete protected stage ('offer' защищён с v1.1.9 — к нему привязана отправка оффера)
+    for protected_key in ["hired", "rejected", "added", "response", "offer"]:
         response = await async_client.delete(
             f"/api/v1/vacancies/{vacancy_id}/stages/{protected_key}",
             headers=auth_headers,

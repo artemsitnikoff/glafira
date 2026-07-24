@@ -115,6 +115,30 @@ async def test_auto_move_custom_target_stage(db_session: AsyncSession, admin_use
     assert app.stage == "interview"
 
 
+async def test_auto_move_target_can_be_offer(db_session: AsyncSession, admin_user, test_candidate):
+    """auto_move_stage='offer' → перевод на 'offer'.
+
+    Регресс к v1.1.9: 'offer' добавлен в PROTECTED_STAGE_KEYS (защита от удаления), но
+    resolve_auto_target_stage использует AUTO_MOVE_EXCLUDED_STAGE_KEYS (без 'offer'), поэтому
+    авто-перевод в оффер остаётся допустимым. Если бы скоринг смотрел в PROTECTED — было бы
+    None и кандидат остался бы на 'response'; тест это ловит.
+    """
+    cid = admin_user.company_id
+    vac = await _make_vacancy(
+        db_session, cid, auto_move=True, auto_move_threshold=80,
+        glafira_mode="A", auto_move_stage="offer",
+    )
+    app = await _make_application(db_session, cid, test_candidate.id, vac.id)
+
+    with patch("app.services.glafira.scoring.call_json", new_callable=AsyncMock) as m:
+        m.return_value = _mock_score(90)
+        await score_candidate(db_session, candidate_id=test_candidate.id, vacancy_id=vac.id,
+                              company_id=cid, source="TEST")
+
+    await db_session.refresh(app)
+    assert app.stage == "offer"
+
+
 async def test_auto_move_low_score_stays(db_session: AsyncSession, admin_user, test_candidate):
     """score=70 < threshold=80 → остаётся на 'response'."""
     cid = admin_user.company_id

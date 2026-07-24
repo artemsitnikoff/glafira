@@ -34,7 +34,7 @@ def _strip_html(s: str | None) -> str:
                 .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"'))
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification, VacancyStage
-from ...core.stages import PROTECTED_STAGE_KEYS
+from ...core.stages import AUTO_MOVE_EXCLUDED_STAGE_KEYS
 from ...schemas.glafira import RequirementMatch
 from ...schemas.application import MoveRequest
 from ...services.audit import audit
@@ -538,8 +538,10 @@ async def resolve_auto_target_stage(
 ) -> str | None:
     """Валидный целевой этап авто-перевода (общий для П.1 автоскоринга и П.2 авто-QA).
 
-    Реальный этап ЭТОЙ вакансии, НЕ защищённый (PROTECTED_STAGE_KEYS: начальные/
+    Реальный этап ЭТОЙ вакансии, НЕ из AUTO_MOVE_EXCLUDED_STAGE_KEYS (начальные/
     системные) И НЕ терминальный (is_terminal — в т.ч. КАСТОМНЫЕ терминальные).
+    ⚠️ Используем AUTO_MOVE_EXCLUDED_STAGE_KEYS, а НЕ PROTECTED_STAGE_KEYS: в PROTECTED
+    добавлен 'offer' (защита от удаления), но авто-перевод в оффер остаётся допустимым.
     configured_stage невалиден/None → фолбэк на default ('selected'); если и default
     невалиден → None (вызывающий НЕ двигает кандидата — безопаснее не тронуть)."""
     stage_rows = await session.execute(
@@ -549,7 +551,7 @@ async def resolve_auto_target_stage(
     )
     valid_targets = {
         k for (k, is_term) in stage_rows.all()
-        if k and k not in PROTECTED_STAGE_KEYS and not is_term
+        if k and k not in AUTO_MOVE_EXCLUDED_STAGE_KEYS and not is_term
     }
     target = (configured_stage or "").strip()
     if target in valid_targets:

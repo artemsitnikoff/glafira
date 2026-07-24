@@ -62,7 +62,10 @@ async function applyStageDiff(draft: StageDraft[], server: DefaultFunnelStage[],
   const draftKeys = new Set(draft.map(s => s.stage_key));
 
   for (const s of server) {
-    if (!draftKeys.has(s.stage_key) && !PROTECTED_STAGE_KEYS.has(s.stage_key)) {
+    // 'offer' не удаляем даже если он выпал из черновика: к нему привязана отправка
+    // оффера, бек ответит 400 и сорвёт всё сохранение (кнопка удаления оффера и так
+    // задизейблена — это защита от рассинхрона).
+    if (!draftKeys.has(s.stage_key) && !PROTECTED_STAGE_KEYS.has(s.stage_key) && s.stage_key !== 'offer') {
       await api.delete(`${basePath}/${s.stage_key}`);
     }
   }
@@ -374,6 +377,9 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
             const isFinal = type === 'finalOk' || type === 'finalBad';
             const isFirst = idx === 0;
             const isProtected = PROTECTED_STAGE_KEYS.has(stage.stage_key) || isFirst || isFinal;
+            // «Оффер» остаётся обычным средним этапом (можно переименовать/двигать), но
+            // удалять нельзя — к нему привязана отправка оффера (защита от рассинхрона с беком).
+            const isOfferStage = stage.stage_key === 'offer';
 
             return (
               <div key={stage.stage_key} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
@@ -402,7 +408,7 @@ export function SettingsFunnel({ readOnly = false }: SettingsFunnelProps) {
                     onChange={readOnly ? undefined : (e) => updateStageDescription(idx, e.target.value)}
                   />
                 </div>
-                <button className="row-icon-btn" disabled={isProtected || readOnly} onClick={readOnly ? undefined : () => deleteStage(idx)} title={readOnly ? 'Только просмотр' : (isProtected ? 'Этап нельзя удалить' : 'Удалить этап')}>
+                <button className="row-icon-btn" disabled={isProtected || isOfferStage || readOnly} onClick={readOnly ? undefined : () => deleteStage(idx)} title={readOnly ? 'Только просмотр' : (isProtected ? 'Этап нельзя удалить' : isOfferStage ? 'Этап «Оффер» нельзя удалить — к нему привязана отправка оффера' : 'Удалить этап')}>
                   <Icon name="x" size={14} />
                 </button>
               </div>

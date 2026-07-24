@@ -13,8 +13,17 @@ class StageDefinition:
     is_terminal: bool = False
 
 
-# Protected stage keys that cannot be deleted
-PROTECTED_STAGE_KEYS = {"hired", "rejected", "added", "response"}
+# Этапы, которые нельзя удалять/переименовывать (менять stage_key). Завязаны на
+# найм/отказ/старт/fallback, а 'offer' — на отправку оффера (кнопка/письмо живут на
+# этапе «Оффер»): удаляемый этап оставил бы фичу без триггера. «Прибит», как hired.
+PROTECTED_STAGE_KEYS = {"hired", "rejected", "added", "response", "offer"}
+
+# Этапы, КУДА автоматизация (П.1 автоскоринг / П.2 авто-QA) не переводит кандидата:
+# начальные (кандидат уже дальше) и терминальные (найм/отказ — отдельный путь).
+# ⚠️ 'offer' сюда НЕ входит: защита оффера от УДАЛЕНИЯ ≠ запрет авто-перевода в него.
+# Это ровно прежнее значение PROTECTED_STAGE_KEYS (до добавления 'offer'); скоринг
+# использует именно этот набор, чтобы поведение автоперевода не изменилось.
+AUTO_MOVE_EXCLUDED_STAGE_KEYS = {"hired", "rejected", "added", "response"}
 
 # Default stages for all vacancies
 STAGES: Dict[str, StageDefinition] = {
