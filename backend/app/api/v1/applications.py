@@ -320,7 +320,10 @@ async def generate_offer_endpoint(
 )
 async def send_offer_endpoint(
     application_id: UUID,
-    body: str = Form(...),
+    # default="" (а не Form(...)): пустое значение формы FastAPI трактует как отсутствующее
+    # поле и даёт 422 «Field required» ДО нашей проверки. С дефолтом "" любое пустое (нет
+    # поля / "" / пробелы) доходит до ручной проверки ниже → единая честная 400.
+    body: str = Form(default=""),
     file: UploadFile | None = File(None),
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
