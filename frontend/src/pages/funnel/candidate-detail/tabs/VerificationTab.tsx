@@ -124,8 +124,8 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
     confirmMutation.mutate();
   }
 
-  function handleRunVerification() {
-    verifyMutation.mutate(undefined, {
+  function handleRunVerification(force = false) {
+    verifyMutation.mutate(force, {
       onError: (err) => {
         // 403 CONSENT_REQUIRED -> остаёмся на табе верификации (покажется блок «Запросить ПдН»)
         if ((err as unknown as ApiError)?.error?.code === 'CONSENT_REQUIRED') {
@@ -279,7 +279,7 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
           </p>
           <button
             className="candidate-toolbar__btn candidate-toolbar__btn--primary"
-            onClick={handleRunVerification}
+            onClick={() => handleRunVerification()}
             disabled={verifyMutation.isPending}
             style={{ marginTop: 'var(--space-3)' }}
           >
@@ -330,7 +330,7 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
         <span style={{flex:1}}/>
         <button
           className="btn btn-sm btn-secondary"
-          onClick={handleRunVerification}
+          onClick={() => handleRunVerification(true)}
           disabled={verifyMutation.isPending}
         >
           <Icon name={verifyMutation.isPending ? "loader" : "refresh-cw"} size={14} />

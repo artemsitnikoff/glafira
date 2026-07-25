@@ -79,8 +79,12 @@ export function useRunVerification(candidateId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
-      return (await api.post(`/candidates/${candidateId}/verify`)).data;
+    // force=true — реальный ПЕРЕЗАПУСК: без него /verify идемпотентен (уже есть
+    // верификация → возвращает старую и НЕ гоняет OSINT заново). Кнопка «Перепроверить»
+    // обязана слать force=true, иначе «ничего не происходит». ⚠️ force тратит DaData + OSINT.
+    mutationFn: async (force?: boolean) => {
+      const qs = force ? '?force=true' : '';
+      return (await api.post(`/candidates/${candidateId}/verify${qs}`)).data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'verification'] });
