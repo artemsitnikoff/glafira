@@ -20,13 +20,21 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_claude_token() -> str:
-    """Текущий access_token для claude CLI.
+    """Токен для claude CLI. ПРИОРИТЕТ — долгоживущий «большой» токен из env
+    (CLAUDE_CODE_OAUTH_TOKEN, `claude setup-token`, ~1 год).
 
-    Приоритет — общий токен-файл (CLAUDE_TOKEN_FILE, формат ArkadyJarvis
-    {access_token, refresh_token, expires_at}): его свежим держит ArkadyJarvis,
-    мы только читаем (НЕ рефрешим — refresh_token одноразовый, гонка недопустима).
-    Фолбэк — CLAUDE_CODE_OAUTH_TOKEN из env. Пусто → разведка не выполняется.
+    ⚠️ Раньше приоритет был у общего токен-файла (CLAUDE_TOKEN_FILE) — это ломало
+    разведку: файл шарится симлинком с ДРУГИМИ проектами (ArkadyJarvis и др.), которые
+    перезаписывают/ротируют его под себя → у нас протухший/чужой токен → 401 «разведка
+    недоступна». Урок ArkadyJarvis («сосед клобберит токен»): большой токен из env
+    держим сами, никто его не трогает. Файл оставлен как ФОЛБЭК (legacy), если env пуст.
+    Пусто и там, и там → разведка не выполняется.
     """
+    env_token = settings.CLAUDE_CODE_OAUTH_TOKEN.strip()
+    if env_token:
+        return env_token
+
+    # Фолбэк — общий токен-файл (только если big-token в env не задан).
     path = settings.CLAUDE_TOKEN_FILE
     if path and os.path.exists(path):
         try:
@@ -44,18 +52,7 @@ def resolve_claude_token() -> str:
             logger.warning("[claude_cli] в %s нет access_token", path)
         except (OSError, ValueError) as e:
             logger.warning("[claude_cli] не прочитать токен-файл %s: %s", path, e)
-    return settings.CLAUDE_CODE_OAUTH_TOKEN.strip()
-
-# По умолчанию все инструменты выключены — иначе CLI может выполнять shell/файлы по
-# тексту промпта. Из этого списка вычитаем то, что явно разрешили (allowed_tools).
-_DISALLOWED_TOOLS = (
-    "Bash,BashOutput,KillShell,"
-    "Read,Write,Edit,MultiEdit,NotebookEdit,"
-    "Glob,Grep,"
-    "WebFetch,WebSearch,"
-    "Task,Agent,SlashCommand,TodoWrite,ExitPlanMode"
-)
-
+    return ""
 
 async def claude_cli_complete(
     *,
@@ -73,18 +70,18 @@ async def claude_cli_complete(
 
     timeout = timeout or settings.GLAFIRA_OSINT_TIMEOUT
 
-    # Разрешённые инструменты вычитаем из запрещённых
-    allowed_set = {t.strip() for t in allowed_tools.split(",") if t.strip()}
-    disallowed = ",".join(t for t in _DISALLOWED_TOOLS.split(",") if t not in allowed_set)
-
+    # Allowlist через --tools (НЕ денайлист): передаём ТОЛЬКО нужные инструменты, "" — все
+    # выключены (prompt-only, без shell/файлов/веба → нет RCE, если текст промпта похож на
+    # команду). Денайлист (--disallowed-tools) падает с кодом 1 «matches no known tool», как
+    # только CLI переименует/удалит инструмент (напр. MultiEdit) — убивая ВСЮ разведку на
+    # новом билде CLI. Allowlist устойчив к версиям. Урок ArkadyJarvis.
+    tools = ",".join(t.strip() for t in allowed_tools.split(",") if t.strip())
     args = [
         settings.CLAUDE_CLI_PATH,
         "--print",
         "--output-format", "text",
-        "--disallowed-tools", disallowed,
+        "--tools", tools,
     ]
-    if allowed_set:
-        args.extend(["--allowed-tools", ",".join(sorted(allowed_set))])
 
     chosen_model = model or settings.GLAFIRA_OSINT_MODEL
     if chosen_model:

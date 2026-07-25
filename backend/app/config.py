@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     # (блоки «Публичная экспертиза»/«Упоминания» честно покажут «не выполнялась»).
     CLAUDE_CODE_OAUTH_TOKEN: str = ""
     # Общий токен-файл claude (формат ArkadyJarvis: {access_token, refresh_token, expires_at}).
-    # Читаем access_token из него на каждый вызов (свежесть держит ArkadyJarvis, мы НЕ рефрешим —
-    # иначе гонка single-use refresh). Имеет приоритет над CLAUDE_CODE_OAUTH_TOKEN. Симлинк/маунт
-    # общей папки в контейнер настраивается на VPS (см. docker-compose.prod.yml volume).
+    # ⚠️ ФОЛБЭК, а НЕ приоритет: с версии «большой токен» приоритет у env CLAUDE_CODE_OAUTH_TOKEN
+    # (файл шарится с соседними проектами, они его ротируют → у нас 401). Читаем access_token
+    # только если env-токен пуст; НЕ рефрешим (single-use refresh — гонка). Симлинк/маунт общей
+    # папки в контейнер — на VPS (см. docker-compose.prod.yml volume).
     CLAUDE_TOKEN_FILE: str = ""
     CLAUDE_CLI_PATH: str = "claude"
     # Модель разведки (шаг «найти»). sonnet — НЕ opus: опус слишком осторожен, отбрасывает
