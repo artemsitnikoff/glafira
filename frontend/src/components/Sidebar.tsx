@@ -13,9 +13,10 @@ import type { VacancySidebarItem } from '@/api/aliases';
 import { APP_VERSION } from '@/lib/version';
 import './Sidebar.css';
 
-// openapi не регенерён — бек добавил responsible_user_id к элементу сайдбара
+// openapi не регенерён — бек добавил к элементу сайдбара responsible_user_id и is_mine
 // (фича «Вакансии: мои / остальные»). Расширяем тип локально + as-cast.
-type SidebarVacancy = VacancySidebarItem & { responsible_user_id: string | null };
+// is_mine = текущий юзер ответственный ИЛИ участник команды вакансии (считает бек).
+type SidebarVacancy = VacancySidebarItem & { responsible_user_id: string | null; is_mine?: boolean };
 
 const ANALYTICS_REPORTS: Array<{ id: string; label: string; icon: IconName }> = [
   { id: 'overview', label: 'Обзор', icon: 'bar-chart' },
@@ -79,7 +80,10 @@ export function Sidebar() {
     (v) => !ui.vacancySearch || v.name.toLowerCase().includes(ui.vacancySearch.toLowerCase())
   );
   // «Мои» = ответственный = текущий юзер (UUID-сравнение); «Остальные» — прочие.
-  const isMine = (v: SidebarVacancy) => !!v.responsible_user_id && v.responsible_user_id === user?.id;
+  // «Мои» = ответственный ИЛИ участник команды (флаг is_mine с бека). Фолбэк на
+  // responsible_user_id — на случай кэша до деплоя нового бека.
+  const isMine = (v: SidebarVacancy) =>
+    v.is_mine ?? (!!v.responsible_user_id && v.responsible_user_id === user?.id);
   const myVacancies = filteredVacancies.filter(isMine);
   const otherVacancies = filteredVacancies.filter((v) => !isMine(v));
   // При вводе в поиск «Остальные» раскрывается сама — поиск идёт по всем.

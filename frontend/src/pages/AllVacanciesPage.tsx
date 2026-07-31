@@ -23,6 +23,8 @@ type AllVacancy = Vacancy & {
   new_count?: number;
   hired?: number;
   request_num?: number | null;
+  // is_mine = текущий юзер ответственный ИЛИ участник команды вакансии (считает бек).
+  is_mine?: boolean;
 };
 
 function daysWord(n: number): string {
@@ -54,7 +56,12 @@ export default function AllVacanciesPage() {
   const [dept, setDept] = useState<string>('all');
   const [query, setQuery] = useState('');
 
-  const isMine = (v: AllVacancy) => !!v.responsible_user_id && v.responsible_user_id === user?.id;
+  // «Мои» = ответственный ИЛИ участник команды (флаг is_mine с бека). Фолбэк на
+  // ответственного/команду из данных — на случай кэша до деплоя нового бека.
+  const isMine = (v: AllVacancy) =>
+    v.is_mine ??
+    (v.responsible_user_id === user?.id ||
+      (v.team ?? []).some((t) => t.id === user?.id));
 
   // Список ответственных для сегмента — из реальных данных (без демо-состава).
   const owners = useMemo(

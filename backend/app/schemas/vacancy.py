@@ -29,8 +29,11 @@ class VacancySidebarItem(ORMBase):
     name: str
     count: int
     new_count: int
-    # Ответственный по вакансии — для группировки «Мои / Остальные» в сайдбаре.
+    # Ответственный по вакансии — для отображения/фильтра.
     responsible_user_id: UUID | None = None
+    # «Моя» вакансия для группировки Мои/Остальные: текущий юзер — ответственный ИЛИ
+    # участник команды вакансии (VacancyTeam). Считается на беке под текущего юзера.
+    is_mine: bool = False
 
 
 class VacancySidebar(BaseModel):
@@ -99,6 +102,9 @@ class VacancyDetail(ORMBase):
     candidates_count: int | None = None  # заявок в работе (stage != 'rejected')
     new_count: int | None = None         # «новые» (stage in ('response','added'))
     hired: int | None = None             # нанято (stage == 'hired')
+    # «Моя» вакансия (Мои/Остальные): текущий юзер — ответственный ИЛИ в команде вакансии.
+    # Наполняется только в списочном пути (get_vacancies_paginated) под текущего юзера.
+    is_mine: bool | None = None
 
     # Automation fields
     auto_move: bool

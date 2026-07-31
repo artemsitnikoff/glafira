@@ -74,6 +74,19 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
     result = await session.execute(query)
     rows = result.fetchall()
 
+    # «Мои» вакансии = ответственный ИЛИ участник команды вакансии. Один лёгкий запрос
+    # за id вакансий, где текущий юзер в команде (по загруженной странице — не N+1).
+    row_ids = [row.id for row in rows]
+    my_team_ids: set = set()
+    if user_id and row_ids:
+        my_team_ids = set((await session.execute(
+            select(VacancyTeam.vacancy_id).where(
+                VacancyTeam.company_id == company_id,
+                VacancyTeam.user_id == user_id,
+                VacancyTeam.vacancy_id.in_(row_ids),
+            )
+        )).scalars().all())
+
     items = []
     for row in rows:
         items.append(VacancySidebarItem(
@@ -81,7 +94,8 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
             name=row.name,
             count=row.count,
             new_count=row.new_count,
-            responsible_user_id=row.responsible_user_id
+            responsible_user_id=row.responsible_user_id,
+            is_mine=bool(user_id) and (row.responsible_user_id == user_id or row.id in my_team_ids),
         ))
 
     # Count archived vacancies
@@ -289,6 +303,12 @@ async def get_vacancies_paginated(
         data.candidates_count = candidates_count
         data.new_count = new_count
         data.hired = hired
+
+        # «Моя» = ответственный ИЛИ участник команды (team загружен selectinload выше).
+        data.is_mine = bool(user_id) and (
+            vacancy.responsible_user_id == user_id
+            or any(tm.user_id == user_id for tm in (vacancy.team or []))
+        )
 
         items.append(data)
 

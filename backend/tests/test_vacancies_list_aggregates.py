@@ -375,3 +375,69 @@ async def test_sidebar_carries_responsible_user_id(
     rest_ids = [it["id"] for it in items if it["responsible_user_id"] is None]
     assert mine["id"] in mine_ids
     assert other["id"] in rest_ids
+
+
+# ---------------------------------------------------------------------------
+# «Мои» = ответственный ИЛИ участник команды (is_mine)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_is_mine_true_for_team_member_not_responsible(
+    async_client: AsyncClient,
+    auth_headers: dict,
+    admin_user,
+    regular_user,
+    default_client: str,
+):
+    """«Мои» шире, чем ответственный: вакансия с team=[regular, admin] → ответственный
+    = regular_user (team[0]), а admin — участник команды, но НЕ ответственный.
+    is_mine для admin должен быть True (он в команде) И в списке, И в сайдбаре.
+
+    Дискриминирующе: если бы is_mine считался только по responsible_user_id, для admin
+    он был бы False (ответственный — regular_user) — и командная вакансия не попала бы
+    в «Мои». Именно эту жалобу фикс и закрывает.
+    """
+    vac = await _create_vacancy(
+        async_client, auth_headers, name="Командная вакансия",
+        client_id=default_client, team=[str(regular_user.id), str(admin_user.id)],
+    )
+
+    # Список (разводящая)
+    resp = await async_client.get("/api/v1/vacancies", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    item = _find(resp.json()["items"], vac["id"])
+    assert item is not None
+    assert item["responsible_user_id"] == str(regular_user.id)  # ответственный — НЕ admin
+    assert item["is_mine"] is True                              # но admin в команде → «моя»
+
+    # Сайдбар
+    sb = await async_client.get("/api/v1/vacancies/sidebar", headers=auth_headers)
+    assert sb.status_code == 200, sb.text
+    sb_item = _find(sb.json()["items"], vac["id"])
+    assert sb_item is not None
+    assert sb_item["responsible_user_id"] == str(regular_user.id)
+    assert sb_item["is_mine"] is True
+
+
+@pytest.mark.asyncio
+async def test_is_mine_false_when_not_responsible_and_not_in_team(
+    async_client: AsyncClient,
+    auth_headers: dict,
+    admin_user,
+    regular_user,
+    default_client: str,
+):
+    """Вакансия, где admin ни ответственный, ни в команде → is_mine=False (в «Остальных»)."""
+    vac = await _create_vacancy(
+        async_client, auth_headers, name="Чужая вакансия",
+        client_id=default_client, team=[str(regular_user.id)],
+    )
+    resp = await async_client.get("/api/v1/vacancies", headers=auth_headers)
+    item = _find(resp.json()["items"], vac["id"])
+    assert item is not None
+    assert item["is_mine"] is False
+
+    sb = await async_client.get("/api/v1/vacancies/sidebar", headers=auth_headers)
+    sb_item = _find(sb.json()["items"], vac["id"])
+    assert sb_item is not None
+    assert sb_item["is_mine"] is False
