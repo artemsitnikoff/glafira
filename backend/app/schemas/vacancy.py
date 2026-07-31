@@ -29,6 +29,8 @@ class VacancySidebarItem(ORMBase):
     name: str
     count: int
     new_count: int
+    # Ответственный по вакансии — для группировки «Мои / Остальные» в сайдбаре.
+    responsible_user_id: UUID | None = None
 
 
 class VacancySidebar(BaseModel):
@@ -91,6 +93,12 @@ class VacancyDetail(ORMBase):
     # Вакансия создана из заявки на подбор (чип «по заявке №N» в шапке).
     request_id: UUID | None = None
     request_num: int | None = None
+    # Агрегаты для карточек разводящей «Мои / остальные вакансии».
+    # Наполняются ТОЛЬКО в списочном пути (get_vacancies_paginated); одиночный
+    # GET /vacancies/{id} их не считает → Optional с дефолтом None (не падает).
+    candidates_count: int | None = None  # заявок в работе (stage != 'rejected')
+    new_count: int | None = None         # «новые» (stage in ('response','added'))
+    hired: int | None = None             # нанято (stage == 'hired')
 
     # Automation fields
     auto_move: bool

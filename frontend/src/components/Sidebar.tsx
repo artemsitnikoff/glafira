@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUiStore } from '@/store/uiStore';
 import { useAuthStore } from '@/store/authStore';
@@ -8,8 +9,13 @@ import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
 import { useRequestsSidebar } from '@/api/hooks/useRequests';
 import { Avatar } from './ui/Avatar';
 import { Icon, type IconName } from './ui/Icon';
+import type { VacancySidebarItem } from '@/api/aliases';
 import { APP_VERSION } from '@/lib/version';
 import './Sidebar.css';
+
+// openapi не регенерён — бек добавил responsible_user_id к элементу сайдбара
+// (фича «Вакансии: мои / остальные»). Расширяем тип локально + as-cast.
+type SidebarVacancy = VacancySidebarItem & { responsible_user_id: string | null };
 
 const ANALYTICS_REPORTS: Array<{ id: string; label: string; icon: IconName }> = [
   { id: 'overview', label: 'Обзор', icon: 'bar-chart' },
@@ -64,10 +70,20 @@ export function Sidebar() {
   const activeSection = getActiveSection();
   const activeReportId = ui.analyticsReportId;
 
-  // Фильтруем вакансии по поисковому запросу
-  const filteredVacancies = (sidebar?.items ?? []).filter((v: any) =>
-    !ui.vacancySearch || v.name.toLowerCase().includes(ui.vacancySearch.toLowerCase())
+  // Раскрытие группы «Остальные» (эталон Sidebar.jsx:17).
+  const [othersOpen, setOthersOpen] = useState(false);
+
+  // Фильтруем вакансии по поисковому запросу (общий фильтр по имени — не менять).
+  const allVacancies = (sidebar?.items ?? []) as SidebarVacancy[];
+  const filteredVacancies = allVacancies.filter(
+    (v) => !ui.vacancySearch || v.name.toLowerCase().includes(ui.vacancySearch.toLowerCase())
   );
+  // «Мои» = ответственный = текущий юзер (UUID-сравнение); «Остальные» — прочие.
+  const isMine = (v: SidebarVacancy) => !!v.responsible_user_id && v.responsible_user_id === user?.id;
+  const myVacancies = filteredVacancies.filter(isMine);
+  const otherVacancies = filteredVacancies.filter((v) => !isMine(v));
+  // При вводе в поиск «Остальные» раскрывается сама — поиск идёт по всем.
+  const showOthers = othersOpen || ui.vacancySearch.trim().length > 0;
 
   const handleBrandClick = () => {
     navigate('/home');
@@ -103,7 +119,7 @@ export function Sidebar() {
     return baseNav;
   };
 
-  const handleVacancySelect = (vacancyId: number) => {
+  const handleVacancySelect = (vacancyId: string) => {
     navigate(`/vacancies/${vacancyId}`);
   };
 
@@ -118,9 +134,26 @@ export function Sidebar() {
 
   const nav = getVisibleNavItems();
 
+  // Строка вакансии в подсписке (не менять — только раскладка по группам).
+  const vacRow = (v: SidebarVacancy) => (
+    <div
+      key={v.id}
+      className={`sub-row ${
+        location.pathname === `/vacancies/${v.id}` && !location.pathname.includes('/archive')
+          ? 'selected'
+          : ''
+      }`}
+      onClick={() => handleVacancySelect(v.id)}
+    >
+      <span className="sub-name">{v.name}</span>
+      <span className="sub-count">{v.count}</span>
+      {v.new_count > 0 && <span className="sub-new">+{v.new_count}</span>}
+    </div>
+  );
+
   const renderVacanciesSub = () => (
     <div className="sub-block">
-      {/* «Заявки» — закреплённая строка СВЕРХУ подсписка (эталон: первый элемент sub-block). */}
+      {/* «Заявки» — закреплённая строка СВЕРХУ подсписка (эталон Sidebar.jsx:39). */}
       <div
         className={`sub-archive sub-requests ${location.pathname.startsWith('/requests') ? 'selected' : ''}`}
         onClick={() => navigate('/requests')}
@@ -129,6 +162,16 @@ export function Sidebar() {
         <span>Заявки</span>
         {reqNew > 0 && <span className="sub-new">+{reqNew}</span>}
         <span className="sub-count">{reqActive}</span>
+      </div>
+      <div className="sub-divider" />
+      {/* «Все вакансии» — разводящая (эталон Sidebar.jsx:46). N = число активных. */}
+      <div
+        className={`sub-archive sub-all ${location.pathname === '/vacancies/all' ? 'selected' : ''}`}
+        onClick={() => navigate('/vacancies/all')}
+      >
+        <Icon name="layout-grid" size={15} />
+        <span>Все вакансии</span>
+        <span className="sub-count">{sidebar?.items?.length ?? 0}</span>
       </div>
       {/* Кнопку создания вакансии видят только admin и recruiter */}
       {user?.role !== 'manager' && (
@@ -148,31 +191,24 @@ export function Sidebar() {
         {filteredVacancies.length === 0 ? (
           <div className="sub-empty">Ничего не найдено</div>
         ) : (
-          filteredVacancies.map((v: any) => (
-            <div
-              key={v.id}
-              className={`sub-row ${
-                location.pathname === `/vacancies/${v.id}` && !location.pathname.includes('/archive')
-                  ? 'selected'
-                  : ''
-              }`}
-              onClick={() => handleVacancySelect(v.id)}
-            >
-              <span className="sub-name">{v.name}</span>
-              <span className="sub-count">{v.count}</span>
-              {v.new_count > 0 && <span className="sub-new">+{v.new_count}</span>}
+          <>
+            <div className="sub-group-label">
+              Мои <span>{myVacancies.length}</span>
             </div>
-          ))
+            {myVacancies.length === 0 ? (
+              <div className="sub-empty">У вас нет вакансий в работе</div>
+            ) : (
+              myVacancies.map(vacRow)
+            )}
+            <div className="sub-divider" />
+            <button className="sub-group-toggle" onClick={() => setOthersOpen((o) => !o)}>
+              <Icon name="chevD" size={12} className={showOthers ? 'open' : ''} />
+              Остальные <span>{otherVacancies.length}</span>
+            </button>
+            {showOthers && otherVacancies.map(vacRow)}
+          </>
         )}
         <div className="sub-divider" />
-        <div
-          className={`sub-archive ${location.pathname === '/vacancies/all' ? 'selected' : ''}`}
-          onClick={() => navigate('/vacancies/all')}
-        >
-          <Icon name="layout-grid" size={15} />
-          <span>Все вакансии</span>
-          <span className="sub-count">{sidebar?.items?.length ?? 0}</span>
-        </div>
         <div
           className={`sub-archive ${location.pathname.includes('/archive') ? 'selected' : ''}`}
           onClick={handleArchiveClick}

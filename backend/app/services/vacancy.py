@@ -31,6 +31,7 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
         select(
             Vacancy.id,
             Vacancy.name,
+            Vacancy.responsible_user_id,
             func.count(Application.id).label("count"),
             func.count(
                 case(
@@ -66,7 +67,9 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
             (VacancyTeam.user_id == user_id) | (Vacancy.responsible_user_id == user_id)
         )
 
-    query = query.group_by(Vacancy.id, Vacancy.name, Vacancy.sort_order).order_by(Vacancy.sort_order, Vacancy.name)
+    query = query.group_by(
+        Vacancy.id, Vacancy.name, Vacancy.responsible_user_id, Vacancy.sort_order
+    ).order_by(Vacancy.sort_order, Vacancy.name)
 
     result = await session.execute(query)
     rows = result.fetchall()
@@ -77,7 +80,8 @@ async def get_vacancy_sidebar(session: AsyncSession, company_id: UUID, user_role
             id=row.id,
             name=row.name,
             count=row.count,
-            new_count=row.new_count
+            new_count=row.new_count,
+            responsible_user_id=row.responsible_user_id
         ))
 
     # Count archived vacancies
@@ -239,6 +243,38 @@ async def get_vacancies_paginated(
     result = await session.execute(base_query)
     vacancies = result.scalars().all()
 
+    # Агрегаты для карточек разводящей (кандидатов / +N новых / нанято X из Y),
+    # company-scoped. ОДИН доп. запрос по id текущей страницы — без N+1 и без
+    # переписывания основного запроса (он отдаёт Vacancy ORM + selectinload).
+    # Семантику count/new_count берём 1:1 с get_vacancy_sidebar (:35-42):
+    #   candidates_count = stage != 'rejected'; new_count = stage in ('response','added').
+    # hired = case(stage == 'hired') — как в get_archived_vacancies (:110-112).
+    page_ids = [v.id for v in vacancies]
+    counts_map: dict[UUID, tuple[int, int, int]] = {}
+    if page_ids:
+        agg_rows = (await session.execute(
+            select(
+                Application.vacancy_id,
+                func.count(
+                    case((Application.stage != "rejected", Application.id), else_=None)
+                ).label("candidates"),
+                func.count(
+                    case((Application.stage.in_(["response", "added"]), 1), else_=None)
+                ).label("new_count"),
+                func.count(
+                    case((Application.stage == "hired", 1), else_=None)
+                ).label("hired"),
+            )
+            .where(
+                Application.company_id == company_id,
+                Application.vacancy_id.in_(page_ids),
+            )
+            .group_by(Application.vacancy_id)
+        )).fetchall()
+        counts_map = {
+            r.vacancy_id: (r.candidates, r.new_count, r.hired) for r in agg_rows
+        }
+
     # Convert to VacancyDetail schemas
     items = []
     for vacancy in vacancies:
@@ -247,6 +283,12 @@ async def get_vacancies_paginated(
 
         # Set client name manually as it's computed field
         data.client_name = vacancy.client.name if vacancy.client else None
+
+        # Агрегаты страницы (нет заявок у вакансии → 0/0/0).
+        candidates_count, new_count, hired = counts_map.get(vacancy.id, (0, 0, 0))
+        data.candidates_count = candidates_count
+        data.new_count = new_count
+        data.hired = hired
 
         items.append(data)
 

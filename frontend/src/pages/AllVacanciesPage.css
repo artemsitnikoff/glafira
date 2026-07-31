@@ -1,109 +1,53 @@
-.av-page {
-  padding: 32px;
+/* ============ «Все вакансии» (разводящая) ============
+   Корень — общий .content-inner (padding/max-width из global.css). Анатомия
+   карточек/фильтров переиспользована из Archive.css (скоуплена под .content-inner).
+   Здесь — только доп-классы разводящей, скоупленные под .av-page, чтобы НЕ задеть
+   экран Архива. Значения 1:1 из эталона project/styles/vacancies-all.css:13-16. */
+
+.av-page .t-mono {
+  font-family: var(--font-mono);
 }
 
-.av-page .av-header {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 24px;
-}
-
-.av-page .av-header h1 {
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.av-page .av-header-count {
-  font-size: 14px;
-  color: var(--fg-2);
-}
-
-.av-page .av-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-}
-
-.av-page .av-card {
-  background: var(--bg-1);
-  border: 1px solid var(--border-1);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  cursor: pointer;
-  transition: all var(--dur-normal) ease;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.av-page .av-card:hover {
-  border-color: var(--ark-blue-100);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-
-.av-page .av-card-title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.av-page .av-card-desc {
-  font-size: 13px;
-  color: var(--fg-2);
-  line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.av-page .av-card-desc--empty {
+/* Заголовок группы «Мои · N» / «Другие рекрутеры» */
+.av-page .av-group-title {
+  font-size: 11.5px;
+  font-weight: 650;
   color: var(--fg-3);
-  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 10px;
 }
 
-.av-page .av-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: auto;
+/* Статус «В работе» — синий вариант result-badge (эталон только для разводящей) */
+.av-page .result-badge.open {
+  background: var(--ark-blue-50);
+  color: var(--ark-blue-700);
 }
 
-.av-page .av-badge {
-  font-size: 12px;
-  color: var(--fg-3);
-  background: var(--bg-2);
-  border-radius: var(--radius-md);
-  padding: 3px 8px;
+/* Бейдж «+N новых» на карточке */
+.av-page .arch-card .av-new {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ark-white);
+  background: var(--accent);
+  border-radius: 9px;
+  padding: 2px 7px;
+  flex: none;
 }
 
-.av-page .av-count {
-  font-size: 12px;
-  color: var(--accent);
+/* Метка связанной заявки «заявка №N» */
+.av-page .av-req {
   font-weight: 600;
+  color: var(--ark-violet-500);
 }
 
-.av-page .av-empty {
-  color: var(--fg-3);
-  text-align: center;
-  padding: 60px 0;
-  font-size: 14px;
+/* Кнопка «Новая» — primary-вариант (Archive.css определяет только secondary/ghost) */
+.av-page .filter-bar .btn-primary {
+  background: var(--accent);
+  color: var(--ark-white);
+  border-color: var(--accent);
 }
-
-.av-page .av-pager { display: flex; flex-direction: column; align-items: center; gap: 9px; margin-top: 20px; }
-.av-page .av-pager-info { font-size: 12.5px; color: var(--fg-3); }
-.av-page .av-pager-info b { color: var(--fg-1); font-weight: 600; }
-.av-page .av-pager-ctrls { display: flex; align-items: center; gap: 4px; }
-.av-page .av-pg, .av-page .av-pg-nav {
-  min-width: 32px; height: 32px; padding: 0 7px; border-radius: var(--radius-md);
-  border: 1px solid var(--border-1); background: var(--ark-white); cursor: pointer;
-  font: inherit; font-size: 13px; color: var(--fg-1);
-  display: inline-flex; align-items: center; justify-content: center;
-  font-feature-settings: 'tnum';
-  transition: all var(--dur-fast) var(--ease-out);
+.av-page .filter-bar .btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
-.av-page .av-pg:hover, .av-page .av-pg-nav:hover:not(:disabled) { border-color: var(--ark-gray-400); background: var(--bg-3-hover); }
-.av-page .av-pg.active { background: var(--accent); border-color: var(--accent); color: var(--ark-white); font-weight: 600; }
-.av-page .av-pg-nav:disabled { opacity: .4; cursor: not-allowed; }
-.av-page .av-pg-ell { padding: 0 4px; color: var(--fg-3); user-select: none; }

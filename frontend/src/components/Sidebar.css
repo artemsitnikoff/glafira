@@ -398,6 +398,62 @@
   background: var(--accent-hover);
 }
 
+/* Группировка вакансий «Мои / Остальные» (эталон vacancies-all.css:2-10). */
+.sidebar-wide .sub-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sidebar-wide .sub-group-label span {
+  font-weight: 600;
+  color: var(--fg-3);
+  opacity: 0.75;
+}
+.sidebar-wide .sub-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.sidebar-wide .sub-group-toggle:hover {
+  color: var(--fg-2);
+}
+.sidebar-wide .sub-group-toggle svg {
+  transition: transform var(--dur-fast) var(--ease-out);
+  flex: none;
+}
+.sidebar-wide .sub-group-toggle svg.open {
+  transform: rotate(0deg);
+}
+.sidebar-wide .sub-group-toggle svg:not(.open) {
+  transform: rotate(-90deg);
+}
+.sidebar-wide .sub-group-toggle span {
+  font-weight: 600;
+  opacity: 0.75;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.sidebar-wide .sub-all svg {
+  color: var(--accent);
+}
+
 .sidebar-wide .user-card-wide {
   display: flex;
   align-items: center;
