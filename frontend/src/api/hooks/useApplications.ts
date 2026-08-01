@@ -23,7 +23,19 @@ export type ApplicationFilters = {
   // Раньше фронт слал `size` — параметр молча терялся, страница всегда была дефолтной (24).
   page_size?: number;
   candidate_id?: string;
+  // Фильтр «Результат теста» — КЛИЕНТСКИЙ (бек не фильтрует по тесту). Эти поля НЕ идут
+  // ни в query-параметры (buildApplicationParams их не читает), ни в серверный queryKey
+  // (serverFilterKey их исключает → правка фильтра не вызывает рефетч/сброс infinite-списка).
+  // FunnelTable применяет их к уже загруженным строкам по test_status/test_score.
+  test_result?: 'passed' | 'waiting' | 'none';
+  test_score_min?: number;
 };
+
+/** Серверная часть фильтров (для queryKey) — без клиентских test_* полей. */
+function serverFilterKey(filters: ApplicationFilters): ApplicationFilters {
+  const { test_result: _tr, test_score_min: _ts, ...rest } = filters;
+  return rest;
+}
 
 /** Размер страницы автодогрузки воронки (бек: page_size ge=1 le=100). */
 const PAGE_SIZE = 24;
@@ -91,7 +103,7 @@ export function useApplications(
   options: UseApplicationsOptions = {}
 ) {
   return useQuery({
-    queryKey: ['vacancies', vacancyId, 'applications', 'one', filters],
+    queryKey: ['vacancies', vacancyId, 'applications', 'one', serverFilterKey(filters)],
     queryFn: async () => {
       const params = buildApplicationParams(filters);
       const response = await api.get(`/vacancies/${vacancyId}/applications?${params.toString()}`);
@@ -111,7 +123,7 @@ export function useApplicationsInfinite(
   filters: ApplicationFilters = {}
 ) {
   return useInfiniteQuery({
-    queryKey: ['vacancies', vacancyId, 'applications', 'list', filters],
+    queryKey: ['vacancies', vacancyId, 'applications', 'list', serverFilterKey(filters)],
     queryFn: async ({ pageParam }) => {
       const params = buildApplicationParams(filters);
       params.set('page', String(pageParam));

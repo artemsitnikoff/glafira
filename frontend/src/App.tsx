@@ -30,6 +30,8 @@ const NewRequestPage = lazy(() => import('@/pages/requests/NewRequestPage'));
 const ApplyPage = lazy(() => import('@/pages/public/ApplyPage'));
 // Публичная страница выбора времени интервью — БЕЗ авторизации. /schedule/:token
 const SchedulePage = lazy(() => import('@/pages/public/SchedulePage'));
+// Публичная страница прохождения теста — БЕЗ авторизации. /test/:token
+const TestPage = lazy(() => import('@/pages/public/TestPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(selectIsAuthenticated);
@@ -103,6 +105,15 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <ApplyPage />
+          </Suspense>
+        }
+      />
+      {/* Публичная страница прохождения теста — БЕЗ авторизации */}
+      <Route
+        path="/test/:token"
+        element={
+          <Suspense fallback={null}>
+            <TestPage />
           </Suspense>
         }
       />

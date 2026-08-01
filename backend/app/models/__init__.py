@@ -48,6 +48,15 @@ from .hiring_request import (
     RequestFunnelStage,
     RequestSettings,
 )
+from .tests import (
+    Test,
+    TestBlock,
+    TestItem,
+    TestAssignment,
+    TestAttempt,
+    TestAnswer,
+    TestResult,
+)
 
 __all__ = [
     "Base",
@@ -104,4 +113,11 @@ __all__ = [
     "RequestComment",
     "RequestFunnelStage",
     "RequestSettings",
+    "Test",
+    "TestBlock",
+    "TestItem",
+    "TestAssignment",
+    "TestAttempt",
+    "TestAnswer",
+    "TestResult",
 ]

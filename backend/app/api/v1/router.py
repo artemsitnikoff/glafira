@@ -29,6 +29,8 @@ from .message_templates import router as message_templates_router
 from .calls import router as calls_router
 from .requests import router as requests_router
 from .public_requests import router as public_requests_router
+from .public_tests import router as public_tests_router
+from .tests import router as tests_router
 from ...core.permissions import (
     settings_permission_dependency,
     integrations_permission_dependency,
@@ -108,6 +110,10 @@ api_router.include_router(
 api_router.include_router(message_templates_router, prefix="/message-templates", tags=["message_templates"], dependencies=_deny_hm)
 # Звонки — статические роуты ПЕРЕД динамическими
 api_router.include_router(calls_router, tags=["calls"], dependencies=_deny_hm)
+# Тесты (рекрутёрские эндпоинты назначения/результатов/справочника). Роуты несут полные
+# пути (/applications/... и /tests/...), поэтому БЕЗ prefix. Публичный экзамен-API —
+# отдельный public_tests_router ниже (без auth-гарда).
+api_router.include_router(tests_router, tags=["tests"], dependencies=_deny_hm)
 
 # ── Заявки на подбор ─────────────────────────────────────────────────────────
 # /requests — БЕЗ _deny_hm: нанимающий менеджер сюда ХОДИТ, скоуп по автору внутри.
@@ -115,3 +121,7 @@ api_router.include_router(requests_router, prefix="/requests", tags=["requests"]
 # Публичная форма заявки — БЕЗ авторизации (доступ по ротируемому токену компании).
 # Rate-limit + honeypot внутри. Путь: /api/v1/public/request-form/...
 api_router.include_router(public_requests_router, prefix="/public", tags=["public"])
+# Публичный экзамен-API модуля «Тесты» — БЕЗ авторизации (доступ по крипто-токену
+# TestAssignment). company_id ТОЛЬКО из токена, rate-limit + серверный таймер +
+# correct_option_id НИКОГДА в ответе. Путь: /api/v1/public/test/{token}/...
+api_router.include_router(public_tests_router, prefix="/public", tags=["public"])

@@ -13,15 +13,17 @@ import { SettingsIntegrations } from './tabs/SettingsIntegrations';
 import { SettingsAI } from './tabs/SettingsAI';
 import { SettingsMessageTemplates } from './tabs/SettingsMessageTemplates';
 import { SettingsRequests } from './tabs/SettingsRequests';
+import { SettingsTests } from './tabs/SettingsTests';
 import './Settings.css';
 
-type SettingsTab = 'profile' | 'general' | 'funnel' | 'requests' | 'access' | 'tags' | 'message-templates' | 'integrations' | 'ai';
+type SettingsTab = 'profile' | 'general' | 'funnel' | 'requests' | 'tests' | 'access' | 'tags' | 'message-templates' | 'integrations' | 'ai';
 
 const SET_SECTIONS = [
   { id: 'profile', label: 'Профиль', adminOnly: false },
   { id: 'general', label: 'Общие', adminOnly: true },
   { id: 'funnel', label: 'Воронка вакансии', adminOnly: true },
   { id: 'requests', label: 'Воронка заявок', adminOnly: true },
+  { id: 'tests', label: 'Тесты', adminOnly: false },
   { id: 'access', label: 'Права доступа', adminOnly: true },
   { id: 'tags', label: 'Теги', adminOnly: false },
   { id: 'message-templates', label: 'Шаблоны сообщений', adminOnly: false },
@@ -83,6 +85,10 @@ export default function SettingsPage() {
         return <SettingsFunnel readOnly={readOnly} />;
       case 'requests':
         return <SettingsRequests readOnly={readOnly} />;
+      case 'tests':
+        // GET /tests доступен admin+recruiter; PATCH /tests/{id} — admin-only,
+        // поэтому рекрутёру каталог/настройка read-only (readOnly = !isAdmin).
+        return <SettingsTests readOnly={readOnly} />;
       case 'access':
         return <SettingsAccess readOnly={readOnly} />;
       case 'tags':

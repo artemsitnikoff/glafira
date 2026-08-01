@@ -40,6 +40,7 @@ import { useAvitoLinkVacancy, useAvitoUnlinkVacancy } from '@/api/mutations/avit
 import { useGlafiraSettings } from '@/api/hooks/useGlafiraSettings';
 import { useParseVacancyFile } from '@/api/hooks/useParseVacancyFile';
 import { useGenerateRubric } from '@/api/hooks/useGenerateRubric';
+import { useTests } from '@/api/hooks/useTests';
 
 type VacancyCreate = components['schemas']['VacancyCreate'];
 type VacancyUpdate = components['schemas']['VacancyUpdate'];
@@ -57,6 +58,10 @@ type VacancyFormData = VacancyCreate & {
   // П.5: Отправлять ссылку выбора времени интервью (openapi не регенерён, as-cast)
   auto_interview: boolean;
   auto_interview_stage: string;
+  // Автоотправка теста на этапе (openapi не регенерён, as-cast). auto_test_id — uuid теста.
+  auto_test: boolean;
+  auto_test_id: string | null;
+  auto_test_stage: string;
 };
 
 type VacancyCreateExtended = VacancyCreate & {
@@ -70,6 +75,9 @@ type VacancyCreateExtended = VacancyCreate & {
   auto_qa_fixed_text: string | null;
   auto_interview: boolean;
   auto_interview_stage: string;
+  auto_test: boolean;
+  auto_test_id: string | null;
+  auto_test_stage: string;
   stages: StageInput[];
   reject_reasons: Array<{
     side: 'candidate' | 'company';
@@ -90,6 +98,9 @@ type VacancyUpdateExtended = VacancyUpdate & {
   auto_qa_fixed_text: string | null;
   auto_interview: boolean;
   auto_interview_stage: string;
+  auto_test: boolean;
+  auto_test_id: string | null;
+  auto_test_stage: string;
 };
 
 // Системные этапы, помечаемые типом 'system' (зеркало бэкенда БЕЗ 'offer').
@@ -448,6 +459,10 @@ export default function VacancyFormPage() {
     // П.5: Ссылка выбора времени интервью (openapi не регенерён, as-cast)
     auto_interview: false,
     auto_interview_stage: '',
+    // Автоотправка теста на этапе (openapi не регенерён, as-cast)
+    auto_test: false,
+    auto_test_id: null,
+    auto_test_stage: '',
   });
 
   // Состояние этапов воронки
@@ -491,6 +506,9 @@ export default function VacancyFormPage() {
         rejection_text: (vacancy as any).rejection_text || null,
         auto_interview: (vacancy as any).auto_interview || false,
         auto_interview_stage: (vacancy as any).auto_interview_stage || '',
+        auto_test: (vacancy as any).auto_test || false,
+        auto_test_id: (vacancy as any).auto_test_id || null,
+        auto_test_stage: (vacancy as any).auto_test_stage || '',
       });
       setRecruiterScoring((vacancy as { recruiter_scoring_instructions?: string | null }).recruiter_scoring_instructions || '');
     }
@@ -1881,6 +1899,36 @@ function AutomationStep({
   const { data: msgTemplatesData } = useMessageTemplates();
   const msgTemplates = msgTemplatesData ?? [];
 
+  // Тесты компании — для блока «Автоотправка теста» (только активные). GET /tests
+  // доступен admin/recruiter (форма вакансии открыта им же), manager сюда не попадает.
+  const { data: testsData } = useTests();
+  const activeTests = (testsData ?? []).filter((t) => t.status === 'active');
+  const activeTestIds = activeTests.map((t) => t.id).join(',');
+
+  // Нормализация выбора теста/этапа автоотправки на валидные значения (как у auto_move).
+  // (autoKeys объявлен ниже по телу — здесь считаем ключ этапов инлайн, без TDZ.)
+  const autoTestStageKeys = autoStages.map((s) => s.key).join(',');
+  const autoTestStageValue = autoStages.some((s) => s.key === formData.auto_test_stage)
+    ? formData.auto_test_stage
+    : (autoStages[0]?.key ?? '');
+  const autoTestIdValue = activeTests.some((t) => t.id === formData.auto_test_id)
+    ? formData.auto_test_id
+    : (activeTests[0]?.id ?? null);
+  useEffect(() => {
+    if (formData.auto_test && autoStages.length > 0
+        && !autoStages.some((s) => s.key === formData.auto_test_stage)) {
+      onChange({ auto_test_stage: autoStages[0].key });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.auto_test, formData.auto_test_stage, autoTestStageKeys]);
+  useEffect(() => {
+    if (formData.auto_test && activeTests.length > 0
+        && !activeTests.some((t) => t.id === formData.auto_test_id)) {
+      onChange({ auto_test_id: activeTests[0].id });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.auto_test, formData.auto_test_id, activeTestIds]);
+
   // Целевой этап автоперевода (П.1) — выбор из НЕ начальных/конечных этапов воронки.
   // Эффективное значение валидируем по доступным; нормализуем на первый, если выбранного нет.
   const autoMoveValue = autoStages.some((s) => s.key === formData.auto_move_stage)
@@ -2176,6 +2224,61 @@ function AutomationStep({
             {/* as-cast: поле auto_interview/auto_interview_stage не в openapi — передаётся через as VacancyCreateExtended */}
             Кандидат получит персональную ссылку и сам выберет время из свободных слотов команды вакансии — Глафира считает их на лету по календарям Битрикс24. Участники вакансии должны быть привязаны к пользователям Битрикс24 (Настройки→Права доступа).
           </div>
+        </div>
+      </div>
+
+      {/* Автоотправка теста на этапе (аналог auto_interview П.5). auto_test/auto_test_id/auto_test_stage */}
+      <div className={`nv-auto-block ${formData.auto_test ? 'on' : 'off'}`}>
+        <div className="nv-auto-head" onClick={() => onChange({ auto_test: !formData.auto_test })}>
+          <span className={`nv-cb ${formData.auto_test ? 'on' : ''}`}>
+            <Icon name="check" size={12} />
+          </span>
+          <span className="nv-auto-title">Автоматически отправлять тест на этапе</span>
+        </div>
+        <div className="nv-auto-body">
+          {activeTests.length === 0 ? (
+            <div className="nv-auto-hint">
+              <Icon name="clipboard" size={12} />
+              Нет активных тестов. Заведите/активируйте тест в Настройках → Тесты, чтобы включить автоотправку.
+            </div>
+          ) : (
+            <>
+              <div className="nv-auto-inline">
+                <span>Когда кандидат переходит на этап</span>
+                <select
+                  className="nv-input"
+                  value={autoTestStageValue}
+                  onChange={(e) => onChange({ auto_test_stage: e.target.value })}
+                  disabled={!formData.auto_test}
+                  style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+                >
+                  {autoStages.length === 0 ? (
+                    <option value="">нет доступных этапов</option>
+                  ) : (
+                    autoStages.map((s) => (
+                      <option key={s.key} value={s.key}>{s.name}</option>
+                    ))
+                  )}
+                </select>
+                <span>— Глафира отправит тест</span>
+                <select
+                  className="nv-input"
+                  value={autoTestIdValue ?? ''}
+                  onChange={(e) => onChange({ auto_test_id: e.target.value })}
+                  disabled={!formData.auto_test}
+                  style={{ height: '30px', borderRadius: '6px', fontSize: '13px', width: 'auto', padding: '0 8px' }}
+                >
+                  {activeTests.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="nv-auto-hint">
+                <Icon name="sparkle" size={12} />
+                Кандидату уйдёт ссылка на тест в предпочтительный канал. Автоотказ по результату (ниже порога) настраивается в самом тесте (Настройки → Тесты).
+              </div>
+            </>
+          )}
         </div>
       </div>
 

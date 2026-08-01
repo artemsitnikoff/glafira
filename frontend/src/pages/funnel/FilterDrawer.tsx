@@ -52,12 +52,23 @@ type Draft = {
   added_period: string; // '' = «Всё время» (неактивно)
   repeat: boolean;
   tags: string[];       // id выбранных тегов
+  test_result: string;  // '' = неважно | 'passed' | 'waiting' | 'none'
+  test_score_min: number; // 0 = неактивно (минимальный балл теста)
 };
 
 const EMPTY_DRAFT: Draft = {
   score_min: 0, salary_max: 500, source: [], city: '',
   messenger: [], ready_relocate: false, added_period: '', repeat: false, tags: [],
+  test_result: '', test_score_min: 0,
 };
+
+// Результат теста — клиентская фильтрация загруженного (бек не фильтрует по тесту).
+const TEST_RESULTS = [
+  { id: '', label: 'Неважно' },
+  { id: 'passed', label: 'Пройден' },
+  { id: 'waiting', label: 'Ожидаем' },
+  { id: 'none', label: 'Не назначен' },
+];
 
 const asArray = (v: string | string[] | undefined): string[] =>
   Array.isArray(v) ? v : v ? [v] : [];
@@ -73,6 +84,8 @@ function filtersToDraft(f: ApplicationFilters): Draft {
     added_period: f.added_period && f.added_period !== 'all' ? f.added_period : '',
     repeat: !!f.repeat,
     tags: asArray(f.tags),
+    test_result: f.test_result ?? '',
+    test_score_min: f.test_score_min ?? 0,
   };
 }
 
@@ -92,6 +105,8 @@ function applyDraft(base: ApplicationFilters, d: Draft): ApplicationFilters {
     added_period: d.added_period ? d.added_period : undefined,
     repeat: d.repeat ? true : undefined,
     tags: d.tags.length ? d.tags : undefined,
+    test_result: d.test_result ? (d.test_result as 'passed' | 'waiting' | 'none') : undefined,
+    test_score_min: d.test_score_min > 0 ? d.test_score_min : undefined,
   };
 }
 
@@ -125,7 +140,9 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
     (draft.ready_relocate ? 1 : 0) +
     (draft.added_period ? 1 : 0) +
     (draft.repeat ? 1 : 0) +
-    draft.tags.length;
+    draft.tags.length +
+    (draft.test_result ? 1 : 0) +
+    (draft.test_score_min > 0 ? 1 : 0);
 
   const apply = () => { onFiltersChange(applyDraft(filters, draft)); onClose(); };
   const resetAll = () => { onFiltersChange(applyDraft(filters, EMPTY_DRAFT)); onClose(); };
@@ -164,6 +181,36 @@ export default function FilterDrawer({ onClose, filters, onFiltersChange }: Prop
               <span className="fdr-slider-val t-mono">от {draft.score_min}</span>
             </div>
             <div className="fdr-tick-row"><span>0</span><span>50</span><span>100</span></div>
+          </FilterSection>
+
+          <FilterSection
+            title="Результат теста"
+            count={(draft.test_result ? 1 : 0) + (draft.test_score_min > 0 ? 1 : 0)}
+            open={openSections.has('test')}
+            onToggle={() => toggleSection('test')}
+          >
+            <div className="fdr-chip-row">
+              {TEST_RESULTS.map((t) => (
+                <button
+                  key={t.id || 'any'}
+                  className={`filter-chip ${(draft.test_result || '') === t.id ? 'active' : ''}`}
+                  onClick={() => setDraft((d) => ({ ...d, test_result: t.id }))}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="fdr-slider-row" style={{ marginTop: 10 }}>
+              <input
+                type="range"
+                min="0"
+                max="50"
+                step="1"
+                value={draft.test_score_min}
+                onChange={(e) => setDraft((d) => ({ ...d, test_score_min: Number(e.target.value) }))}
+              />
+              <span className="fdr-slider-val t-mono">от {draft.test_score_min}</span>
+            </div>
           </FilterSection>
 
           <FilterSection title="Зарплата, тыс ₽" count={draft.salary_max < 500 ? 1 : 0} open={openSections.has('salary')} onToggle={() => toggleSection('salary')}>

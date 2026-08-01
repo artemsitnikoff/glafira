@@ -102,6 +102,13 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     auto_interview: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     auto_interview_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    # Автоназначение теста: авто-отправка ссылки на тест при переходе на указанный этап (дефолт OFF, opt-in)
+    auto_test: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    auto_test_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tests.id", ondelete="SET NULL"), nullable=True
+    )
+    auto_test_stage: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # Constraints
     __table_args__ = (
         CheckConstraint(

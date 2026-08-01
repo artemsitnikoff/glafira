@@ -22,6 +22,7 @@ from ..models import Application, Vacancy
 from ..services.glafira.scoring import score_pending_applications, MAX_SCORE_ATTEMPTS
 from ..services.glafira.auto_qa import ask_auto_qa_questions
 from ..services.glafira.interview_schedule import send_interview_links
+from ..services.tests_assign import send_test_links
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -121,6 +122,30 @@ async def main():
                 logger.error(f"Ошибка авто-рассылки интервью компании {company_id}: {e}")
         if interview_total["sent"]:
             logger.info(f"Interview links: отправлено {interview_total['sent']}")
+
+        # Авто-рассылка ссылок на ТЕСТ (паттерн send_interview_links)
+        test_company_ids = (await session.execute(
+            select(Application.company_id)
+            .join(Vacancy, Application.vacancy_id == Vacancy.id)
+            .where(
+                Vacancy.auto_test.is_(True),
+                Vacancy.auto_test_id.isnot(None),
+                Vacancy.auto_test_stage.isnot(None),
+                Application.stage == Vacancy.auto_test_stage,
+                Vacancy.deleted_at.is_(None),
+            )
+            .distinct()
+        )).scalars().all()
+        test_total = {"sent": 0}
+        for company_id in test_company_ids:
+            try:
+                t_stats = await send_test_links(session, company_id)
+                test_total["sent"] += t_stats.get("sent", 0)
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка авто-рассылки тестов компании {company_id}: {e}")
+        if test_total["sent"]:
+            logger.info(f"Test links: отправлено {test_total['sent']}")
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")

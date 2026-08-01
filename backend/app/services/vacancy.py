@@ -396,6 +396,9 @@ async def create_vacancy(
         auto_qa_fixed_text=vacancy_data.auto_qa_fixed_text,
         auto_interview=vacancy_data.auto_interview,
         auto_interview_stage=vacancy_data.auto_interview_stage,
+        auto_test=vacancy_data.auto_test,
+        auto_test_id=vacancy_data.auto_test_id,
+        auto_test_stage=vacancy_data.auto_test_stage,
         auto_reject=vacancy_data.auto_reject,
         auto_reject_message=vacancy_data.auto_reject_message,
         rejection_text=vacancy_data.rejection_text,
@@ -640,6 +643,12 @@ async def update_vacancy(
         vacancy.auto_interview = vacancy_data.auto_interview
     if vacancy_data.auto_interview_stage is not None:
         vacancy.auto_interview_stage = vacancy_data.auto_interview_stage
+    if vacancy_data.auto_test is not None:
+        vacancy.auto_test = vacancy_data.auto_test
+    if vacancy_data.auto_test_id is not None:
+        vacancy.auto_test_id = vacancy_data.auto_test_id
+    if vacancy_data.auto_test_stage is not None:
+        vacancy.auto_test_stage = vacancy_data.auto_test_stage
     if vacancy_data.auto_reject is not None:
         vacancy.auto_reject = vacancy_data.auto_reject
     if vacancy_data.auto_reject_message is not None:

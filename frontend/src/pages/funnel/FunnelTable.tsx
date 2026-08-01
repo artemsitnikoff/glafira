@@ -9,6 +9,7 @@ import { messengerChannel } from '@/lib/messengers';
 import { Icon } from '@/components/ui/Icon';
 import { formatSalaryRange } from '@/lib/format';
 import { ScoreLabel } from '@/components/ui/ScoreLabel';
+import { TestPill } from './TestPill';
 // Единый бейдж скоринга — общий ScoreLabel (светлый пастель, 1:1 эталон) на всех экранах.
 
 // Имя в списке воронки — без отчества (Фамилия Имя), иначе длинные ФИО обрезаются.
@@ -17,6 +18,26 @@ import { ScoreLabel } from '@/components/ui/ScoreLabel';
 function shortName(full: string | null | undefined): string {
   if (!full) return '';
   return full.trim().split(/\s+/).slice(0, 2).join(' ');
+}
+
+// Клиентский фильтр по результату теста (test_status/test_score из ApplicationRow).
+// result: 'passed' | 'waiting' | 'none' | undefined(=неважно); scoreMin: 0=выкл.
+function applyTestFilter(
+  items: any[],
+  result: string | undefined,
+  scoreMin: number | undefined
+): any[] {
+  if (!result && !scoreMin) return items;
+  return items.filter((it) => {
+    const st: string | null | undefined = it.test_status;
+    if (result === 'passed' && st !== 'completed') return false;
+    if (result === 'waiting' && !(st === 'sent' || st === 'started')) return false;
+    if (result === 'none' && !(st == null || st === 'none')) return false;
+    if (scoreMin && scoreMin > 0) {
+      if (it.test_score == null || it.test_score < scoreMin) return false;
+    }
+    return true;
+  });
 }
 
 type Props = {
@@ -50,6 +71,14 @@ export default function FunnelTable({
 
   // Плоский список из всех подгруженных страниц.
   const items = useMemo(() => data?.pages?.flatMap(p => p.items) ?? [], [data]);
+
+  // Фильтр «Результат теста» — КЛИЕНТСКИЙ (бек не фильтрует по тесту): применяем к уже
+  // загруженным страницам по test_status/test_score (см. секцию drawer'а). Не влияет на
+  // серверный queryKey (useApplications исключает test_* из ключа → без рефетча/сброса).
+  const visibleItems = useMemo(
+    () => applyTestFilter(items, filters.test_result, filters.test_score_min),
+    [items, filters.test_result, filters.test_score_min]
+  );
 
   // Автодогрузка при скролле. ВАЖНО: скроллится не окно, а сам контейнер .cand-scroll,
   // поэтому root у IntersectionObserver — этот элемент, иначе сентинел «виден» всегда.
@@ -152,6 +181,7 @@ export default function FunnelTable({
                 <div className="ct-col" style={{ width: 120 }}>ЗП</div>
                 <div className="ct-col" style={{ width: 140 }}>Город</div>
                 <div className="ct-col" style={{ width: 120 }}>Дата отбора</div>
+                <div className="ct-col" style={{ width: 110 }}>Тест</div>
                 <div className="ct-col" style={{ width: 200 }}>Этап</div>
               </div>
             )}
@@ -234,6 +264,8 @@ export default function FunnelTable({
                 onSort={handleSort}
                 width={120}
               />
+              {/* Колонка «Тест» — не сортируется (бек не отдаёт сорт по тесту); плашка из ApplicationRow */}
+              <div className="ct-col" style={{ width: 110 }}>Тест</div>
               <SortableHeader
                 label="Этап"
                 field="stage"
@@ -251,7 +283,7 @@ export default function FunnelTable({
         </div>
 
         <div className="cand-tbody">
-          {items.map(candidate => (
+          {visibleItems.map(candidate => (
             <FunnelRow
               key={candidate.id}
               candidate={candidate}
@@ -264,6 +296,11 @@ export default function FunnelTable({
               onOpenRow={onOpenRow}
             />
           ))}
+
+          {/* Клиентский фильтр теста скрыл все загруженные строки */}
+          {visibleItems.length === 0 && items.length > 0 && (
+            <div className="cand-loadmore">Никто из загруженных не подходит под фильтр теста.</div>
+          )}
 
           {/* Сентинел автодогрузки — внутри скроллящегося .cand-scroll */}
           {hasNextPage && <div ref={setSentinel} className="cand-sentinel" />}
@@ -414,6 +451,14 @@ const FunnelRow = React.memo(function FunnelRow({
             {candidate.selected_at
               ? new Date(candidate.selected_at).toLocaleDateString('ru-RU')
               : '—'}
+          </div>
+
+          <div className="ct-col" style={{ width: 110 }}>
+            <TestPill
+              status={candidate.test_status}
+              score={candidate.test_score}
+              category={candidate.test_category}
+            />
           </div>
 
           <div className="ct-col" style={{ width: 200 }}>

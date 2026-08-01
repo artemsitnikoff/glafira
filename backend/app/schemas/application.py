@@ -32,6 +32,12 @@ class ApplicationRow(ORMBase):
     stage: str
     stage_color: str
     selected_at: datetime | None
+    # Статус/итог теста (модуль «Тесты»). Дефолт None — чтобы конструкторы ApplicationRow
+    # без теста (assign_candidate_to_vacancy) не падали Pydantic-ошибкой.
+    # test_status: 'none' | 'sent' | 'started' | 'completed' (expired/cancelled/нет → 'none').
+    test_status: str | None = None
+    test_score: int | None = None
+    test_category: str | None = None
 
 
 class MoveRequest(BaseModel):

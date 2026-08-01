@@ -9,7 +9,18 @@ from sqlalchemy.orm import selectinload
 
 from ..core.errors import NotFoundError, ValidationError
 from ..core.stages import STAGES
-from ..models import Application, Candidate, CandidateTag, Consent, Event, StageHistory, User, VacancyStage
+from ..models import (
+    Application,
+    Candidate,
+    CandidateTag,
+    Consent,
+    Event,
+    StageHistory,
+    TestAssignment,
+    TestResult,
+    User,
+    VacancyStage,
+)
 from ..schemas.application import (
     ApplicationRow,
     BulkMoveRequest,
@@ -158,6 +169,41 @@ async def get_applications_for_vacancy_paginated(
                 )
             )
 
+    # ── Статус/итог теста (модуль «Тесты») — коррелированные скаляры, БЕЗ N+1 ─────
+    latest_assignment_status_subq = (
+        select(TestAssignment.status)
+        .where(
+            TestAssignment.application_id == Application.id,
+            TestAssignment.company_id == company_id,
+        )
+        .order_by(TestAssignment.created_at.desc())
+        .limit(1)
+        .correlate(Application)
+        .scalar_subquery()
+    )
+    latest_result_score_subq = (
+        select(TestResult.raw_score)
+        .where(
+            TestResult.application_id == Application.id,
+            TestResult.company_id == company_id,
+        )
+        .order_by(TestResult.completed_at.desc())
+        .limit(1)
+        .correlate(Application)
+        .scalar_subquery()
+    )
+    latest_result_category_subq = (
+        select(TestResult.category)
+        .where(
+            TestResult.application_id == Application.id,
+            TestResult.company_id == company_id,
+        )
+        .order_by(TestResult.completed_at.desc())
+        .limit(1)
+        .correlate(Application)
+        .scalar_subquery()
+    )
+
     count_stmt = (
         select(func.count(Application.id))
         .select_from(Application)
@@ -189,6 +235,9 @@ async def get_applications_for_vacancy_paginated(
             Candidate.messengers,
             Candidate.extra,
             has_pdn_subq.label("has_pdn"),
+            latest_assignment_status_subq.label("test_assignment_status"),
+            latest_result_score_subq.label("test_score"),
+            latest_result_category_subq.label("test_category"),
         )
         .select_from(Application)
         .join(Candidate, Application.candidate_id == Candidate.id)
@@ -253,6 +302,13 @@ async def get_applications_for_vacancy_paginated(
             stage=row.stage,
             stage_color=_STAGE_COLORS.get(row.stage, "#9AA3AE"),
             selected_at=row.selected_at,
+            test_status=(
+                row.test_assignment_status
+                if row.test_assignment_status in ("sent", "started", "completed")
+                else "none"
+            ),
+            test_score=row.test_score,
+            test_category=row.test_category,
         )
         for row in rows
     ]

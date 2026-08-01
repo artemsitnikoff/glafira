@@ -9,6 +9,7 @@ import { CandidateToolbar } from './CandidateToolbar';
 import { ResumeTab } from './tabs/ResumeTab';
 import { EvaluationTab } from './tabs/EvaluationTab';
 import { VerificationTab } from './tabs/VerificationTab';
+import { TestsTab } from './tabs/TestsTab';
 import { ChatTab } from './tabs/ChatTab';
 import { CallsTab } from './tabs/CallsTab';
 import { DocumentsTab } from './tabs/DocumentsTab';
@@ -33,6 +34,7 @@ const TABS = [
   { id: 'resume', label: 'Резюме' },
   { id: 'evaluation', label: 'Оценка AI' },
   { id: 'verification', label: 'Верификация' },
+  { id: 'tests', label: 'Тесты' },
   { id: 'chat', label: 'Чат' },
   { id: 'calls', label: 'Звонки' },
   { id: 'docs', label: 'Документы' },
@@ -149,6 +151,7 @@ export function CandidateDetail({ application, onClose, isResolving, vacancyId }
         {candidateId && activeTab === 'resume' && <ResumeTab candidateId={candidateId} applicationId={applicationId} onOpenAI={() => setActiveTab('evaluation')} />}
         {candidateId && applicationId && activeTab === 'evaluation' && <EvaluationTab candidateId={candidateId} applicationId={applicationId} vacancyId={vacancyId} />}
         {candidateId && activeTab === 'verification' && <VerificationTab candidateId={candidateId} hasPdn={application?.has_pdn ?? candidateDetailQuery.data?.has_pdn ?? false} />}
+        {candidateId && applicationId && activeTab === 'tests' && <TestsTab applicationId={applicationId} candidate={candidateDetailQuery.data} />}
         {candidateId && activeTab === 'chat' && <ChatTab candidateId={candidateId} candidate={candidateDetailQuery.data} />}
         {candidateId && activeTab === 'calls' && <CallsTab candidateId={candidateId} candidate={candidateDetailQuery.data} />}
         {candidateId && activeTab === 'docs' && <DocumentsTab candidateId={candidateId} />}

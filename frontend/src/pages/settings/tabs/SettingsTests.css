@@ -1,0 +1,74 @@
+/* Тесты — каталог (экран 8) + настройка теста (экран 9).
+   Структура/классы 1:1 из эталона project/styles/tests.css, scoped под .st-tests
+   (все имена .ts-* генерические — глобально утекли бы, §5).
+
+   Карта подмен фантомных токенов (§0 CLAUDE.md), ни один фантом не попал:
+     --border-strong → --ark-gray-400 ; --shadow-2 → --shadow-lg
+     --border-focus  → --accent (+ box-shadow идиом) ; #fff → --bg-elevated
+   Категорийные цвета — существующие статус-токены (green/yellow/red + --warning-*),
+   промежуточные оранжевые hex эталона (#FBE7DA/#B96A0B) → --warning-bg/--warning-fg. */
+
+/* ---------- 8. Каталог ---------- */
+.st-tests .ts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.st-tests .ts-card { background: var(--bg-elevated); border: 1px solid var(--border-1); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
+.st-tests .ts-card:hover { box-shadow: var(--shadow-lg); border-color: var(--ark-gray-400); }
+.st-tests .ts-card-top { display: flex; gap: 12px; align-items: flex-start; }
+.st-tests .ts-ico { flex: none; width: 38px; height: 38px; border-radius: 10px; background: var(--ark-blue-50); color: var(--accent); display: flex; align-items: center; justify-content: center; }
+.st-tests .ts-card-ttl { flex: 1; min-width: 0; }
+.st-tests .ts-card-ttl h3 { margin: 0 0 3px; font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
+.st-tests .ts-card-ttl .kind { font-size: 12px; color: var(--fg-3); }
+.st-tests .ts-state { flex: none; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; }
+.st-tests .ts-state.on { background: var(--ark-green-100); color: var(--ark-green-600); }
+.st-tests .ts-state.draft { background: var(--ark-gray-200); color: var(--fg-2); }
+.st-tests .ts-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.st-tests .ts-meta span { font-size: 11.5px; color: var(--fg-2); background: var(--ark-gray-100); border-radius: 6px; padding: 3px 8px; }
+.st-tests .ts-meta span b { font-family: var(--font-mono); font-weight: 500; color: var(--fg-1); }
+.st-tests .ts-blocks { font-size: 12px; color: var(--fg-3); line-height: 1.5; }
+.st-tests .ts-card-foot { display: flex; gap: 6px; align-items: center; border-top: 1px solid var(--border-2); padding-top: 11px; margin-top: auto; }
+.st-tests .ts-card-foot .assigned { margin-left: auto; font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
+.st-tests .ts-soon { font-size: 13px; color: var(--fg-3); padding: 6px 2px; line-height: 1.5; }
+.st-tests .ts-empty-note { font-size: 13px; color: var(--fg-3); padding: 8px 2px; line-height: 1.5; }
+
+/* ---------- 9. Настройка ---------- */
+.st-tests .ts-back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); cursor: pointer; margin-bottom: 12px; background: none; border: 0; padding: 0; font-family: inherit; }
+.st-tests .ts-back:hover { color: var(--fg-1); }
+.st-tests .ts-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.st-tests .ts-switches { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.st-tests .ts-note { font-size: 12.5px; color: var(--fg-3); line-height: 1.5; }
+
+.st-tests .ts-thresholds { display: flex; flex-direction: column; gap: 8px; }
+.st-tests .ts-thr { display: grid; grid-template-columns: 14px 1fr 88px 88px; align-items: center; gap: 12px; padding: 9px 12px; border: 1px solid var(--border-2); border-radius: 9px; background: var(--bg-panel-2); }
+.st-tests .ts-thr .lamp { width: 11px; height: 11px; border-radius: 50%; }
+.st-tests .ts-thr .lamp-green { background: var(--ark-green-500); }
+.st-tests .ts-thr .lamp-yellow { background: var(--ark-yellow-500); }
+.st-tests .ts-thr .lamp-orange { background: var(--warning-fg); }
+.st-tests .ts-thr .lamp-red { background: var(--ark-red-500); }
+.st-tests .ts-thr .lamp-neutral { background: var(--ark-gray-400); }
+.st-tests .ts-thr .nm { font-size: 13px; font-weight: 500; }
+.st-tests .ts-thr input { width: 100%; border: 1px solid var(--border-1); border-radius: 7px; padding: 6px 9px; font-size: 13px; font-family: var(--font-mono); background: var(--bg-elevated); color: var(--fg-1); }
+.st-tests .ts-thr input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ark-blue-50); }
+.st-tests .ts-thr input:disabled { background: var(--bg-panel-2); color: var(--fg-3); }
+
+.st-tests .ts-blk { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid var(--border-2); border-radius: 9px; background: var(--bg-elevated); margin-bottom: 8px; }
+.st-tests .ts-blk .n { flex: none; width: 22px; height: 22px; border-radius: 6px; background: var(--ark-gray-100); color: var(--fg-2); font-size: 11.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); }
+.st-tests .ts-blk .nm { flex: 1; font-size: 13.5px; font-weight: 500; }
+.st-tests .ts-blk .qn { font-size: 12px; color: var(--fg-3); font-family: var(--font-mono); }
+.st-tests .ts-blk .mins { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); }
+.st-tests .ts-blk .mins input { width: 54px; border: 1px solid var(--border-1); border-radius: 7px; padding: 5px 8px; font-size: 13px; font-family: var(--font-mono); text-align: center; background: var(--bg-elevated); color: var(--fg-1); }
+.st-tests .ts-blk .mins input:disabled { background: var(--bg-panel-2); color: var(--fg-3); }
+.st-tests .ts-total { display: flex; justify-content: flex-end; gap: 8px; font-size: 12.5px; color: var(--fg-2); padding-top: 4px; }
+.st-tests .ts-total b { font-family: var(--font-mono); color: var(--fg-1); }
+
+.st-tests .ts-auto-row { display: flex; align-items: center; gap: 9px; padding-left: 46px; }
+.st-tests .ts-auto-row .ts-auto-lbl { font-size: 12.5px; color: var(--fg-2); }
+.st-tests .ts-num { width: 90px; border: 1px solid var(--border-1); border-radius: 7px; padding: 6px 9px; font-size: 13px; font-family: var(--font-mono); background: var(--bg-elevated); color: var(--fg-1); }
+.st-tests .ts-num:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ark-blue-50); }
+.st-tests .ts-num:disabled { background: var(--bg-panel-2); color: var(--fg-3); }
+
+.st-tests .ts-cat { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+.st-tests .ts-cat.c5 { background: var(--ark-green-100); color: var(--ark-green-600); }
+.st-tests .ts-cat.c4 { background: var(--ark-green-100); color: var(--ark-green-500); }
+.st-tests .ts-cat.c3 { background: var(--ark-yellow-100); color: var(--ark-yellow-600); }
+.st-tests .ts-cat.c2 { background: var(--warning-bg); color: var(--warning-fg); }
+.st-tests .ts-cat.c1 { background: var(--ark-red-100); color: var(--ark-red-600); }
+.st-tests .ts-cat.c0 { background: var(--ark-gray-100); color: var(--fg-2); }
