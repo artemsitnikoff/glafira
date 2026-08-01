@@ -24,9 +24,8 @@ type ReviewAnswer = TestAnswerRow & {
 };
 
 type Props = {
-  answers: TestAnswerRow[];
+  answer: TestAnswerRow;
   testName: string;
-  candidateName: string;
   onClose: () => void;
 };
 
@@ -106,17 +105,20 @@ function renderTextQuestion(body?: TextBody): ReactNode {
   );
 }
 
-/** Разбор сессии: по каждому заданию — вопрос + выбор кандидата + правильный ответ. */
-export function TestAnswersModal({ answers, testName, candidateName, onClose }: Props) {
+/** Разбор ОДНОГО задания: вопрос + выбор кандидата + правильный ответ. */
+export function TestAnswersModal({ answer, testName, onClose }: Props) {
+  const a = answer as ReviewAnswer;
+  const isMatrix = a.item_kind === 'matrix' || (a.body != null && 'cells' in (a.body as object));
+  const noAnswer = a.chosen_option_id == null && a.chosen == null;
+  const status: 'ok' | 'no' | 'none' = noAnswer ? 'none' : a.is_correct ? 'ok' : 'no';
+
   return (
     <div className="tans-ovl" onClick={onClose}>
       <div className="tans-modal" onClick={(e) => e.stopPropagation()}>
         <div className="tans-head">
           <div>
-            <h3>Разбор ответов</h3>
-            <div className="sub">
-              {candidateName} · {testName}
-            </div>
+            <h3>Задание {a.index + 1}</h3>
+            <div className="sub">{testName}</div>
           </div>
           <button className="x" onClick={onClose} aria-label="Закрыть">
             <Icon name="x" size={16} />
@@ -124,70 +126,59 @@ export function TestAnswersModal({ answers, testName, candidateName, onClose }: 
         </div>
 
         <div className="tans-body">
-          {answers.map((raw) => {
-            const a = raw as ReviewAnswer;
-            const isMatrix =
-              a.item_kind === 'matrix' || (a.body != null && 'cells' in (a.body as object));
-            const noAnswer = a.chosen_option_id == null && a.chosen == null;
-            const status: 'ok' | 'no' | 'none' = noAnswer ? 'none' : a.is_correct ? 'ok' : 'no';
+          <div className="tans-item">
+            <div className="tans-item-head">
+              <span className={`tans-badge ${status}`}>
+                {status === 'ok' ? 'верно' : status === 'no' ? 'неверно' : 'нет ответа'}
+              </span>
+              <span className="tans-time">{msToClock(a.time_ms)}</span>
+            </div>
 
-            return (
-              <div className="tans-item" key={a.item_id}>
-                <div className="tans-item-head">
-                  <span className="tans-num">Задание {a.index + 1}</span>
-                  <span className={`tans-badge ${status}`}>
-                    {status === 'ok' ? 'верно' : status === 'no' ? 'неверно' : 'нет ответа'}
-                  </span>
-                  <span className="tans-time">{msToClock(a.time_ms)}</span>
-                </div>
+            <div className="tans-q">
+              <span className="tans-lbl">Вопрос</span>
+              {isMatrix
+                ? renderMatrixQuestion(a.body as MatrixBody | undefined)
+                : renderTextQuestion(a.body as TextBody | undefined)}
+            </div>
 
-                <div className="tans-q">
-                  <span className="tans-lbl">Вопрос</span>
-                  {isMatrix
-                    ? renderMatrixQuestion(a.body as MatrixBody | undefined)
-                    : renderTextQuestion(a.body as TextBody | undefined)}
-                </div>
-
-                <div className="tans-compare">
-                  <div className="tans-side">
-                    <span className="tans-lbl">Ответ кандидата</span>
-                    <div className={`tans-ansbox ${status}`}>
-                      {noAnswer ? (
-                        <span className="tans-empty">нет ответа</span>
-                      ) : isMatrix ? (
-                        a.chosen?.params ? (
-                          <div className="tans-cell">
-                            <MatrixCell params={a.chosen.params} />
-                          </div>
-                        ) : (
-                          <span className="tans-empty">—</span>
-                        )
-                      ) : (
-                        <span className="tans-txt">{a.chosen?.text ?? '—'}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="tans-side">
-                    <span className="tans-lbl">Правильный ответ</span>
-                    <div className="tans-ansbox ok">
-                      {isMatrix ? (
-                        a.correct?.params ? (
-                          <div className="tans-cell">
-                            <MatrixCell params={a.correct.params} />
-                          </div>
-                        ) : (
-                          <span className="tans-empty">—</span>
-                        )
-                      ) : (
-                        <span className="tans-txt">{a.correct?.text ?? '—'}</span>
-                      )}
-                    </div>
-                  </div>
+            <div className="tans-compare">
+              <div className="tans-side">
+                <span className="tans-lbl">Ответ кандидата</span>
+                <div className={`tans-ansbox ${status}`}>
+                  {noAnswer ? (
+                    <span className="tans-empty">нет ответа</span>
+                  ) : isMatrix ? (
+                    a.chosen?.params ? (
+                      <div className="tans-cell">
+                        <MatrixCell params={a.chosen.params} />
+                      </div>
+                    ) : (
+                      <span className="tans-empty">—</span>
+                    )
+                  ) : (
+                    <span className="tans-txt">{a.chosen?.text ?? '—'}</span>
+                  )}
                 </div>
               </div>
-            );
-          })}
+
+              <div className="tans-side">
+                <span className="tans-lbl">Правильный ответ</span>
+                <div className="tans-ansbox ok">
+                  {isMatrix ? (
+                    a.correct?.params ? (
+                      <div className="tans-cell">
+                        <MatrixCell params={a.correct.params} />
+                      </div>
+                    ) : (
+                      <span className="tans-empty">—</span>
+                    )
+                  ) : (
+                    <span className="tans-txt">{a.correct?.text ?? '—'}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

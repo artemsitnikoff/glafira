@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuthStore } from '@/store/authStore';
 import type { Candidate } from '@/api/aliases';
-import { useApplicationTests, useTestDetail, type TestAssignmentOut } from '@/api/hooks/useTests';
+import {
+  useApplicationTests,
+  useTestDetail,
+  type TestAssignmentOut,
+  type TestAnswerRow,
+} from '@/api/hooks/useTests';
 import { useRemindTest, useCancelTest } from '@/api/mutations/tests';
 import { testCatClass } from '@/lib/testCategory';
 import { AssignTestModal } from './AssignTestModal';
@@ -33,7 +38,8 @@ export function TestsTab({ applicationId, candidate }: Props) {
   const canManage = role !== 'manager'; // manager: только просмотр результатов
   const [assignOpen, setAssignOpen] = useState(false);
   const [answersOpen, setAnswersOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
+  // Разбор ОДНОГО задания: строка ответа, открытая «глазом» в таблице (null = закрыто).
+  const [reviewAnswer, setReviewAnswer] = useState<TestAnswerRow | null>(null);
 
   const { data: assignments, isLoading } = useApplicationTests(applicationId);
   const list: TestAssignmentOut[] = assignments ?? [];
@@ -217,6 +223,7 @@ export function TestsTab({ applicationId, candidate }: Props) {
                       <th style={{ width: 90 }}>Ответ</th>
                       <th style={{ width: 110 }}>Результат</th>
                       <th>Время</th>
+                      <th style={{ width: 44 }} aria-label="Разбор" />
                     </tr>
                   </thead>
                   <tbody>
@@ -228,6 +235,16 @@ export function TestsTab({ applicationId, candidate }: Props) {
                           {ans.is_correct ? 'верно' : ans.chosen_option_id == null ? 'нет ответа' : 'неверно'}
                         </td>
                         <td className="mono">{msToClock(ans.time_ms)}</td>
+                        <td className="rev">
+                          <button
+                            className="icon-btn"
+                            onClick={() => setReviewAnswer(ans)}
+                            title="Разбор задания"
+                            aria-label="Разбор задания"
+                          >
+                            <Icon name="eye" size={15} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -243,20 +260,14 @@ export function TestsTab({ applicationId, candidate }: Props) {
               Назначить ещё тест
             </button>
           )}
-          {r.answers.length > 0 && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setReviewOpen(true)}>
-              <Icon name="clipboard" size={13} /> Разбор ответов
-            </button>
-          )}
         </div>
       </div>
       {modal}
-      {reviewOpen && (
+      {reviewAnswer && (
         <TestAnswersModal
-          answers={r.answers}
+          answer={reviewAnswer}
           testName={a.test_name}
-          candidateName={candidate?.full_name || 'Кандидат'}
-          onClose={() => setReviewOpen(false)}
+          onClose={() => setReviewAnswer(null)}
         />
       )}
     </div>

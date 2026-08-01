@@ -67,6 +67,7 @@ import {
   LayoutGrid,
   Flame,
   Inbox,
+  Eye,
 } from 'lucide-react';
 
 const iconMap = {
@@ -151,6 +152,7 @@ const iconMap = {
   database: Database,
   radio: Radio, // antenna-эквивалент для «Автоподбор»
   'layout-grid': LayoutGrid,
+  eye: Eye,
 } as const;
 
 export type IconName = keyof typeof iconMap;

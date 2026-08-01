@@ -49,6 +49,10 @@
 .tst-tab .ts-ans .ok { color: var(--ark-green-600); font-weight: 600; }
 .tst-tab .ts-ans .no { color: var(--ark-red-500); font-weight: 600; }
 .tst-tab .ts-ans tr:last-child td { border-bottom: 0; }
+/* Кнопка-глаз «Разбор задания» — переиспускает .icon-btn (cand-detail), компактнее под таблицу */
+.tst-tab .ts-ans td.rev { width: 44px; text-align: center; padding: 3px 12px; }
+.tst-tab .ts-ans td.rev .icon-btn { width: 28px; height: 28px; color: var(--fg-3); }
+.tst-tab .ts-ans td.rev .icon-btn:hover { color: var(--fg-1); }
 .tst-tab .ts-pending { display: flex; align-items: center; gap: 14px; border: 1px dashed var(--ark-gray-400); border-radius: 12px; padding: 16px 18px; background: var(--bg-panel-2); }
 .tst-tab .ts-pending .ico { width: 36px; height: 36px; border-radius: 10px; background: var(--ark-yellow-100); color: var(--ark-yellow-600); display: flex; align-items: center; justify-content: center; flex: none; }
 .tst-tab .ts-pending .tx { flex: 1; }
