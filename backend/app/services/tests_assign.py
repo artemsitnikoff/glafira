@@ -300,7 +300,7 @@ async def assign_test(
         type="test",
         actor_type="human",
         actor_user_id=created_by,
-        text=f"Кандидату {cand_name} отправлена ссылка на тест «{test.name}» (вакансия: {vac_name}).",
+        text=f"Кандидату {cand_name} отправлена ссылка на тест «{test.name}» (вакансия: {vac_name}). Ссылка: {url}",
         entities=[],
         candidate_id=app.candidate_id,
         vacancy_id=app.vacancy_id,
@@ -568,7 +568,7 @@ async def send_test_links(
                 actor_user_id=None,
                 text=(
                     f"Автоматизация: Глафира отправила кандидату {candidate.full_name} "
-                    f"ссылку на тест «{test.name}» (вакансия: {vacancy.name})."
+                    f"ссылку на тест «{test.name}» (вакансия: {vacancy.name}). Ссылка: {url}"
                 ),
                 entities=[],
                 candidate_id=app.candidate_id,

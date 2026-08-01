@@ -18,6 +18,26 @@ type ActionEvent = {
   entities?: any;
 };
 
+// Ссылки (тест/видеовстреча интервью) в тексте события → кликабельные и выделенные.
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+function linkify(text: string) {
+  return text.split(URL_RE).map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: 'var(--accent)', fontWeight: 500, textDecoration: 'underline', wordBreak: 'break-all' }}
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    )
+  );
+}
+
 // Маппинг типа события → { icon, ai, who }
 const EVENT_MAPPING = {
   score: { icon: 'sparkle' as const, ai: true, who: 'Глафира' },
@@ -106,7 +126,7 @@ export function AllActionsTab({ candidateId, candidate }: Props) {
                   <div className="action-text">
                     <span className={`action-who ${ai ? 'ai' : ''}`}>{who}</span>
                     {' '}
-                    {event.text}
+                    {linkify(event.text)}
                   </div>
                   <div className="action-time t-mono">{formatTime(event.created_at)}</div>
                 </div>
