@@ -102,6 +102,17 @@ def _validity_messages(flags) -> list[str]:
     ]
 
 
+def _option_content(opt: dict | None) -> dict | None:
+    """Отображаемое наполнение варианта: {"params", "text"}. None — вариант не найден.
+
+    Для matrix у варианта заполнен params (text=None), для text — наоборот. ⚠️ Только для
+    ПРИВАТНОГО эндпоинта: разбор с правильным ответом отдаётся авторизованному рекрутёру.
+    """
+    if not isinstance(opt, dict):
+        return None
+    return {"params": opt.get("params"), "text": opt.get("text")}
+
+
 async def _basic_assignment_out(
     session: AsyncSession, assignment: TestAssignment, company_id: UUID
 ) -> TestAssignmentOut:
@@ -344,18 +355,29 @@ async def list_application_tests(
         for a in ans_rows:
             answers_by_attempt[a.attempt_id].append(a)
 
-    # order_index заданий (для index в TestAnswerRow) — одним запросом.
+    # Полные задания по ОТВЕЧЕННЫМ item_ids — одним запросом (без N+1). Нужны для разбора
+    # сессии: kind/body/options/correct_option_id (последний — только на этом приватном
+    # эндпоинте, рекрутёру). company_id — defense-in-depth (item_ids уже транзитивно
+    # company-scoped через attempts/answers, но фильтр не ослабляет доступ).
     item_ids = {a.item_id for al in answers_by_attempt.values() for a in al}
-    order_by_item: dict[UUID, int] = {}
+    items_by_id: dict[UUID, object] = {}  # значение — Row(id, order_index, kind, body, options, correct_option_id)
     if item_ids:
         item_rows = (
             await session.execute(
-                select(TestItem.id, TestItem.order_index).where(
-                    TestItem.id.in_(item_ids)
+                select(
+                    TestItem.id,
+                    TestItem.order_index,
+                    TestItem.kind,
+                    TestItem.body,
+                    TestItem.options,
+                    TestItem.correct_option_id,
+                ).where(
+                    TestItem.id.in_(item_ids),
+                    TestItem.company_id == company_id,
                 )
             )
         ).all()
-        order_by_item = {r.id: r.order_index for r in item_rows}
+        items_by_id = {r.id: r for r in item_rows}
 
     out: list[TestAssignmentOut] = []
     for assignment, test in assignment_rows:
@@ -372,10 +394,28 @@ async def list_application_tests(
                 at = attempt_by_assignment.get(assignment.id)
                 if at is not None:
                     for a in answers_by_attempt.get(at.id, []):
+                        item = items_by_id.get(a.item_id)
+                        options = (getattr(item, "options", None) or []) if item is not None else []
+                        by_opt = {o.get("id"): o for o in options if isinstance(o, dict)}
+                        # Матч прямой: chosen_option_id/correct_option_id — РЕАЛЬНЫЕ seed-id
+                        # вариантов (o1..o8), item.options хранят их же (публичный флоу резолвит
+                        # эфемерную метку в реальный id перед персистом TestAnswer.chosen_option_id).
+                        chosen_opt = (
+                            by_opt.get(a.chosen_option_id)
+                            if a.chosen_option_id is not None
+                            else None
+                        )
+                        correct_opt = (
+                            by_opt.get(item.correct_option_id) if item is not None else None
+                        )
                         answer_rows.append(TestAnswerRow(
-                            index=order_by_item.get(a.item_id, 0),
+                            index=item.order_index if item is not None else 0,
                             item_id=a.item_id,
+                            item_kind=item.kind if item is not None else "",
+                            body=(getattr(item, "body", None) or {}) if item is not None else {},
                             chosen_option_id=a.chosen_option_id,
+                            chosen=_option_content(chosen_opt),
+                            correct=_option_content(correct_opt) or {"params": None, "text": None},
                             is_correct=a.is_correct,
                             time_ms=a.time_ms,
                         ))

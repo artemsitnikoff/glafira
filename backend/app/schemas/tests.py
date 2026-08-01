@@ -24,7 +24,13 @@ class TestAssignRequest(BaseModel):
 class TestAnswerRow(BaseModel):
     index: int                 # order_index задания
     item_id: UUID
+    item_kind: str             # 'matrix' | 'text' (item.kind)
+    body: dict                 # тело задания (item.body): matrix {cells, question_cell} / text {kind, terms, prompt}
     chosen_option_id: str | None
+    # Содержимое ВЫБРАННОГО кандидатом варианта {"params": .., "text": ..}; None — ответа не было / вариант не найден.
+    chosen: Optional[dict] = None
+    # Содержимое ПРАВИЛЬНОГО варианта {"params": .., "text": ..}. ⚠️ Приватный эндпоинт — рекрутёру можно.
+    correct: dict
     is_correct: bool           # рекрутёру верность показывать МОЖНО
     time_ms: int | None
 

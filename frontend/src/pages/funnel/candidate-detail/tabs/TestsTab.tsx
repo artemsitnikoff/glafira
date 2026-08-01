@@ -6,6 +6,7 @@ import { useApplicationTests, useTestDetail, type TestAssignmentOut } from '@/ap
 import { useRemindTest, useCancelTest } from '@/api/mutations/tests';
 import { testCatClass } from '@/lib/testCategory';
 import { AssignTestModal } from './AssignTestModal';
+import { TestAnswersModal } from './TestAnswersModal';
 import './TestsTab.css';
 
 type Props = {
@@ -32,6 +33,7 @@ export function TestsTab({ applicationId, candidate }: Props) {
   const canManage = role !== 'manager'; // manager: только просмотр результатов
   const [assignOpen, setAssignOpen] = useState(false);
   const [answersOpen, setAnswersOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const { data: assignments, isLoading } = useApplicationTests(applicationId);
   const list: TestAssignmentOut[] = assignments ?? [];
@@ -241,14 +243,22 @@ export function TestsTab({ applicationId, candidate }: Props) {
               Назначить ещё тест
             </button>
           )}
-          {a.url && (
-            <a className="btn btn-ghost btn-sm" href={a.url} target="_blank" rel="noreferrer">
-              <Icon name="open" size={13} /> Как это видел кандидат
-            </a>
+          {r.answers.length > 0 && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setReviewOpen(true)}>
+              <Icon name="clipboard" size={13} /> Разбор ответов
+            </button>
           )}
         </div>
       </div>
       {modal}
+      {reviewOpen && (
+        <TestAnswersModal
+          answers={r.answers}
+          testName={a.test_name}
+          candidateName={candidate?.full_name || 'Кандидат'}
+          onClose={() => setReviewOpen(false)}
+        />
+      )}
     </div>
   );
 }

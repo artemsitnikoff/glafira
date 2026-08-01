@@ -1,0 +1,251 @@
+/* Модалка «Разбор ответов» — карточка кандидата, вкладка «Тесты».
+   Scoped под .tans-ovl. Матрицы рисует переиспользуемый MatrixCell (ЧБ, ink
+   через color на .mx-svg). ЦВЕТ несут ТОЛЬКО статус-рамки верно/неверно и
+   бейджи (--ark-green-*/--ark-red-*/--ark-gray-*) — сами фигуры остаются ЧБ.
+   Токены — только существующие (§0 CLAUDE.md), фантомов нет. */
+
+.tans-ovl {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 32, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 24px;
+}
+.tans-modal {
+  background: var(--bg-elevated);
+  border-radius: 16px;
+  width: min(680px, 100%);
+  max-height: calc(100vh - 60px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.tans-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-2);
+}
+.tans-head h3 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.tans-head .sub {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.tans-head .x {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+}
+.tans-head .x:hover {
+  background: var(--bg-3-hover);
+  color: var(--fg-1);
+}
+.tans-body {
+  padding: 18px 20px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------- одна карточка задания ---------- */
+.tans-item {
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tans-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tans-num {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+.tans-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.tans-badge.ok {
+  background: var(--ark-green-100);
+  color: var(--ark-green-600);
+}
+.tans-badge.no {
+  background: var(--ark-red-100);
+  color: var(--ark-red-600);
+}
+.tans-badge.none {
+  background: var(--ark-gray-100);
+  color: var(--fg-2);
+}
+.tans-time {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.tans-lbl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 8px;
+}
+
+/* ---------- вопрос ---------- */
+.tans-matrix {
+  width: min(230px, 62%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 8px;
+  background: var(--bg-elevated);
+}
+.tans-mc {
+  aspect-ratio: 1;
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+}
+.tans-mc.q {
+  border: 1.5px dashed var(--ark-gray-400);
+  background: var(--bg-panel-2);
+  color: var(--ark-gray-500);
+  font-size: 24px;
+  font-weight: 500;
+}
+.tans-analogy {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+  text-align: center;
+}
+.tans-analogy .op {
+  color: var(--ark-gray-400);
+  font-weight: 400;
+  margin: 0 5px;
+}
+.tans-analogy .qm {
+  color: var(--accent);
+}
+.tans-series {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  text-align: center;
+}
+.tans-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.tans-word {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-1);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  padding: 5px 11px;
+}
+.tans-instr {
+  font-size: 13px;
+  color: var(--fg-2);
+  margin: 10px 0 0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ---------- ответ кандидата / правильный ---------- */
+.tans-compare {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tans-side {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+/* ЦВЕТ только на рамке — фон нейтральный, фигуры MatrixCell остаются ЧБ */
+.tans-ansbox {
+  border: 1.5px solid var(--border-1);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 68px;
+  background: var(--bg-elevated);
+}
+.tans-ansbox.ok {
+  border-color: var(--ark-green-500);
+}
+.tans-ansbox.no {
+  border-color: var(--ark-red-500);
+}
+.tans-ansbox.none {
+  border-style: dashed;
+}
+.tans-cell {
+  width: 58px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tans-txt {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-1);
+  text-align: center;
+}
+.tans-empty {
+  font-size: 13px;
+  color: var(--fg-3);
+  font-style: italic;
+}
+
+/* SVG-ячейка внутри модалки: единый ink через color, монохром (как на публичной
+   странице теста, но scoped — там правило .test-page .mx-svg, здесь своё). */
+.tans-ovl .mx-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  color: var(--ark-gray-800);
+}
