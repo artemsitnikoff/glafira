@@ -71,8 +71,27 @@ else
   echo "  [2/3] ⚠ .env не найден — пропуск" >&2
 fi
 
-# --- 3. Том backend_storage (логи/файлы /app/storage) ---
-STORAGE_VOL="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E 'backend_storage$' | head -1 || true)"
+# --- 3. Том backend_storage Глафиры (логи/файлы /app/storage) ---
+# ⚠️ На этом VPS живут ДРУГИЕ проекты со своими `*_backend_storage` томами. Раньше здесь было
+#    `docker volume ls | grep 'backend_storage$' | head -1` — и это хватало ЧУЖОЙ том (напр.
+#    dedecology_backend_storage), бэкапя чужие данные вместо Глафиры. Берём ИМЕННО том,
+#    смонтированный в /app/storage у контейнера `backend` ЭТОГО compose-проекта — единственный
+#    надёжный способ, не зависящий от имён/сортировки соседних проектов.
+STORAGE_VOL=""
+BACKEND_CID="$($COMPOSE ps -q backend 2>/dev/null | head -1 || true)"
+if [ -n "$BACKEND_CID" ]; then
+  STORAGE_VOL="$(docker inspect "$BACKEND_CID" \
+    --format '{{ range .Mounts }}{{ if eq .Destination "/app/storage" }}{{ .Name }}{{ end }}{{ end }}' \
+    2>/dev/null || true)"
+fi
+# Фолбэк (backend-контейнер не запущен): том по имени ЭТОГО проекта — БЕЗ слепого grep по всем.
+if [ -z "$STORAGE_VOL" ]; then
+  PROJECT="$(read_env COMPOSE_PROJECT_NAME)"; PROJECT="${PROJECT:-$(basename "$ROOT_DIR")}"
+  CAND="${PROJECT}_backend_storage"
+  if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qxF "$CAND"; then
+    STORAGE_VOL="$CAND"
+  fi
+fi
 if [ -n "$STORAGE_VOL" ]; then
   echo "  [3/3] архив тома '$STORAGE_VOL'…"
   docker run --rm -v "$STORAGE_VOL":/data:ro -v "$DEST":/backup alpine \
@@ -80,7 +99,7 @@ if [ -n "$STORAGE_VOL" ]; then
     && echo "      ✓ $(du -h "$DEST/storage.tgz" | cut -f1)  $DEST/storage.tgz" \
     || echo "      ⚠ не удалось архивировать том (не критично)" >&2
 else
-  echo "  [3/3] ⚠ том backend_storage не найден — пропуск" >&2
+  echo "  [3/3] ⚠ том backend_storage Глафиры не найден (backend-контейнер запущен?) — пропуск" >&2
 fi
 
 # --- Манифест ---
