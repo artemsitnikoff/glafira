@@ -1,6 +1,7 @@
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { Suspense } from 'react';
 import { Sidebar } from './Sidebar';
+import { ChatPopup } from './chat/ChatPopup';
 import { useAuthStore } from '@/store/authStore';
 
 export default function AppLayout() {
@@ -13,8 +14,14 @@ export default function AppLayout() {
     return <Navigate to="/requests" replace />;
   }
 
+  // Попап «Чаты» монтируется один раз рядом с Layout. Только для персонала
+  // (admin/recruiter) — у manager/hiring_manager нет кнопки и попап не нужен
+  // (закрытый попап не поллит: useDialogs enabled=open).
+  const showChat = role === 'admin' || role === 'recruiter';
+
   return (
     <div className="app-layout">
+      {showChat && <ChatPopup />}
       <Sidebar />
       <div className="main">
         <main className="content">

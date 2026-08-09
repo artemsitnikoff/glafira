@@ -15,6 +15,8 @@ class MessageOut(ORMBase):
     sent_at: datetime
     application_context: str | None = None
     vacancy_id: UUID | None = None
+    # Отклик-владелец hh-треда (для ответа в ТОТ ЖЕ negotiation). TG → null.
+    application_id: UUID | None = None
 
 
 class MessageCreate(BaseModel):

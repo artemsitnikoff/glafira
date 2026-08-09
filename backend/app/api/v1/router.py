@@ -9,6 +9,7 @@ from .candidate_import import router as candidate_import_router
 from .clients import router as clients_router
 from .consents import router as consents_router
 from .messages import router as messages_router
+from .chats import router as chats_router
 from .documents import router as documents_router
 from .comments import router as comments_router
 from .glafira import router as glafira_router, candidates_evaluation_router
@@ -59,6 +60,9 @@ api_router.include_router(
 )
 api_router.include_router(consents_router, tags=["consents"], dependencies=_deny_hm)
 api_router.include_router(messages_router, tags=["messages"], dependencies=_deny_hm)
+# Чаты — агрегаты (список диалогов/бейдж непрочитанных/мета каналов) поверх той же
+# ленты сообщений. Под _deny_hm (hiring_manager 403); manager-скоуп внутри.
+api_router.include_router(chats_router, prefix="/chats", tags=["chats"], dependencies=_deny_hm)
 api_router.include_router(documents_router, tags=["documents"], dependencies=_deny_hm)
 api_router.include_router(comments_router, tags=["comments"], dependencies=_deny_hm)
 api_router.include_router(glafira_router, prefix="/glafira", tags=["glafira"], dependencies=_deny_hm)

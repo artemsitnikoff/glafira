@@ -7,6 +7,8 @@ import { useMe } from '@/api/hooks/useMe';
 import { useSidebar } from '@/api/hooks/useSidebar';
 import { usePulseAlertsCount } from '@/api/hooks/usePulseAlerts';
 import { useRequestsSidebar } from '@/api/hooks/useRequests';
+import { useUnreadTotal } from '@/api/hooks/useChats';
+import { useChatStore } from '@/store/chatStore';
 import { Avatar } from './ui/Avatar';
 import { Icon, type IconName } from './ui/Icon';
 import type { VacancySidebarItem } from '@/api/aliases';
@@ -43,6 +45,13 @@ export function Sidebar() {
   const isHiringManager = user?.role === 'hiring_manager';
   const { data: sidebar } = useSidebar(!isHiringManager);
   const { count: alertsCount } = usePulseAlertsCount(!isHiringManager);
+
+  // Кнопка чатов — только для персонала (admin/recruiter). У manager и hiring_manager
+  // модуль «Чаты» скрыт: кнопка не рендерится, unread-total не поллится.
+  const showChat = me?.role === 'admin' || me?.role === 'recruiter';
+  const chatOpen = useChatStore((s) => s.open);
+  const chatToggle = useChatStore((s) => s.toggle);
+  const { data: chatUnread = 0 } = useUnreadTotal(showChat);
 
   const handleLogout = async () => {
     // Гасим refresh-cookie на сервере; даже если запрос упал — разлогиниваем локально.
@@ -297,13 +306,26 @@ export function Sidebar() {
               <div className="uc-name">{me.full_name}</div>
               <div className="uc-role">{me.role}</div>
             </div>
-            <button className="icon-btn" aria-label="Уведомления">
-              <Icon name="bell" size={16} />
-              {alertsCount > 0 && <span className="pip" />}
-            </button>
-            <button className="icon-btn" aria-label="Выйти" title="Выйти" onClick={handleLogout}>
-              <Icon name="log-out" size={16} />
-            </button>
+            <div className="ucw-actions">
+              {showChat && (
+                <button
+                  className={`icon-btn ${chatOpen ? 'active' : ''}`}
+                  aria-label="Чаты"
+                  title="Чаты с кандидатами"
+                  onClick={() => chatToggle()}
+                >
+                  <Icon name="message-circle" size={16} />
+                  {chatUnread > 0 && <span className="badge">{chatUnread}</span>}
+                </button>
+              )}
+              <button className="icon-btn" aria-label="Уведомления">
+                <Icon name="bell" size={16} />
+                {alertsCount > 0 && <span className="pip" />}
+              </button>
+              <button className="icon-btn" aria-label="Выйти" title="Выйти" onClick={handleLogout}>
+                <Icon name="log-out" size={16} />
+              </button>
+            </div>
           </>
         )}
       </div>

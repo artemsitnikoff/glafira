@@ -101,7 +101,8 @@ async def get_messages_paginated(
             body=message.body,
             sent_at=message.sent_at,
             application_context=application_context,
-            vacancy_id=vacancy_id
+            vacancy_id=vacancy_id,
+            application_id=message.application_id,
         ))
 
     pages = math.ceil(total / page_size) if total > 0 else 0
@@ -480,5 +481,6 @@ async def send_message(
         body=message.body,
         sent_at=message.sent_at,
         application_context=application_context,
-        vacancy_id=vacancy_id
+        vacancy_id=vacancy_id,
+        application_id=message.application_id,
     )

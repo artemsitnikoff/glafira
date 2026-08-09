@@ -1,0 +1,531 @@
+/* ===== Модуль «Чаты»: попап (.chp) + общая лента (.chat-thread) =====
+   Разметка/классы 1:1 с эталоном project/styles/chat.css (.chp-*).
+   Фантомные токены эталона смаплены по карте §0 CLAUDE.md:
+     --bg-hover→--bg-3-hover, --danger→--status-error, --shadow-2/-3→--shadow-lg,
+     --fg-link→--accent, --success→--status-success (presence убран, токен не нужен).
+   Скоуп: попап/список/шапка/пустое — под .chp; лента+композер — под .chat-thread
+   (лента переиспустима вкладкой «Чат» карточки в Фазе 4, без обёртки .chp).
+   Фон переписки (#fff) и арт-градиенты пустого состояния — иллюстрация 1:1 эталона,
+   не палитра-токены (мессенджер-конвенция: лента всегда светлая). */
+
+.chp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.chp {
+  position: fixed;
+  left: 254px;
+  bottom: 14px;
+  z-index: 81;
+  width: min(880px, calc(100vw - 270px));
+  height: min(580px, calc(100vh - 28px));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  overflow: hidden;
+  animation: chpIn 0.18s var(--ease-out);
+}
+@keyframes chpIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Слева: список диалогов ─────────────────────────────────────────────── */
+.chp .chp-list {
+  width: 308px;
+  flex: none;
+  border-right: 1px solid var(--border-2);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel-2);
+}
+.chp .chp-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 10px;
+}
+.chp .chp-list-head h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+.chp .chp-unread-chip {
+  background: var(--status-error);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.chp .chp-icon-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.chp .chp-icon-btn:hover {
+  background: var(--bg-3-hover);
+}
+.chp .chp-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 10px;
+  padding: 7px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+}
+.chp .chp-search input {
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+}
+.chp .chp-dialogs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 6px 8px;
+}
+.chp .chp-dlg {
+  display: flex;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  align-items: flex-start;
+}
+.chp .chp-dlg:hover {
+  background: var(--bg-3-hover);
+}
+.chp .chp-dlg.chp-cur {
+  background: var(--bg-selected);
+}
+.chp .chp-dlg-main {
+  flex: 1;
+  min-width: 0;
+}
+.chp .chp-dlg-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.chp .chp-dlg-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.chp .chp-dlg-time {
+  font-size: 11px;
+  color: var(--fg-3);
+  flex: none;
+}
+.chp .chp-dlg-vac {
+  font-size: 11.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.chp .chp-dlg-prev {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.chp .chp-dlg-text {
+  font-size: 12.5px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.chp .chp-dlg-badge {
+  flex: none;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--status-error);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+  padding: 0 5px;
+}
+.chp .chp-empty-search {
+  padding: 20px;
+  font-size: 12.5px;
+  color: var(--fg-3);
+  text-align: center;
+}
+
+/* ── Справа: колонка переписки / пустое состояние ───────────────────────── */
+.chp .chp-thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+}
+.chp .chp-th {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-2);
+}
+.chp .chp-th-info {
+  flex: 1;
+  min-width: 0;
+}
+.chp .chp-th-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.chp .chp-th-vac {
+  font-size: 11.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chp .chp-th-seen {
+  color: var(--fg-3);
+}
+.chp .chp-resume-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--bg-selected);
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 11px;
+  cursor: pointer;
+  flex: none;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.chp .chp-resume-btn:hover {
+  background: var(--ark-blue-100);
+}
+
+/* Пустое состояние — Глафира-style doodle */
+.chp .chp-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+}
+.chp .chp-empty h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.chp .chp-empty p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg-3);
+  max-width: 300px;
+}
+.chp .chp-empty-art {
+  position: relative;
+  width: 200px;
+  height: 150px;
+  margin-bottom: 18px;
+}
+.chp .chp-bub {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+}
+.chp .chp-bub-1 {
+  left: 10px;
+  top: 16px;
+  width: 98px;
+  height: 78px;
+  font-size: 46px;
+  background: linear-gradient(135deg, #ffd2e8, #ffb1d6);
+  border-radius: 28px 28px 28px 6px;
+  animation: chpFloat 3.4s ease-in-out infinite;
+}
+.chp .chp-bub-2 {
+  right: 12px;
+  top: 54px;
+  width: 76px;
+  height: 62px;
+  font-size: 34px;
+  background: linear-gradient(135deg, #cfe2fb, #7ab4f5);
+  border-radius: 24px 24px 6px 24px;
+  animation: chpFloat 3.4s 0.6s ease-in-out infinite;
+}
+.chp .chp-spark {
+  position: absolute;
+  font-size: 17px;
+  animation: chpFloat 2.8s ease-in-out infinite;
+}
+.chp .chp-spark.s1 { left: 0; top: 0; animation-delay: 0.2s; }
+.chp .chp-spark.s2 { right: 26px; top: 8px; font-size: 20px; animation-delay: 0.9s; }
+.chp .chp-spark.s3 { left: 38px; bottom: 0; animation-delay: 1.4s; }
+@keyframes chpFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+/* ── Общая лента переписки + композер (переиспустима вкладкой карточки) ──── */
+.chat-thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+}
+.chat-thread .chp-msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.chat-thread .chp-thread-empty {
+  margin: auto;
+  font-size: 12.5px;
+  color: var(--fg-3);
+}
+.chat-thread .chp-day {
+  align-self: center;
+  font-size: 11px;
+  color: var(--fg-3);
+  background: var(--bg-panel);
+  border-radius: 999px;
+  padding: 2px 10px;
+  margin: 6px 0 3px;
+}
+/* hh-контекст: пилюля-разделитель при смене вакансии (идиом .chp-day) */
+.chat-thread .chp-context {
+  align-self: center;
+  max-width: 90%;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--ark-blue-100);
+  border-radius: 999px;
+  padding: 2px 12px;
+  margin: 6px 0 3px;
+  text-align: center;
+}
+.chat-thread .chp-msg {
+  max-width: 72%;
+  padding: 8px 12px 6px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-thread .chp-msg.in {
+  align-self: flex-start;
+  background: var(--bg-panel);
+  border-bottom-left-radius: 4px;
+}
+.chat-thread .chp-msg.out {
+  align-self: flex-end;
+  background: var(--ark-blue-50);
+  border-bottom-right-radius: 4px;
+}
+.chat-thread .chp-msg.chp-msg-failed {
+  opacity: 0.7;
+}
+.chat-thread .chp-msg-who {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.chat-thread .chp-msg.in .chp-msg-who { color: var(--accent); }
+.chat-thread .chp-msg.out .chp-msg-who { color: var(--fg-2); }
+.chat-thread .chp-msg-meta {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  margin-top: 2px;
+}
+.chat-thread .chp-ticks {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.chat-thread .chp-ticks.one { color: var(--fg-3); }
+.chat-thread .chp-spin { animation: chpSpin 1s linear infinite; }
+@keyframes chpSpin { to { transform: rotate(360deg); } }
+.chat-thread .chp-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 10.5px;
+  color: var(--status-error);
+  cursor: pointer;
+}
+.chat-thread .chp-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-2);
+}
+.chat-thread .chp-composer.chp-composer-tab {
+  border-top: 0;
+  padding: 8px 14px 2px;
+}
+/* tab: контролы над композером (селектор канала + «Шаблон») */
+.chat-thread .chp-composer-extra {
+  padding: 10px 14px 0;
+  border-top: 1px solid var(--border-2);
+}
+/* tab: подсказка под композером */
+.chat-thread .chp-composer-hint {
+  padding: 2px 16px 10px;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.chat-thread .chp-composer-hint b {
+  color: var(--fg-1);
+  font-weight: 600;
+}
+/* нет доступного канала — честно выключенный композер */
+.chat-thread .chp-composer-disabled {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--fg-3);
+  text-align: center;
+}
+.chat-thread .chp-input {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  padding: 7px 8px 7px 14px;
+}
+.chat-thread .chp-input input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.chat-thread .chp-emoji-btn {
+  border: 0;
+  background: none;
+  font-size: 17px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.8;
+}
+.chat-thread .chp-emoji-btn:hover { opacity: 1; }
+.chat-thread .chp-send {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: none;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.chat-thread .chp-send:hover { background: var(--accent-hover); }
+.chat-thread .chp-send:disabled { background: var(--ark-gray-300); cursor: default; }
+
+/* ── Пагинация: догрузка старых при скролле вверх (попап + вкладка) ────────── */
+.chat-thread .chp-top-sentinel {
+  height: 1px;
+  flex: none;
+}
+.chat-thread .chp-load-older {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px 8px;
+}
+.chat-thread .chp-skel-line {
+  height: 30px;
+  width: 58%;
+  align-self: flex-start;
+  border-radius: 14px;
+  background: linear-gradient(90deg, var(--bg-panel) 25%, var(--bg-3-hover) 37%, var(--bg-panel) 63%);
+  background-size: 400% 100%;
+  animation: chpSkel 1.2s ease-in-out infinite;
+}
+.chat-thread .chp-skel-line.short {
+  width: 42%;
+  align-self: flex-end;
+}
+@keyframes chpSkel {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+/* ── tab: точка канала + название в мете сообщения (флаг showChannel) ──────── */
+.chat-thread .chp-msg-ch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ch-color, var(--fg-3));
+  margin-right: 2px;
+}
+.chat-thread .chp-msg-ch-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ch-color, currentColor);
+  flex: none;
+}

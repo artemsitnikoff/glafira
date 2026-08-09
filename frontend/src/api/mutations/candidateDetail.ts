@@ -13,6 +13,8 @@ type MessageCreate = {
   body: string;
   sender_type: string;
   channel?: string;
+  // hh-ответ уходит в ТОТ ЖЕ отклик/negotiation (application_id последнего hh-сообщения).
+  application_id?: string | null;
 };
 type CommentCreate = {
   body: string;

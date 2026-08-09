@@ -507,3 +507,31 @@
   background: var(--ark-red-500);
   border: 1.5px solid var(--bg-elevated);
 }
+
+/* Кнопки действий user-card: чат · колокольчик · выход (эталон .ucw-actions).
+   --danger эталона → --status-error по карте §0. */
+.sidebar-wide .ucw-actions {
+  display: flex;
+  gap: 0;
+  margin-left: auto;
+  flex: none;
+}
+.sidebar-wide .icon-btn.active {
+  background: var(--bg-selected);
+  color: var(--accent);
+}
+.sidebar-wide .icon-btn .badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--status-error);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  padding: 0 4px;
+  text-align: center;
+}

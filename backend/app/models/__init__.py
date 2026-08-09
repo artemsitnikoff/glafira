@@ -14,6 +14,7 @@ from .candidate import (
 from .application import Application, StageHistory
 from .consent import Consent
 from .message import Message
+from .message_read import MessageRead
 from .document import Document
 from .verification import Verification
 from .evaluation import AiEvaluation
@@ -76,6 +77,7 @@ __all__ = [
     "StageHistory",
     "Consent",
     "Message",
+    "MessageRead",
     "Document",
     "Verification",
     "AiEvaluation",

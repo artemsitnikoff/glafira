@@ -1,80 +1,71 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Icon } from '@/components/ui/Icon';
-import { Avatar } from '@/components/ui/Avatar';
-import { useMessages, useSyncTelegramInbound } from '@/api/hooks/useMessages';
-import { useSendMessage } from '@/api/mutations/candidateDetail';
+import { ChatThread } from '@/components/chat/ChatThread';
+import { useSyncTelegramInbound } from '@/api/hooks/useMessages';
 import { useMessageTemplates } from '@/api/hooks/useMessageTemplates';
-
-// Разделитель дня в чате — по РЕАЛЬНОЙ дате сообщения (sent_at), а не «сегодня».
-function _dayKey(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-function _dayLabel(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const yest = new Date(now);
-  yest.setDate(now.getDate() - 1);
-  if (_dayKey(iso) === _dayKey(now.toISOString())) return 'Сегодня';
-  if (_dayKey(iso) === _dayKey(yest.toISOString())) return 'Вчера';
-  return d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: '2-digit' });
-}
+import { useChatMeta } from '@/api/hooks/useChats';
+import { channelMeta } from '@/lib/chat-channels';
 
 type Props = {
   candidateId?: string;
-  candidate?: any;
+  candidate?: { id?: string; full_name?: string; source?: string } | null;
   fromPool?: boolean;
 };
 
-// Channel options — color logos & labels (1:1 эталон)
-// id = значение канала в БД (CHECK: telegram|hh|whatsapp|max|sms|email)
-const CHANNELS = [
-  { id: 'telegram', label: 'Telegram', short: 'TG', color: '#229ED9' },
-  { id: 'hh', label: 'hh.ru', short: 'hh', color: '#D6001C' },
-  { id: 'max', label: 'Max', short: 'MX', color: '#0077FF' },
-  { id: 'whatsapp', label: 'WhatsApp', short: 'WA', color: '#25D366' },
-  { id: 'sms', label: 'SMS', short: 'SMS', color: '#7A7F87' },
-  { id: 'email', label: 'E-mail', short: '@', color: '#5B6573' },
-];
-
-export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
+/**
+ * Вкладка «Чат» карточки кандидата. Лента+композер — из ОБЩЕГО ChatThread (тот же
+ * рендер и тот же источник данных, что попап сайдбара: useMessagesInfinite +
+ * useSendMessage, queryKey-префикс ['candidates',id,'messages']) → отправка из
+ * вкладки сразу видна в попапе и наоборот.
+ *
+ * Своё у вкладки (передаётся в ChatThread пропсами): селектор канала ответа НАД
+ * композером (ТОЛЬКО реально доступные каналы из useChatMeta().available_channels —
+ * подмножество telegram/hh; email/sms/max/whatsapp НЕ рисуем), быстрые шаблоны
+ * (вставка в черновик через insertText), точка канала в мете каждого сообщения
+ * (showChannel). Нет канала → composer честно выключен.
+ */
+export function ChatTab({ candidateId, candidate }: Props) {
   const actualCandidateId = candidateId || candidate?.id;
-  const [activeChannel, setActiveChannel] = useState(() =>
-    candidate?.source === 'hh' ? 'hh' : 'telegram'
-  );
-  const [draft, setDraft] = useState('');
-  const [open, setOpen] = useState(false);
-  const [tplOpen, setTplOpen] = useState(false);
-  const { data: messages, isLoading } = useMessages(actualCandidateId);
-  const { data: templates } = useMessageTemplates();
-  const sendMutation = useSendMessage(actualCandidateId);
-
   const queryClient = useQueryClient();
+
+  const { data: meta } = useChatMeta(actualCandidateId ?? null);
+  const { data: templates } = useMessageTemplates();
+
+  const available = meta?.available_channels ?? [];
+  const availKey = available.join(',');
+
+  const [activeChannel, setActiveChannel] = useState<string | null>(null);
+  const [chOpen, setChOpen] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
+
+  // Дефолт = meta.default_channel; держим выбор валидным при смене набора каналов
+  // (кандидат без отклика hh → hh пропадает из available_channels).
+  useEffect(() => {
+    if (!meta) return;
+    setActiveChannel((cur) => {
+      if (cur && available.includes(cur)) return cur;
+      if (meta.default_channel && available.includes(meta.default_channel)) return meta.default_channel;
+      return available[0] ?? null;
+    });
+    // available — производное от meta; ключ available.join(',') покрывает смену набора.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, availKey]);
+
+  // Синхронизация входящих Telegram каждые 90с (зеркалит попап). hh — cron-only.
   const syncMutation = useSyncTelegramInbound(actualCandidateId ?? null);
-  // Сохраняем ссылку на mutate, чтобы не пересоздавать эффект при каждом рендере
   const syncMutateRef = useRef(syncMutation.mutate);
   syncMutateRef.current = syncMutation.mutate;
-  // In-flight guard: синк = тяжёлый серверный iter_dialogs(200) по MTProto. Не даём
-  // тикам накладываться, если предыдущий синк ещё идёт (медленный Telethon / быстрые
-  // переключения вкладок).
   const syncInFlight = useRef(false);
-
-  // Синхронизация входящих Telegram-ответов: сразу при монтировании/смене кандидата,
-  // затем каждые 90 секунд (фоновый cron раз в 3 мин закрывает промежуток).
-  // Ошибки проглатываются — это фоновый pull, не блокирует UI.
   useEffect(() => {
     if (!actualCandidateId) return;
-
     const runSync = () => {
-      if (syncInFlight.current) return;  // предыдущий синк ещё не завершился — пропускаем тик
+      if (syncInFlight.current) return;
       syncInFlight.current = true;
       syncMutateRef.current(undefined, {
         onSuccess: (result) => {
           if (result.imported > 0) {
-            queryClient.invalidateQueries({
-              queryKey: ['candidates', actualCandidateId, 'messages'],
-            });
+            queryClient.invalidateQueries({ queryKey: ['candidates', actualCandidateId, 'messages'] });
           }
         },
         onSettled: () => {
@@ -82,262 +73,101 @@ export function ChatTab({ candidateId, candidate, fromPool = false }: Props) {
         },
       });
     };
-
     runSync();
     const timer = setInterval(runSync, 90000);
     return () => clearInterval(timer);
   }, [actualCandidateId, queryClient]);
 
-  const channelMeta = (id: string) => CHANNELS.find(x => x.id === id) || CHANNELS[0];
-  const active = channelMeta(activeChannel);
+  if (!actualCandidateId) return <div className="chat-tab" />;
 
-  const applyTemplate = (text: string) => {
-    setDraft(prev => prev.trim() ? `${prev.trimEnd()}\n${text}` : text);
-  };
-
-  // Каналы селектора:
-  //  • REAL — реальная отправка (telegram/hh/email); hh только для hh-кандидатов.
-  //  • SOON — видны, но неактивны («Скоро»): реальной отправки ещё нет (sms — нет
-  //    SMS-провайдера). Честно показываем, что канал не работает, а не делаем вид.
-  //  • whatsapp/max убраны совсем. CHANNELS оставлен полным — для отрисовки истории.
-  const isHhCandidate = candidate?.source === 'hh';
-  const REAL_CHANNELS = new Set(['telegram', 'hh', 'email']);
-  const SOON_CHANNELS = new Set(['sms']);
-  const availableChannels = CHANNELS.filter(
-    c =>
-      (REAL_CHANNELS.has(c.id) && (c.id !== 'hh' || isHhCandidate)) ||
-      SOON_CHANNELS.has(c.id)
-  );
-
-  // Группировка сообщений по vacancy_id для fromPool режима (упрощённо - можно убрать)
-  const messageGroups = fromPool && messages ? (() => {
-    const groupMap = new Map<string | null, typeof messages>();
-    for (const msg of messages) {
-      const key = msg.vacancy_id ?? null;
-      if (!groupMap.has(key)) groupMap.set(key, []);
-      groupMap.get(key)!.push(msg);
-    }
-    const orderedGroups: Array<[string | null, typeof messages]> = [];
-    for (const [key, group] of groupMap.entries()) {
-      if (key !== null) orderedGroups.push([key, group]);
-    }
-    if (groupMap.has(null)) orderedGroups.push([null, groupMap.get(null)!]);
-    return orderedGroups;
-  })() : null;
-
-  const send = () => {
-    if (!draft.trim()) return;
-
-    sendMutation.mutate(
-      {
-        body: draft.trim(),
-        sender_type: 'user',
-        channel: activeChannel,
-      } as any, // Приведение типа, т.к. channel может ещё не быть в типе
-      {
-        onSuccess: () => {
-          setDraft('');
-        },
-      }
-    );
-  };
-
-  if (isLoading) {
-    return (
-      <div className="chat-tab">
-        <div className="chat-stream" style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--fg-3)' }}>
-            <Icon name="loader" size={16} />
-            <span style={{ fontSize: '13px' }}>Загружаются сообщения...</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const noChannel = available.length === 0;
+  const sendChannel = activeChannel ?? meta?.default_channel ?? 'telegram';
+  const activeMeta = channelMeta(sendChannel);
 
   return (
     <div className="chat-tab">
-      <div className="chat-stream">
-        {messages && messages.length > 0 ? (
-          fromPool && messageGroups ? (
-            // Группированный режим (можно упростить до плоского)
-            messageGroups.map(([vacancyId, group]) => (
-              <div key={vacancyId || 'null-group'}>
-                {/* Можно убрать разделитель групп для упрощения */}
-                {group.map((m, i) => {
-                  const ch = channelMeta(m.channel || 'tg');
-                  const isMe = m.direction === 'out';
-                  const who = isMe ? (m.sender_name || 'Вы') : (candidate?.full_name || 'Кандидат');
-                  const showDay = i === 0 || _dayKey(m.sent_at) !== _dayKey(group[i - 1].sent_at);
-                  return (
-                    <Fragment key={m.id}>
-                    {showDay && <div className="chat-day-divider"><span>{_dayLabel(m.sent_at)}</span></div>}
-                    <div className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
-                      {!isMe && <Avatar name={who} size="sm" />}
-                      <div className="chat-bubble-wrap">
-                        <div className="chat-meta">
-                          <span className="chat-who">{who}</span>
-                          <span className={`chat-ch chat-ch-${m.channel || 'tg'}`} style={{'--ch-color': ch.color} as any}>
-                            <span className="chat-ch-dot" style={{background: ch.color}} />
-                            {ch.label}
-                          </span>
-                        </div>
-                        <div className={`chat-bubble ${isMe ? 'chat-bubble-me' : 'chat-bubble-them'}`}>
-                          {m.body}
-                        </div>
-                        <div className="chat-time t-mono">
-                          {new Date(m.sent_at).toLocaleTimeString('ru', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </div>
-                      </div>
-                      {isMe && <Avatar name={who} size="sm" />}
-                    </div>
-                    </Fragment>
-                  );
-                })}
-              </div>
-            ))
-          ) : (
-            // Плоский список (основной режим)
-            messages.map((m, i) => {
-              const ch = channelMeta(m.channel || 'telegram');
-              const isMe = m.direction === 'out';
-              const who = isMe ? (m.sender_name || 'Вы') : (candidate?.full_name || 'Кандидат');
-              const showDay = i === 0 || _dayKey(m.sent_at) !== _dayKey(messages[i - 1].sent_at);
-              return (
-                <Fragment key={m.id}>
-                {showDay && <div className="chat-day-divider"><span>{_dayLabel(m.sent_at)}</span></div>}
-                <div className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
-                  {!isMe && <Avatar name={who} size="sm" />}
-                  <div className="chat-bubble-wrap">
-                    <div className="chat-meta">
-                      <span className="chat-who">{who}</span>
-                      <span className={`chat-ch chat-ch-${m.channel || 'tg'}`} style={{'--ch-color': ch.color} as any}>
-                        <span className="chat-ch-dot" style={{background: ch.color}} />
-                        {ch.label}
-                      </span>
-                    </div>
-                    <div className={`chat-bubble ${isMe ? 'chat-bubble-me' : 'chat-bubble-them'}`}>
-                      {m.body}
-                    </div>
-                    <div className="chat-time t-mono">
-                      {new Date(m.sent_at).toLocaleTimeString('ru', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
-                  </div>
-                  {isMe && <Avatar name={who} size="sm" />}
-                </div>
-                </Fragment>
-              );
-            })
+      <ChatThread
+        candidateId={actualCandidateId}
+        sendChannel={sendChannel}
+        variant="tab"
+        showChannel
+        disabledReason={
+          noChannel
+            ? 'Нет подключённого канала — написать кандидату пока некуда. Подключите Telegram в настройках или дождитесь отклика с hh.'
+            : null
+        }
+        composerHint={
+          noChannel ? null : (
+            <>
+              Enter — отправить · ответ уйдёт в <b>{activeMeta.label}</b>
+            </>
           )
-        ) : (
-          <div style={{ textAlign: 'center', color: 'var(--fg-3)', fontSize: '13px', padding: '40px 20px' }}>
-            Сообщений пока нет
-          </div>
-        )}
-      </div>
-
-      <div className="chat-compose">
-        <div className="chat-compose-head">
-          <span className="chat-compose-label">Канал ответа:</span>
-          <div className={`chat-ch-select ${open ? 'open' : ''}`}>
-            <button type="button" className="chat-ch-trigger" onClick={() => setOpen(!open)}>
-              <span className="chat-ch-dot" style={{background: active.color}} />
-              <span className="chat-ch-trigger-label">{active.label}</span>
-              <Icon name="chevD" size={14} />
-            </button>
-            {open && (
-              <div className="chat-ch-menu">
-                {availableChannels.map(ch => {
-                  const soon = SOON_CHANNELS.has(ch.id);
-                  return (
-                    <button
-                      type="button"
-                      key={ch.id}
-                      className={`chat-ch-opt ${ch.id === activeChannel ? 'active' : ''}${soon ? ' soon' : ''}`}
-                      disabled={soon}
-                      onClick={() => { if (soon) return; setActiveChannel(ch.id); setOpen(false); }}
-                    >
-                      <span className="chat-ch-dot" style={{background: ch.color}} />
-                      <span className="chat-ch-opt-label">{ch.label}</span>
-                      {soon && <span className="chat-ch-soon">Скоро</span>}
-                      {!soon && ch.id === activeChannel && <Icon name="check" size={14} />}
+        }
+        renderComposerExtra={
+          noChannel
+            ? undefined
+            : ({ insertText }) => (
+                <div className="chat-compose-head">
+                  <span className="chat-compose-label">Канал ответа:</span>
+                  <div className={`chat-ch-select ${chOpen ? 'open' : ''}`}>
+                    <button type="button" className="chat-ch-trigger" onClick={() => setChOpen((o) => !o)}>
+                      <span className="chat-ch-dot" style={{ background: activeMeta.color }} />
+                      <span className="chat-ch-trigger-label">{activeMeta.label}</span>
+                      <Icon name="chevD" size={14} />
                     </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <div className={`chat-ch-select ${tplOpen ? 'open' : ''}`}>
-            <button
-              type="button"
-              className="chat-ch-trigger"
-              onClick={() => setTplOpen(!tplOpen)}
-              disabled={!templates || templates.length === 0}
-            >
-              <Icon name="file-text" size={14} />
-              <span className="chat-ch-trigger-label">Шаблон</span>
-              <Icon name="chevD" size={14} />
-            </button>
-            {tplOpen && templates && templates.length > 0 && (
-              <div className="chat-ch-menu">
-                {templates.map(tpl => (
-                  <button
-                    type="button"
-                    key={tpl.id}
-                    className="chat-ch-opt"
-                    onClick={() => {
-                      applyTemplate(tpl.body);
-                      setTplOpen(false);
-                    }}
-                  >
-                    <span className="chat-ch-opt-label">{tpl.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="chat-compose-body">
-          <div className="chat-input-wrap">
-            <textarea
-              className="chat-input"
-              placeholder={`Сообщение в ${active.label}…`}
-              rows={2}
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); }}
-            />
-            <button
-              className="chat-send-btn"
-              onClick={send}
-              disabled={!draft.trim() || sendMutation.isPending}
-              type="button"
-              title="Отправить (Ctrl+Enter)"
-              aria-label="Отправить"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 2 11 13"/>
-                <path d="M22 2 15 22l-4-9-9-4z"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div className="chat-compose-hint">Ctrl + Enter — отправить · ответ уйдёт в <b>{active.label}</b></div>
-      </div>
-
-      {sendMutation.isError && (
-        <div style={{ marginTop: '8px', color: 'var(--stage-rejected)', fontSize: '12px', padding: '0 16px' }}>
-          Не отправлено: {(sendMutation.error as any)?.error?.message
-            || (sendMutation.error as any)?.message
-            || 'сообщение не доставлено'}
-        </div>
-      )}
+                    {chOpen && (
+                      <div className="chat-ch-menu">
+                        {available.map((id) => {
+                          const cm = channelMeta(id);
+                          return (
+                            <button
+                              type="button"
+                              key={id}
+                              className={`chat-ch-opt ${id === sendChannel ? 'active' : ''}`}
+                              onClick={() => {
+                                setActiveChannel(id);
+                                setChOpen(false);
+                              }}
+                            >
+                              <span className="chat-ch-dot" style={{ background: cm.color }} />
+                              <span className="chat-ch-opt-label">{cm.label}</span>
+                              {id === sendChannel && <Icon name="check" size={14} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {templates && templates.length > 0 && (
+                    <div className={`chat-ch-select ${tplOpen ? 'open' : ''}`}>
+                      <button type="button" className="chat-ch-trigger" onClick={() => setTplOpen((o) => !o)}>
+                        <Icon name="file-text" size={14} />
+                        <span className="chat-ch-trigger-label">Шаблон</span>
+                        <Icon name="chevD" size={14} />
+                      </button>
+                      {tplOpen && (
+                        <div className="chat-ch-menu">
+                          {templates.map((tpl) => (
+                            <button
+                              type="button"
+                              key={tpl.id}
+                              className="chat-ch-opt"
+                              onClick={() => {
+                                insertText(tpl.body);
+                                setTplOpen(false);
+                              }}
+                            >
+                              <span className="chat-ch-opt-label">{tpl.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+        }
+      />
     </div>
   );
 }
