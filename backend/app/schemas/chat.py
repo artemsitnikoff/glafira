@@ -57,3 +57,13 @@ class MarkReadOut(BaseModel):
     """Ответ POST .../messages/read: диалог помечен прочитанным (unread обнулён)."""
     ok: bool
     unread: int
+
+
+class ChatReadAllOut(BaseModel):
+    """Ответ POST /chats/read-all: помечены прочитанными ВСЕ диалоги юзера.
+
+    marked — число затронутых диалогов (кандидатов с входящими). Пер-юзер: чужие
+    ReadState не тронуты.
+    """
+    ok: bool
+    marked: int

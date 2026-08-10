@@ -62,6 +62,27 @@
   border-radius: 999px;
   padding: 1px 7px;
 }
+.chp .chp-readall-btn {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.chp .chp-readall-btn:hover {
+  background: var(--bg-3-hover);
+  color: var(--accent);
+}
+.chp .chp-readall-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .chp .chp-icon-btn {
   margin-left: auto;
   width: 28px;
@@ -179,6 +200,24 @@
   font-size: 12.5px;
   color: var(--fg-3);
   text-align: center;
+}
+/* Догрузка следующих диалогов вниз: скелет + нижний сентинель наблюдателя. */
+.chp .chp-dlg-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.chp .chp-dlg-skel {
+  height: 46px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--bg-panel) 25%, var(--bg-3-hover) 37%, var(--bg-panel) 63%);
+  background-size: 400% 100%;
+  animation: chpSkel 1.2s ease-in-out infinite;
+}
+.chp .chp-bottom-sentinel {
+  height: 1px;
+  flex: none;
 }
 
 /* ── Справа: колонка переписки / пустое состояние ───────────────────────── */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Avatar } from '@/components/ui/Avatar';
@@ -10,7 +10,9 @@ import {
   useUnreadTotal,
   useChatMeta,
   useMarkRead,
+  useMarkAllRead,
   useSyncHhInbound,
+  formatUnread,
   type ChatDialog,
 } from '@/api/hooks/useChats';
 import { ChatThread } from './ChatThread';
@@ -60,10 +62,38 @@ export function ChatPopup() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data: dialogs, isLoading } = useDialogs(debouncedQ, open);
+  const {
+    data: dialogsData,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useDialogs(debouncedQ, open);
   const { data: unreadTotal = 0 } = useUnreadTotal(open);
   const { data: meta } = useChatMeta(open ? selectedCandidateId : null);
   const markRead = useMarkRead();
+  const markAllRead = useMarkAllRead();
+
+  // Скролл-контейнер списка диалогов (root наблюдателя) + нижний сентинель.
+  const dialogsScrollRef = useRef<HTMLDivElement>(null);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
+
+  // Плоский дедупнутый список диалогов из страниц infinite-query. Дедуп по
+  // candidate_id: при поллинге новое входящее пересортировывает диалог вверх и
+  // offset-страница может его повторить → без дедупа был бы дубль key в React.
+  const list = useMemo<ChatDialog[]>(() => {
+    const seen = new Set<string>();
+    const out: ChatDialog[] = [];
+    for (const page of dialogsData?.pages ?? []) {
+      for (const d of page) {
+        if (!seen.has(d.candidate_id)) {
+          seen.add(d.candidate_id);
+          out.push(d);
+        }
+      }
+    }
+    return out;
+  }, [dialogsData]);
 
   // On-open синк входящих — TG всегда, hh при hh_available (зеркалит ленту карточки).
   const tgSync = useSyncTelegramInbound(selectedCandidateId);
@@ -109,6 +139,26 @@ export function ChatPopup() {
     return () => window.removeEventListener('keydown', h);
   }, [open, close]);
 
+  // Догрузка следующих диалогов при приближении к низу списка (IntersectionObserver,
+  // root = скролл-контейнер .chp-dialogs; сентинель — в конце списка, rootMargin 120px).
+  // list.length в deps: сентинель монтируется только в непустой ветке — при переходе
+  // пусто→список наблюдатель пере-навешивается на новый target.
+  useEffect(() => {
+    const root = dialogsScrollRef.current;
+    const target = bottomSentinelRef.current;
+    if (!root || !target) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { root, rootMargin: '0px 0px 120px 0px', threshold: 0 }
+    );
+    io.observe(target);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, list.length]);
+
   if (!open) return null;
 
   const openDialog = (d: ChatDialog) => {
@@ -120,7 +170,7 @@ export function ChatPopup() {
   const activeDialog: ChatDialog | null =
     snapshot && snapshot.candidate_id === selectedCandidateId
       ? snapshot
-      : dialogs?.find((d) => d.candidate_id === selectedCandidateId) ?? null;
+      : list.find((d) => d.candidate_id === selectedCandidateId) ?? null;
 
   const goResume = () => {
     if (!activeDialog) return;
@@ -129,7 +179,6 @@ export function ChatPopup() {
     navigate(vacancy_id ? `/vacancies/${vacancy_id}/candidates/${candidate_id}` : `/candidates/${candidate_id}`);
   };
 
-  const list = dialogs ?? [];
   const seen = activeDialog ? lastSeenLabel(activeDialog.last_inbound_at) : null;
   // ⚠️ Канал отправки — ТОЛЬКО из meta.available_channels (telegram/hh). НЕ откатываться на
   // activeDialog.channel: в истории может быть email (письмо-оффер), а слать туда нельзя (§0/матрица).
@@ -155,7 +204,21 @@ export function ChatPopup() {
         <div className="chp-list">
           <div className="chp-list-head">
             <h3>Чаты</h3>
-            {unreadTotal > 0 && <span className="chp-unread-chip">{unreadTotal}</span>}
+            {unreadTotal > 0 && (
+              <>
+                <span className="chp-unread-chip">{formatUnread(unreadTotal)}</span>
+                <button
+                  type="button"
+                  className="chp-readall-btn"
+                  onClick={() => markAllRead.mutate()}
+                  disabled={markAllRead.isPending}
+                  title="Прочитать все"
+                  aria-label="Отметить все диалоги прочитанными"
+                >
+                  <Icon name="check" size={15} />
+                </button>
+              </>
+            )}
             <button className="chp-icon-btn" aria-label="Закрыть" onClick={close}>
               <Icon name="x" size={16} />
             </button>
@@ -164,38 +227,49 @@ export function ChatPopup() {
             <Icon name="search" size={13} style={{ color: 'var(--fg-3)', flex: 'none' }} />
             <input placeholder="Поиск по чатам…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <div className="chp-dialogs">
+          <div className="chp-dialogs" ref={dialogsScrollRef}>
             {isLoading && list.length === 0 ? (
               <div className="chp-empty-search">Загрузка…</div>
             ) : list.length === 0 ? (
               <div className="chp-empty-search">{debouncedQ ? 'Ничего не найдено' : 'Диалогов пока нет'}</div>
             ) : (
-              list.map((d) => {
-                const mine = d.last_sender_type === 'recruiter';
-                return (
-                  <div
-                    key={d.candidate_id}
-                    className={`chp-dlg ${selectedCandidateId === d.candidate_id ? 'chp-cur' : ''}`}
-                    onClick={() => openDialog(d)}
-                  >
-                    <Avatar name={d.name} src={d.avatar_url} size="sm" />
-                    <div className="chp-dlg-main">
-                      <div className="chp-dlg-top">
-                        <span className="chp-dlg-name">{d.name}</span>
-                        <span className="chp-dlg-time">{dialogTime(d.sent_at)}</span>
-                      </div>
-                      {d.vacancy_name && <div className="chp-dlg-vac">{d.vacancy_name}</div>}
-                      <div className="chp-dlg-prev">
-                        <span className="chp-dlg-text">
-                          {mine ? 'Вы: ' : ''}
-                          {d.preview}
-                        </span>
-                        {d.unread_count > 0 && <span className="chp-dlg-badge">{d.unread_count}</span>}
+              <>
+                {list.map((d) => {
+                  const mine = d.last_sender_type === 'recruiter';
+                  return (
+                    <div
+                      key={d.candidate_id}
+                      className={`chp-dlg ${selectedCandidateId === d.candidate_id ? 'chp-cur' : ''}`}
+                      onClick={() => openDialog(d)}
+                    >
+                      <Avatar name={d.name} src={d.avatar_url} size="sm" />
+                      <div className="chp-dlg-main">
+                        <div className="chp-dlg-top">
+                          <span className="chp-dlg-name">{d.name}</span>
+                          <span className="chp-dlg-time">{dialogTime(d.sent_at)}</span>
+                        </div>
+                        {d.vacancy_name && <div className="chp-dlg-vac">{d.vacancy_name}</div>}
+                        <div className="chp-dlg-prev">
+                          <span className="chp-dlg-text">
+                            {mine ? 'Вы: ' : ''}
+                            {d.preview}
+                          </span>
+                          {d.unread_count > 0 && (
+                            <span className="chp-dlg-badge">{formatUnread(d.unread_count)}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                  );
+                })}
+                {isFetchingNextPage && (
+                  <div className="chp-dlg-loading" aria-hidden>
+                    <div className="chp-dlg-skel" />
+                    <div className="chp-dlg-skel" />
                   </div>
-                );
-              })
+                )}
+                <div ref={bottomSentinelRef} className="chp-bottom-sentinel" aria-hidden />
+              </>
             )}
           </div>
         </div>

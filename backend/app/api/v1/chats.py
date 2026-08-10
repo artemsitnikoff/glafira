@@ -16,10 +16,11 @@ from ...core.permissions import can_manager_access_candidate
 from ...database import get_db
 from ...deps import get_current_company_id, get_current_user
 from ...models import User
-from ...schemas.chat import ChatDialogOut, ChatMetaOut, ChatUnreadTotal
+from ...schemas.chat import ChatDialogOut, ChatMetaOut, ChatReadAllOut, ChatUnreadTotal
 from ...services.chats import (
     get_candidate_chat_meta,
     list_dialogs,
+    mark_all_read,
     total_unread,
 )
 
@@ -63,6 +64,29 @@ async def get_unread_total(
         manager_user_id=manager_user_id,
     )
     return ChatUnreadTotal(total=total)
+
+
+@router.post("/read-all", response_model=ChatReadAllOut)
+async def read_all(
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """«Прочитать всё»: разом пометить прочитанными ВСЕ диалоги текущего юзера.
+
+    Один bulk-upsert MessageRead (сервис mark_all_read, без цикла). Пер-юзер: не
+    трогает чужие ReadState. Роль manager — только кандидаты своих вакансий. Это
+    личная отметка прочтения (как mark_read), не бизнес-действие → audit не пишем.
+    """
+    manager_user_id = current_user.id if current_user.role == "manager" else None
+    marked = await mark_all_read(
+        session,
+        company_id=company_id,
+        user_id=current_user.id,
+        manager_user_id=manager_user_id,
+    )
+    await session.commit()
+    return ChatReadAllOut(ok=True, marked=marked)
 
 
 @router.get("/candidate/{candidate_id}/meta", response_model=ChatMetaOut)

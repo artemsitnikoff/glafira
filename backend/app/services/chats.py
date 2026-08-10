@@ -11,7 +11,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, exists, func, literal_column, or_, select
+from sqlalchemy import and_, exists, func, literal, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -164,6 +164,79 @@ async def mark_read(
         )
     )
     await session.execute(stmt)
+
+
+async def mark_all_read(
+    session: AsyncSession,
+    *,
+    company_id: UUID,
+    user_id: UUID,
+    manager_user_id: UUID | None = None,
+) -> int:
+    """Пометить прочитанными ВСЕ диалоги юзера ОДНИМ bulk-upsert (без цикла/N+1).
+
+    Для КАЖДОГО кандидата этой компании, у которого есть входящее сообщение,
+    вставляет/сдвигает строку MessageRead(last_read_at=now) юзера. Один стейтмент:
+    `INSERT ... SELECT DISTINCT ... ON CONFLICT (user_id, candidate_id) DO UPDATE`.
+
+    SQL-идея (один запрос):
+        INSERT INTO message_reads (company_id, user_id, candidate_id, last_read_at)
+        SELECT DISTINCT :company_id, :user_id, m.candidate_id, :now
+        FROM messages m
+        WHERE m.company_id = :company_id
+          AND m.direction  = 'in'
+          AND EXISTS (SELECT 1 FROM candidates c            -- не трогаем soft-удалённых
+                       WHERE c.id = m.candidate_id AND c.deleted_at IS NULL)
+          [AND m.candidate_id IN (<вакансии менеджера>)]    -- только для роли manager
+        ON CONFLICT (user_id, candidate_id)
+        DO UPDATE SET last_read_at = :now, updated_at = now();
+
+    Константы (company_id/user_id/now) одинаковы во всех строках → `SELECT DISTINCT`
+    схлопывается по candidate_id, давая ровно одну вставляемую строку на кандидата.
+    Строго company_id + user_id (пер-юзер: чужие ReadState не трогает, §2.3).
+    `manager_user_id` (роль manager) ограничивает кандидатами его вакансий
+    (тот же `_manager_allowed_candidate_ids`, что в total_unread/list_dialogs).
+
+    Возвращает число затронутых кандидатов (rowcount: вставленные + обновлённые).
+    """
+    now = datetime.now(timezone.utc)
+
+    # SELECT DISTINCT со скалярными константами (company_id/user_id/now) + candidate_id.
+    src = (
+        select(
+            literal(company_id, type_=MessageRead.company_id.type).label("company_id"),
+            literal(user_id, type_=MessageRead.user_id.type).label("user_id"),
+            Message.candidate_id.label("candidate_id"),
+            literal(now, type_=MessageRead.last_read_at.type).label("last_read_at"),
+        )
+        .where(
+            Message.company_id == company_id,
+            Message.direction == "in",
+            # Не помечаем soft-удалённых кандидатов (зеркало фильтра в total_unread).
+            exists().where(
+                Candidate.id == Message.candidate_id,
+                Candidate.deleted_at.is_(None),
+            ),
+        )
+        .distinct()
+    )
+    if manager_user_id is not None:
+        src = src.where(
+            Message.candidate_id.in_(
+                _manager_allowed_candidate_ids(company_id, manager_user_id)
+            )
+        )
+
+    stmt = (
+        pg_insert(MessageRead)
+        .from_select(["company_id", "user_id", "candidate_id", "last_read_at"], src)
+        .on_conflict_do_update(
+            constraint="uq_message_read_user_candidate",
+            set_={"last_read_at": now, "updated_at": func.now()},
+        )
+    )
+    result = await session.execute(stmt)
+    return int(result.rowcount or 0)
 
 
 async def total_unread(

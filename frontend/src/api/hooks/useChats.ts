@@ -1,4 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import { api } from '@/api/client';
 
 // ⚠️ openapi.json протух (§3 CLAUDE.md) — эндпоинты модуля «Чаты» ещё не в
@@ -34,13 +40,39 @@ export type ChatMeta = {
 // при возврате фокуса refetchOnWindowFocus дёргает refetch, интервал возобновляется.
 const interval = (ms: number) => () => (document.hidden ? false : ms);
 
-/** Список диалогов для попапа. Поиск по имени и вавкансии → ?q. Поллинг 15с. */
+/** Число для бейджа непрочитанных: большие значения (исторический бэклог) не ломают вёрстку. */
+export function formatUnread(n: number): string {
+  return n > 99 ? '99+' : String(n);
+}
+
+/** Размер страницы списка диалогов. Бек: limit default 30, le 100. */
+export const DIALOG_PAGE_SIZE = 30;
+
+/**
+ * Список диалогов для попапа — бесконечный скролл ВНИЗ (offset-пагинация).
+ * Бек: GET /chats/dialogs?q&limit&offset отдаёт страницу из ≤limit диалогов.
+ *   • initialPageParam=0 (offset), getNextPageParam → offset следующей страницы
+ *     (= уже загружено), пока пришла ПОЛНАЯ страница; неполная → страниц больше нет.
+ * queryKey ['chats','dialogs', query] — префикс ['chats','dialogs'] по-прежнему
+ * ловит инвалидацию (useMarkRead/useMarkAllRead), сегмент query после префикса —
+ * как 'list' в useMessagesInfinite. Поиск ?q и поллинг 15с сохранены (поллинг
+ * рефетчит все загруженные страницы); document.hidden-гейт — через interval().
+ */
 export function useDialogs(q: string, enabled = true) {
   const query = q.trim();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['chats', 'dialogs', query],
-    queryFn: async () =>
-      (await api.get<ChatDialog[]>('/chats/dialogs', query ? { params: { q: query } } : undefined)).data,
+    queryFn: async ({ pageParam }): Promise<ChatDialog[]> =>
+      (
+        await api.get<ChatDialog[]>('/chats/dialogs', {
+          params: { ...(query ? { q: query } : {}), limit: DIALOG_PAGE_SIZE, offset: pageParam },
+        })
+      ).data,
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.length < DIALOG_PAGE_SIZE) return undefined;
+      return allPages.reduce((n, p) => n + p.length, 0);
+    },
     enabled,
     refetchInterval: interval(15_000),
   });
@@ -78,11 +110,38 @@ export function useMarkRead() {
       (await api.post<{ ok: boolean; unread: number }>(`/candidates/${candidateId}/messages/read`)).data,
     onMutate: async (candidateId) => {
       await qc.cancelQueries({ queryKey: ['chats', 'dialogs'] });
-      qc.setQueriesData<ChatDialog[]>({ queryKey: ['chats', 'dialogs'] }, (old) =>
-        old ? old.map((d) => (d.candidate_id === candidateId ? { ...d, unread_count: 0 } : d)) : old
+      // useDialogs теперь infinite → кэш имеет форму InfiniteData<ChatDialog[]>
+      // (страницы), гасим бейдж диалога внутри каждой страницы.
+      qc.setQueriesData<InfiniteData<ChatDialog[]>>({ queryKey: ['chats', 'dialogs'] }, (old) =>
+        old
+          ? {
+              ...old,
+              pages: old.pages.map((page) =>
+                page.map((d) => (d.candidate_id === candidateId ? { ...d, unread_count: 0 } : d))
+              ),
+            }
+          : old
       );
     },
     onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['chats', 'dialogs'] });
+      qc.invalidateQueries({ queryKey: ['chats', 'unread'] });
+    },
+  });
+}
+
+/**
+ * Отметить ВСЕ диалоги прочитанными (исторический бэклог непрочитанных, который
+ * нереально очистить по одному). POST /chats/read-all → { ok, marked }. onSuccess
+ * инвалидирует список диалогов и сумму непрочитанных → бейджи обнулятся, диалоги
+ * перечитаются с сервера (источник правды).
+ */
+export function useMarkAllRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<{ ok: boolean; marked: number }>('/chats/read-all')).data,
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chats', 'dialogs'] });
       qc.invalidateQueries({ queryKey: ['chats', 'unread'] });
     },

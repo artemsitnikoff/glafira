@@ -17,9 +17,10 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.core.security import get_password_hash
-from app.models import Application, Candidate, Message, User, Vacancy
+from app.models import Application, Candidate, Message, MessageRead, User, Vacancy
 
 
 async def _login(async_client: AsyncClient, email: str, password: str = "Glafira2026!") -> dict[str, str]:
@@ -391,3 +392,139 @@ async def test_dialogs_search_by_name_and_vacancy(async_client, auth_headers, db
     by_vac = await async_client.get("/api/v1/chats/dialogs", headers=auth_headers, params={"q": "DevOps"})
     ids2 = [d["candidate_id"] for d in by_vac.json()]
     assert str(c2.id) in ids2 and str(c1.id) not in ids2
+
+
+# ── «Прочитать всё» (POST /chats/read-all) ───────────────────────────────────
+
+
+async def test_read_all_marks_all_dialogs_and_is_per_user(
+    async_client, auth_headers, regular_user, db_session, test_candidate
+):
+    """3 диалога с входящими → read-all A обнуляет ВСЕ его диалоги, у B остаётся всё.
+
+    Дискриминирует пер-юзер: сравниваем ДВУХ разных юзеров одной компании — read-all
+    юзера A не сдвигает ReadState юзера B (раздельные строки MessageRead).
+    """
+    c1 = test_candidate
+    c2 = Candidate(company_id=c1.company_id, last_name="Второй", first_name="К", source="manual")
+    c3 = Candidate(company_id=c1.company_id, last_name="Третий", first_name="К", source="manual")
+    db_session.add_all([c2, c3])
+    await db_session.flush()
+    for c in (c1, c2, c3):
+        db_session.add(_msg(c1.company_id, c.id, direction="in", body="вх"))
+    await db_session.flush()
+
+    b_headers = await _login(async_client, regular_user.email)
+
+    ta = await async_client.get("/api/v1/chats/unread-total", headers=auth_headers)
+    assert ta.json()["total"] == 3
+
+    ra = await async_client.post("/api/v1/chats/read-all", headers=auth_headers)
+    assert ra.status_code == 200, ra.text
+    assert ra.json() == {"ok": True, "marked": 3}
+
+    # у A всё прочитано
+    ta2 = await async_client.get("/api/v1/chats/unread-total", headers=auth_headers)
+    assert ta2.json()["total"] == 0
+    dlg = await async_client.get("/api/v1/chats/dialogs", headers=auth_headers)
+    assert all(d["unread_count"] == 0 for d in dlg.json())
+
+    # у B — по-прежнему 3 (read-all A не тронул ReadState B)
+    tb = await async_client.get("/api/v1/chats/unread-total", headers=b_headers)
+    assert tb.json()["total"] == 3
+
+
+async def test_read_all_then_new_inbound_is_unread_again(
+    async_client, auth_headers, db_session, test_candidate
+):
+    """read-all снимает старое, но входящее ПОЗЖЕ его отметки снова непрочитано.
+
+    Дискриминирует: read-all пишет last_read_at = момент запроса (снимок), а не
+    «прочитано навсегда». Старое (в прошлом) остаётся read, новое (в будущем от
+    отметки) всплывает как unread — если бы отметка ставилась в +infinity, новое
+    не появилось бы.
+    """
+    c = test_candidate
+    db_session.add(_msg(c.company_id, c.id, direction="in", body="старое",
+                        sent_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+    await db_session.flush()
+
+    ra = await async_client.post("/api/v1/chats/read-all", headers=auth_headers)
+    assert ra.status_code == 200 and ra.json()["marked"] == 1
+    t0 = await async_client.get("/api/v1/chats/unread-total", headers=auth_headers)
+    assert t0.json()["total"] == 0
+
+    # НОВОЕ входящее строго позже отметки read-all
+    db_session.add(_msg(c.company_id, c.id, direction="in", body="новое",
+                        sent_at=datetime.now(timezone.utc) + timedelta(minutes=5)))
+    await db_session.flush()
+
+    t1 = await async_client.get("/api/v1/chats/unread-total", headers=auth_headers)
+    assert t1.json()["total"] == 1
+    dlg = await async_client.get("/api/v1/chats/dialogs", headers=auth_headers)
+    assert _find(dlg.json(), c.id)["unread_count"] == 1
+
+
+async def test_read_all_company_isolation(
+    async_client, auth_headers, db_session, admin_user, test_candidate, other_company
+):
+    """read-all помечает ТОЛЬКО кандидатов своей компании; чужой диалог не тронут."""
+    foreign = Candidate(company_id=other_company.id, last_name="Чужой", first_name="К", source="manual")
+    db_session.add(foreign)
+    await db_session.flush()
+    db_session.add(_msg(other_company.id, foreign.id, direction="in", body="чужое"))
+    db_session.add(_msg(test_candidate.company_id, test_candidate.id, direction="in", body="наше"))
+    await db_session.flush()
+
+    ra = await async_client.post("/api/v1/chats/read-all", headers=auth_headers)
+    assert ra.status_code == 200
+    assert ra.json()["marked"] == 1  # только наш кандидат
+
+    # в message_reads нашего юзера есть свой кандидат и НЕТ чужого
+    rows = (
+        await db_session.execute(
+            select(MessageRead.candidate_id).where(MessageRead.user_id == admin_user.id)
+        )
+    ).scalars().all()
+    assert test_candidate.id in rows
+    assert foreign.id not in rows
+
+
+async def test_read_all_manager_scope_only_own(
+    async_client, db_session, manager_user, manager_headers
+):
+    """Менеджер: read-all помечает только кандидатов его вакансий, не всю компанию."""
+    company_id = manager_user.company_id
+    c_allowed = Candidate(company_id=company_id, last_name="Свой", first_name="К", source="manual")
+    c_other = Candidate(company_id=company_id, last_name="ВнеОбласти", first_name="К", source="manual")
+    db_session.add_all([c_allowed, c_other])
+    await db_session.flush()
+    v = Vacancy(company_id=company_id, name="Вакансия менеджера", status="active",
+                responsible_user_id=manager_user.id)
+    db_session.add(v)
+    await db_session.flush()
+    db_session.add(Application(company_id=company_id, candidate_id=c_allowed.id,
+                               vacancy_id=v.id, stage="response"))
+    db_session.add(_msg(company_id, c_allowed.id, direction="in", body="свой"))
+    db_session.add(_msg(company_id, c_other.id, direction="in", body="вне области"))
+    await db_session.flush()
+
+    # менеджер видит только свой диалог
+    t0 = await async_client.get("/api/v1/chats/unread-total", headers=manager_headers)
+    assert t0.json()["total"] == 1
+
+    ra = await async_client.post("/api/v1/chats/read-all", headers=manager_headers)
+    assert ra.status_code == 200
+    assert ra.json()["marked"] == 1  # только кандидат из вакансии менеджера
+
+    t1 = await async_client.get("/api/v1/chats/unread-total", headers=manager_headers)
+    assert t1.json()["total"] == 0
+
+    # ReadState создан по c_allowed, но НЕ по c_other
+    rows = (
+        await db_session.execute(
+            select(MessageRead.candidate_id).where(MessageRead.user_id == manager_user.id)
+        )
+    ).scalars().all()
+    assert c_allowed.id in rows
+    assert c_other.id not in rows
