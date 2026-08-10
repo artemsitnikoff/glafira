@@ -15,7 +15,7 @@ import {
   formatUnread,
   type ChatDialog,
 } from '@/api/hooks/useChats';
-import { ChatThread } from './ChatThread';
+import { ChatConversation } from './ChatConversation';
 import '@/styles/chat.css';
 
 // Время в строке диалога: сегодня → часы, вчера → «вчера», иначе краткая дата.
@@ -179,22 +179,11 @@ export function ChatPopup() {
     navigate(vacancy_id ? `/vacancies/${vacancy_id}/candidates/${candidate_id}` : `/candidates/${candidate_id}`);
   };
 
+  // «Был на связи …» — из last_inbound_at диалога (НЕ из meta). Выбор канала ответа,
+  // точка канала и выключение композера при отсутствии канала теперь живут в общем
+  // ChatConversation (он держит собственный useChatMeta; React Query дедупит с meta
+  // выше по одному queryKey ['chats','meta',id] → один запрос).
   const seen = activeDialog ? lastSeenLabel(activeDialog.last_inbound_at) : null;
-  // ⚠️ Канал отправки — ТОЛЬКО из meta.available_channels (telegram/hh). НЕ откатываться на
-  // activeDialog.channel: в истории может быть email (письмо-оффер), а слать туда нельзя (§0/матрица).
-  const available = meta?.available_channels ?? [];
-  const sendChannel =
-    meta?.default_channel && available.includes(meta.default_channel)
-      ? meta.default_channel
-      : available[0] ?? '';
-  // Каналов нет (или meta ещё грузится) → композер честно выключен, а не шлёт «в никуда»/на email.
-  const composerDisabled = !activeDialog
-    ? null
-    : !meta
-      ? 'Загрузка каналов…'
-      : available.length === 0
-        ? 'Нет подключённого канала (Telegram или hh) — ответить нельзя.'
-        : null;
 
   return (
     <>
@@ -304,12 +293,10 @@ export function ChatPopup() {
                   <Icon name="open" size={13} /> Резюме
                 </button>
               </div>
-              <ChatThread
+              <ChatConversation
                 key={activeDialog.candidate_id}
                 candidateId={activeDialog.candidate_id}
-                sendChannel={sendChannel}
                 variant="popup"
-                disabledReason={composerDisabled}
               />
             </>
           )}

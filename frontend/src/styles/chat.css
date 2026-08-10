@@ -476,6 +476,88 @@
   color: var(--fg-3);
   text-align: center;
 }
+
+/* Селектор «Канал ответа» + «Шаблон» над композером — общий для попапа И вкладки
+   (переносится сюда из CandidateDetail.css: раньше был scoped ТОЛЬКО под
+   .cnd-funnel-wrap .cand-detail, поэтому попап его не видел). Теперь скоуплен под
+   общий корень ChatThread → доезжает в обоих вариантах. Классы .chat-ch-* — из
+   эталона project/styles/app.css. */
+.chat-thread .chat-compose-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chat-thread .chat-compose-label {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.chat-thread .chat-ch-select { position: relative; }
+.chat-thread .chat-ch-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-1);
+  background: var(--bg-panel);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-1);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.chat-thread .chat-ch-trigger:hover { border-color: var(--accent); }
+.chat-thread .chat-ch-select.open .chat-ch-trigger {
+  border-color: var(--accent);
+  background: var(--bg-panel-2);
+}
+.chat-thread .chat-ch-trigger-label { font-weight: 600; }
+.chat-thread .chat-ch-menu {
+  position: absolute;
+  /* открываем ВВЕРХ: селектор внизу компоуза, вниз меню режется экраном */
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.chat-thread .chat-ch-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-1);
+  cursor: pointer;
+  text-align: left;
+}
+.chat-thread .chat-ch-opt:hover { background: var(--bg-panel-2); }
+.chat-thread .chat-ch-opt.active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+.chat-thread .chat-ch-opt-label { flex: 1; font-weight: 500; }
+.chat-thread .chat-ch-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+/* Селектор теперь есть и в попапе → верхнюю границу композера даёт .chp-composer-extra,
+   второй бордер у следующего за ним .chp-composer лишний (в tab он и так 0). */
+.chat-thread .chp-composer-extra + .chp-composer { border-top: 0; }
 .chat-thread .chp-input {
   flex: 1;
   display: flex;

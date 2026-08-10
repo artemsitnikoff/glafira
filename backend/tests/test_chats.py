@@ -234,6 +234,30 @@ async def test_meta_hh_only_when_chat_id(async_client, auth_headers, db_session,
     assert "hh" in j1["available_channels"]
 
 
+async def test_meta_default_channel_prefers_last_inbound(
+    async_client, auth_headers, db_session, test_candidate
+):
+    """default_channel = канал ПОСЛЕДНЕГО входящего (куда кандидат писал), НЕ 'telegram' по
+    умолчанию. hh-кандидат с телефоном (telegram_available) + hh-отклик, последнее входящее
+    по hh → default 'hh' (иначе ответ уходит в Telegram и «не доходит»)."""
+    c = test_candidate  # phone → telegram_available, preferred_channel default 'telegram'
+    v = Vacancy(company_id=c.company_id, name="V", status="active")
+    db_session.add(v)
+    await db_session.flush()
+    a = Application(company_id=c.company_id, candidate_id=c.id, vacancy_id=v.id,
+                    stage="response", hh_chat_id="chatX")
+    db_session.add(a)
+    await db_session.flush()
+    db_session.add(_msg(c.company_id, c.id, direction="in", channel="hh",
+                        body="Здравствуйте, я по вакансии", application_id=a.id, external_id="hhm1"))
+    await db_session.flush()
+
+    j = (await async_client.get(f"/api/v1/chats/candidate/{c.id}/meta", headers=auth_headers)).json()
+    assert "hh" in j["available_channels"] and "telegram" in j["available_channels"]
+    # Последнее входящее — hh → сюда и отвечаем по умолчанию (без фикса было бы 'telegram').
+    assert j["default_channel"] == "hh"
+
+
 async def test_meta_no_contact_telegram_unavailable(async_client, auth_headers, db_session, test_company):
     """Нет телефона/username/tg_user_id → telegram НЕ в available, default_channel None."""
     c = Candidate(company_id=test_company.id, last_name="Без", first_name="Контакта",

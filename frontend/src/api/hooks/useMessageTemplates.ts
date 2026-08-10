@@ -12,12 +12,15 @@ export interface MessageTemplateOut {
   updated_at: string
 }
 
-export function useMessageTemplates() {
+// enabled=true по умолчанию → существующие вызовы без аргумента не меняются.
+// Попап чатов не рисует шаблоны (showTemplates=false) → лишний запрос не идёт.
+export function useMessageTemplates(enabled = true) {
   return useQuery({
     queryKey: ['message-templates'],
     queryFn: async () => {
       const response = await api.get('/message-templates')
       return response.data as MessageTemplateOut[]
     },
+    enabled,
   })
 }

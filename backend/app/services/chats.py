@@ -483,11 +483,14 @@ async def get_candidate_chat_meta(
 
     # default: предпочтительный (если telegram и доступен) → канал последнего
     # входящего (если доступен) → первый доступный → None.
+    # ⚠️ Приоритет — канал ПОСЛЕДНЕГО входящего: кандидат писал оттуда, туда и отвечаем
+    # (у hh-кандидата с телефоном preferred_channel по умолчанию 'telegram', но слать надо
+    # в hh, где реальный диалог — иначе «не доходит»). Затем явный preferred, затем первый.
     default_channel: str | None = None
-    if candidate.preferred_channel == "telegram" and "telegram" in available_channels:
-        default_channel = "telegram"
-    elif last_inbound_channel and last_inbound_channel in available_channels:
+    if last_inbound_channel and last_inbound_channel in available_channels:
         default_channel = last_inbound_channel
+    elif candidate.preferred_channel in available_channels:
+        default_channel = candidate.preferred_channel
     elif available_channels:
         default_channel = available_channels[0]
 
