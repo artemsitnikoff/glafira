@@ -64,6 +64,13 @@ class User(Base, TimestampMixin, CompanyMixin):
         TIMESTAMP(timezone=True), nullable=True
     )
 
+    # Реальное время последнего УСПЕШНОГО входа (login или refresh токена).
+    # NULL = ещё не входил после деплоя фичи (честно «не входил», не фейк-дата).
+    # Пишется ТОЛЬКО в точках успешной аутентификации, НЕ на каждом запросе.
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
     # Constraints
     __table_args__ = (
         CheckConstraint(

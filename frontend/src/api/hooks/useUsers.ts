@@ -12,6 +12,7 @@ export interface UserListItem {
   is_active: boolean;
   source?: string; // 'manual' | 'b24'
   created_at: string;
+  last_login_at?: string | null; // реальный последний вход (login/refresh); null → не входил
 }
 
 export interface PaginatedUserList {

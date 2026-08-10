@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Response, HTTPException, Cookie
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -80,6 +82,12 @@ async def refresh_token(
 
     if not user.is_active:
         raise InvalidCredentialsError()
+
+    # Отмечаем свежую активность: refresh срабатывает по ходу работы в приложении
+    # (access-токен обновляется на лету), поэтому «Последний вход» держит реальную
+    # свежесть сессии, а не разовую дату первого логина. Только при успешном refresh.
+    user.last_login_at = datetime.now(timezone.utc)
+    await session.commit()
 
     # Create new tokens
     new_access_token, new_refresh_token = create_tokens(user_id)

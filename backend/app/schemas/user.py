@@ -28,6 +28,9 @@ class UserListItem(ORMBase):
     is_active: bool
     source: str
     created_at: datetime
+    # Реальное «Последний вход» (login/refresh). None у тех, кто ещё не входил
+    # после деплоя фичи — фронт покажет «не входил». Тянется из ORM (обычная колонка).
+    last_login_at: datetime | None = None
 
 
 class UserCreate(BaseModel):

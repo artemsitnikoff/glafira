@@ -74,6 +74,11 @@ async def authenticate_user(session: AsyncSession, email: str, password: str) ->
         user.failed_login_attempts = 0
         user.locked_until = None
 
+    # Фиксируем реальное время УСПЕШНОГО входа для колонки «Последний вход».
+    # Только здесь — после всех проверок пароля/активности/локаута; на неудачной
+    # попытке (ветки выше с raise) сюда управление не доходит. `now` — aware UTC.
+    user.last_login_at = now
+
     await session.commit()
     await session.refresh(user)
 

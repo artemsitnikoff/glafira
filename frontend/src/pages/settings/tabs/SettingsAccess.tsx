@@ -88,7 +88,8 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
   const totalUsers = usersData?.total || 0;
   const activeUsers = users.filter(u => u.is_active).length;
 
-  const formatLastActivity = (dateStr: string) => {
+  const formatLastActivity = (dateStr: string | null | undefined) => {
+    if (!dateStr) return 'не входил';
     const date = new Date(dateStr);
     const now = new Date();
     const diffHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
@@ -242,7 +243,7 @@ export function SettingsAccess({ readOnly = false }: SettingsAccessProps) {
                   )}
                 </div>
                 <div className="ut-cell t-mono" style={{ fontSize: 12 }}>
-                  {formatLastActivity(u.created_at)}
+                  {formatLastActivity(u.last_login_at)}
                 </div>
                 <div>
                   <span className={`status-pill status-${u.is_active ? 'active' : 'blocked'}`}>
