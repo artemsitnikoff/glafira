@@ -85,9 +85,11 @@ async def get_candidate_comments(
 
     from sqlalchemy import and_
     # Автор берётся одним запросом (JOIN), без отдельного SELECT на каждый комментарий (N+1).
+    # ⚠️ OUTER JOIN: author_user_id теперь nullable (hh-комментарии без нашего автора) —
+    # INNER JOIN молча отбросил бы импортированные с hh заметки.
     result = await session.execute(
         select(Comment, User.full_name, User.role)
-        .join(User, Comment.author_user_id == User.id)
+        .join(User, Comment.author_user_id == User.id, isouter=True)
         .where(and_(*filters))
         .order_by(Comment.created_at.desc())
     )
@@ -96,13 +98,18 @@ async def get_candidate_comments(
     # Convert to CommentOut
     items = []
     for comment, author_name, author_role in rows:
+        # coalesce: наш юзер (full_name) → имя автора-заметки с hh → честный ярлык.
+        display_name = author_name or comment.author_name_ext
+        if not display_name:
+            display_name = "Автор с hh" if comment.source == "hh" else "—"
         items.append(CommentOut(
             id=comment.id,
-            author_name=author_name,
-            author_role=author_role,
+            author_name=display_name,
+            author_role=author_role,  # None для hh — у автора-заметки роли нет
             body=comment.body,
             mentions=comment.mentions or [],
-            created_at=comment.created_at
+            created_at=comment.created_at,
+            source=comment.source,
         ))
 
     return items
@@ -140,6 +147,7 @@ async def create_comment(
         body=comment_data.body,
         mentions=[str(uid) for uid in mentioned_user_ids],
         created_at=now,
+        source="manual",  # ручной комментарий рекрутёра (не импорт)
     )
 
     session.add(comment)
@@ -187,5 +195,6 @@ async def create_comment(
         author_role=author.role,
         body=comment.body,
         mentions=comment.mentions or [],
-        created_at=comment.created_at
+        created_at=comment.created_at,
+        source="manual",
     )

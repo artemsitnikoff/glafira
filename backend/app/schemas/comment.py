@@ -8,10 +8,13 @@ from .base import ORMBase
 class CommentOut(ORMBase):
     id: UUID
     author_name: str
-    author_role: str
+    # У импортированного с hh комментария роли нашего юзера нет → None.
+    author_role: str | None = None
     body: str
     mentions: list[UUID] = []
     created_at: datetime
+    # 'manual' — наш комментарий, 'hh' — заметка работодателя с hh (read-only).
+    source: str = "manual"
 
 
 class CommentCreate(BaseModel):

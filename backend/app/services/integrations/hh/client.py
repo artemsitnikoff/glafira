@@ -706,6 +706,49 @@ async def get_resume_by_id(access_token: str, resume_id: str) -> dict:
             raise ValidationError(f"Ошибка получения резюме hh.ru: {e}")
 
 
+async def get_applicant_comments(
+    access_token: str,
+    applicant_id: str,
+    page: int = 0,
+    per_page: int = 100,
+) -> dict | None:
+    """Заметки работодателя к соискателю на hh (блок «Комментарии» в резюме).
+
+    GET {HH_API_BASE}/applicant_comments/{applicant_id}
+    → {"items": [{"id","text","created_at","updated_at","author":{...},
+       "access_type":{"id":"owner"|"coworkers"}}], "found","page","pages","per_page"}
+
+    ⚠️ Эндпоинт взят из ОФИЦ. доков hh (applicant_comments), но на живом токене НЕ
+    пинен — поэтому обёрнут ЗАЩИТНО: любой сбой (403/404/сеть/не-dict) → None, НЕ
+    исключение (импорт комментариев не должен ронять открытие блока). Читается
+    БЕСПЛАТНО (не входит в payable_api_actions — не просмотр резюме).
+
+    ⚠️ applicant_id — числовой id соискателя (поле owner.id полного объекта резюме),
+    НЕ resume_id (hex). Резолв — на стороне сервиса синка (кэшируется в extra).
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        async with _get_client() as client:
+            response = await client.get(
+                f"{settings.HH_API_BASE}/applicant_comments/{applicant_id}",
+                headers=headers,
+                params={"page": page, "per_page": per_page},
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    "[hh] get_applicant_comments: HTTP %s applicant=%s",
+                    response.status_code, applicant_id,
+                )
+                return None
+            data = response.json()
+            if not isinstance(data, dict):
+                return None
+            return data
+    except Exception as exc:
+        logger.warning("[hh] get_applicant_comments: сбой applicant=%s exc=%s", applicant_id, exc)
+        return None
+
+
 async def invite_to_vacancy(access_token: str, resume_id: str, vacancy_id: str, message: str | None = None) -> dict:
     """
     Приглашает кандидата на вакансию

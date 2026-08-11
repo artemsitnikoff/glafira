@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useComments } from '@/api/hooks/useComments';
+import { useEffect, useRef, useState } from 'react';
+import { useComments, useSyncHhComments, type CommentRow } from '@/api/hooks/useComments';
 import { useAddComment } from '@/api/mutations/candidateDetail';
 import { linkify } from '@/lib/linkify';
 import type { ApiError } from '@/api/aliases';
@@ -15,6 +15,32 @@ export function CommentsTab({ candidateId, candidate }: Props) {
   const [commentText, setCommentText] = useState('');
   const { data: comments, isLoading } = useComments(actualCandidateId);
   const addCommentMutation = useAddComment(actualCandidateId);
+
+  // Фоновый импорт заметок с hh (зеркалит on-open sync + интервал чата, ChatTab).
+  // Инвалидация кэша при imported>0 — внутри useSyncHhComments; здесь только
+  // in-flight guard + гейт document.hidden, чтобы не долбить hh.
+  const syncMutation = useSyncHhComments(actualCandidateId ?? null);
+  const syncMutateRef = useRef(syncMutation.mutate);
+  syncMutateRef.current = syncMutation.mutate;
+  const syncInFlight = useRef(false);
+  useEffect(() => {
+    if (!actualCandidateId) return;
+    const runSync = () => {
+      if (syncInFlight.current) return;
+      syncInFlight.current = true;
+      syncMutateRef.current(undefined, {
+        onSettled: () => {
+          syncInFlight.current = false;
+        },
+      });
+    };
+    runSync(); // при открытии вкладки — сразу
+    const timer = setInterval(() => {
+      if (document.hidden) return; // не долбим hh, когда вкладка скрыта
+      runSync();
+    }, 90000);
+    return () => clearInterval(timer);
+  }, [actualCandidateId]);
 
   function handleAddComment() {
     if (!commentText.trim()) return;
@@ -51,7 +77,7 @@ export function CommentsTab({ candidateId, candidate }: Props) {
         {isLoading ? (
           <div className="cmt-empty">Загрузка…</div>
         ) : comments && comments.length > 0 ? (
-          comments.map((comment: any) => {
+          comments.map((comment: CommentRow) => {
             const who = comment.author_name || 'Пользователь';
             return (
               <div className="cmt-item" key={comment.id}>
@@ -59,6 +85,9 @@ export function CommentsTab({ candidateId, candidate }: Props) {
                 <div className="cmt-body">
                   <div className="cmt-head">
                     <span className="cmt-who">{who}</span>
+                    {/* Заметка импортирована с hh (read-only) — чип на существующем
+                        идиоме .src-pill.src-hh (скоуплен к .cand-detail, свои токены). */}
+                    {comment.source === 'hh' && <span className="src-pill src-hh">с hh</span>}
                     {comment.created_at && (
                       <span className="cmt-time">{fmtTime(comment.created_at)}</span>
                     )}
