@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Глафира Рекрутёр — CRON на VPS (справочник)
+# Глафира Рекрутёр — CRON на VPS (справочник, сверен с боевым crontab 2026-08-11)
 # ─────────────────────────────────────────────────────────────────────────────
 # ⚠️ Кроны НЕ ставятся автодеплоем: (1) деплой правит контейнеры, а не системный
 #    crontab; (2) автоуправление crontab из CI рискует затереть чужие задачи на
@@ -20,6 +20,10 @@
 # Импорт новых откликов с hh.ru в воронку.
 */5 * * * * /usr/bin/flock -n /tmp/glafira-hh-import.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_responses' >> /var/www/glafira/hh-import.log 2>&1
 
+# Синхронизация отказов hh: отклонённых у нас кандидатов с hh_negotiation_id отклоняет на hh.ru
+# (PUT /negotiations/discard) + вежливое сообщение в чат; идемпотентно (hh_discard_synced_at).
+*/5 * * * * /usr/bin/flock -n /tmp/glafira-hh-reject.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.sync_hh_rejections' >> /var/www/glafira/hh-reject.log 2>&1
+
 # Приём входящих СООБЩЕНИЙ hh (чат негоциации) → в переписку кандидата.
 */2 * * * * /usr/bin/flock -n /tmp/glafira-hh-messages.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_messages' >> /var/www/glafira/hh-messages.log 2>&1
 
@@ -30,5 +34,10 @@
 # Приём входящих сообщений Telegram (user-аккаунт компании) → в переписку кандидата.
 */3 * * * * /usr/bin/flock -n /tmp/glafira-tg-messages.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_telegram_messages' >> /var/www/glafira/tg-messages.log 2>&1
 
-# Батч AI-сводок сотрудников в адаптации (Пульс). Тяжёлый — раз в сутки ночью (интервал на усмотрение).
-0 3 * * * /usr/bin/flock -n /tmp/glafira-emp-summaries.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.regenerate_employee_summaries' >> /var/www/glafira/emp-summaries.log 2>&1
+# Очистка протухших hh_oauth_states (обёртка scripts/cron_oauth_cleanup.sh → app.jobs.cleanup_oauth_states).
+0 4 * * * /usr/bin/flock -n /tmp/glafira-oauth-cleanup.lock /var/www/glafira/scripts/cron_oauth_cleanup.sh >> /var/www/glafira/oauth-cleanup.log 2>&1
+
+# ── ОПЦИОНАЛЬНО (сейчас в боевом crontab НЕ стоит) ───────────────────────────
+# Батч AI-сводок сотрудников в адаптации (Пульс). Тяжёлый — раз в сутки ночью. Ставить, только
+# если используете авто-обновление сводок Пульса (интервал на усмотрение).
+# 0 3 * * * /usr/bin/flock -n /tmp/glafira-emp-summaries.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.regenerate_employee_summaries' >> /var/www/glafira/emp-summaries.log 2>&1
