@@ -139,14 +139,17 @@ async def generate_rubric_endpoint(
         "salary_to": body.salary_to,
     }
 
-    # Таймаут < nginx proxy_read_timeout (~60с): иначе шлюз отдаёт 504 вместо ответа.
+    # ⚠️ Потолок 110с < httpx read (_HTTP_TIMEOUT.read=120с client.py:28), с запасом.
+    # ⚠️ ЗАВИСИТ ОТ NGINX: чтобы эти 110с реально работали, у location /api/ Глафиры должен быть
+    # proxy_read_timeout >= 120s (иначе шлюз оборвёт запрос 504 раньше бекенда). Директива ставится
+    # РУКАМИ в nginx на VPS (config не в репо) — см. deploy/nginx-generate-rubric.md.
     try:
         rubric = await asyncio.wait_for(
             generate_scoring_rubric(vacancy_fields, api_key, model=company_model),
-            timeout=50,
+            timeout=110,
         )
     except asyncio.TimeoutError:
-        logger.warning("[generate-rubric] company=%s → таймаут 50с (модель %s медленная)", company_id, company_model)
+        logger.warning("[generate-rubric] company=%s → таймаут 110с (модель %s медленная)", company_id, company_model)
         return GenerateRubricResponse(
             generated=False,
             reason="Глафира не успела составить критерии — модель долго отвечает. Попробуйте ещё раз или выберите более быструю модель в Настройки → AI.",
