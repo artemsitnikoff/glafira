@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Глафира Рекрутёр — CRON на VPS (справочник)
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ Кроны НЕ ставятся автодеплоем: (1) деплой правит контейнеры, а не системный
+#    crontab; (2) автоуправление crontab из CI рискует затереть чужие задачи на
+#    общем сервере. Поэтому — устанавливать РУКАМИ на VPS: `crontab -e` и вставить
+#    строки ниже (уже с flock — не запускают поверх ещё идущего прогона).
+#
+# Проверить, что стоит: `crontab -l`
+# Логи каждой задачи — в /var/www/glafira/*.log (проверять при разборе).
+# Все команды идут через прод-compose (`-f docker-compose.prod.yml run --rm backend`).
+#
+# После добавления НОВОГО джоба в app/jobs — допиши строку сюда И в CLAUDE.md §6.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Авто-скоринг откликов + рассылка ссылок на интервью (П.5) + ссылок на тесты (автоотправка на этапе).
+# Без него молча не работают: авто-скоринг, авто-приглашение на интервью, авто-выдача тестов.
+*/5 * * * * /usr/bin/flock -n /tmp/glafira-score.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.score_pending' >> /var/www/glafira/score.log 2>&1
+
+# Импорт новых откликов с hh.ru в воронку.
+*/5 * * * * /usr/bin/flock -n /tmp/glafira-hh-import.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_responses' >> /var/www/glafira/hh-import.log 2>&1
+
+# Приём входящих СООБЩЕНИЙ hh (чат негоциации) → в переписку кандидата.
+*/2 * * * * /usr/bin/flock -n /tmp/glafira-hh-messages.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_messages' >> /var/www/glafira/hh-messages.log 2>&1
+
+# Импорт КОММЕНТАРИЕВ работодателя к резюме с hh → в блок «Комментарии» (v1.4.0, пометка «с hh»).
+# ⚠️ Первый прогон = разовый перенос ВСЕХ существующих комментариев (идемпотентен по дедупу).
+*/15 * * * * /usr/bin/flock -n /tmp/glafira-hh-comments.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_comments' >> /var/www/glafira/hh-comments.log 2>&1
+
+# Приём входящих сообщений Telegram (user-аккаунт компании) → в переписку кандидата.
+*/3 * * * * /usr/bin/flock -n /tmp/glafira-tg-messages.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_telegram_messages' >> /var/www/glafira/tg-messages.log 2>&1
+
+# Батч AI-сводок сотрудников в адаптации (Пульс). Тяжёлый — раз в сутки ночью (интервал на усмотрение).
+0 3 * * * /usr/bin/flock -n /tmp/glafira-emp-summaries.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.regenerate_employee_summaries' >> /var/www/glafira/emp-summaries.log 2>&1
