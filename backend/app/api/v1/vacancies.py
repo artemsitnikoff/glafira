@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
@@ -52,7 +53,8 @@ from ...services.vacancy import (
     delete_vacancy_stage,
     reorder_vacancy_stages
 )
-from ...models import User
+from ...services.audit import audit
+from ...models import User, Application, AiEvaluation
 
 router = APIRouter()
 
@@ -346,6 +348,89 @@ async def archive_vacancy_by_id(
     data.client_name = vacancy.client.name if vacancy.client else None
 
     return data
+
+
+@router.post("/{vacancy_id}/reevaluate")
+async def reevaluate_vacancy_applications(
+    vacancy_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Массовая переоценка кандидатов вакансии Глафирой (обнулить → крон переоценит).
+
+    Снимает закэшированные AI-оценки со ВСЕХ нетерминальных заявок вакансии (удаляет
+    AiEvaluation, обнуляет application.ai_score и ai_score_attempts). Фоновый крон
+    score_pending подхватит их (ai_score IS NULL + нет AiEvaluation + не терминал +
+    вакансия active/paused) и переоценит по АКТУАЛЬНОМУ промту/рубрике вакансии.
+
+    Терминальные заявки («Отказ»/«Нанят») не трогаем — решение по ним принято.
+    candidate.ai_score (пул-кэш) НЕ обнуляем — перезапишется при пересчёте.
+
+    RBAC: admin/recruiter (manager → 403, как в /glafira/score; hiring_manager отбит
+    _deny_hm на роутере). Только active/paused вакансия: архивную/удалённую крон не
+    оценивает, обнуление оставило бы её кандидатов без баллов навсегда.
+
+    Синхронно НЕ скорит (крон подхватит). Возвращает {"queued": N}.
+    """
+    # RBAC: менеджер не переоценивает (зеркало /glafira/score)
+    if current_user.role == "manager":
+        raise ForbiddenError("Менеджеры не могут переоценивать кандидатов")
+
+    # Владение + существование (чужая компания/несуществующая → NotFoundError=404)
+    vacancy = await get_vacancy(session, vacancy_id, company_id)
+
+    # Гейт: крон score_pending берёт только active/paused и не удалённые вакансии.
+    # Обнуление архивной/удалённой оставило бы её кандидатов пустыми навсегда.
+    if vacancy.deleted_at is not None or vacancy.status not in ("active", "paused"):
+        raise ValidationError("Переоценка доступна только для активной вакансии")
+
+    # Нетерминальные заявки этой вакансии (company-scoped) — их и переоцениваем.
+    app_id_rows = await session.execute(
+        select(Application.id).where(
+            Application.vacancy_id == vacancy_id,
+            Application.company_id == company_id,
+            Application.stage.notin_(("rejected", "hired")),
+        )
+    )
+    app_ids = [row[0] for row in app_id_rows.all()]
+    queued = len(app_ids)
+
+    if app_ids:
+        # 1) Снять оценки этих заявок. Ни одна таблица НЕ ссылается FK на ai_evaluations
+        #    (Event.entities держит id оценки в JSONB, не FK) → DELETE безопасен.
+        await session.execute(
+            delete(AiEvaluation)
+            .where(
+                AiEvaluation.application_id.in_(app_ids),
+                AiEvaluation.company_id == company_id,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        # 2) Обнулить кэш балла и счётчик попыток → крон пересчитает.
+        await session.execute(
+            update(Application)
+            .where(
+                Application.id.in_(app_ids),
+                Application.company_id == company_id,
+            )
+            .values(ai_score=None, ai_score_attempts=0)
+            .execution_options(synchronize_session=False)
+        )
+
+    # Изменяющее действие → audit_log (§2.2)
+    await audit(
+        session,
+        action="vacancy_reevaluate",
+        entity_type="vacancy",
+        entity_id=vacancy_id,
+        after={"queued": queued},
+        actor_user_id=current_user.id,
+        company_id=company_id,
+    )
+
+    await session.commit()
+    return {"queued": queued}
 
 
 @router.get("/{vacancy_id}/stages", response_model=list[VacancyStageCount])

@@ -91,6 +91,30 @@ export function useDuplicateVacancy() {
   });
 }
 
+// Локальный тип: openapi ещё не регенерился (POST /vacancies/{id}/reevaluate).
+type ReevaluateResponse = {
+  queued: number;
+};
+
+export function useReevaluateVacancy() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    // Массовая переоценка кандидатов вакансии AI — уходит в фон, вернёт число queued.
+    mutationFn: async (id: string): Promise<ReevaluateResponse> => {
+      const response = await api.post(`/vacancies/${id}/reevaluate`);
+      // openapi не реген → локальный тип + as-cast
+      return response.data as ReevaluateResponse;
+    },
+    onSuccess: (_, id) => {
+      // Баллы обнулятся и обновятся постепенно — освежаем воронку и счётчики этапов.
+      queryClient.invalidateQueries({ queryKey: ['vacancies', id, 'applications'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies', id, 'stages'] });
+      queryClient.invalidateQueries({ queryKey: ['vacancies', id] });
+    },
+  });
+}
+
 export function useAddVacancyStage() {
   const queryClient = useQueryClient();
 

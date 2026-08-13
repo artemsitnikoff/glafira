@@ -125,13 +125,21 @@ async def score_candidate_endpoint(
         if application:
             application_id = application.id
 
-    # Check if evaluation already exists for this candidate/application pair.
-    # При force=True пропускаем дедуп и считаем заново (переоценка с нуля).
-    existing = None if data.force else await _find_existing_evaluation(
+    # Всегда ищем существующую оценку по паре кандидат/заявка (для vacancy_id=None —
+    # последнюю общую с application_id IS NULL). Дальше решаем по force:
+    #   • без force + оценка есть → вернуть её (200, ничего не считаем);
+    #   • force + оценка есть → УДАЛИТЬ её и посчитать заново.
+    # Почему удаляем ПЕРЕД пересчётом: на ai_evaluations висит partial-unique
+    # (candidate_id, application_id) WHERE application_id IS NOT NULL. Без удаления INSERT
+    # в score_candidate упрётся в этот индекс, поймает IntegrityError и вернёт СТАРУЮ оценку
+    # (candidate.ai_score / application.ai_score / Event / audit НЕ обновятся) — переоценка
+    # «молча не работала». Для vacancy_id=None (application_id IS NULL) индекса нет, но
+    # удаление найденной оценки не даёт копиться дублям при повторных force.
+    existing = await _find_existing_evaluation(
         session, data.candidate_id, application_id, current_user.company_id
     )
 
-    if existing:
+    if existing and not data.force:
         # Оценка не создавалась (вернули существующую) → 200, а не 201
         log_scoring(
             f"КНОПКА • кандидат={data.candidate_id} • "
@@ -155,7 +163,15 @@ async def score_candidate_endpoint(
             created_at=existing.created_at
         )
 
-    # Create new evaluation
+    if existing and data.force:
+        # Переоценка с нуля: снимаем закэшированную оценку (она уже company-scoped —
+        # _find_existing_evaluation фильтрует по company_id) ДО пересчёта, чтобы INSERT
+        # в score_candidate прошёл и обновил candidate.ai_score / application.ai_score.
+        await session.delete(existing)
+        await session.flush()
+
+    # existing нет ИЛИ force → считаем заново (score_candidate обновит
+    # candidate.ai_score / application.ai_score + Event + audit).
     evaluation = await score_candidate(
         session,
         candidate_id=data.candidate_id,

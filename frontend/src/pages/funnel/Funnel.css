@@ -153,6 +153,14 @@
 .cnd-funnel-wrap .vh-action-item:disabled { opacity: 0.6; cursor: default; }
 .cnd-funnel-wrap .vh-action-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .cnd-funnel-wrap .vh-action-err { padding: 6px 10px 2px; font-size: 12px; color: var(--ark-red-600); }
+.cnd-funnel-wrap .vh-action-ok { padding: 6px 10px 2px; font-size: 12px; color: var(--ark-green-600); }
+.cnd-funnel-wrap .vh-action-note {
+  padding: 2px 10px 8px;
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fg-3);
+}
 
 /* Funnel chips (sticky under header) */
 .cnd-funnel-wrap .funnel-row {

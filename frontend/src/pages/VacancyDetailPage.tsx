@@ -165,6 +165,7 @@ export default function VacancyDetailPage() {
     <div className={`cnd-funnel-wrap ${isDetailMode ? 'detail-mode' : ''}`}>
       <VacancyHeader
         vacancy={vacancy}
+        activeCount={stages.reduce((sum, s) => sum + (s.is_terminal ? 0 : s.count), 0)}
         onEdit={() => navigate(`/vacancies/${id}/edit`)}
         onAddCandidate={() => setCreateCandidateOpen(true)}
       />
