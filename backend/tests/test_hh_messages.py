@@ -44,7 +44,7 @@ class TestHhMessaging:
         await db_session.flush()
 
         # Мокаем hh-вызовы
-        with patch('app.services.message.get_valid_access_token') as mock_token, \
+        with patch('app.services.message.get_hh_token_for_user') as mock_token, \
              patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
             mock_token.return_value = "test_token"
@@ -65,7 +65,7 @@ class TestHhMessaging:
             )
 
             # Проверяем, что hh-методы были вызваны
-            mock_token.assert_called_once_with(db_session, test_company.id)
+            mock_token.assert_called_once_with(db_session, company_id=test_company.id, user_id=admin_user.id)
             mock_send.assert_called_once_with("test_token", "chat_567", "Тестовое сообщение")
 
             # Проверяем результат
@@ -91,7 +91,7 @@ class TestHhMessaging:
         )
 
         # Токен есть (интеграцию не поднимаем) — проверяем именно отказ из-за отсутствия чата
-        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"):
+        with patch('app.services.message.get_hh_token_for_user', new_callable=AsyncMock, return_value="test_token"):
             with pytest.raises(ValidationError) as exc_info:
                 await send_message(
                     db_session,
@@ -139,7 +139,7 @@ class TestHhMessaging:
         await db_session.flush()
 
         # Мокаем ошибку hh API
-        with patch('app.services.message.get_valid_access_token') as mock_token, \
+        with patch('app.services.message.get_hh_token_for_user') as mock_token, \
              patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
             mock_token.return_value = "test_token"
@@ -181,7 +181,7 @@ class TestHhMessaging:
         )
 
         # Мокаем hh-методы, чтобы убедиться, что они НЕ вызываются
-        with patch('app.services.message.get_valid_access_token') as mock_token, \
+        with patch('app.services.message.get_hh_token_for_user') as mock_token, \
              patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
             result = await send_message(
@@ -237,7 +237,7 @@ class TestHhMessaging:
         await db_session.flush()
 
         # Мокаем hh-вызовы
-        with patch('app.services.message.get_valid_access_token') as mock_token, \
+        with patch('app.services.message.get_hh_token_for_user') as mock_token, \
              patch('app.services.message.hh_client.get_negotiation') as mock_get_neg, \
              patch('app.services.message.hh_client.send_chat_message') as mock_send:
 
@@ -260,7 +260,7 @@ class TestHhMessaging:
             )
 
             # Проверяем, что методы были вызваны в правильном порядке
-            mock_token.assert_called_once_with(db_session, test_company.id)
+            mock_token.assert_called_once_with(db_session, company_id=test_company.id, user_id=admin_user.id)
             mock_get_neg.assert_called_once_with("test_token", "12345")
             mock_send.assert_called_once_with("test_token", "567", "Тестовое сообщение")
 
@@ -303,7 +303,7 @@ class TestHhMessaging:
             application_id=application.id
         )
 
-        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"), \
+        with patch('app.services.message.get_hh_token_for_user', new_callable=AsyncMock, return_value="test_token"), \
              patch('app.services.message.hh_client.get_negotiation_responses', new_callable=AsyncMock, return_value={"items": [], "pages": 0}):
             with pytest.raises(ValidationError) as exc_info:
                 await send_message(
@@ -373,7 +373,7 @@ class TestHhMessaging:
             "pages": 1,
         }
 
-        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"), \
+        with patch('app.services.message.get_hh_token_for_user', new_callable=AsyncMock, return_value="test_token"), \
              patch('app.services.message.hh_client.get_negotiation_responses', new_callable=AsyncMock, return_value=mock_negotiations_page), \
              patch('app.services.message.hh_client.send_chat_message', new_callable=AsyncMock, return_value={"id": "msg_bkf"}):
 
@@ -455,7 +455,7 @@ class TestHhMessaging:
             "pages": 1,
         }
 
-        with patch('app.services.message.get_valid_access_token', new_callable=AsyncMock, return_value="test_token"), \
+        with patch('app.services.message.get_hh_token_for_user', new_callable=AsyncMock, return_value="test_token"), \
              patch('app.services.message.hh_client.get_negotiation_responses', new_callable=AsyncMock, return_value=mock_negotiations_page):
             with pytest.raises(ValidationError) as exc_info:
                 await send_message(

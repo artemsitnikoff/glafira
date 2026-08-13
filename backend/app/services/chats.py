@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Application, Candidate, Message, MessageRead, Vacancy, VacancyTeam
 from ..schemas.chat import ChatDialogOut, ChatMetaOut
-from .integrations.hh.service import get_valid_access_token
+from .integrations.hh.service import get_hh_token_for_user
 
 # «Никогда не читал» — любое sent_at позже -infinity → входящее непрочитано.
 # Используется в COALESCE, когда LEFT JOIN не нашёл строку MessageRead.
@@ -510,6 +510,7 @@ async def sync_candidate_hh_inbound(
     *,
     company_id: UUID,
     candidate_id: UUID,
+    user_id: UUID | None = None,
 ) -> dict:
     """On-demand приём hh для ОДНОГО кандидата (зеркало telegram/sync).
 
@@ -517,6 +518,9 @@ async def sync_candidate_hh_inbound(
     крон: тянет сообщения по всем Application этого кандидата с hh_chat_id
     (company-scoped), дедуп по external_id (повторный вызов не плодит). Коммит —
     на вызывающем (роут). Возвращает {"imported": N}.
+
+    Токен — ЛИЧНЫЙ токен рекрутёра, открывшего чат (user_id), с фолбэком на общий.
+    user_id=None (напр. крон) → общий компанийный токен (кронный поллер отдельный).
 
     Нет hh_chat_id у кандидата → {"imported": 0} (не ошибка). Интеграция hh не
     подключена/токен недоступен → {"imported": 0} (graceful, без исключения).
@@ -537,8 +541,13 @@ async def sync_candidate_hh_inbound(
         return {"imported": 0}
 
     try:
-        access_token = await get_valid_access_token(session, company_id)
+        access_token = await get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
     except Exception:
+        # Сбой рефреша личного токена — не роняем открытие чата, просто нечего тянуть.
+        return {"imported": 0}
+    if not access_token:
         # hh не подключён/токен протух — не роняем открытие чата, просто нечего тянуть.
         return {"imported": 0}
 

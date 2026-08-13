@@ -16,7 +16,7 @@ from ..services.audit import audit
 from ..services.chat_log import log_chat
 from ..services.company_display import resolve_company_display_name
 from ..services.integrations.hh import client as hh_client
-from ..services.integrations.hh.service import get_valid_access_token
+from ..services.integrations.hh.service import get_hh_token_for_user
 from ..services.integrations.smtp.service import send_email
 from ..services.integrations.smtp.templates import render_simple_email
 from ..services.integrations.telegram import service as tg_service
@@ -116,8 +116,11 @@ async def get_messages_paginated(
     )
 
 
-async def _send_hh(session, company_id, candidate_id, message_data, validated_application) -> str | None:
-    """Реальная отправка в hh через новый Chats API. Возвращает external_id (id сообщения hh) или None."""
+async def _send_hh(session, company_id, candidate_id, message_data, validated_application, actor_user_id=None) -> str | None:
+    """Реальная отправка в hh через новый Chats API. Возвращает external_id (id сообщения hh) или None.
+
+    Токен — ЛИЧНЫЙ токен отправителя (actor_user_id) с фолбэком на общий компанийный
+    (для чата фолбэк на общий допустим — это не платный просмотр резюме)."""
     hh_chat_id = None
     hh_negotiation_id = None
     target_application = None
@@ -141,7 +144,13 @@ async def _send_hh(session, company_id, candidate_id, message_data, validated_ap
             hh_chat_id = target_application.hh_chat_id
             hh_negotiation_id = target_application.hh_negotiation_id
 
-    access_token = await get_valid_access_token(session, company_id)
+    access_token = await get_hh_token_for_user(
+        session, company_id=company_id, user_id=actor_user_id
+    )
+    if not access_token:
+        raise ValidationError(
+            "Канал hh недоступен: hh.ru не подключён (нет ни личного, ни общего токена)."
+        )
 
     # Ленивый бэкфилл chat_id из negotiation, если пуст
     if not hh_chat_id and hh_negotiation_id:
@@ -420,7 +429,7 @@ async def send_message(
     if channel in ("hh", "email", "telegram"):
         try:
             if channel == "hh":
-                external_id = await _send_hh(session, company_id, candidate_id, message_data, validated_application)
+                external_id = await _send_hh(session, company_id, candidate_id, message_data, validated_application, actor_user_id)
             elif channel == "telegram":
                 external_id = await _send_telegram(session, company_id, candidate, message_data, validated_application)
             else:

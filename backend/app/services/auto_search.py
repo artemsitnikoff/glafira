@@ -163,13 +163,22 @@ def parse_saved_search_url(url: str) -> list[tuple[str, str]]:
     return [(k, v) for k, v in pairs if k not in ("page", "per_page")]
 
 
-async def sync_saved_searches(session: AsyncSession, company_id: UUID) -> list[AutoSearch]:
+async def sync_saved_searches(
+    session: AsyncSession, company_id: UUID, user_id: UUID | None = None
+) -> list[AutoSearch]:
     """Синхронизирует сохранённые автопоиски резюме hh в локальную таблицу auto_searches.
 
     UPSERT по (company_id, hh_saved_search_id). При обновлении не трогает
     пользовательские поля basis/auto_eval/last_seen_at — только то, что приходит из hh.
+
+    Токен — ЛИЧНЫЙ токен инициатора (user_id), фолбэк на общий. Это интерактивное
+    действие рекрутёра, поэтому под его личным токеном.
     """
-    token = await get_valid_access_token(session, company_id)
+    token = await hh_service.get_hh_token_for_user(
+        session, company_id=company_id, user_id=user_id
+    )
+    if not token:
+        raise ValidationError("hh.ru не подключён")
 
     items: list[dict] = []
     page = 0
@@ -321,14 +330,22 @@ async def list_auto_searches(session: AsyncSession, company_id: UUID) -> list[Au
     return items
 
 
-async def get_auto_access(session: AsyncSession, company_id: UUID) -> dict:
-    """Доступ к Автоподбору: hh подключён + (best-effort) остаток платного пула."""
-    has_access, has_paid_access, reason = await check_access(session, company_id)
+async def get_auto_access(
+    session: AsyncSession, company_id: UUID, user_id: UUID | None = None
+) -> dict:
+    """Доступ к Автоподбору: hh подключён + (best-effort) остаток платного пула.
+
+    Токен — ЛИЧНЫЙ токен инициатора (user_id), фолбэк на общий."""
+    has_access, has_paid_access, reason = await check_access(session, company_id, user_id)
 
     pool_left = None
     if has_access:
         try:
-            token = await get_valid_access_token(session, company_id)
+            token = await hh_service.get_hh_token_for_user(
+                session, company_id=company_id, user_id=user_id
+            )
+            if not token:
+                raise ValidationError("hh.ru не подключён")
             me = await hh_client.get_me(token)
             employer_id = (me.get("employer") or {}).get("id")
             if employer_id:
@@ -499,8 +516,12 @@ async def get_auto_candidates(
     segment: str = "all",
     page: int = 0,
     sort: str = "updated",
+    user_id: UUID | None = None,
 ) -> dict:
     """Кандидаты автопоиска на БЕСПЛАТНЫХ полях hh, синхронно, с пагинацией по 10.
+
+    Токен — ЛИЧНЫЙ токен инициатора (user_id), фолбэк на общий (поиск на hh —
+    бесплатное действие, но идёт под личным токеном для персональной атрибуции).
 
     Читает items_url (segment='all') или new_items_url (segment='new') сохранённого
     автопоиска hh и отдаёт страницу резюме без открытия контактов/чтения полного резюме.
@@ -527,7 +548,11 @@ async def get_auto_candidates(
     # карточки (TTL-кэш), мёржим баллы из прогонов, сортируем, пагинируем локально.
     # Прочерки (неоценённые) — всегда в конце, в обе стороны.
     if sort in ("score", "score_desc", "score_asc"):
-        token = await get_valid_access_token(session, company_id)
+        token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not token:
+            raise ValidationError("hh.ru не подключён")
         all_items = await _fetch_all_auto_items(
             token, url, company_id, auto_search_id, segment
         )
@@ -581,7 +606,11 @@ async def get_auto_candidates(
 
     params = parse_saved_search_url(url) + [("per_page", str(AUTO_PAGE_SIZE)), ("page", str(page))]
 
-    token = await get_valid_access_token(session, company_id)
+    token = await hh_service.get_hh_token_for_user(
+        session, company_id=company_id, user_id=user_id
+    )
+    if not token:
+        raise ValidationError("hh.ru не подключён")
     raw = await hh_client.search_resumes(token, params)
 
     items = raw.get("items") or []
@@ -647,6 +676,7 @@ async def get_auto_candidate_detail(
     session: AsyncSession,
     company_id: UUID,
     hh_resume_id: str,
+    user_id: UUID | None = None,
 ) -> dict:
     """ПОЛНОЕ резюме кандидата автоподбора через GET /resumes/{id} БЕЗ открытия контакта.
 
@@ -654,18 +684,24 @@ async def get_auto_candidate_detail(
     НЕ списание контакта из платного пула — контакты в ответе hh будут null
     (with_contact не передаётся), ФИО/телефон/email НЕ маппим и НЕ отдаём.
     Доступно при активной услуге доступа к базе резюме hh; 403 → понятная ошибка.
+
+    Токен — ЛИЧНЫЙ токен рекрутёра, открывшего резюме (user_id): квота просмотров
+    списывается персонально. Фолбэк на общий, если личного нет.
     """
-    has_access, _has_paid_access, reason = await check_access(session, company_id)
+    has_access, _has_paid_access, reason = await check_access(session, company_id, user_id)
     if not has_access:
         raise ValidationError(reason or "hh.ru не подключён")
 
-    token = await get_valid_access_token(session, company_id)
-
+    # Просмотр резюме под КАСКАДОМ квоты: личный токен рекрутёра → при исчерпании
+    # суточной квоты просмотров добираем из общего компанийного (view_resume_with_cascade
+    # сам резолвит токены + спилл + audit). Токен отдельно не снимаем.
     try:
-        full = await hh_client.get_resume_by_id(token, hh_resume_id)
+        full = await hh_service.view_resume_with_cascade(
+            session, company_id=company_id, user_id=user_id, resume_id=hh_resume_id
+        )
     except ValidationError as e:
         msg = str(e)
-        if "квота" in msg.lower():
+        if "квота" in msg.lower() or "лимит просмотров" in msg.lower():
             raise ValidationError("Превышен суточный лимит просмотров резюме hh")
         raise ValidationError(f"Резюме недоступно: {msg[:150]}")
 
@@ -849,13 +885,16 @@ async def _basis_to_vacancy_proxy(session: AsyncSession, company_id: UUID, basis
 
 
 async def score_auto_candidate(
-    session: AsyncSession, company_id: UUID, auto_search_id: UUID, hh_resume_id: str
+    session: AsyncSession, company_id: UUID, auto_search_id: UUID, hh_resume_id: str,
+    user_id: UUID | None = None,
 ) -> dict:
     """Точечная AI-оценка ОДНОГО кандидата автопоиска против его основы (vacancy|prompt).
 
     Требует заданной основы (иначе 400) — «оценить только его» из карточки. Синхронно:
     1 просмотр резюме hh (квота просмотров, НЕ контакт/деньги) + 1 LLM-вызов. Результат
-    персистится отдельным done-прогоном (evaluated=1) → виден в списке через мёрж."""
+    персистится отдельным done-прогоном (evaluated=1) → виден в списке через мёрж.
+
+    Токен — ЛИЧНЫЙ токен рекрутёра (user_id): квота просмотра списывается персонально."""
     auto_search = (await session.execute(
         select(AutoSearch).where(
             AutoSearch.company_id == company_id,
@@ -867,16 +906,18 @@ async def score_auto_candidate(
     if auto_search.basis is None:
         raise ValidationError("Сначала задайте основу оценки (вакансию или промт)")
 
-    has_access, _hp, reason = await check_access(session, company_id)
+    has_access, _hp, reason = await check_access(session, company_id, user_id)
     if not has_access:
         raise ValidationError(reason or "hh.ru не подключён")
 
-    token = await get_valid_access_token(session, company_id)
     api_key = await get_company_openrouter_key(session, company_id)
     model = await get_company_llm_model(session, company_id)
     vacancy_proxy = await _basis_to_vacancy_proxy(session, company_id, auto_search.basis)
 
-    full = await hh_client.get_resume_by_id(token, str(hh_resume_id))
+    # Просмотр резюме под КАСКАДОМ квоты (личный токен рекрутёра → общий при исчерпании).
+    full = await hh_service.view_resume_with_cascade(
+        session, company_id=company_id, user_id=user_id, resume_id=str(hh_resume_id)
+    )
     result = await asyncio.wait_for(
         score_resume_dict(full, vacancy_proxy, company_id, api_key, model), timeout=180
     )
@@ -1059,6 +1100,13 @@ async def _run_auto_evaluate(
             basis = run.basis or {}
 
             try:
+                # ⚠️ ОСТАЁТСЯ на ОБЩЕМ компанийном токене (get_valid_access_token), НЕ на
+                # личном. Причины: (1) bulk-оценка идёт в ОТДЕЛЬНОМ arq-воркере / self-heal
+                # — юзерского контекста нет, а колонки владельца в AutoSearchRun не
+                # существует (миграций в этой фазе не заводим); (2) оценка — по БЕСПЛАТНЫМ
+                # полим hh (без get_resume_by_id), суточную квоту просмотров резюме (500/сут)
+                # НЕ тратит, поэтому её распределение по рекрутёрам здесь не требуется.
+                # TODO(Фаза 3): персистить владельца прогона (миграция) → личный токен и тут.
                 token = await get_valid_access_token(session, company_id)
             except Exception as e:
                 run.status = "error"
@@ -1508,14 +1556,23 @@ async def self_heal_interrupted_evals() -> None:
 
 # === ФАЗА 4: «Забрать контакт / Перевести» (ПЛАТНО) ===
 
-async def _auto_pool_left(session: AsyncSession, company_id: UUID) -> int | None:
+async def _auto_pool_left(
+    session: AsyncSession, company_id: UUID, user_id: UUID | None = None
+) -> int | None:
     """Best-effort остаток платных API-действий hh после открытия контактов.
 
     Тот же приблизительный показатель, что и в get_auto_access (limited_remaining).
     Точное поле контактного пула пиннится на живом токене.
+
+    Токен — ЛИЧНЫЙ токен инициатора «забора» (user_id), фолбэк на общий: показатель
+    считается под той же личностью, что открыла контакты.
     """
     try:
-        token = await get_valid_access_token(session, company_id)
+        token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not token:
+            return None
         me = await hh_client.get_me(token)
         employer_id = (me.get("employer") or {}).get("id")
         if not employer_id:
@@ -1593,14 +1650,19 @@ async def take_auto_contact(
         target_vacancy_id = vacancy.id
 
     # Гейт: платный доступ обязателен ДО get_resume_by_id (тратит контакт)
-    has_access, has_paid_access, _ = await check_access(session, company_id)
+    has_access, has_paid_access, _ = await check_access(session, company_id, actor_user_id)
     if not has_paid_access:
         raise ValidationError(
             "Нет платного доступа к базе резюме hh — открытие контактов недоступно."
         )
 
-    # Снимаем токен и освобождаем request-сессию перед сетевым циклом
-    access_token = await get_valid_access_token(session, company_id)
+    # Снимаем токен и освобождаем request-сессию перед сетевым циклом.
+    # ЛИЧНЫЙ токен рекрутёра (actor_user_id): контакт списывается персонально, фолбэк на общий.
+    access_token = await hh_service.get_hh_token_for_user(
+        session, company_id=company_id, user_id=actor_user_id
+    )
+    if not access_token:
+        raise ValidationError("hh.ru не подключён")
     await session.commit()
 
     results: list[dict] = []
@@ -1783,7 +1845,7 @@ async def take_auto_contact(
     pool_left: int | None = None
     try:
         async with AsyncSessionLocal() as quota_session:
-            pool_left = await _auto_pool_left(quota_session, company_id)
+            pool_left = await _auto_pool_left(quota_session, company_id, actor_user_id)
     except Exception as e:
         logger.warning("[auto] pool_left после take failed: %s", e)
 

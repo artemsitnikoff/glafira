@@ -53,6 +53,37 @@ export function useHhDisconnect() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// hh.ru — ПЕРСОНАЛЬНЫЙ токен рекрутёра (per-user)
+// ---------------------------------------------------------------------------
+// Каждый рекрутёр подключает СВОЙ hh-аккаунт: интерактивные операции (чат, поиск,
+// просмотры резюме) пойдут под его токеном. Зеркалит company-версию authorize/
+// disconnect. RBAC на беке — require_recruiter_or_admin (admin/recruiter).
+
+// Начать OAuth личного hh-аккаунта → {authorize_url} для редиректа браузера.
+export function useMyHhAuthorize() {
+  return useMutation({
+    mutationFn: async (): Promise<HhAuthorizeResponse> => {
+      const response = await api.get('/integrations/hh/authorize/me');
+      return response.data as HhAuthorizeResponse;
+    },
+  });
+}
+
+// Отключить свой hh-токен → далее фолбэк на общий компанийный аккаунт.
+export function useDisconnectMyHh() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<MessageResult> => {
+      const response = await api.delete('/integrations/hh/me');
+      return response.data as MessageResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'hh', 'me', 'status'] });
+    },
+  });
+}
+
 // Ручной забор откликов с hh.ru (привязанные вакансии → этап «Отклик»)
 export interface HhPollDetail {
   name: string;

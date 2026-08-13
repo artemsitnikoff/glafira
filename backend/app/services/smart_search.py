@@ -264,9 +264,17 @@ def _parse_api_quota(quota_data) -> tuple[bool, int, bool]:
     return unlimited, limited_remaining, has_service
 
 
-async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, bool, Optional[str]]:
+async def check_access(
+    session: AsyncSession, company_id: UUID, user_id: Optional[UUID] = None
+) -> tuple[bool, bool, Optional[str]]:
     """
     Проверяет доступ к умному подбору
+
+    Токен: user_id → ЛИЧНЫЙ токен инициатора (фолбэк на общий), user_id=None → общий.
+    Платный доступ (has_paid_access) считается по employer'у токена; личный токен
+    рекрутёра — менеджер под тем же employer'ом компании, поэтому уровень платного
+    доступа тот же. Гейт остаётся FAIL-CLOSED: не смогли подтвердить платный доступ →
+    has_paid_access=False → приглашения/контакты блокируются (денег не тратим).
 
     Returns:
         tuple[bool, bool, str|None]: (has_access, has_paid_access, reason)
@@ -274,8 +282,12 @@ async def check_access(session: AsyncSession, company_id: UUID) -> tuple[bool, b
         has_paid_access: есть платный доступ к базе резюме (для приглашений)
     """
     try:
-        # Проверяем подключение hh.ru
-        access_token = await hh_service.get_valid_access_token(session, company_id)
+        # Проверяем подключение hh.ru (личный токен инициатора → фолбэк на общий)
+        access_token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not access_token:
+            return False, False, "hh.ru не подключён"
 
         # Получаем информацию о пользователе для employer_id
         me_data = await hh_client.get_me(access_token)
@@ -380,8 +392,8 @@ async def start_search(
             f"Это потратит платные запросы к hh.ru. Подтвердите расход установкой confirm_cost=true."
         )
 
-    # Проверяем доступ
-    has_access, has_paid_access, reason = await check_access(session, company_id)
+    # Проверяем доступ (под личным токеном инициатора)
+    has_access, has_paid_access, reason = await check_access(session, company_id, user_id)
     if not has_access:
         raise ValidationError(f"Нет доступа к умному подбору: {reason}")
 
@@ -411,9 +423,13 @@ async def start_search(
         if existing.status == "running":
             raise ConflictError("По этой вакансии уже выполняется поиск. Дождитесь завершения текущего.")
 
-    # Получаем токен и квоты для передачи в фоновую задачу
+    # Получаем токен и квоты для передачи в фоновую задачу (личный токен инициатора)
     try:
-        access_token = await hh_service.get_valid_access_token(session, company_id)
+        access_token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not access_token:
+            raise ValidationError("hh.ru не подключён")
         me_data = await hh_client.get_me(access_token)
         employer_id = str(me_data.get("employer", {}).get("id"))
 
@@ -811,8 +827,16 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             if not hasattr(run, 'scored_candidates') or run.scored_candidates is None:
                 run.scored_candidates = []
 
-            # Получаем токен, вакансию и API-ключ компании
-            access_token = await hh_service.get_valid_access_token(init_session, company_id)
+            # Получаем токен, вакансию и API-ключ компании.
+            # ⚠️ ГЛАВНЫЙ пожиратель квоты просмотров резюме hh (get_resume_by_id ниже) —
+            # идёт под ЛИЧНЫМ токеном ВЛАДЕЛЬЦА прогона (user_id проброшен start_search →
+            # _run_search_background → сюда, в модели SmartSearchRun колонки владельца нет).
+            # Фолбэк на общий токен внутри селектора (user_id есть, но личного токена нет).
+            access_token = await hh_service.get_hh_token_for_user(
+                init_session, company_id=company_id, user_id=user_id
+            )
+            if not access_token:
+                raise ValidationError("hh.ru не подключён — подключите hh в настройках")
             vacancy = await init_session.get(Vacancy, run.vacancy_id)
             # Резолвим API-ключ и модель компании один раз для всех LLM-вызовов
             company_api_key = await get_company_openrouter_key(init_session, company_id)
@@ -900,6 +924,7 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
         evaluated_candidates = []
         ai_credits_exhausted = False  # кончились токены OpenRouter → стоп (не жечь платные hh-запросы)
         hh_quota_exhausted = False  # исчерпана квота просмотров резюме hh (429) → стоп
+        spilled_to_company = False  # каскад квоты: уже переключились с личного токена на общий
 
         await log_smart_search(run_id, f"Начинаем оценку {scan_n} резюме с порогом {threshold}")
 
@@ -1034,8 +1059,30 @@ async def _run_search_inner(run_id: UUID, company_id: UUID, user_id: UUID):
             except ValidationError as e:
                 # Ошибка получения ОДНОГО резюме (hh GET /resumes/{id} → ValidationError).
                 msg = str(e)
-                # Квота просмотров hh исчерпана (429) → дальше платные запросы бессмысленны: стоп.
+                # Квота просмотров hh исчерпана (429). КАСКАД: если жгли ЛИЧНЫЙ токен
+                # владельца прогона и ещё не переключались — добираем ОСТАТОК прогона из
+                # ОБЩЕГО компанийного токена (личные 500/сут кончились). Токен подменяем
+                # локально, горячий цикл НЕ реструктурируем; это резюме пропускаем.
                 if "квота" in msg.lower():
+                    if user_id is not None and not spilled_to_company:
+                        company_token = None
+                        try:
+                            async with AsyncSessionLocal() as spill_session:
+                                company_token = await hh_service.spill_personal_view_quota(
+                                    spill_session, company_id=company_id, user_id=user_id
+                                )
+                        except Exception as spill_exc:
+                            logger.warning(f"[smart] спилл личной квоты не удался run={run_id}: {spill_exc}")
+                            company_token = None
+                        if company_token and company_token != access_token:
+                            access_token = company_token
+                            spilled_to_company = True
+                            spill_msg = "Личная квота просмотров hh исчерпана — продолжаем на общем токене компании"
+                            logger.warning(f"[smart] спилл на общий токен run={run_id} на резюме {resume_id}")
+                            await log_smart_search(run_id, spill_msg)
+                            await _update_run_progress(run_id, scanned=i + 1, log_append=spill_msg)
+                            continue  # это резюме пропущено, остаток прогона — на общем токене
+                    # Личного токена не было / уже спиллили / общего тоже нет → стоп, как раньше.
                     hh_quota_exhausted = True
                     stop_msg = "Подбор остановлен: исчерпана квота просмотров резюме hh.ru"
                     logger.warning(f"Квота просмотров hh исчерпана на резюме {resume_id}: {msg[:200]}")
@@ -1340,7 +1387,7 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
     if not vacancy.hh_vacancy_id:
         raise ValidationError("Вакансия не опубликована на hh.ru — приглашать некуда.")
 
-    has_access, has_paid_access, _ = await check_access(session, company_id)
+    has_access, has_paid_access, _ = await check_access(session, company_id, user_id)
     if not has_paid_access:
         raise ValidationError("Нет платного доступа к базе резюме hh — отправка приглашений недоступна.")
 
@@ -1352,8 +1399,12 @@ async def invite_selected(session: AsyncSession, company_id: UUID, user_id: UUID
 
     valid_resume_ids = [rid for rid in resume_ids if rid in allowed]
 
-    # Получаем токен доступа
-    access_token = await hh_service.get_valid_access_token(session, company_id)
+    # Получаем токен доступа (личный токен рекрутёра-инициатора, фолбэк на общий)
+    access_token = await hh_service.get_hh_token_for_user(
+        session, company_id=company_id, user_id=user_id
+    )
+    if not access_token:
+        raise ValidationError("hh.ru не подключён")
 
     # Сохраняем данные для использования вне сессии
     vacancy_id = vacancy.id
@@ -1597,7 +1648,7 @@ async def take_selected(
         raise NotFoundError("Вакансия")
 
     # Гейт: платный доступ обязателен (get_resume_by_id тратит контакт)
-    has_access, has_paid_access, _ = await check_access(session, company_id)
+    has_access, has_paid_access, _ = await check_access(session, company_id, user_id)
     if not has_paid_access:
         raise ValidationError(
             "Нет платного доступа к базе резюме hh — открытие контактов недоступно."
@@ -1616,8 +1667,12 @@ async def take_selected(
     # Сохраняем данные для использования вне сессии запроса
     vacancy_id = vacancy.id
 
-    # Получаем токен доступа (пока открыта request-сессия)
-    access_token = await hh_service.get_valid_access_token(session, company_id)
+    # Получаем токен доступа (личный токен рекрутёра-инициатора, фолбэк на общий)
+    access_token = await hh_service.get_hh_token_for_user(
+        session, company_id=company_id, user_id=user_id
+    )
+    if not access_token:
+        raise ValidationError("hh.ru не подключён")
 
     # Освобождаем request-сессию перед входом в сетевой цикл
     await session.commit()
@@ -1855,7 +1910,8 @@ async def get_run_history(session: AsyncSession, company_id: UUID, limit: int = 
 
 
 async def preview_found_count(
-    session: AsyncSession, company_id: UUID, request: SmartCountRequest
+    session: AsyncSession, company_id: UUID, request: SmartCountRequest,
+    user_id: Optional[UUID] = None,
 ) -> tuple[Optional[int], dict]:
     """
     Предварительный подсчёт количества резюме по фильтрам (БЕЗ денежных трат).
@@ -1919,8 +1975,12 @@ async def preview_found_count(
         search_params = base_params + [("per_page", "1"), ("page", "0")]
 
         try:
-            # Получаем токен hh
-            access_token = await hh_service.get_valid_access_token(session, company_id)
+            # Получаем токен hh (личный токен инициатора, фолбэк на общий)
+            access_token = await hh_service.get_hh_token_for_user(
+                session, company_id=company_id, user_id=user_id
+            )
+            if not access_token:
+                return None, debug_params
 
             # Делаем поисковый запрос (БЕСПЛАТНО - только found, без детализации резюме)
             search_result = await hh_client.search_resumes(access_token, search_params)
@@ -1954,7 +2014,10 @@ def _skill_name_matches(query: str, candidate: str) -> bool:
     return q == c or q in c or c in q
 
 
-async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacancy_id: UUID) -> dict:
+async def derive_vacancy_filters(
+    session: AsyncSession, company_id: UUID, vacancy_id: UUID,
+    user_id: Optional[UUID] = None,
+) -> dict:
     """
     Извлекает AI-фильтры для умного подбора из вакансии
 
@@ -2048,7 +2111,11 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
         skill_chips: list[dict] = []
         unresolved_skills: list[str] = []
         try:
-            access_token = await hh_service.get_valid_access_token(session, company_id)
+            access_token = await hh_service.get_hh_token_for_user(
+                session, company_id=company_id, user_id=user_id
+            )
+            if not access_token:
+                raise ValidationError("hh.ru не подключён")
             for skill_name in ai_skills:
                 skill_name_str = str(skill_name).strip()
                 if len(skill_name_str) < 2:
@@ -2103,7 +2170,10 @@ async def derive_vacancy_filters(session: AsyncSession, company_id: UUID, vacanc
         }
 
 
-async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
+async def suggest_areas(
+    session: AsyncSession, company_id: UUID, text: str,
+    user_id: Optional[UUID] = None,
+) -> list[dict]:
     """
     Получает подсказки регионов/городов из справочника hh.ru
 
@@ -2122,8 +2192,12 @@ async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> l
         return []
 
     try:
-        # Получаем токен hh
-        access_token = await hh_service.get_valid_access_token(session, company_id)
+        # Получаем токен hh (личный токен инициатора, фолбэк на общий)
+        access_token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not access_token:
+            return []
 
         # Вызываем hh API
         return await hh_client.suggest_areas(access_token, text)
@@ -2134,7 +2208,10 @@ async def suggest_areas(session: AsyncSession, company_id: UUID, text: str) -> l
         return []
 
 
-async def suggest_skills(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
+async def suggest_skills(
+    session: AsyncSession, company_id: UUID, text: str,
+    user_id: Optional[UUID] = None,
+) -> list[dict]:
     """
     Получает подсказки навыков из справочника hh.ru (skill_set).
 
@@ -2155,7 +2232,11 @@ async def suggest_skills(session: AsyncSession, company_id: UUID, text: str) -> 
         return []
 
     try:
-        access_token = await hh_service.get_valid_access_token(session, company_id)
+        access_token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not access_token:
+            return []
         items = await hh_client.suggest_skill_set(access_token, text)
         # Нормализуем: оставляем только элементы с непустыми id и text
         return [
@@ -2168,7 +2249,10 @@ async def suggest_skills(session: AsyncSession, company_id: UUID, text: str) -> 
         return []
 
 
-async def get_professional_role_categories(session: AsyncSession, company_id: UUID) -> list[dict]:
+async def get_professional_role_categories(
+    session: AsyncSession, company_id: UUID,
+    user_id: Optional[UUID] = None,
+) -> list[dict]:
     """
     Возвращает сгруппированный справочник профессиональных ролей hh.ru.
 
@@ -2179,14 +2263,21 @@ async def get_professional_role_categories(session: AsyncSession, company_id: UU
     Грейсфул: при любой ошибке (нет токена, hh недоступен) возвращает [] — не роняет форму.
     """
     try:
-        access_token = await hh_service.get_valid_access_token(session, company_id)
+        access_token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not access_token:
+            return []
         return await hh_client.get_professional_roles_grouped(access_token)
     except Exception as exc:
         logger.warning("Ошибка получения категорий ролей hh: %s", exc)
         return []
 
 
-async def suggest_professional_roles(session: AsyncSession, company_id: UUID, text: str) -> list[dict]:
+async def suggest_professional_roles(
+    session: AsyncSession, company_id: UUID, text: str,
+    user_id: Optional[UUID] = None,
+) -> list[dict]:
     """
     Подсказки профессиональных ролей из кэшированного справочника hh.ru.
 
@@ -2207,7 +2298,11 @@ async def suggest_professional_roles(session: AsyncSession, company_id: UUID, te
         return []
 
     try:
-        access_token = await hh_service.get_valid_access_token(session, company_id)
+        access_token = await hh_service.get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
+        if not access_token:
+            return []
         return await hh_client.get_suggested_professional_roles(access_token, text)
     except Exception as exc:
         logger.warning("Ошибка получения подсказок ролей hh: %s", exc)

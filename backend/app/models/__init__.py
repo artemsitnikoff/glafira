@@ -34,6 +34,7 @@ from .settings import (
     FunnelTemplateStage,
 )
 from .hh_integration import HhIntegration, HhOauthState
+from .user_hh_integration import UserHhIntegration
 from .habr_integration import HabrIntegration, HabrOauthState
 from .avito_integration import AvitoIntegration
 from .smart_search import SmartSearchRun
@@ -99,6 +100,7 @@ __all__ = [
     "CompanyDefaultStage",
     "HhIntegration",
     "HhOauthState",
+    "UserHhIntegration",
     "HabrIntegration",
     "HabrOauthState",
     "AvitoIntegration",

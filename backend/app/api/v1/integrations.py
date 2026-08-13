@@ -12,7 +12,7 @@ from ...deps import get_current_user
 from ...core.errors import ValidationError, ForbiddenError, AppError
 
 logger = logging.getLogger(__name__)
-from ...core.permissions import require_admin, require_settings_read_access
+from ...core.permissions import require_admin, require_settings_read_access, require_recruiter_or_admin
 from ...database import get_db
 from ...models import User
 from ...services.integrations.hh import service as hh_service
@@ -167,6 +167,54 @@ async def disconnect_hh(
     await hh_service.disconnect(session, current_user.company_id, current_user.id)
 
     return {"message": "Интеграция hh.ru отключена"}
+
+
+# ---------------------------------------------------------------------------
+# hh.ru — ПЕРСОНАЛЬНЫЙ OAuth-токен рекрутёра (per-user)
+# ---------------------------------------------------------------------------
+# Каждый рекрутёр может подключить СВОЙ hh-аккаунт: интерактивные операции пойдут
+# под его токеном (свой суточный лимит просмотров, честная атрибуция). Нет своего —
+# фолбэк на общий компанийный (см. hh_service.get_hh_token_for_user, Фаза 2).
+# RBAC: admin/recruiter (require_recruiter_or_admin); manager → 403; hiring_manager
+# отбит _deny_hm на include_router. company_id/user_id — из state, не из куки.
+
+@router.get("/hh/authorize/me", dependencies=[Depends(require_recruiter_or_admin)])
+async def start_hh_personal_authorization(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Начать ПЕРСОНАЛЬНОЕ подключение hh.ru для текущего пользователя.
+
+    Возвращает {authorize_url} для редиректа браузера. Callback (публичный /hh/callback)
+    по kind='personal' в state запишет токен в user_hh_integrations для этого юзера.
+    """
+    authorize_url = await hh_service.start_oauth(
+        session, current_user.company_id, current_user.id, kind="personal"
+    )
+    return {"authorize_url": authorize_url}
+
+
+@router.get("/hh/me/status", dependencies=[Depends(require_recruiter_or_admin)])
+async def get_hh_personal_status(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Статус персонального hh-подключения текущего пользователя (без секретов)."""
+    return await hh_service.get_personal_status(
+        session, current_user.company_id, current_user.id
+    )
+
+
+@router.delete("/hh/me", dependencies=[Depends(require_recruiter_or_admin)])
+async def disconnect_hh_personal(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Отключить СВОЙ hh-токен. Далее интерактивные операции уходят на общий компанийный."""
+    await hh_service.disconnect_personal(
+        session, current_user.company_id, current_user.id
+    )
+    return {"message": "Персональное подключение hh.ru отключено"}
 
 
 @router.get("/hh/vacancies", dependencies=[Depends(require_settings_read_access)])

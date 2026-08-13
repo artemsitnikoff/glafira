@@ -115,7 +115,7 @@ async def get_smart_access(
     current_user: User = Depends(get_current_user),
 ):
     """Проверка доступа к умному подбору"""
-    has_access, has_paid_access, reason = await check_access(session, company_id)
+    has_access, has_paid_access, reason = await check_access(session, company_id, current_user.id)
     return SmartAccessResponse(
         has_access=has_access,
         has_paid_access=has_paid_access,
@@ -221,7 +221,7 @@ async def get_vacancy_filters(
     current_user: User = Depends(get_current_user),
 ):
     """Получить AI-фильтры для умного подбора по вакансии"""
-    filters = await derive_vacancy_filters(session, company_id, vacancy_id)
+    filters = await derive_vacancy_filters(session, company_id, vacancy_id, current_user.id)
     return SmartVacancyFilters(**filters)
 
 
@@ -237,7 +237,7 @@ async def smart_preview_count(
     Возвращает found (число резюме от hh) и debug_params (реальные hh-параметры
     запроса без page/per_page — видно какие фильтры реально ушли в hh).
     """
-    found, debug_params = await preview_found_count(session, company_id, request)
+    found, debug_params = await preview_found_count(session, company_id, request, current_user.id)
     return SmartCountResponse(found=found, debug_params=debug_params)
 
 
@@ -249,7 +249,7 @@ async def smart_area_suggest(
     current_user: User = Depends(get_current_user),
 ):
     """Получить подсказки регионов/городов из справочника hh.ru"""
-    items = await suggest_areas(session, company_id, text)
+    items = await suggest_areas(session, company_id, text, current_user.id)
     return [SmartAreaSuggestItem(id=str(i.get("id")), text=str(i.get("text", "")))
             for i in items if i.get("id")]
 
@@ -267,7 +267,7 @@ async def smart_skill_suggest(
     для структурного фильтра skill= (режим exact).
     Требует минимум 2 символа; пустой/короткий text → [].
     """
-    items = await suggest_skills(session, company_id, text)
+    items = await suggest_skills(session, company_id, text, current_user.id)
     return [SmartSkillSuggestItem(id=i["id"], text=i["text"]) for i in items]
 
 
@@ -283,7 +283,7 @@ async def smart_role_suggest(
     Справочник загружается один раз и кэшируется на уровне модуля.
     Пустой text или < 2 символов → [].
     """
-    items = await suggest_professional_roles(session, company_id, text)
+    items = await suggest_professional_roles(session, company_id, text, current_user.id)
     return [
         SmartRoleSuggestItem(
             id=i["id"],
@@ -307,7 +307,7 @@ async def smart_role_categories(
     Справочник кэшируется на уровне модуля (тот же кэш, что у role-suggest).
     При ошибке (hh не подключён, недоступен) возвращает [].
     """
-    items = await get_professional_role_categories(session, company_id)
+    items = await get_professional_role_categories(session, company_id, current_user.id)
     return [
         SmartRoleCategory(
             category_id=i["category_id"],
@@ -730,7 +730,7 @@ async def get_auto_search_access(
     """Доступ к Автоподбору (hh подключён + остаток пула)."""
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
-    data = await get_auto_access(session, company_id)
+    data = await get_auto_access(session, company_id, current_user.id)
     return AutoAccessResponse(**data)
 
 
@@ -752,7 +752,7 @@ async def get_auto_searches(
     if fresh:
         return cached
     try:
-        return await sync_saved_searches(session, company_id)
+        return await sync_saved_searches(session, company_id, current_user.id)
     except Exception as e:
         if cached:
             logger.warning("[auto] sync failed, serving cache: %s", e)
@@ -769,7 +769,7 @@ async def sync_auto_searches(
     """Принудительная синхронизация автопоисков с hh."""
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
-    return await sync_saved_searches(session, company_id)
+    return await sync_saved_searches(session, company_id, current_user.id)
 
 
 @router.get("/auto/searches/{auto_search_id}/candidates", response_model=AutoCandidatesResponse)
@@ -787,7 +787,7 @@ async def get_auto_search_candidates(
         raise ForbiddenError("Доступ запрещён")
     if segment not in ("all", "new"):
         segment = "all"
-    data = await get_auto_candidates(session, company_id, auto_search_id, segment=segment, page=page, sort=sort)
+    data = await get_auto_candidates(session, company_id, auto_search_id, segment=segment, page=page, sort=sort, user_id=current_user.id)
     return AutoCandidatesResponse(**data)
 
 
@@ -806,7 +806,7 @@ async def get_auto_candidate_full_resume(
     контакта (контакт не тратится, расходуется только суточная квота просмотров hh)."""
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
-    data = await get_auto_candidate_detail(session, company_id, hh_resume_id)
+    data = await get_auto_candidate_detail(session, company_id, hh_resume_id, current_user.id)
     return AutoCandidateDetail(**data)
 
 
@@ -825,7 +825,7 @@ async def score_auto_candidate_endpoint(
     (вакансия/промт). Без основы — 400. 1 просмотр резюме + 1 LLM-вызов, синхронно."""
     if current_user.role == "manager":
         raise ForbiddenError("Доступ запрещён")
-    return await score_auto_candidate(session, company_id, auto_search_id, hh_resume_id)
+    return await score_auto_candidate(session, company_id, auto_search_id, hh_resume_id, current_user.id)
 
 
 @router.post(

@@ -164,7 +164,7 @@ async def sync_hh_messages(
     await _ensure_candidate_in_company(session, candidate_id, company_id)
 
     result = await sync_candidate_hh_inbound(
-        session, company_id=company_id, candidate_id=candidate_id
+        session, company_id=company_id, candidate_id=candidate_id, user_id=current_user.id
     )
     await session.commit()
     return result

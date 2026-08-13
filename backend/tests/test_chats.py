@@ -302,7 +302,7 @@ async def test_hh_sync_imports_then_dedups(async_client, auth_headers, db_sessio
             }
         ]
     }
-    with patch("app.services.chats.get_valid_access_token", new_callable=AsyncMock, return_value="tok"), \
+    with patch("app.services.chats.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok"), \
          patch("app.jobs.poll_hh_messages.hh_client.get_chat_messages", new_callable=AsyncMock, return_value=mock_messages):
         r1 = await async_client.post(f"/api/v1/candidates/{c.id}/messages/hh/sync", headers=auth_headers)
         assert r1.status_code == 200 and r1.json()["imported"] == 1
@@ -323,12 +323,60 @@ async def test_hh_sync_no_chat_returns_zero(async_client, auth_headers, test_can
     assert r.status_code == 200 and r.json()["imported"] == 0
 
 
+async def test_hh_sync_passes_user_id_to_selector(db_session, test_candidate, admin_user):
+    """on-demand hh-синк передаёт user_id рекрутёра в селектор токена → личный токен
+    (фолбэк на общий), персональная атрибуция (симметрично тестам comments)."""
+    from app.services.chats import sync_candidate_hh_inbound
+
+    c = test_candidate
+    v = Vacancy(company_id=c.company_id, name="V", status="active")
+    db_session.add(v)
+    await db_session.flush()
+    a = Application(company_id=c.company_id, candidate_id=c.id, vacancy_id=v.id,
+                    stage="response", hh_chat_id="chat_uid")
+    db_session.add(a)
+    await db_session.flush()
+
+    with patch("app.services.chats.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok") as m_tok, \
+         patch("app.jobs.poll_hh_messages.poll_chat_messages", new_callable=AsyncMock, return_value=0):
+        await sync_candidate_hh_inbound(
+            db_session, company_id=c.company_id, candidate_id=c.id, user_id=admin_user.id
+        )
+
+    m_tok.assert_awaited_once()
+    assert m_tok.await_args.kwargs["user_id"] == admin_user.id
+    assert m_tok.await_args.kwargs["company_id"] == c.company_id
+
+
+async def test_hh_sync_cron_uses_company_token(db_session, test_candidate, admin_user):
+    """Кронный путь (user_id не передан) → селектор зовётся с user_id=None (общий токен)."""
+    from app.services.chats import sync_candidate_hh_inbound
+
+    c = test_candidate
+    v = Vacancy(company_id=c.company_id, name="V2", status="active")
+    db_session.add(v)
+    await db_session.flush()
+    a = Application(company_id=c.company_id, candidate_id=c.id, vacancy_id=v.id,
+                    stage="response", hh_chat_id="chat_cron")
+    db_session.add(a)
+    await db_session.flush()
+
+    with patch("app.services.chats.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok") as m_tok, \
+         patch("app.jobs.poll_hh_messages.poll_chat_messages", new_callable=AsyncMock, return_value=0):
+        await sync_candidate_hh_inbound(
+            db_session, company_id=c.company_id, candidate_id=c.id
+        )
+
+    m_tok.assert_awaited_once()
+    assert m_tok.await_args.kwargs["user_id"] is None
+
+
 # ── Честная ошибка hh без диалога ────────────────────────────────────────────
 
 
 async def test_send_hh_without_dialog_is_honest_error(async_client, auth_headers, test_candidate):
     """Отправка hh кандидату без negotiation → 400 (не тихий провал), ничего не сохранено."""
-    with patch("app.services.message.get_valid_access_token", new_callable=AsyncMock, return_value="tok"):
+    with patch("app.services.message.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok"):
         r = await async_client.post(
             f"/api/v1/candidates/{test_candidate.id}/messages",
             headers=auth_headers,

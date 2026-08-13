@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import Candidate, Comment
 from . import client as hh_client
-from .service import get_valid_access_token
+from .service import get_hh_token_for_user, view_resume_with_cascade
 
 logger = logging.getLogger(__name__)
 
@@ -60,18 +60,24 @@ async def _resolve_applicant_id(
     session: AsyncSession,
     candidate: Candidate,
     resume_id: str,
-    access_token: str,
+    *,
+    company_id: UUID,
+    user_id: UUID | None = None,
 ) -> str | None:
     """applicant_id (owner.id) из кэша extra ИЛИ из полного резюме (с кэшированием).
 
-    ⚠️ get_resume_by_id тратит квоту просмотров hh — потому кэшируем в extra и зовём
-    только если applicant_id ещё не известен. Любой сбой резолва → None (graceful)."""
+    ⚠️ Просмотр резюме тратит квоту просмотров hh — потому кэшируем в extra и зовём
+    только если applicant_id ещё не известен. Идёт под КАСКАДОМ квоты
+    (view_resume_with_cascade): личный токен рекрутёра → общий при исчерпании суточного
+    лимита. Любой сбой резолва → None (graceful — блок «Комментарии» не роняем)."""
     cached = (candidate.extra or {}).get("hh_applicant_id")
     if cached:
         return str(cached)
 
     try:
-        resume = await hh_client.get_resume_by_id(access_token, resume_id)
+        resume = await view_resume_with_cascade(
+            session, company_id=company_id, user_id=user_id, resume_id=resume_id
+        )
     except Exception as exc:
         logger.warning("[hh-comments] резолв applicant_id: сбой resume=%s exc=%s", resume_id, exc)
         return None
@@ -92,8 +98,14 @@ async def sync_candidate_hh_comments(
     *,
     company_id: UUID,
     candidate_id: UUID,
+    user_id: UUID | None = None,
 ) -> dict:
     """Импорт заметок работодателя с hh для ОДНОГО кандидата → {"imported": N}.
+
+    Токен: on-demand-путь из роута передаёт user_id рекрутёра → ЛИЧНЫЙ токен (фолбэк на
+    общий). КРОННЫЙ путь (jobs.poll_hh_comments) user_id НЕ передаёт → общий компанийный
+    токен. ⚠️ резолв applicant_id (get_resume_by_id) тратит квоту просмотров hh — с личным
+    токеном она списывается персонально; но только при ПЕРВОМ синке кандидата (далее кэш).
 
     Company-scoped ВЕЗДЕ. Дедуп по (company_id, source='hh', external_id) — повторный
     вызов не плодит. Коммит — на вызывающем (роут/крон). Любой недостающий кусок
@@ -116,12 +128,19 @@ async def sync_candidate_hh_comments(
         return {"imported": 0}
 
     try:
-        access_token = await get_valid_access_token(session, company_id)
+        access_token = await get_hh_token_for_user(
+            session, company_id=company_id, user_id=user_id
+        )
     except Exception:
+        # Сбой рефреша личного токена — тянуть нечего, блок не роняем.
+        return {"imported": 0}
+    if not access_token:
         # hh не подключён/токен протух — тянуть нечего, блок не роняем.
         return {"imported": 0}
 
-    applicant_id = await _resolve_applicant_id(session, candidate, str(resume_id), access_token)
+    applicant_id = await _resolve_applicant_id(
+        session, candidate, str(resume_id), company_id=company_id, user_id=user_id
+    )
     if not applicant_id:
         return {"imported": 0}
 

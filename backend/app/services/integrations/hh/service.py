@@ -6,11 +6,12 @@ from uuid import UUID
 from typing import Optional
 
 from sqlalchemy import select, delete, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
+from sqlalchemy.orm.exc import StaleDataError, ObjectDeletedError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....models import (
-    HhIntegration, HhOauthState, Vacancy, Application, Candidate,
+    HhIntegration, HhOauthState, UserHhIntegration, Vacancy, Application, Candidate,
     CandidateExperience, CandidateSkill, CandidateEducation, Message,
     Document, Event,
 )
@@ -234,7 +235,7 @@ async def save_config(session: AsyncSession, company_id: UUID, user_id: UUID, cl
     return integration
 
 
-async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) -> str:
+async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID, kind: str = "company") -> str:
     """
     Начинает OAuth flow, создает state запись и возвращает authorize URL
 
@@ -242,6 +243,10 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
         session: DB session
         company_id: ID компании
         user_id: ID пользователя
+        kind: 'company' (общий токен работодателя → hh_integrations) или 'personal'
+              (персональный токен рекрутёра → user_hh_integrations). Пишется в state;
+              callback (complete_oauth) по нему маршрутизирует. company_id/user_id
+              берутся ИЗ state (не из куки) — OAuth-безопасность.
 
     Returns:
         str: URL для редиректа в браузер
@@ -276,6 +281,7 @@ async def start_oauth(session: AsyncSession, company_id: UUID, user_id: UUID) ->
         state=state,
         company_id=company_id,
         user_id=user_id,
+        kind=kind,
         expires_at=expires_at
     )
 
@@ -318,6 +324,12 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
         await session.delete(oauth_state)
         await session.commit()
         raise ValidationError("Истекший state")
+
+    # Персональный флоу рекрутёра → отдельная ветка (токен в user_hh_integrations).
+    # kind берётся ИЗ state (не из куки). None/'company' (дефолт) → общий флоу ниже,
+    # который остаётся байт-в-байт прежним — company-flow не сломан.
+    if (oauth_state.kind or "company") == "personal":
+        return await _complete_oauth_personal(session, oauth_state, code)
 
     company_id = oauth_state.company_id
     user_id = oauth_state.user_id
@@ -395,11 +407,449 @@ async def complete_oauth(session: AsyncSession, code: str, state: str) -> HhInte
 
         return integration
 
-    except Exception as e:
-        # Удаляем state при ошибке
+    except Exception:
+        # Гасим state при ошибке. НО удаляем его ТОЛЬКО если он ещё в сессии/persistent:
+        # на успешном пути state уже удалён-и-закоммичен (стал detached), и повторный
+        # delete detached-объекта поднял бы ВТОРИЧНОЕ исключение, замаскировав исходное
+        # (и оставив connect без audit-строки). Сам delete/commit оборачиваем, чтобы
+        # вторичный сбой не затирал первичную ошибку — её и пробрасываем bare raise.
+        try:
+            if oauth_state in session:
+                await session.delete(oauth_state)
+                await session.commit()
+        except Exception:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+        raise
+
+
+# ===========================================================================
+# ПЕРСОНАЛЬНЫЙ hh-токен рекрутёра (user_hh_integrations)
+# ---------------------------------------------------------------------------
+# Общий компанийный HhIntegration ОСТАЁТСЯ (фон/кроны/отклики/фолбэк). Персональный
+# токен рекрутёра нужен для интерактивных операций (просмотр резюме/чат/поиск), чтобы
+# суточный лимит hh и атрибуция действий были ПЕРСОНАЛЬНЫМИ, а не общими на компанию.
+# ФАЗА 2 (готово): ИНТЕРАКТИВНЫЕ вызовы (просмотр резюме/чат/поиск/умный подбор/
+# автоподбор) маршрутизированы на get_hh_token_for_user(user_id=инициатор) — квота
+# и атрибуция персональны. get_valid_access_token НЕ тронут: на нём остаются фон/
+# кроны/отклики/фолбэк (poll_*, sync_company_rejections, auto_qa, публичная запись
+# на интервью, а также bulk-оценка Автоподбора в отдельном воркере — без юзера).
+# ===========================================================================
+
+
+async def get_user_integration(
+    session: AsyncSession, company_id: UUID, user_id: UUID
+) -> Optional[UserHhIntegration]:
+    """Персональная hh-интеграция пользователя (строго company-scoped, §2.3).
+
+    Скоуп по company_id + user_id — defense-in-depth: персональный токен юзера компании A
+    не должен возвращаться при запросе от компании B.
+    """
+    result = await session.execute(
+        select(UserHhIntegration).where(
+            UserHhIntegration.user_id == user_id,
+            UserHhIntegration.company_id == company_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _complete_oauth_personal(
+    session: AsyncSession, oauth_state: HhOauthState, code: str
+) -> UserHhIntegration:
+    """Завершение ПЕРСОНАЛЬНОГО OAuth-флоу: токен → user_hh_integrations для state.user_id.
+
+    company_id/user_id берутся ИЗ state (не из куки — callback публичный).
+    Ключ приложения Глафиры — env (.env), fallback на legacy DB-колонки компанийной
+    HhIntegration (тот же OAuth-app). Токены шифруются Fernet, как в company-флоу.
+    Upsert по UNIQUE(user_id): существующую строку обновляем, иначе создаём.
+    """
+    company_id = oauth_state.company_id
+    user_id = oauth_state.user_id
+
+    try:
+        if not user_id:
+            raise ValidationError("Персональное подключение hh.ru требует пользователя в state")
+
+        # Ключ приложения — env, fallback на legacy DB-колонки компанийной интеграции.
+        company_integration = await get_integration(session, company_id)
+        client_id, client_secret, redirect_uri = _resolve_app_creds(company_integration)
+        if not client_id or not client_secret or not redirect_uri:
+            raise ValidationError("hh.ru не настроен: задайте ключ приложения в .env")
+
+        # Обмениваем код на токены
+        token_data = await hh_client.exchange_code(code, client_id, client_secret, redirect_uri)
+
+        # Информация о менеджере/работодателе
+        me_data = await hh_client.get_me(token_data["access_token"])
+        hh_employer_id = None
+        if isinstance(me_data.get("employer"), dict) and me_data["employer"].get("id"):
+            hh_employer_id = str(me_data["employer"]["id"])
+        # id менеджера-рекрутёра на hh (идентифицирует конкретного пользователя)
+        hh_manager_id = None
+        if isinstance(me_data.get("manager"), dict) and me_data["manager"].get("id"):
+            hh_manager_id = str(me_data["manager"]["id"])
+        elif me_data.get("id"):
+            hh_manager_id = str(me_data["id"])
+
+        # === Гард работодателя: личный аккаунт ДОЛЖЕН быть тем же работодателем ===
+        # Личный токен рекрутёра работает под тем же employer'ом, что и общий аккаунт
+        # компании — иначе рекрутёр подключил бы ЧУЖОЙ hh-аккаунт (другой работодатель),
+        # и его интерактивные действия ушли бы мимо квоты/атрибуции компании. company_integration
+        # (общий hh компании) получен выше для creds; его hh_employer_id — эталон.
+        company_employer_id = company_integration.hh_employer_id if company_integration else None
+        if not company_integration or not company_employer_id:
+            raise ValidationError("Сначала подключите общий аккаунт hh компании")
+        if not hh_employer_id or str(hh_employer_id) != str(company_employer_id):
+            raise ValidationError(
+                "Подключите аккаунт вашей компании на hh — этот аккаунт относится к другому работодателю"
+            )
+
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data["expires_in"])
+        encrypted_access = encrypt_text(token_data["access_token"])
+        encrypted_refresh = encrypt_text(token_data["refresh_token"])
+
+        # Upsert по user_id (UNIQUE). Скоуп company_id — юзер один в своей компании.
+        integration = await get_user_integration(session, company_id, user_id)
+        if integration:
+            integration.access_token = encrypted_access
+            integration.refresh_token = encrypted_refresh
+            integration.expires_at = expires_at
+            integration.hh_employer_id = hh_employer_id
+            integration.hh_manager_id = hh_manager_id
+            integration.connected_at = datetime.now(timezone.utc)
+        else:
+            integration = UserHhIntegration(
+                company_id=company_id,
+                user_id=user_id,
+                access_token=encrypted_access,
+                refresh_token=encrypted_refresh,
+                expires_at=expires_at,
+                hh_employer_id=hh_employer_id,
+                hh_manager_id=hh_manager_id,
+                connected_at=datetime.now(timezone.utc),
+            )
+            session.add(integration)
+            await session.flush()
+
+        # Использованный state удаляем
         await session.delete(oauth_state)
         await session.commit()
+
+        # Аудит (§2.2) — изменяющее действие
+        await audit(
+            session,
+            action="hh_personal_connected",
+            entity_type="user_hh_integration",
+            entity_id=integration.id,
+            after={"hh_employer_id": hh_employer_id, "hh_manager_id": hh_manager_id},
+            actor_user_id=user_id,
+            company_id=company_id,
+        )
+        await session.commit()
+
+        return integration
+
+    except Exception:
+        # Гасим state ТОЛЬКО если он ещё в сессии/persistent. На успешном пути state уже
+        # удалён-и-закоммичен (detached) — повторный delete поднял бы ВТОРИЧНОЕ исключение,
+        # замаскировав исходное (и оставив connect без audit). delete/commit обёрнуты,
+        # чтобы вторичный сбой не затирал первичную ошибку — её пробрасываем bare raise.
+        try:
+            if oauth_state in session:
+                await session.delete(oauth_state)
+                await session.commit()
+        except Exception:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
         raise
+
+
+async def _get_valid_personal_token(
+    session: AsyncSession, company_id: UUID, user_id: UUID
+) -> Optional[str]:
+    """Валидный персональный access-токен пользователя (с авто-рефрешем), или None.
+
+    None — если персональной интеграции нет / токен обнулён (→ вызывающий уходит на
+    общий токен). Рефреш сериализуется FOR UPDATE на строке user_hh_integrations
+    (по образцу get_valid_access_token, но per-user). Рефреш ключом приложения Глафиры
+    (env, fallback legacy DB-колонки компанийной интеграции). Сбой рефреша существующего
+    токена → ValidationError (НЕ маскируем молчаливым откатом на общий).
+    """
+    integration = await get_user_integration(session, company_id, user_id)
+    if not integration:
+        return None
+    if not integration.access_token or not integration.expires_at:
+        return None
+
+    now = datetime.now(timezone.utc)
+    if now < integration.expires_at - timedelta(minutes=5):
+        return decrypt_text(integration.access_token)
+
+    # Токен истёк/истекает — рефреш под блокировкой строки (сериализуем гонку воркеров).
+    # ⚠️ Гонка с disconnect_personal: строку user_hh_integrations мог удалить конкурентный
+    # процесс между нашим чтением и рефрешем → refresh(with_for_update) поднимет ошибку
+    # об исчезнувшей/detached-строке. В этом случае чисто уходим на общий токен (None):
+    # get_hh_token_for_user подхватит и вернёт компанийный. Прочие ошибки НЕ глотаем.
+    try:
+        await session.refresh(integration, with_for_update=True)
+    except (StaleDataError, ObjectDeletedError, InvalidRequestError):
+        return None
+    now = datetime.now(timezone.utc)
+    # Пока ждали блокировку — сосед мог обновить. Перепроверяем.
+    if integration.access_token and integration.expires_at and now < integration.expires_at - timedelta(minutes=5):
+        await session.commit()
+        return decrypt_text(integration.access_token)
+
+    try:
+        company_integration = await get_integration(session, company_id)
+        client_id, client_secret, _ = _resolve_app_creds(company_integration)
+        if not client_id or not client_secret:
+            raise ValidationError("hh.ru не настроен: задайте ключ приложения в .env")
+
+        current_refresh = decrypt_text(integration.refresh_token)
+        token_data = await hh_client.refresh_tokens(current_refresh, client_id, client_secret)
+
+        integration.access_token = encrypt_text(token_data["access_token"])
+        integration.refresh_token = encrypt_text(token_data["refresh_token"])
+        integration.expires_at = now + timedelta(seconds=token_data["expires_in"])
+        await session.commit()
+
+        return token_data["access_token"]
+    except Exception as e:
+        raise ValidationError(f"Не удалось обновить персональный токен hh.ru: {e}")
+
+
+async def get_hh_token_for_user(
+    session: AsyncSession, *, company_id: UUID, user_id: Optional[UUID] = None
+) -> Optional[str]:
+    """Селектор токена для ИНТЕРАКТИВНЫХ операций рекрутёра.
+
+    Приоритет: персональный валидный токен пользователя (user_hh_integrations, рефреш
+    per-user под FOR UPDATE), ИНАЧЕ общий компанийный токен (get_valid_access_token).
+
+    ⚠️ user_id=None — инициатора НЕТ (фон/крон/вызов без юзерского контекста): персональный
+    токен НЕ ищем, сразу общий компанийный (= прежнее поведение get_valid_access_token, но
+    без исключения: None вместо raise). Это позволяет единообразно звать селектор и в
+    интерактивных, и в «общих» путях: есть user_id → личный с фолбэком, нет → общий.
+
+    ⚠️ get_valid_access_token НЕ тронут — на нём висят фон/кроны/отклики. Фолбэк
+    ловит его бизнес-ошибки (NotFoundError/ValidationError) и возвращает None, если
+    у компании тоже нет валидного общего токена — вызывающий покажет честную ошибку.
+    """
+    # Персональный токен (если есть инициатор и он подключён). Ошибка рефреша СВОЕГО
+    # токена пробрасывается — молчаливый уход на общий токен вернул бы ту самую проблему
+    # (общий лимит/атрибуция). ⚠️ Исчерпание квоты просмотров (500/сут) НЕ детектируется
+    # здесь: селектор отдаёт валидный личный токен, а лимит вскрывается уже на просмотре
+    # (get_resume_by_id → ValidationError «квота») — по ней вызывающий останавливается,
+    # НЕ уходя молча на общий (иначе выжжём и его). TODO: явный детект исчерпания личной
+    # квоты на просмотрах, когда формат 429/лимит-ответа hh будет однозначно пиниться.
+    if user_id is not None:
+        personal = await _get_valid_personal_token(session, company_id, user_id)
+        if personal:
+            return personal
+
+    # Своего нет (или инициатора нет) → общий компанийный токен (фон/кроны используют его же).
+    try:
+        return await get_valid_access_token(session, company_id)
+    except (NotFoundError, ValidationError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Каскад квоты ПРОСМОТРОВ резюме: личные 500/сут кончились → добираем из общего
+# ---------------------------------------------------------------------------
+
+def _is_resume_view_limit_error(exc: Exception) -> bool:
+    """Best-effort: это ответ hh «исчерпан суточный лимит просмотров резюме» (429)?
+
+    Строим детектор ТОЛЬКО из того, что код УЖЕ знает про формат ошибки, чтобы не
+    гадать:
+    - hh_client.get_resume_by_id при HTTP 429 поднимает ValidationError с текстом
+      «Превышена квота просмотров резюме hh.ru» → ключевое слово «квота»;
+    - auto_search.get_auto_candidate_detail ре-оборачивает это в «Превышен суточный
+      лимит просмотров резюме hh» → ключевое «лимит просмотров»;
+    - если сырой статус утечёт строкой — ловим «429».
+
+    ⚠️ КОНСЕРВАТИВНО: обычный 403 «нет платного доступа к базе резюме» СЮДА НЕ ПОПАДАЕТ
+    (его текст — «Ошибка получения резюме hh.ru: ... 403 Forbidden», без «квота»/«лимит
+    просмотров»/«429») — иначе платный/квотный сбой доступа молча уехал бы на общий
+    аккаунт. При сомнении НЕ матчим → поведение деградирует к «остановиться» (безопасно).
+    # TODO: пиннить точную сигнатуру лимит-ответа hh на живом токене (тело/код 429 —
+    #       429 vs 403 «no access» иногда неотличимы без разбора JSON-ошибки hh).
+    """
+    msg = str(exc).lower()
+    return ("квота" in msg) or ("лимит просмотров" in msg) or ("429" in msg)
+
+
+def _view_quota_exhausted_today(integration: "UserHhIntegration") -> bool:
+    """Личная суточная квота просмотров уже помечена исчерпанной СЕГОДНЯ (UTC)?
+
+    Метка живёт до конца суток UTC: на следующий день сравнение по дате даёт False →
+    личный токен снова первичен (квота hh обнуляется посуточно)."""
+    ts = getattr(integration, "daily_view_exhausted_at", None)
+    if not ts:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc).date() == datetime.now(timezone.utc).date()
+
+
+async def _mark_personal_view_exhausted(
+    session: AsyncSession,
+    integration: "UserHhIntegration",
+    *,
+    company_id: UUID,
+    user_id: UUID,
+) -> None:
+    """Помечает личную интеграцию «квота просмотров исчерпана сегодня» + audit-спилл (§2.2).
+
+    Токены/секреты НЕ логируем и НЕ кладём в audit — только факт спилла и id интеграции."""
+    integration.daily_view_exhausted_at = datetime.now(timezone.utc)
+    await session.commit()
+    logger.warning(
+        "[hh] личная квота просмотров резюме исчерпана — спилл на общий токен "
+        "company=%s user=%s integration=%s",
+        company_id, user_id, integration.id,
+    )
+    await audit(
+        session,
+        action="hh_personal_view_quota_spill",
+        entity_type="user_hh_integration",
+        entity_id=integration.id,
+        actor_user_id=user_id,
+        company_id=company_id,
+    )
+    await session.commit()
+
+
+async def view_resume_with_cascade(
+    session: AsyncSession,
+    *,
+    company_id: UUID,
+    user_id: Optional[UUID],
+    resume_id: str,
+    **kwargs,
+) -> dict:
+    """Просмотр ПОЛНОГО резюме hh (get_resume_by_id) с КАСКАДОМ суточной квоты просмотров.
+
+    Порядок:
+    1) ЛИЧНЫЙ токен рекрутёра — но ТОЛЬКО если инициатор задан И его личная квота НЕ
+       помечена исчерпанной сегодня (иначе бессмысленно бить в заведомо выжженный токен).
+       При лимите просмотров личный помечается исчерпанным (audit-спилл) → шаг 2.
+       При ЛЮБОЙ иной ошибке (403 «нет доступа», сеть, 404) — пробрасываем, НЕ маскируем.
+    2) ОБЩИЙ компанийный токен (get_valid_access_token). При лимите И тут → честная
+       ValidationError «Дневной лимит просмотров резюме hh исчерпан — и на личном, и на
+       общем аккаунте».
+    Нет ни одного токена → ValidationError «hh.ru не подключён».
+
+    ⚠️ Каскад — ТОЛЬКО для ПРОСМОТРОВ резюме (квота 500/сут). Открытие КОНТАКТА (take_*,
+    платный пул) сюда НЕ заводить: молчаливый перенос платного действия на общий аккаунт
+    недопустим. **kwargs прозрачно пробрасываются в hh_client.get_resume_by_id.
+    """
+    # --- Шаг 1: личный токен (если инициатор есть и квота не выжжена сегодня) ---
+    personal_token: Optional[str] = None
+    integration: Optional[UserHhIntegration] = None
+    if user_id is not None:
+        integration = await get_user_integration(session, company_id, user_id)
+        if integration is not None and not _view_quota_exhausted_today(integration):
+            personal_token = await _get_valid_personal_token(session, company_id, user_id)
+
+    if personal_token:
+        try:
+            return await hh_client.get_resume_by_id(personal_token, resume_id, **kwargs)
+        except Exception as exc:
+            if not _is_resume_view_limit_error(exc):
+                raise  # 403/сеть/404 и пр. — не маскируем, отдаём вызывающему
+            # Лимит просмотров личного токена → метка + audit-спилл, дальше общий токен.
+            if integration is not None:
+                await _mark_personal_view_exhausted(
+                    session, integration, company_id=company_id, user_id=user_id
+                )
+
+    # --- Шаг 2: общий компанийный токен ---
+    try:
+        company_token: Optional[str] = await get_valid_access_token(session, company_id)
+    except (NotFoundError, ValidationError):
+        company_token = None
+
+    if not company_token:
+        raise ValidationError("hh.ru не подключён")
+
+    try:
+        return await hh_client.get_resume_by_id(company_token, resume_id, **kwargs)
+    except Exception as exc:
+        if _is_resume_view_limit_error(exc):
+            raise ValidationError(
+                "Дневной лимит просмотров резюме hh исчерпан — и на личном, и на общем аккаунте"
+            )
+        raise
+
+
+async def spill_personal_view_quota(
+    session: AsyncSession, *, company_id: UUID, user_id: Optional[UUID]
+) -> Optional[str]:
+    """Помечает личную квоту просмотров исчерпанной (если личная интеграция есть) и
+    возвращает ОБЩИЙ компанийный токен для добора остатка прогона (или None, если общего нет).
+
+    Для ГОРЯЧЕГО bulk-цикла умного подбора (_run_search_inner), где реструктурировать
+    каждый просмотр под view_resume_with_cascade нельзя (не ломаем горячий путь): при
+    лимит-ошибке личного токена достаточно ОДИН раз пометить личный выжженным (audit-спилл)
+    и переключить локальную переменную токена на общий на остаток прогона.
+    """
+    if user_id is not None:
+        integration = await get_user_integration(session, company_id, user_id)
+        if integration is not None and not _view_quota_exhausted_today(integration):
+            await _mark_personal_view_exhausted(
+                session, integration, company_id=company_id, user_id=user_id
+            )
+    try:
+        return await get_valid_access_token(session, company_id)
+    except (NotFoundError, ValidationError):
+        return None
+
+
+async def disconnect_personal(session: AsyncSession, company_id: UUID, user_id: UUID) -> None:
+    """Отключает ПЕРСОНАЛЬНЫЙ hh-токен пользователя (удаляет строку целиком).
+
+    После удаления get_hh_token_for_user уходит на общий компанийный токен (фолбэк).
+
+    Raises:
+        NotFoundError: если персональной интеграции нет.
+    """
+    integration = await get_user_integration(session, company_id, user_id)
+    if not integration:
+        raise NotFoundError("Персональная интеграция hh.ru не найдена")
+
+    integration_id = integration.id
+    await session.delete(integration)
+    await session.commit()
+
+    await audit(
+        session,
+        action="hh_personal_disconnected",
+        entity_type="user_hh_integration",
+        entity_id=integration_id,
+        actor_user_id=user_id,
+        company_id=company_id,
+    )
+    await session.commit()
+
+
+async def get_personal_status(session: AsyncSession, company_id: UUID, user_id: UUID) -> dict:
+    """Статус персонального hh-подключения текущего пользователя (без секретов)."""
+    integration = await get_user_integration(session, company_id, user_id)
+    return {
+        "connected": bool(integration and integration.access_token),
+        "hh_employer_id": integration.hh_employer_id if integration else None,
+        "hh_manager_id": integration.hh_manager_id if integration else None,
+        "expires_at": integration.expires_at if integration else None,
+        "connected_at": integration.connected_at if integration else None,
+    }
 
 
 async def disconnect(session: AsyncSession, company_id: UUID, user_id: UUID):

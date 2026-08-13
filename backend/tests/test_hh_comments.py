@@ -63,8 +63,8 @@ async def test_sync_imports_hh_comments(db_session, test_company, admin_user):
         },
     ])
 
-    with patch(f"{_SYNC}.get_valid_access_token", new_callable=AsyncMock, return_value="tok"), \
-         patch(f"{_SYNC}.hh_client.get_resume_by_id", new_callable=AsyncMock, return_value=resume) as m_resume, \
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok"), \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock, return_value=resume) as m_resume, \
          patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock, return_value=page):
         result = await sync_candidate_hh_comments(
             db_session, company_id=test_company.id, candidate_id=cand.id
@@ -100,8 +100,8 @@ async def test_sync_dedup_no_double(db_session, test_company, admin_user):
          "author": {"full_name": "Рекрутёр"}},
     ])
 
-    with patch(f"{_SYNC}.get_valid_access_token", new_callable=AsyncMock, return_value="tok"), \
-         patch(f"{_SYNC}.hh_client.get_resume_by_id", new_callable=AsyncMock, return_value=resume) as m_resume, \
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok"), \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock, return_value=resume) as m_resume, \
          patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock, return_value=page):
         r1 = await sync_candidate_hh_comments(db_session, company_id=test_company.id, candidate_id=cand.id)
         await db_session.commit()
@@ -131,8 +131,8 @@ async def test_company_isolation(db_session, test_company, admin_user):
     resume = {"id": "resume_hex_1", "owner": {"id": 1}}
     page = _comments_page([{"id": 1, "text": "x", "author": {"full_name": "y"}}])
 
-    with patch(f"{_SYNC}.get_valid_access_token", new_callable=AsyncMock, return_value="tok") as m_tok, \
-         patch(f"{_SYNC}.hh_client.get_resume_by_id", new_callable=AsyncMock, return_value=resume) as m_resume, \
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok") as m_tok, \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock, return_value=resume) as m_resume, \
          patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock, return_value=page):
         # Синк под ЧУЖОЙ company_id над кандидатом A → он не находится (company-scoped)
         result = await sync_candidate_hh_comments(
@@ -207,8 +207,8 @@ async def test_create_comment_stays_manual(db_session, test_company, admin_user,
 async def test_sync_no_hh_resume_returns_zero(db_session, test_company, admin_user, test_candidate):
     """Кандидат без hh-резюме (source='manual', нет external_id/hh_resume_id) →
     {imported:0}, hh не дёргается."""
-    with patch(f"{_SYNC}.get_valid_access_token", new_callable=AsyncMock) as m_tok, \
-         patch(f"{_SYNC}.hh_client.get_resume_by_id", new_callable=AsyncMock) as m_resume, \
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock) as m_tok, \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock) as m_resume, \
          patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock) as m_comments:
         result = await sync_candidate_hh_comments(
             db_session, company_id=test_company.id, candidate_id=test_candidate.id
@@ -226,8 +226,8 @@ async def test_sync_graceful_when_hh_returns_none(db_session, test_company, admi
     cand = await _make_hh_candidate(db_session, test_company.id)
     resume = {"id": "resume_hex_1", "owner": {"id": 9}}
 
-    with patch(f"{_SYNC}.get_valid_access_token", new_callable=AsyncMock, return_value="tok"), \
-         patch(f"{_SYNC}.hh_client.get_resume_by_id", new_callable=AsyncMock, return_value=resume), \
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok"), \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock, return_value=resume), \
          patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock, return_value=None):
         result = await sync_candidate_hh_comments(
             db_session, company_id=test_company.id, candidate_id=cand.id
@@ -239,3 +239,48 @@ async def test_sync_graceful_when_hh_returns_none(db_session, test_company, admi
         select(Comment).where(Comment.candidate_id == cand.id)
     )).scalars().all()
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Фаза 2: маршрутизация токена — on-demand (личный) vs крон (общий)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sync_comments_ondemand_passes_user_id_to_selector(db_session, test_company, admin_user):
+    """On-demand-путь (из роута) передаёт user_id рекрутёра в селектор токена →
+    квота просмотров/атрибуция персональны."""
+    cand = await _make_hh_candidate(db_session, test_company.id)
+    resume = {"id": "resume_hex_1", "owner": {"id": 42}}
+    page = _comments_page([])
+
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok") as m_tok, \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock, return_value=resume), \
+         patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock, return_value=page):
+        await sync_candidate_hh_comments(
+            db_session, company_id=test_company.id, candidate_id=cand.id, user_id=admin_user.id
+        )
+
+    m_tok.assert_awaited_once()
+    # session — позиционно, company_id/user_id — kwargs (см. сигнатуру селектора)
+    assert m_tok.await_args.kwargs["user_id"] == admin_user.id
+    assert m_tok.await_args.kwargs["company_id"] == test_company.id
+
+
+@pytest.mark.asyncio
+async def test_sync_comments_cron_uses_company_token(db_session, test_company, admin_user):
+    """Кронный путь (poll_hh_comments) user_id НЕ передаёт → селектор зовётся с
+    user_id=None (= общий компанийный токен, персональный не ищется)."""
+    cand = await _make_hh_candidate(db_session, test_company.id)
+    resume = {"id": "resume_hex_1", "owner": {"id": 42}}
+    page = _comments_page([])
+
+    with patch(f"{_SYNC}.get_hh_token_for_user", new_callable=AsyncMock, return_value="tok") as m_tok, \
+         patch(f"{_SYNC}.view_resume_with_cascade", new_callable=AsyncMock, return_value=resume), \
+         patch(f"{_SYNC}.hh_client.get_applicant_comments", new_callable=AsyncMock, return_value=page):
+        # Крон зовёт БЕЗ user_id (как jobs/poll_hh_comments.py)
+        await sync_candidate_hh_comments(
+            db_session, company_id=test_company.id, candidate_id=cand.id
+        )
+
+    m_tok.assert_awaited_once()
+    assert m_tok.await_args.kwargs["user_id"] is None

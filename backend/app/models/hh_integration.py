@@ -64,6 +64,10 @@ class HhOauthState(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True
     )
+    # 'company' — общий OAuth-флоу (токен в hh_integrations), 'personal' — персональный
+    # флоу рекрутёра (токен в user_hh_integrations для user_id). Дискриминатор читает
+    # callback (complete_oauth) для маршрутизации. Дефолт 'company' — старый флоу цел.
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'company'"))
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
     # Relationships
