@@ -72,7 +72,9 @@
 .cnd-funnel-wrap .vac-header {
   position: sticky;
   top: 0;
-  z-index: 4;
+  /* Выше sticky-ячеек таблицы (макс z-index 5 у профиль-колонки) — иначе таблица
+     ЗП/Город перекрывает попап меню «Действие» (он живёт в stacking-контексте шапки). */
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
