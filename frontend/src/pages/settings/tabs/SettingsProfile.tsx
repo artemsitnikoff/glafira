@@ -7,6 +7,7 @@ import { useProfile } from '@/api/hooks/useProfile';
 import { useUpdateProfile } from '@/api/mutations/settings';
 import { useAuthStore } from '@/store/authStore';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { SettingsMyHh } from './SettingsMyHh';
 import type { ApiError } from '@/api/aliases';
 
 interface SettingsProfileProps {
@@ -231,6 +232,10 @@ export function SettingsProfile({ readOnly = false }: SettingsProfileProps) {
           </button>
         </div>
       </Card>
+
+      {/* «Мой hh» — личное подключение рекрутёра, сразу после смены пароля.
+          Роль-гейт (admin/recruiter) и НЕ-readOnly логика — внутри компонента. */}
+      <SettingsMyHh />
 
       <Card title="Уведомления" desc="Каналы доставки и события, по которым вам приходят оповещения">
         <div className="info-banner muted" style={{ marginBottom: 12 }}>

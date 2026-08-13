@@ -1,8 +1,8 @@
 import { Icon } from '@/components/ui/Icon';
 import { PageHead, FormRow, TextInput, Select } from '../components/FormComponents';
 import { PhoneInput } from '@/components/ui/PhoneInput';
-import { useHhStatus, useHhVacancies, useMyHhStatus } from '@/api/hooks/useHhIntegration';
-import { useHhAuthorize, useHhDisconnect, useHhPollResponses, useImportHhVacancies, useMyHhAuthorize, useDisconnectMyHh } from '@/api/mutations/hhIntegration';
+import { useHhStatus, useHhVacancies } from '@/api/hooks/useHhIntegration';
+import { useHhAuthorize, useHhDisconnect, useHhPollResponses, useImportHhVacancies } from '@/api/mutations/hhIntegration';
 import type { HhPollResult, HhImportVacanciesResult } from '@/api/mutations/hhIntegration';
 import { useSmtpStatus } from '@/api/hooks/useSmtpIntegration';
 import { useSmtpSaveConfig, useSmtpTest, useSmtpDisconnect } from '@/api/mutations/smtpIntegration';
@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ApiError } from '@/api/aliases';
 
-function IntegrationCard({
+export function IntegrationCard({
   ico,
   iconBg,
   name,
@@ -88,45 +88,9 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
   const importHhVacanciesMutation = useImportHhVacancies();
   const [hhImportResult, setHhImportResult] = useState<HhImportVacanciesResult | null>(null);
 
-  // ---------------- Мой hh (ПЕРСОНАЛЬНОЕ подключение рекрутёра) ----------------
-  // Отдельная карточка рядом с общей hh: каждый рекрутёр подключает СВОЙ hh-аккаунт.
-  // Доступно только admin/recruiter (бек — require_recruiter_or_admin); секция
-  // НЕ гейтится readOnly (рекрутёр = readOnly для настроек компании, но своим hh
-  // управлять вправе). manager/hiring_manager — секция скрыта.
-  const currentUserRole = useAuthStore((s) => s.user?.role);
-  const isMyHhAllowed = currentUserRole === 'admin' || currentUserRole === 'recruiter';
-  const { data: myHhStatus, isLoading: myHhStatusLoading } = useMyHhStatus(isMyHhAllowed);
-  const myHhAuthorizeMutation = useMyHhAuthorize();
-  const myHhDisconnectMutation = useDisconnectMyHh();
-
-  const handleMyHhConnect = async () => {
-    try {
-      const response = await myHhAuthorizeMutation.mutateAsync();
-      window.location.href = response.authorize_url;
-    } catch (error) {
-      const e = error as unknown as ApiError;
-      setNotification({
-        type: 'error',
-        message: e.error?.message || 'Ошибка при подключении вашего hh-аккаунта',
-      });
-    }
-  };
-
-  const handleMyHhDisconnect = async () => {
-    try {
-      await myHhDisconnectMutation.mutateAsync();
-      setNotification({
-        type: 'success',
-        message: 'Ваш личный hh-аккаунт отключён — интерактивные операции пойдут через общий аккаунт компании.',
-      });
-    } catch (error) {
-      const e = error as unknown as ApiError;
-      setNotification({
-        type: 'error',
-        message: e.error?.message || 'Ошибка при отключении вашего hh-аккаунта',
-      });
-    }
-  };
+  // «Мой hh» (персональное per-user подключение рекрутёра) вынесено в секцию
+  // вкладки «Профиль» (компонент SettingsMyHh) — Профиль виден admin+recruiter,
+  // тогда как эта вкладка «Интеграции» adminOnly и прятала бы фичу от рекрутёра.
 
   const handleHhPollResponses = async () => {
     setHhPollResult(null);
@@ -942,78 +906,8 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
           </div>
         </IntegrationCard>
 
-        {/* МОЙ HH (персональное подключение рекрутёра) — отдельная карточка рядом с общей */}
-        {isMyHhAllowed && (
-          <IntegrationCard
-            ico={<Icon name="user" size={18}/>}
-            iconBg="var(--ark-yellow-100)"
-            name="Мой hh"
-            desc="Персональное подключение вашего аккаунта hh.ru"
-            status={myHhStatusLoading ? 'bad' : (myHhStatus?.connected ? 'ok' : 'bad')}
-            statusLabel={myHhStatus?.connected ? undefined : 'Не подключено'}>
-            <div className="integ-section">
-              <div className="integ-section-title">Личное подключение</div>
-
-              {myHhStatusLoading ? (
-                <div style={{ padding: '16px 0', color: 'var(--fg-3)' }}>Загрузка статуса...</div>
-              ) : myHhStatus?.connected ? (
-                // Подключён личный hh-аккаунт
-                <div>
-                  <div style={{ marginBottom: '12px' }}>
-                    <div style={{ fontSize: '13px', color: 'var(--fg-2)' }}>
-                      <strong>Подключён</strong> ваш личный hh-аккаунт
-                      {myHhStatus.hh_employer_id ? ` · работодатель ID: ${myHhStatus.hh_employer_id}` : ''}
-                      {myHhStatus.hh_manager_id ? ` · менеджер ID: ${myHhStatus.hh_manager_id}` : ''}
-                    </div>
-                    {myHhStatus.connected_at && (
-                      <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '4px' }}>
-                        Подключён: {new Date(myHhStatus.connected_at).toLocaleString('ru')}
-                      </div>
-                    )}
-                    {myHhStatus.expires_at && (
-                      <div style={{ fontSize: '12px', color: 'var(--fg-3)', marginTop: '2px' }}>
-                        Токен действует до: {new Date(myHhStatus.expires_at).toLocaleString('ru')}
-                      </div>
-                    )}
-                  </div>
-                  <div className="integ-actions">
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={handleMyHhDisconnect}
-                      disabled={myHhDisconnectMutation.isPending}
-                    >
-                      {myHhDisconnectMutation.isPending ? 'Отключение...' : 'Отключить'}
-                    </button>
-                  </div>
-                  <div className="info-banner small" style={{ marginTop: 10 }}>
-                    <Icon name="alert-triangle" size={14} />
-                    <div>
-                      Чат, поиск и просмотры резюме идут под вашим hh-аккаунтом (ваш лимит 500 просмотров/сутки,
-                      ваши действия — на вас). Отключите — интерактивные операции вернутся на общий аккаунт компании.
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                // Не подключён — предложение подключить свой hh
-                <div>
-                  <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--fg-2)' }}>
-                    Чат, поиск и просмотры резюме будут идти под вашим hh-аккаунтом (ваш лимит 500 просмотров/сутки,
-                    ваши действия — на вас). Без него используется общий аккаунт компании.
-                  </div>
-                  <div className="integ-actions">
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={handleMyHhConnect}
-                      disabled={myHhAuthorizeMutation.isPending}
-                    >
-                      {myHhAuthorizeMutation.isPending ? 'Подключение...' : 'Подключить мой hh'}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </IntegrationCard>
-        )}
+        {/* «Мой hh» (персональное подключение рекрутёра) вынесено в секцию
+            вкладки «Профиль» (SettingsMyHh) — Профиль виден admin+recruiter. */}
 
         {/* ХАБР КАРЬЕРА */}
         <IntegrationCard
