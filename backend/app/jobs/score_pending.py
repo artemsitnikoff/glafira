@@ -153,6 +153,18 @@ async def main():
 
     finally:
         await engine.dispose()
+        # Кроме локального engine, крон косвенно использует МОДУЛЬНЫЙ engine
+        # (app.database) — через AsyncSessionLocal внутри хелперов, напр.
+        # fill_candidate_osint из триггера верификации после авто-оценки. В
+        # короткоживущем крон-процессе его пул соединений тоже нужно слить ВНУТРИ
+        # event loop'а, иначе GC добивает их на выходе процесса
+        # (SAWarning "non-checked-in connection" + "greenlet is being finalized").
+        # Best-effort: сбой слива не должен ронять джоб.
+        try:
+            from ..database import engine as app_engine
+            await app_engine.dispose()
+        except Exception as _e:
+            logger.warning(f"Не удалось слить модульный engine: {_e}")
 
 
 if __name__ == "__main__":
