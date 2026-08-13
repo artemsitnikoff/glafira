@@ -157,14 +157,14 @@ export default function VacancyHeader({ vacancy, activeCount, onEdit, onAddCandi
                             'уйдут в фон и обновятся постепенно'
                           : 'Все активные кандидаты · платные AI-оценки · уйдут в фон и обновятся постепенно'}
                       </div>
-                      <button className="vh-action-item" onClick={handleReevaluate} disabled={reevaluateMutation.isPending}>
-                        <Icon name="sparkles" size={15} />
-                        {reevaluateMutation.isPending ? 'Отправка…' : 'Да, переоценить'}
-                      </button>
-                      <button className="vh-action-item" onClick={() => setReevalMode(false)} disabled={reevaluateMutation.isPending}>
-                        <Icon name="x" size={15} />
-                        Отмена
-                      </button>
+                      <div className="vh-action-confirm">
+                        <button className="btn btn-secondary btn-sm" onClick={() => setReevalMode(false)} disabled={reevaluateMutation.isPending}>
+                          Отмена
+                        </button>
+                        <button className="btn btn-primary btn-sm" onClick={handleReevaluate} disabled={reevaluateMutation.isPending}>
+                          {reevaluateMutation.isPending ? 'Отправка…' : 'Да, переоценить'}
+                        </button>
+                      </div>
                     </>
                   ) : archiveMode ? (
                     <>
