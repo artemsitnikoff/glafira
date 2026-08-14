@@ -39,6 +39,11 @@ async def main():
     total = {"scored": 0, "failed": 0, "companies": 0}
 
     try:
+        # ⚠️ ВСЁ использование session — ВНУТРИ этого `async with`. Раньше фазы
+        # QA/интервью/тестов и финальный лог стояли ПОСЛЕ выхода из блока и работали
+        # на УЖЕ ЗАКРЫТОЙ сессии → она заново брала соединение, которое некому было
+        # вернуть («non-checked-in connection» → greenlet-варнинг на выходе процесса,
+        # на КАЖДОМ прогоне, даже когда оценивать нечего). Держим сессию открытой до конца.
         async with async_session() as session:
             # Только компании, где реально есть что оценивать (есть заявка без
             # оценки и не в терминальном этапе) — чтобы вхолостую не дёргать остальных.
@@ -69,83 +74,83 @@ async def main():
                     await session.rollback()
                     logger.error(f"Ошибка авто-оценки компании {company_id}: {e}")
 
-        logger.info(
-            f"Оценка завершена: {total['companies']} компаний, "
-            f"оценено {total['scored']}, сбоев {total['failed']}"
-        )
-
-        # П.2 — задать уточняющие вопросы (отдельный проход: не зависит от наличия
-        # неоценённых; берём компании, где есть подходящие auto_qa-кандидаты на «Отклике»).
-        qa_company_ids = (await session.execute(
-            select(Application.company_id)
-            .join(Vacancy, Application.vacancy_id == Vacancy.id)
-            .where(
-                Application.stage == "response",
-                Application.auto_qa_asked_at.is_(None),
-                Application.hh_negotiation_id.isnot(None),
-                Vacancy.auto_qa.is_(True),
-                Vacancy.glafira_mode.in_(("A", "B")),
-                Vacancy.deleted_at.is_(None),
+            logger.info(
+                f"Оценка завершена: {total['companies']} компаний, "
+                f"оценено {total['scored']}, сбоев {total['failed']}"
             )
-            .distinct()
-        )).scalars().all()
-        qa_total = {"asked": 0}
-        for company_id in qa_company_ids:
-            try:
-                qa_stats = await ask_auto_qa_questions(session, company_id)
-                qa_total["asked"] += qa_stats.get("asked", 0)
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка auto_qa (вопросы) компании {company_id}: {e}")
-        if qa_total["asked"]:
-            logger.info(f"Auto-QA: задано вопросов {qa_total['asked']}")
 
-        # Авто-рассылка ссылок на запись интервью (паттерн auto_qa)
-        interview_company_ids = (await session.execute(
-            select(Application.company_id)
-            .join(Vacancy, Application.vacancy_id == Vacancy.id)
-            .where(
-                Vacancy.auto_interview.is_(True),
-                Vacancy.auto_interview_stage.isnot(None),
-                Application.stage == Vacancy.auto_interview_stage,
-                Vacancy.deleted_at.is_(None),
-            )
-            .distinct()
-        )).scalars().all()
-        interview_total = {"sent": 0}
-        for company_id in interview_company_ids:
-            try:
-                iv_stats = await send_interview_links(session, company_id)
-                interview_total["sent"] += iv_stats.get("sent", 0)
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка авто-рассылки интервью компании {company_id}: {e}")
-        if interview_total["sent"]:
-            logger.info(f"Interview links: отправлено {interview_total['sent']}")
+            # П.2 — задать уточняющие вопросы (отдельный проход: не зависит от наличия
+            # неоценённых; берём компании, где есть подходящие auto_qa-кандидаты на «Отклике»).
+            qa_company_ids = (await session.execute(
+                select(Application.company_id)
+                .join(Vacancy, Application.vacancy_id == Vacancy.id)
+                .where(
+                    Application.stage == "response",
+                    Application.auto_qa_asked_at.is_(None),
+                    Application.hh_negotiation_id.isnot(None),
+                    Vacancy.auto_qa.is_(True),
+                    Vacancy.glafira_mode.in_(("A", "B")),
+                    Vacancy.deleted_at.is_(None),
+                )
+                .distinct()
+            )).scalars().all()
+            qa_total = {"asked": 0}
+            for company_id in qa_company_ids:
+                try:
+                    qa_stats = await ask_auto_qa_questions(session, company_id)
+                    qa_total["asked"] += qa_stats.get("asked", 0)
+                except Exception as e:
+                    await session.rollback()
+                    logger.error(f"Ошибка auto_qa (вопросы) компании {company_id}: {e}")
+            if qa_total["asked"]:
+                logger.info(f"Auto-QA: задано вопросов {qa_total['asked']}")
 
-        # Авто-рассылка ссылок на ТЕСТ (паттерн send_interview_links)
-        test_company_ids = (await session.execute(
-            select(Application.company_id)
-            .join(Vacancy, Application.vacancy_id == Vacancy.id)
-            .where(
-                Vacancy.auto_test.is_(True),
-                Vacancy.auto_test_id.isnot(None),
-                Vacancy.auto_test_stage.isnot(None),
-                Application.stage == Vacancy.auto_test_stage,
-                Vacancy.deleted_at.is_(None),
-            )
-            .distinct()
-        )).scalars().all()
-        test_total = {"sent": 0}
-        for company_id in test_company_ids:
-            try:
-                t_stats = await send_test_links(session, company_id)
-                test_total["sent"] += t_stats.get("sent", 0)
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка авто-рассылки тестов компании {company_id}: {e}")
-        if test_total["sent"]:
-            logger.info(f"Test links: отправлено {test_total['sent']}")
+            # Авто-рассылка ссылок на запись интервью (паттерн auto_qa)
+            interview_company_ids = (await session.execute(
+                select(Application.company_id)
+                .join(Vacancy, Application.vacancy_id == Vacancy.id)
+                .where(
+                    Vacancy.auto_interview.is_(True),
+                    Vacancy.auto_interview_stage.isnot(None),
+                    Application.stage == Vacancy.auto_interview_stage,
+                    Vacancy.deleted_at.is_(None),
+                )
+                .distinct()
+            )).scalars().all()
+            interview_total = {"sent": 0}
+            for company_id in interview_company_ids:
+                try:
+                    iv_stats = await send_interview_links(session, company_id)
+                    interview_total["sent"] += iv_stats.get("sent", 0)
+                except Exception as e:
+                    await session.rollback()
+                    logger.error(f"Ошибка авто-рассылки интервью компании {company_id}: {e}")
+            if interview_total["sent"]:
+                logger.info(f"Interview links: отправлено {interview_total['sent']}")
+
+            # Авто-рассылка ссылок на ТЕСТ (паттерн send_interview_links)
+            test_company_ids = (await session.execute(
+                select(Application.company_id)
+                .join(Vacancy, Application.vacancy_id == Vacancy.id)
+                .where(
+                    Vacancy.auto_test.is_(True),
+                    Vacancy.auto_test_id.isnot(None),
+                    Vacancy.auto_test_stage.isnot(None),
+                    Application.stage == Vacancy.auto_test_stage,
+                    Vacancy.deleted_at.is_(None),
+                )
+                .distinct()
+            )).scalars().all()
+            test_total = {"sent": 0}
+            for company_id in test_company_ids:
+                try:
+                    t_stats = await send_test_links(session, company_id)
+                    test_total["sent"] += t_stats.get("sent", 0)
+                except Exception as e:
+                    await session.rollback()
+                    logger.error(f"Ошибка авто-рассылки тестов компании {company_id}: {e}")
+            if test_total["sent"]:
+                logger.info(f"Test links: отправлено {test_total['sent']}")
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")
@@ -153,13 +158,9 @@ async def main():
 
     finally:
         await engine.dispose()
-        # Кроме локального engine, крон косвенно использует МОДУЛЬНЫЙ engine
-        # (app.database) — через AsyncSessionLocal внутри хелперов, напр.
-        # fill_candidate_osint из триггера верификации после авто-оценки. В
-        # короткоживущем крон-процессе его пул соединений тоже нужно слить ВНУТРИ
-        # event loop'а, иначе GC добивает их на выходе процесса
-        # (SAWarning "non-checked-in connection" + "greenlet is being finalized").
-        # Best-effort: сбой слива не должен ронять джоб.
+        # Модульный engine (app.database) крон косвенно использует через AsyncSessionLocal
+        # внутри хелперов (напр. fill_candidate_osint из триггера верификации). В
+        # короткоживущем процессе его пул тоже сливаем. Best-effort.
         try:
             from ..database import engine as app_engine
             await app_engine.dispose()
