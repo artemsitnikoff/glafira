@@ -2037,13 +2037,21 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                     await session.commit()
                     log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • уже в отказе на hh (state={emp_state})")
                     stats["already_discarded"] += 1
+                elif "discard_by_employer" not in actions_dbg:
+                    # hh НЕ предлагает discard_by_employer (пустой actions[] — вакансия
+                    # закрыта / резюме соискателя скрыто). Статус отклика на hh сменить
+                    # НЕЛЬЗЯ ничем. Помечаем synced (ретрай бессмыслен, лог не спамим).
+                    app.hh_discard_synced_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard недоступен (нет действия discard_by_employer, state={emp_state}) — помечаем synced")
+                    logger.info(f"discard недоступен для отклика {app.hh_negotiation_id} (state={emp_state}; actions: [{actions_dbg}]) — synced без отказа")
+                    stats["already_discarded"] += 1
                 else:
-                    # Отклик АКТИВЕН, но голый discard вернул wrong_state → метод не тот.
-                    # НЕ помечаем synced (ретрай после фикса). Логируем доступные действия
-                    # hh, чтобы подобрать правильный вызов discard.
+                    # discard_by_employer доступен, но вызов вернул False — транзиент/
+                    # рассинхрон. НЕ помечаем synced (ретрай на следующем прогоне).
                     await session.commit()  # сохраняем разрешённый chat_id; флаг synced НЕ ставим
-                    log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard wrong_state, отклик активен (state={emp_state}); действия hh: [{actions_dbg}]")
-                    logger.error(f"discard wrong_state на активном отклике {app.hh_negotiation_id} (state={emp_state}); actions: [{actions_dbg}]")
+                    log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • discard не прошёл, отклик активен (state={emp_state}); действия hh: [{actions_dbg}]")
+                    logger.error(f"discard не прошёл на активном отклике {app.hh_negotiation_id} (state={emp_state}); actions: [{actions_dbg}]")
                     stats["failed"] += 1
                 continue
 

@@ -498,33 +498,35 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
     """
     Отклоняет отклик на hh.ru (переводит employer_state в discard).
 
-    Метод по спеке hh `put-negotiations-collection-to-next-state`:
-    `PUT /negotiations/{collection}` где collection — в ПУТИ, а id отклика — в ТЕЛЕ
-    form-urlencoded как `topic_id` (обязателен).
-
-    Коллекция отказа РАБОТОДАТЕЛЯ — `discard_by_employer` (НЕ `discard`!). Подтверждено
-    дампом actions[] активного отклика (state=response): доступны discard_by_employer/
-    discard_by_applicant/discard_no_interaction/..., а action `discard` отсутствует —
-    поэтому `PUT /negotiations/discard` возвращал wrong_state. Сообщение шлём отдельно
-    новым Chats API.
+    Метод — строго как в `actions[].url` активного отклика:
+    `PUT /negotiations/discard_by_employer/{negotiation_id}` — id отклика в ПУТИ
+    (message — опциональный аргумент, у нас сообщение уходит отдельно Chats API).
+    ⚠️ Прежний вызов на collection `/negotiations/discard_by_employer` с `topic_id` в
+    ТЕЛЕ hh не привязывал к отклику → 403 resume_not_found (тот самый баг «отказ не
+    уходит»). Коллекция отказа РАБОТОДАТЕЛЯ — `discard_by_employer` (НЕ `discard`).
 
     Returns:
         True  — отклик отклонён сейчас (204).
-        False — отклик УЖЕ в недоступном для отказа состоянии (hh 403 wrong_state,
-                как правило уже в discard). Повторять не нужно.
+        False — отклик недоступен для отказа ЭТИМ методом и ретрай не поможет:
+                403 wrong_state (уже в отказе/не то состояние), 403 resume_not_found
+                (резюме скрыто / вакансия закрыта, пустой actions[]), 404 (не найден).
+                Вызывающий помечает synced и не ретраит.
 
     Raises:
-        ValidationError — прочие ошибки (нет прав/не найден/сеть) → нужен ретрай.
+        ValidationError — прочие ошибки (400 / прочие 403 «нет прав» / сеть) → ретрай.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    data = {"topic_id": negotiation_id}  # id отклика — в теле (collection — в пути)
 
     async with _get_client() as client:
         try:
+            # ⚠️ URL — как в actions[].url самого hh: negotiation_id в ПУТИ
+            # (PUT /negotiations/discard_by_employer/{nid}). Прежний вызов на collection
+            # `/negotiations/discard_by_employer` с topic_id в ТЕЛЕ hh не привязывал к
+            # отклику → отдавал 403 resume_not_found (проверено дампом actions активного
+            # отклика: url = .../discard_by_employer/{nid}).
             response = await client.put(
-                f"{settings.HH_API_BASE}/negotiations/discard_by_employer",
+                f"{settings.HH_API_BASE}/negotiations/discard_by_employer/{negotiation_id}",
                 headers=headers,
-                data=data
             )
         except httpx.HTTPError as e:
             raise ValidationError(f"Ошибка отказа отклика hh.ru: {e}")
@@ -534,18 +536,20 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
             return True
 
         body = response.text[:300]
-        # 403 wrong_state — отклик уже в недоступном для отказа состоянии (обычно
-        # уже discard, т.к. импортирован из discard-коллекции). Не ошибка: цель
-        # (отказ на hh) уже достигнута. Помечаем synced, не ретраим.
-        if response.status_code == 403 and "wrong_state" in body:
-            logger.info(f"hh.ru отклик {negotiation_id} уже в недоступном для отказа состоянии (wrong_state) — синк не требуется")
+        # Отклик недоступен для отказа ЭТИМ методом и ретрай не поможет:
+        #   wrong_state — уже в отказе / не в том состоянии;
+        #   resume_not_found — резюме скрыто/недоступно (напр. вакансия закрыта, пустой actions[]).
+        # Не ошибка процесса — возвращаем False (вызывающий пометит synced, не ретраит).
+        if response.status_code == 403 and ("wrong_state" in body or "resume_not_found" in body):
+            logger.info(f"hh.ru отклик {negotiation_id} недоступен для отказа ({body[:80]}) — синк не требуется")
+            return False
+        if response.status_code == 404:
+            logger.info(f"hh.ru отклик {negotiation_id} не найден — синк не требуется")
             return False
         if response.status_code == 400:
             raise ValidationError(f"Некорректные данные для отказа hh отклика {negotiation_id}: {body}")
         if response.status_code == 403:
             raise ValidationError(f"Невозможно выполнить отказ hh отклика {negotiation_id}: {body}")
-        if response.status_code == 404:
-            raise ValidationError(f"hh отклик {negotiation_id} не найден")
         raise ValidationError(f"hh.ru ошибка отказа отклика (HTTP {response.status_code}): {body}")
 
 
