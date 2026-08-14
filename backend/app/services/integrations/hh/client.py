@@ -496,38 +496,68 @@ async def get_negotiation(access_token: str, negotiation_id: str) -> dict:
 
 async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
     """
-    Отклоняет отклик на hh.ru (переводит employer_state в discard).
+    Отклоняет отклик на hh.ru (переводит employer_state в discard) — SELF-HEALING.
 
-    Метод — строго как в `actions[].url` активного отклика:
-    `PUT /negotiations/discard_by_employer/{negotiation_id}` — id отклика в ПУТИ
-    (message — опциональный аргумент, у нас сообщение уходит отдельно Chats API).
-    ⚠️ Прежний вызов на collection `/negotiations/discard_by_employer` с `topic_id` в
-    ТЕЛЕ hh не привязывал к отклику → 403 resume_not_found (тот самый баг «отказ не
-    уходит»). Коллекция отказа РАБОТОДАТЕЛЯ — `discard_by_employer` (НЕ `discard`).
+    URL берём из `actions[].url` САМОГО hh, а НЕ из хардкода: сначала
+    `GET /negotiations/{id}` (get_negotiation), затем среди `nego["actions"]`
+    ищем действие `{"id": "discard_by_employer", "enabled": true, "method": "PUT",
+    "url": "https://api.hh.ru/negotiations/discard_by_employer/{nid}", ...}` и бьём
+    ровно по его `url`/`method`. Если hh сменит путь эндпоинта отказа — мы поедем за
+    ним БЕЗ правок кода (в этом весь смысл; никакого хардкод-фолбэка на старый URL).
+
+    Если hh НЕ предлагает действие discard_by_employer (пустой actions[] / его нет /
+    отключено — вакансия закрыта, резюме соискателя скрыто, отклик уже в отказе), то
+    отказ этим методом невозможен → return False (ретрай бессмыслен).
+
+    message в тело НЕ добавляем — вежливое письмо уходит отдельно Chats API.
+    ⚠️ Это +1 GET /negotiations/{id} на кандидата в кроне отказов (get_negotiation
+    бесплатен, квоту hh не тратит) — это ОК.
 
     Returns:
         True  — отклик отклонён сейчас (204).
-        False — отклик недоступен для отказа ЭТИМ методом и ретрай не поможет:
-                403 wrong_state (уже в отказе/не то состояние), 403 resume_not_found
-                (резюме скрыто / вакансия закрыта, пустой actions[]), 404 (не найден).
+        False — отклик недоступен для отказа и ретрай не поможет: нет действия
+                discard_by_employer в actions[] (вакансия закрыта / резюме скрыто /
+                уже в отказе), 403 wrong_state / resume_not_found, 404 (не найден).
                 Вызывающий помечает synced и не ретраит.
 
     Raises:
         ValidationError — прочие ошибки (400 / прочие 403 «нет прав» / сеть) → ретрай.
+                Сюда же попадает и сбой get_negotiation (сеть/ошибка API): он бросает
+                ValidationError сам — НЕ глотаем, пробрасываем как транзиент.
     """
-    headers = {"Authorization": f"Bearer {access_token}"}
+    # 1. Спрашиваем hh о самом отклике — берём готовый url действия отказа.
+    #    Сбой get_negotiation (сеть/HTTP-ошибка) → ValidationError пробрасывается
+    #    наружу как транзиент (ретрай вызывающим). Не глотаем.
+    nego = await get_negotiation(access_token, negotiation_id)
 
+    # 2. Ищем действие discard_by_employer (enabled) и берём его url + method.
+    action = next(
+        (
+            a for a in (nego.get("actions") or [])
+            if isinstance(a, dict)
+            and a.get("id") == "discard_by_employer"
+            and a.get("enabled")
+            and a.get("url")
+        ),
+        None,
+    )
+    if action is None:
+        # hh не предлагает discard_by_employer → статус отклика сменить нечем.
+        # НИКАКОГО хардкод-фолбэка на старый URL (в этом и смысл self-healing).
+        logger.info(
+            f"hh.ru отклик {negotiation_id}: discard недоступен "
+            f"(нет action discard_by_employer в actions[]) — синк не требуется"
+        )
+        return False
+
+    url = action["url"]
+    method = (action.get("method") or "PUT").upper()
+
+    headers = {"Authorization": f"Bearer {access_token}"}
     async with _get_client() as client:
         try:
-            # ⚠️ URL — как в actions[].url самого hh: negotiation_id в ПУТИ
-            # (PUT /negotiations/discard_by_employer/{nid}). Прежний вызов на collection
-            # `/negotiations/discard_by_employer` с topic_id в ТЕЛЕ hh не привязывал к
-            # отклику → отдавал 403 resume_not_found (проверено дампом actions активного
-            # отклика: url = .../discard_by_employer/{nid}).
-            response = await client.put(
-                f"{settings.HH_API_BASE}/negotiations/discard_by_employer/{negotiation_id}",
-                headers=headers,
-            )
+            # 3. URL/method — из actions[] самого hh, а не хардкод.
+            response = await client.request(method, url, headers=headers)
         except httpx.HTTPError as e:
             raise ValidationError(f"Ошибка отказа отклика hh.ru: {e}")
 
@@ -536,9 +566,9 @@ async def discard_negotiation(access_token: str, negotiation_id: str) -> bool:
             return True
 
         body = response.text[:300]
-        # Отклик недоступен для отказа ЭТИМ методом и ретрай не поможет:
+        # Отклик недоступен для отказа и ретрай не поможет:
         #   wrong_state — уже в отказе / не в том состоянии;
-        #   resume_not_found — резюме скрыто/недоступно (напр. вакансия закрыта, пустой actions[]).
+        #   resume_not_found — резюме скрыто/недоступно (напр. вакансия закрыта).
         # Не ошибка процесса — возвращаем False (вызывающий пометит synced, не ретраит).
         if response.status_code == 403 and ("wrong_state" in body or "resume_not_found" in body):
             logger.info(f"hh.ru отклик {negotiation_id} недоступен для отказа ({body[:80]}) — синк не требуется")
