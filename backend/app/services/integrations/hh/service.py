@@ -2005,6 +2005,11 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                 except Exception as e:
                     logger.warning(f"Не удалось получить chat_id для отклика {app.hh_negotiation_id}: {e}")
 
+            logger.info(
+                f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id} "
+                f"vac_id={app.vacancy_id} chat_id={chat_id or '—'}: обрабатываю отказ на hh"
+            )
+
             # 2. Отклоняем на hh.ru
             try:
                 discarded_now = await hh_client.discard_negotiation(access_token, app.hh_negotiation_id)
@@ -2036,6 +2041,7 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                     app.hh_discard_synced_at = datetime.now(timezone.utc)
                     await session.commit()
                     log_chat(f"АВТО-ОТКАЗ hh → {candidate.full_name} • уже в отказе на hh (state={emp_state})")
+                    logger.info(f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id}: уже в отказе на hh (state={emp_state}) → synced, письмо не шлём")
                     stats["already_discarded"] += 1
                 elif "discard_by_employer" not in actions_dbg:
                     # hh НЕ предлагает discard_by_employer (пустой actions[] — вакансия
@@ -2056,6 +2062,7 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                 continue
 
             # discard прошёл (204) → помечаем synced.
+            logger.info(f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id}: discard на hh OK (204) → статус «Не подходит»")
             app.hh_discard_synced_at = datetime.now(timezone.utc)
             await session.flush()
 
@@ -2070,7 +2077,11 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                     Vacancy.company_id == company_id,
                 )
             )).scalar_one_or_none()
-            if chat_id and auto_reject_message:
+            if not chat_id:
+                logger.info(f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id}: письмо НЕ шлём — нет hh-чата (chat_id пуст)")
+            elif not auto_reject_message:
+                logger.info(f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id}: письмо НЕ шлём — на вакансии выключен auto_reject_message")
+            else:
                 try:
                     # Получаем настраиваемый текст отказа
                     rejection_text = await resolve_rejection_text(session, company_id, app.vacancy_id)
@@ -2097,10 +2108,11 @@ async def sync_company_rejections(session: AsyncSession, company_id: UUID, limit
                     )
                     session.add(message)
                     message_sent = True
+                    logger.info(f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id}: письмо отправлено в hh-чат {chat_id} (msg={msg_response.get('id')})")
 
                 except Exception as e:
                     # Ошибка отправки сообщения не откатывает discard
-                    logger.warning(f"Не удалось отправить сообщение отказа в чат {chat_id}: {e}")
+                    logger.warning(f"[reject] {candidate.full_name} • nego={app.hh_negotiation_id}: НЕ удалось отправить письмо в чат {chat_id}: {e}")
 
             # 4. Коммитим каждую application отдельно
             await session.commit()
