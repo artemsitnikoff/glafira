@@ -76,7 +76,7 @@ export function ChatConversation({ candidateId, variant, showTemplates = false }
       composerHint={
         disabledReason ? null : (
           <>
-            Enter — отправить · ответ уйдёт в <b>{activeMeta.label}</b>
+            Ctrl+Enter — отправить · Enter — новая строка · ответ уйдёт в <b>{activeMeta.label}</b>
           </>
         )
       }

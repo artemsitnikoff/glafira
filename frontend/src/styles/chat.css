@@ -443,7 +443,7 @@
 }
 .chat-thread .chp-composer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--border-2);
@@ -561,22 +561,32 @@
 .chat-thread .chp-input {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   background: var(--bg-panel-2);
   border: 1px solid var(--border-2);
-  border-radius: 999px;
+  border-radius: 18px;
   padding: 7px 8px 7px 14px;
 }
-.chat-thread .chp-input input {
+.chat-thread .chp-input textarea {
   flex: 1;
   border: 0;
   outline: 0;
   background: none;
   font: inherit;
   font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--fg-1);
   min-width: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  resize: none;
+  min-height: 20px;
+  max-height: 140px;
+  overflow-y: auto;
 }
+.chat-thread .chp-input textarea::placeholder { color: var(--fg-3); }
 .chat-thread .chp-emoji-btn {
   border: 0;
   background: none;

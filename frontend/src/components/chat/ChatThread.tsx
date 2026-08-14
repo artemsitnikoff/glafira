@@ -68,6 +68,7 @@ export function ChatThread({
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<Pending[]>([]);
   const tempIdRef = useRef(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
@@ -138,6 +139,16 @@ export function ChatThread({
     didInitScrollRef.current = false;
     nearBottomRef.current = true;
   }, [candidateId]);
+
+  // Авто-высота многострочного композера: растёт с текстом до 140px (дальше — скролл),
+  // схлопывается обратно в одну строку после отправки (draft='') и корректно
+  // растёт при вставке шаблона.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [draft]);
 
   const insertText = (text: string) =>
     setDraft((prev) => (prev.trim() ? `${prev.trimEnd()}\n${text}` : text));
@@ -274,12 +285,16 @@ export function ChatThread({
       ) : (
         <div className={`chp-composer${variant === 'tab' ? ' chp-composer-tab' : ''}`}>
           <div className="chp-input">
-            <input
+            <textarea
+              ref={inputRef}
+              rows={1}
               placeholder="Напишите сообщение…"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                // Enter в одиночку (и Shift+Enter) → новая строка (дефолт textarea).
+                // Отправка — только Ctrl+Enter / Cmd+Enter.
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   send();
                 }
