@@ -29,7 +29,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from ..config import settings
-from ..models import Candidate, CandidateExperience
+from ..models import Candidate, CandidateExperience, CandidateSkill
 from ..services.candidate_import import _create_talantix_child_records
 from ..services.integrations.talantix import mapper as tmap
 from ..services.integrations.talantix.client import TalantixClient
@@ -86,12 +86,19 @@ async def main():
                         cand = await s.get(Candidate, cand_id)
                         if cand is None:
                             return
-                        # Идемпотентность: опыт мог появиться (повторный запуск/гонка) — не дублируем.
+                        # Идемпотентность: если уже есть опыт ИЛИ навыки (повторный запуск/
+                        # гонка/кандидат только с навыками) — не дублируем секции.
                         has = await s.scalar(
                             select(CandidateExperience.id)
                             .where(CandidateExperience.candidate_id == cand_id)
                             .limit(1)
                         )
+                        if has is None:
+                            has = await s.scalar(
+                                select(CandidateSkill.id)
+                                .where(CandidateSkill.candidate_id == cand_id)
+                                .limit(1)
+                            )
                         if has:
                             return
                         if mapped.get("resume_text"):
