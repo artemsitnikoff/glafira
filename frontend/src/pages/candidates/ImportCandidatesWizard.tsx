@@ -1258,18 +1258,19 @@ function ImpStepPreview({
           : <><Icon name="download" size={14}/> Кандидаты из файла — проверьте перед заливкой в базу.</>}
       </div>
 
-      {/* сводка-полоса */}
+      {/* сводка-полоса. capSfx: превью Talantix упёрлось в кап перечисления → база больше, показываем «+» */}
+      {(() => { const capSfx = previewData.summary.total_capped ? '+' : ''; return (
       <div className="imp-stat-row">
         <div className="imp-stat">
-          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.total)}</div>
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.total)}{capSfx}</div>
           <div className="imp-stat-lbl">Всего строк</div>
         </div>
         <div className="imp-stat is-new">
-          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.new)}</div>
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.new)}{capSfx}</div>
           <div className="imp-stat-lbl">Новых кандидатов</div>
         </div>
         <div className="imp-stat is-dup">
-          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.duplicates)}</div>
+          <div className="imp-stat-num t-mono">{fmtIM(previewData.summary.duplicates)}{capSfx}</div>
           <div className="imp-stat-lbl">Дублей <span className="imp-stat-cap">уже в базе</span></div>
         </div>
         <div className="imp-stat is-err">
@@ -1277,6 +1278,7 @@ function ImpStepPreview({
           <div className="imp-stat-lbl">С ошибками <span className="imp-stat-cap">пропустятся</span></div>
         </div>
       </div>
+      ); })()}
 
       {/* тумблер дублей */}
       <div className="imp-preview-controls">

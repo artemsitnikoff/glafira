@@ -71,6 +71,7 @@ export interface PreviewResponse {
     new: number;
     duplicates: number;
     errors: number;
+    total_capped?: boolean; // Talantix: превью упёрлось в кап перечисления → база БОЛЬШЕ (рисуем «N+»)
   };
   rows: PreviewRow[];
   shown: number;

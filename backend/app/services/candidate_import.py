@@ -1382,6 +1382,10 @@ async def preview_talantix_import(session: AsyncSession, company_id: UUID, dedup
             "errors": sample_err,
         }
 
+    # Превью упёрлось в кап перечисления person_ids → реальная база БОЛЬШЕ,
+    # чем показано (фронт рисует «N+», чтобы не дискредитировать реальный объём).
+    summary["total_capped"] = total >= TALANTIX_PREVIEW_MAX_PAGES * 50
+
     shown = len(classified_rows)
     clean_rows = [
         {k: v for k, v in r.items() if not k.startswith("_")}
