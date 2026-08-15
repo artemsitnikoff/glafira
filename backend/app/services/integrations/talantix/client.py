@@ -114,6 +114,40 @@ query PersonHistory($id: Int!, $first: Int!, $after: String) {
 """.strip()
 
 
+async def probe_access_token(access_token: str) -> bool:
+    """Лёгкая проверка access_token НАПРЯМУЮ (persons first:1), БЕЗ рефреша и БЕЗ БД.
+
+    Используется на connect: если пастнутый access рабочий — не тратим свежий
+    refresh_token на ротацию. True — токен рабочий; False — 401/GraphQL-ошибка/сеть.
+    Не кидает (валидация — pass/fail; при False вызывающий делает фолбэк на refresh)."""
+    if not access_token:
+        return False
+    try:
+        async with httpx.AsyncClient(
+            base_url=settings.TALANTIX_GRAPHQL_URL,
+            timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": settings.TALANTIX_USER_AGENT,
+            },
+        ) as client:
+            resp = await client.post(
+                "",
+                json={"query": CHECK_QUERY, "variables": {}},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except (httpx.TimeoutException, httpx.NetworkError):
+        return False
+    if not resp.is_success:
+        return False
+    try:
+        data = resp.json()
+    except Exception:  # noqa: BLE001
+        return False
+    return not data.get("errors")
+
+
 class TalantixClient:
     """Per-company клиент. Токен резолвится лениво через token.get_access_token."""
 

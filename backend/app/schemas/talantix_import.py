@@ -6,14 +6,13 @@ from pydantic import BaseModel, Field
 
 
 class TalantixConnectRequest(BaseModel):
-    """Подключение Talantix: пара токенов из json в ЛК Talantix.
+    """Подключение Talantix: пользователь вставляет ЦЕЛИКОМ JSON токенов из ЛК Talantix.
 
-    refresh_token — обязателен (долгоживущий, из него минтим access). access_token —
-    опционален (ЛК отдаёт оба, но нам достаточно refresh). Токены write-only, шифруются
-    Fernet, наружу НЕ возвращаются.
+    `token` — весь блок `{access_token, expires_in, refresh_token, created_at, ...}` как
+    текст (или, для совместимости, голая строка refresh_token). Парсинг — в сервисе.
+    Токены write-only, шифруются Fernet, наружу/в логи НЕ возвращаются.
     """
-    refresh_token: str = Field(..., min_length=1, description="refresh_token Talantix из ЛК")
-    access_token: str | None = Field(default=None, description="access_token Talantix из ЛК (опционально)")
+    token: str = Field(..., min_length=1, description="JSON-блок токенов из ЛК Talantix (весь {…})")
 
 
 class TalantixStatusResponse(BaseModel):

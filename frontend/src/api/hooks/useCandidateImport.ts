@@ -230,21 +230,14 @@ export interface TalantixStatus {
   expires_at: string | null;
 }
 
-// Hook: подключение Talantix (refresh_token обязателен, access_token опционален)
+// Hook: подключение Talantix. Пользователь вставляет ВЕСЬ JSON со страницы токена
+// ЛК Talantix (или сам refresh_token) — шлём одной строкой в поле token, бек парсит.
+// (Страница токена — SPA, «вставить ссылку» не сработает, поэтому именно JSON.)
 export function useTalantixConnect() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      refresh_token,
-      access_token,
-    }: {
-      refresh_token: string;
-      access_token?: string | null;
-    }): Promise<TalantixStatus> => {
-      const response = await api.post('/candidates/import/talantix/connect', {
-        refresh_token,
-        access_token: access_token ?? null,
-      });
+    mutationFn: async ({ token }: { token: string }): Promise<TalantixStatus> => {
+      const response = await api.post('/candidates/import/talantix/connect', { token });
       return response.data as TalantixStatus;
     },
     onSuccess: () => {

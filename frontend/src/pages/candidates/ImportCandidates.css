@@ -379,16 +379,19 @@
   font-size: 12px; font-weight: 700; font-family: var(--font-mono);
 }
 
-/* Talantix — доп. элементы шага токена (пара refresh/access + статус) */
-.imp-token-label-2 { margin-top: var(--space-4); }
-.imp-token-req {
-  margin-left: 6px; font-size: 10px; font-weight: 700;
-  letter-spacing: 0.02em; text-transform: none; color: var(--ark-red-600);
+/* Talantix — шаг токена: одно поле-textarea (весь JSON со страницы токена ЛК) + статус */
+.imp-token-textarea {
+  width: 100%; min-height: 96px; resize: vertical;
+  border: 1px solid var(--border-1); border-radius: var(--radius-lg);
+  background: var(--bg-panel-2); padding: 12px 14px;
+  font-family: var(--font-mono); font-size: 13px; color: var(--fg-1); line-height: 1.5;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.imp-token-opt {
-  margin-left: 6px; font-size: 10px; font-weight: 600;
-  letter-spacing: 0.02em; text-transform: none; color: var(--fg-3);
+.imp-token-textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ark-blue-100); background: #fff;
 }
+.imp-token-textarea::placeholder { color: var(--ark-gray-400); }
 .imp-token-connected {
   display: flex; align-items: center; gap: 7px;
   margin-bottom: 14px; font-size: 12.5px; color: var(--ark-green-600); line-height: 1.4;

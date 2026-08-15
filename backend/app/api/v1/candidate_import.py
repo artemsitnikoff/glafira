@@ -247,15 +247,16 @@ async def connect_talantix(
     company_id: UUID = Depends(get_current_company_id),
     session: AsyncSession = Depends(get_db),
 ):
-    """Подключить Talantix: сохранить пару токенов из ЛК (Fernet) + проверка соединения.
+    """Подключить Talantix: вставить ЦЕЛИКОМ JSON токенов из ЛК (Fernet) + проверка соединения.
 
-    Токены НИКОГДА не возвращаются наружу. Невалидный токен → 400 «проверьте токен».
+    Тело `{ "token": "<весь блок {…}>" }`. Токены НИКОГДА не возвращаются наружу.
+    Ссылка на страницу токена / невалидный токен → 400 с пояснением.
     """
     if user.role == "manager":
         raise ForbiddenError(_MANAGER_FORBIDDEN)
 
     await talantix_service.save_config(
-        session, company_id, refresh_token=data.refresh_token, user_id=user.id
+        session, company_id, token_input=data.token, user_id=user.id
     )
     await session.commit()
     status = await talantix_service.get_status(session, company_id)

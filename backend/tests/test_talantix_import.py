@@ -4,15 +4,18 @@
 Живой API не пинится (заказчиком на VPS). Патч-таргеты — на модулях использования.
 """
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import select, func
 
+from app.core.errors import ValidationError
 from app.services.integrations.talantix import mapper as tmap
+from app.services.integrations.talantix import service as tsvc
 from app.services.integrations.talantix.client import TalantixClient, TalantixError
 from app.services.candidate_import import (
     _classify_talantix_rows,
@@ -20,6 +23,17 @@ from app.services.candidate_import import (
     _import_talantix_comments,
 )
 from app.models import Candidate, Comment, Consent
+
+
+class _FakeResult:
+    def scalar_one_or_none(self):
+        return MagicMock(id=uuid4())
+
+
+class _FakeSession:
+    """Минимальная фейк-сессия для save_config (execute→integration; audit замокан)."""
+    async def execute(self, *a, **k):
+        return _FakeResult()
 
 
 # --- Реалистичные ноды GraphQL (структура подтверждена по доке) -------------
@@ -377,3 +391,121 @@ class TestTalantixProcessPerson:
             )
         )).scalar_one()
         assert b_comments == 0
+
+
+# --- Connect: разбор JSON-блока токенов + access-first валидация ------------
+
+class TestTalantixConnectParse:
+    def test_parse_json_both_tokens_and_expires(self):
+        raw = json.dumps({
+            "name": "My token",
+            "access_token": "acc-123",
+            "expires_in": 86400,
+            "refresh_token": "ref-456",
+            "refresh_token_expires_in": 10368000,
+            "token_type": "bearer",
+            "created_at": 1700000000000,
+        })
+        access, refresh, expires_at = tsvc._parse_connect_input(raw)
+        assert access == "acc-123"
+        assert refresh == "ref-456"
+        expected = datetime.fromtimestamp(1700000000000 / 1000, tz=timezone.utc) + timedelta(seconds=86400)
+        assert expires_at == expected
+
+    def test_parse_json_without_created_at_uses_now(self):
+        raw = json.dumps({"access_token": "a", "refresh_token": "r", "expires_in": 100})
+        access, refresh, expires_at = tsvc._parse_connect_input(raw)
+        assert access == "a" and refresh == "r"
+        assert expires_at is not None  # база = now (не падаем без created_at)
+
+    def test_parse_url_to_token_page_raises_400(self):
+        with pytest.raises(ValidationError) as e:
+            tsvc._parse_connect_input("https://api.talantix.ru/docs/pages/token/?hash=abc123")
+        assert "браузере" in str(e.value).lower() or "ссылка" in str(e.value).lower()
+
+    def test_parse_json_without_refresh_raises(self):
+        with pytest.raises(ValidationError):
+            tsvc._parse_connect_input(json.dumps({"access_token": "acc"}))
+
+    def test_parse_plain_string_is_refresh(self):
+        access, refresh, expires_at = tsvc._parse_connect_input("just-a-raw-refresh-token")
+        assert access is None
+        assert refresh == "just-a-raw-refresh-token"
+        assert expires_at is None
+
+    def test_parse_empty_raises(self):
+        with pytest.raises(ValidationError):
+            tsvc._parse_connect_input("   ")
+
+
+class TestTalantixConnectSaveConfig:
+    @pytest.mark.asyncio
+    async def test_access_valid_stores_both_without_refresh(self):
+        """Пастнутый access рабочий → сохраняем пару как есть, refresh НЕ ротируем."""
+        raw = json.dumps({
+            "access_token": "acc", "refresh_token": "ref",
+            "expires_in": 86400, "created_at": 1700000000000,
+        })
+        with patch("app.services.integrations.talantix.service.probe_access_token",
+                   new=AsyncMock(return_value=True)) as mprobe, \
+             patch("app.services.integrations.talantix.token.save_tokens",
+                   new=AsyncMock()) as msave, \
+             patch("app.services.integrations.talantix.token.connect_and_store",
+                   new=AsyncMock()) as mconnect, \
+             patch("app.services.integrations.talantix.service.audit",
+                   new=AsyncMock()):
+            await tsvc.save_config(_FakeSession(), uuid4(), token_input=raw, user_id=uuid4())
+
+        mprobe.assert_awaited_once()
+        msave.assert_awaited_once()
+        kwargs = msave.await_args.kwargs
+        assert kwargs["access_token"] == "acc"
+        assert kwargs["refresh_token"] == "ref"
+        assert kwargs["expires_at"] is not None
+        mconnect.assert_not_awaited()  # refresh не тратим
+
+    @pytest.mark.asyncio
+    async def test_access_invalid_falls_back_to_refresh(self):
+        """Access не сработал → фолбэк на обмен refresh (+ GraphQL-проверка)."""
+        raw = json.dumps({"access_token": "stale", "refresh_token": "ref", "expires_in": 86400})
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.check_connection = AsyncMock(return_value=True)
+        with patch("app.services.integrations.talantix.service.probe_access_token",
+                   new=AsyncMock(return_value=False)), \
+             patch("app.services.integrations.talantix.token.connect_and_store",
+                   new=AsyncMock()) as mconnect, \
+             patch("app.services.integrations.talantix.token.save_tokens",
+                   new=AsyncMock()) as msave, \
+             patch("app.services.integrations.talantix.service.TalantixClient",
+                   return_value=mock_client), \
+             patch("app.services.integrations.talantix.service.audit",
+                   new=AsyncMock()):
+            await tsvc.save_config(_FakeSession(), uuid4(), token_input=raw, user_id=uuid4())
+
+        mconnect.assert_awaited_once()
+        assert mconnect.await_args.kwargs["refresh_token"] == "ref"
+        mock_client.check_connection.assert_awaited_once()
+        msave.assert_not_awaited()  # свежую пару сохранил connect_and_store
+
+    @pytest.mark.asyncio
+    async def test_plain_refresh_string_uses_refresh_path(self):
+        """Голая refresh-строка → access=None → сразу фолбэк на refresh (как раньше)."""
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.check_connection = AsyncMock(return_value=True)
+        with patch("app.services.integrations.talantix.service.probe_access_token",
+                   new=AsyncMock(return_value=False)) as mprobe, \
+             patch("app.services.integrations.talantix.token.connect_and_store",
+                   new=AsyncMock()) as mconnect, \
+             patch("app.services.integrations.talantix.service.TalantixClient",
+                   return_value=mock_client), \
+             patch("app.services.integrations.talantix.service.audit",
+                   new=AsyncMock()):
+            await tsvc.save_config(_FakeSession(), uuid4(), token_input="plain-refresh", user_id=uuid4())
+
+        mprobe.assert_not_awaited()  # access отсутствует — probe не зовём
+        mconnect.assert_awaited_once()
+        assert mconnect.await_args.kwargs["refresh_token"] == "plain-refresh"

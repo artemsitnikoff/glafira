@@ -85,10 +85,9 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Шаг токена (Поток / Talantix). Для Talantix tokenVal = refresh_token,
-  // accessTokenVal = опциональный access_token.
+  // Шаг токена (Поток / Talantix). Для Talantix tokenVal = весь JSON со страницы
+  // токена ЛК Talantix (или сам refresh_token) — одной строкой.
   const [tokenVal, setTokenVal] = useState('');
-  const [accessTokenVal, setAccessTokenVal] = useState('');
   const [tokenState, setTokenState] = useState<'idle' | 'connecting'>('idle');
 
   // Шаг маппинг колонок
@@ -153,20 +152,18 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   };
 
   // Подключение к Talantix: сначала /connect (валидирует и сохраняет токен на
-  // сервере), затем /preview (токен уже не передаём). Если аккаунт уже подключён
-  // и новый токен не введён — сразу preview.
+  // сервере), затем /preview (токен уже не передаём). Пользователь вставляет весь
+  // JSON со страницы токена ЛК одной строкой. Если аккаунт уже подключён и новый
+  // токен не введён — сразу preview.
   const connectTalantix = async () => {
-    const refresh = tokenVal.trim();
-    if (!refresh && !talantixConnected) return;
+    const token = tokenVal.trim();
+    if (!token && !talantixConnected) return;
     setActionError(null);
     setTokenState('connecting');
 
     try {
-      if (refresh) {
-        await talantixConnect.mutateAsync({
-          refresh_token: refresh,
-          access_token: accessTokenVal.trim() || null,
-        });
+      if (token) {
+        await talantixConnect.mutateAsync({ token });
       }
       const result = await talantixPreview.mutateAsync({ dedup_mode: dedupMode });
       setPreviewData(result);
@@ -175,6 +172,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     } catch (error) {
       setTokenState('idle');
       // Ошибка нормализована интерцептором в ApiError ({ error: { message } }).
+      // Сюда попадает и текст «это ссылка, вставьте JSON» при 400 от бека.
       const errorMsg =
         (error as ApiError)?.error?.message ||
         'Не удалось подключиться к Talantix. Проверьте токен.';
@@ -310,7 +308,6 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setUploadState('idle');
     setDragging(false);
     setTokenVal('');
-    setAccessTokenVal('');
     setTokenState('idle');
     setMapping({});
     setPreviewData(null);
@@ -368,8 +365,6 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               source={source}
               tokenVal={tokenVal}
               setTokenVal={setTokenVal}
-              accessTokenVal={accessTokenVal}
-              setAccessTokenVal={setAccessTokenVal}
               tokenState={tokenState}
               onConnect={connectApiSource}
               actionError={actionError}
@@ -451,7 +446,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Токен введён</span>
               : (source === 'talantix' && talantixConnected)
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Talantix подключён</span>
-              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {source === 'talantix' ? 'Вставьте refresh-токен Talantix' : 'Вставьте API-токен Потока'}</span>}
+              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {source === 'talantix' ? 'Вставьте JSON токена Talantix' : 'Вставьте API-токен Потока'}</span>}
           </div>
           <button className="btn btn-primary btn-sm" disabled={!canConnect || tokenBusy} onClick={() => { if (canConnect) connectApiSource(); }}>
             {tokenBusy ? 'Подключаемся…' : <><Icon name="arrowRight" size={14}/> Подключиться и загрузить</>}
@@ -842,8 +837,6 @@ interface ImpStepTokenProps {
   source: Source;
   tokenVal: string;
   setTokenVal: (val: string) => void;
-  accessTokenVal: string;
-  setAccessTokenVal: (val: string) => void;
   tokenState: 'idle' | 'connecting';
   onConnect: () => void;
   actionError: string | null;
@@ -854,8 +847,6 @@ function ImpStepToken({
   source,
   tokenVal,
   setTokenVal,
-  accessTokenVal,
-  setAccessTokenVal,
   tokenState,
   onConnect,
   actionError,
@@ -890,41 +881,17 @@ function ImpStepToken({
             </div>
           )}
 
-          <label className="imp-token-label" htmlFor="imp-tlx-refresh">
-            Refresh-токен <span className="imp-token-req">обязательно</span>
-          </label>
-          <div className="imp-token-input-row">
-            <Icon name="key" size={16}/>
-            <input
-              id="imp-tlx-refresh"
-              className="imp-token-input"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Вставьте refresh-токен Talantix"
-              value={tokenVal}
-              onChange={e => setTokenVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && tokenVal.trim()) onConnect(); }}
-            />
-          </div>
-
-          <label className="imp-token-label imp-token-label-2" htmlFor="imp-tlx-access">
-            Access-токен <span className="imp-token-opt">необязательно</span>
-          </label>
-          <div className="imp-token-input-row">
-            <Icon name="key" size={16}/>
-            <input
-              id="imp-tlx-access"
-              className="imp-token-input"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Access-токен, если выдан отдельно"
-              value={accessTokenVal}
-              onChange={e => setAccessTokenVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && tokenVal.trim()) onConnect(); }}
-            />
-          </div>
+          <label className="imp-token-label" htmlFor="imp-tlx-token">Токены из ЛК Talantix</label>
+          <textarea
+            id="imp-tlx-token"
+            className="imp-token-textarea"
+            autoComplete="off"
+            spellCheck={false}
+            rows={4}
+            placeholder={'Вставьте весь JSON со страницы токена, например:\n{ "name": "…", "access_token": "…", "refresh_token": "…" }'}
+            value={tokenVal}
+            onChange={e => setTokenVal(e.target.value)}
+          />
 
           {actionError && (
             <div className="imp-token-error">
@@ -934,7 +901,7 @@ function ImpStepToken({
           )}
           <div className="imp-token-help">
             <Icon name="info" size={13}/>
-            Токены берутся в личном кабинете Talantix: <b>Настройки → Интеграции → API</b>. Токены хранятся в зашифрованном виде и не показываются обратно.
+            ЛК Talantix → <b>Мой профиль → API → Новый токен</b> → скопируйте весь JSON со страницы токена и вставьте сюда. Вставлять ссылку на страницу нельзя — сервер по ссылке токен не получит.
           </div>
         </div>
 
