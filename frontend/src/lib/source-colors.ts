@@ -10,6 +10,7 @@ export const SOURCE_CONFIG: Record<string, SourceConfig> = {
   linkedin: { label: 'LinkedIn', color: 'var(--ark-blue-700)' },
   telegram: { label: 'Telegram-бот Глафиры', color: 'var(--src-tg)' },
   potok: { label: 'Поток', color: 'var(--ark-violet-500)' },
+  talantix: { label: 'Talantix', color: 'var(--ark-blue-700)' },
   smart: { label: 'Умный подбор', color: 'var(--ark-violet-500)' },
   habr: { label: 'Хабр Карьера', color: 'var(--ark-gray-600)' },
   referral: { label: 'Рефералы', color: 'var(--stage-added)' },

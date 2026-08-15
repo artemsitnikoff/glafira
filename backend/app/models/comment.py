@@ -42,18 +42,20 @@ class Comment(Base, CreatedAtMixin, CompanyMixin):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     mentions: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Источник записи: 'manual' — ручной комментарий рекрутёра (наш автор),
-    # 'hh' — импортированная заметка работодателя к резюме на hh (read-only).
+    # 'hh' — импортированная заметка работодателя к резюме на hh (read-only),
+    # 'talantix' — импортированный комментарий/история из ATS Talantix (read-only).
     source: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'manual'")
     )
-    # id заметки на hh — дедуп при повторном синке (по образцу Message.external_id).
+    # id заметки у источника (hh applicant_comment / Talantix history event) —
+    # дедуп при повторном синке (по образцу Message.external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    # Имя автора заметки с hh (когда author_user_id пуст).
+    # Имя автора заметки из внешнего источника (когда author_user_id пуст).
     author_name_ext: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
-            "source IN ('manual', 'hh')",
+            "source IN ('manual', 'hh', 'talantix')",
             name="check_comment_source",
         ),
         # Дедуп hh-комментариев на уровне БД (company-scoped). Ручные комментарии
@@ -64,6 +66,22 @@ class Comment(Base, CreatedAtMixin, CompanyMixin):
             "external_id",
             unique=True,
             postgresql_where=text("source = 'hh'"),
+        ),
+        # Дедуп Talantix-комментариев на уровне БД (company + КАНДИДАТ + external_id) —
+        # отдельный partial-индекс, чтобы external_id из hh и Talantix не пересекались.
+        # ⚠️ candidate_id В КЛЮЧЕ намеренно: id события истории Talantix может быть
+        # уникален только В ПРЕДЕЛАХ персоны (не глобально). Без candidate_id комментарий
+        # кандидата Б с тем же event-id, что уже импортирован кандидату А, молча
+        # отбрасывался бы (потеря главной ценности). С candidate_id идемпотентность
+        # повторного импорта того же кандидата сохраняется, а кросс-кандидатной
+        # коллизии нет.
+        Index(
+            "uq_comment_talantix_external",
+            "company_id",
+            "candidate_id",
+            "external_id",
+            unique=True,
+            postgresql_where=text("source = 'talantix'"),
         ),
     )
 

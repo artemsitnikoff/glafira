@@ -13,9 +13,9 @@ export type CommentRow = {
   body: string;
   mentions?: unknown;
   created_at: string;
-  // 'hh' — заметка, импортированная с hh; 'manual' — наш комментарий.
-  // Старый кэш без поля → трактуем как 'manual' (бейджа «с hh» нет).
-  source?: 'manual' | 'hh';
+  // 'hh' — заметка с hh; 'talantix' — заметка рекрутёра из ATS Talantix;
+  // 'manual' — наш комментарий. Старый кэш без поля → трактуем как 'manual'.
+  source?: 'manual' | 'hh' | 'talantix';
 };
 
 // Не поллим, когда вкладка скрыта: false → интервал приостановлен; возврат фокуса

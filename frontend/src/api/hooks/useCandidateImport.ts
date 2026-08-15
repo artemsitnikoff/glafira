@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../client';
 
 // API types (соблюдаем контракт точно)
@@ -90,6 +90,9 @@ export interface ImportJob {
   updated: number;
   skipped: number;
   errors: number;
+  // Комментарии рекрутёров, перенесённые вместе с кандидатами (headline-метрика
+  // Talantix). У Excel/Потока = 0. openapi не регенерён — поле локальное, опциональное.
+  comments_imported?: number;
   error?: string;
 }
 
@@ -211,6 +214,86 @@ export function useExecutePotokImport() {
         dedup_mode,
       });
       return response.data;
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Talantix (импорт из ATS Talantix). Контракт бека: /candidates/import/talantix/*.
+// openapi протух → локальные типы + as-cast. Отличие от Потока: токен(ы)
+// передаются один раз в /connect (хранятся на сервере, наружу НЕ возвращаются),
+// а preview/execute токен уже не принимают.
+// ─────────────────────────────────────────────────────────────────────────
+export interface TalantixStatus {
+  connected: boolean;
+  connected_at: string | null;
+  expires_at: string | null;
+}
+
+// Hook: подключение Talantix (refresh_token обязателен, access_token опционален)
+export function useTalantixConnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      refresh_token,
+      access_token,
+    }: {
+      refresh_token: string;
+      access_token?: string | null;
+    }): Promise<TalantixStatus> => {
+      const response = await api.post('/candidates/import/talantix/connect', {
+        refresh_token,
+        access_token: access_token ?? null,
+      });
+      return response.data as TalantixStatus;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['talantix-status'] });
+    },
+  });
+}
+
+// Hook: статус подключения Talantix
+export function useTalantixStatus(enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['talantix-status'],
+    queryFn: async (): Promise<TalantixStatus> => {
+      const response = await api.get('/candidates/import/talantix/status');
+      return response.data as TalantixStatus;
+    },
+    enabled,
+    staleTime: 0,
+  });
+}
+
+// Hook: превью импорта из Talantix (токен уже сохранён на сервере через connect)
+export function useTalantixPreview() {
+  return useMutation({
+    mutationFn: async ({
+      dedup_mode,
+    }: {
+      dedup_mode: DedupMode;
+    }): Promise<PreviewResponse> => {
+      const response = await api.post('/candidates/import/talantix/preview', {
+        dedup_mode,
+      });
+      return response.data as PreviewResponse;
+    },
+  });
+}
+
+// Hook: выполнение импорта из Talantix
+export function useTalantixExecute() {
+  return useMutation({
+    mutationFn: async ({
+      dedup_mode,
+    }: {
+      dedup_mode: DedupMode;
+    }): Promise<ExecuteResponse> => {
+      const response = await api.post('/candidates/import/talantix/execute', {
+        dedup_mode,
+      });
+      return response.data as ExecuteResponse;
     },
   });
 }

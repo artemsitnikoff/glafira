@@ -17,6 +17,7 @@ const SOURCES = [
   { id: 'linkedin', label: 'LinkedIn' },
   { id: 'telegram', label: 'Telegram' },
   { id: 'potok', label: 'Поток' },
+  { id: 'talantix', label: 'Talantix' },
   { id: 'habr', label: 'Хабр Карьера' },
   { id: 'referral', label: 'Реферал' },
   { id: 'direct', label: 'Напрямую' },

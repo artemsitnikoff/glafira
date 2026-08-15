@@ -11,18 +11,35 @@ from typing import Optional, Dict, List, Any
 from uuid import UUID
 
 from openpyxl import load_workbook
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.errors import ValidationError
 from ..database import AsyncSessionLocal
-from ..models import Candidate, CandidateImportJob, CandidateExperience, CandidateSkill, CandidateEducation
+from ..models import (
+    Candidate,
+    CandidateImportJob,
+    CandidateExperience,
+    CandidateSkill,
+    CandidateEducation,
+    Comment,
+    Consent,
+)
 from ..schemas.candidate import CandidateSource
 from ..services.audit import audit
 from ..services.integrations.potok.client import get_all_applicants, preview_applicants, iter_applicants
 from ..services.integrations.potok.mapper import map_potok_applicant
+from ..services.integrations.talantix.client import TalantixClient, TalantixError
+from ..services.integrations.talantix import mapper as talantix_mapper
 from .base_search import reindex_all_embeddings
-from .candidate_dedup import _clean_phone, _normalize_contact, _phone_query_variants, _get_existing_candidates
+from .candidate_dedup import (
+    _clean_phone,
+    _normalize_contact,
+    _phone_query_variants,
+    _get_existing_candidates,
+    find_duplicate_candidates,
+)
 from .phone import normalize_phone
 
 logger = logging.getLogger(__name__)
@@ -1217,6 +1234,492 @@ async def execute_potok_import(session: AsyncSession, company_id: UUID, user_id:
 
     # Запускаем в фоне с защитой от GC
     task = asyncio.create_task(_run_potok_import(job.id, company_id, user_id, token, dedup_mode))
+    _active_tasks[job.id] = task
+
+    def _cleanup_task(_t, _jid=job.id):
+        _active_tasks.pop(_jid, None)
+
+    task.add_done_callback(_cleanup_task)
+
+    return job.id
+
+
+# === TALANTIX IMPORT FUNCTIONS ===
+# Зеркало Potok-импорта, но источник — GraphQL API Talantix. ГЛАВНАЯ ЦЕННОСТЬ —
+# импорт истории комментариев кандидата (source='talantix') с автором и датой оригинала.
+
+# Кандидаты в Talantix (PersonItem.id) считаем перечислением — total нет.
+TALANTIX_PREVIEW_SAMPLE = 50            # сколько персон детально тянуть для оценки new/dup
+TALANTIX_PREVIEW_MAX_PAGES = 200        # кап страниц id-перечисления в превью (200*50=10k)
+TALANTIX_IMPORT_MAX_PAGES = 4000        # кап страниц id-перечисления в импорте (4000*50=200k)
+
+
+def _classify_talantix_rows(candidates: list[dict], existing_candidates: list[Candidate]) -> list[dict]:
+    """Классификация замапленных персон Talantix на new/duplicate/error (аналог Potok)."""
+    existing_phones = {_normalize_contact(c.phone or ""): c for c in existing_candidates if c.phone}
+    existing_emails = {_normalize_contact(c.email or ""): c for c in existing_candidates if c.email}
+
+    seen_phones: dict = {}
+    seen_emails: dict = {}
+    classified_rows = []
+
+    for i, candidate in enumerate(candidates):
+        first_name = candidate.get("first_name") or ""
+        last_name = candidate.get("last_name") or ""
+        phone = candidate.get("phone") or ""
+        email = candidate.get("email") or ""
+
+        preview_row = {
+            "index": i + 1,
+            "name": f"{first_name} {last_name}".strip() or "Неизвестно",
+            "phone": phone,
+            "email": email,
+            "city": candidate.get("city") or "",
+            "source": "talantix",
+            "status": "new",
+            "error": None,
+            "detail": candidate,
+        }
+
+        if not first_name.strip() and not last_name.strip():
+            preview_row["status"] = "error"
+            preview_row["error"] = "нет имени"
+        elif not phone.strip() and not email.strip():
+            preview_row["status"] = "error"
+            preview_row["error"] = "нет контакта"
+        else:
+            norm_phone = _normalize_contact(phone)
+            norm_email = _normalize_contact(email)
+
+            matched = None
+            if norm_phone and norm_phone in existing_phones:
+                matched = existing_phones[norm_phone]
+            elif norm_email and norm_email in existing_emails:
+                matched = existing_emails[norm_email]
+
+            within_request = bool(
+                (norm_phone and norm_phone in seen_phones)
+                or (norm_email and norm_email in seen_emails)
+            )
+
+            if matched is not None:
+                preview_row["status"] = "duplicate"
+                preview_row["_match_id"] = str(matched.id)
+            elif within_request:
+                preview_row["status"] = "duplicate"
+            else:
+                if norm_phone:
+                    seen_phones[norm_phone] = i
+                if norm_email:
+                    seen_emails[norm_email] = i
+
+        classified_rows.append(preview_row)
+
+    return classified_rows
+
+
+async def preview_talantix_import(session: AsyncSession, company_id: UUID, dedup_mode: str) -> dict:
+    """Превью импорта из Talantix: total (перечислением, капнуто) + сэмпл new/dup/errors.
+
+    Токен уже сохранён (connect). Здесь только читаем: перечисляем id персон (id-only,
+    легко), тянем полные карточки первых N для дедуп-классификации, экстраполируем."""
+    logger.info("Начинаем превью импорта Talantix company=%s", company_id)
+
+    async with TalantixClient(company_id) as client:
+        person_ids = await client.collect_person_ids(max_pages=TALANTIX_PREVIEW_MAX_PAGES)
+        total = len(person_ids)
+
+        sample_ids = person_ids[:TALANTIX_PREVIEW_SAMPLE]
+        detail_results = await asyncio.gather(
+            *[client.get_person_full(pid) for pid in sample_ids],
+            return_exceptions=True,
+        )
+
+    mapped_candidates = []
+    for res in detail_results:
+        if isinstance(res, Exception) or res is None:
+            continue
+        try:
+            mapped_candidates.append(talantix_mapper.map_person(res))
+        except Exception as e:  # noqa: BLE001
+            logger.error("Ошибка маппинга персоны Talantix для превью: %s", e)
+
+    # Дедуп сэмпла
+    all_phones = []
+    all_emails = []
+    for c in mapped_candidates:
+        if c.get("phone"):
+            np = _normalize_contact(c["phone"])
+            if np:
+                all_phones.append(np)
+        if c.get("email"):
+            ne = _normalize_contact(c["email"])
+            if ne:
+                all_emails.append(ne)
+
+    existing_candidates = await _get_existing_candidates(session, company_id, all_phones, all_emails)
+    classified_rows = _classify_talantix_rows(mapped_candidates, existing_candidates)
+
+    sample_total = len(classified_rows)
+    sample_new = len([r for r in classified_rows if r["status"] == "new"])
+    sample_dup = len([r for r in classified_rows if r["status"] == "duplicate"])
+    sample_err = len([r for r in classified_rows if r["status"] == "error"])
+
+    # Экстраполяция на весь объём (как в Potok)
+    if sample_total > 0 and total > sample_total:
+        scale = total / sample_total
+        summary = {
+            "total": total,
+            "new": int(sample_new * scale),
+            "duplicates": int(sample_dup * scale),
+            "errors": int(sample_err * scale),
+        }
+    else:
+        summary = {
+            "total": total,
+            "new": sample_new,
+            "duplicates": sample_dup,
+            "errors": sample_err,
+        }
+
+    shown = len(classified_rows)
+    clean_rows = [
+        {k: v for k, v in r.items() if not k.startswith("_")}
+        for r in classified_rows
+    ]
+    return {
+        "summary": summary,
+        "rows": clean_rows,
+        "shown": shown,
+        "remaining": max(0, total - shown),
+    }
+
+
+async def _generate_consent_number(session: AsyncSession, company_id: UUID) -> str:
+    """Сгенерировать app-native номер согласия (PD-{seq}/{yy}) с advisory-lock (как в consent.py).
+
+    Формат совместим с генератором в services/consent.py (та же последовательность),
+    чтобы ручное создание согласий не ломалось на CAST разбора номера."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"consent_number:{company_id}"},
+    )
+    yy = str(datetime.now(timezone.utc).year)[-2:]
+    seq = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(MAX(CAST(SPLIT_PART(SPLIT_PART(number, '-', 2), '/', 1) AS INTEGER)), 0) + 1 "
+                "FROM consents WHERE company_id = :cid AND number LIKE :pat"
+            ),
+            {"cid": company_id, "pat": f"PD-%/{yy}"},
+        )
+    ).scalar_one()
+    return f"PD-{seq:03d}/{yy}"
+
+
+def _apply_talantix_update(candidate: Candidate, mapped: dict) -> None:
+    """Режим «Обновить»: обогащаем скалярные поля существующего кандидата (имя не трогаем)."""
+    if mapped.get("phone"):
+        candidate.phone = normalize_phone(mapped["phone"]) or _fit(mapped["phone"], 20)
+    if mapped.get("email"):
+        candidate.email = _fit(mapped["email"], 255)
+    if mapped.get("city"):
+        candidate.city = _fit(mapped["city"], 120)
+    if mapped.get("birth_date"):
+        candidate.birth_date = mapped["birth_date"]
+    if mapped.get("gender"):
+        candidate.gender = mapped["gender"]
+    if mapped.get("last_position"):
+        candidate.last_position = _fit(mapped["last_position"], 255)
+    if mapped.get("resume_text"):
+        candidate.resume_text = mapped["resume_text"]
+
+
+async def _resolve_existing_talantix_candidate(
+    session: AsyncSession, company_id: UUID, tpid: str | None, phone: str | None, email: str | None
+) -> Candidate | None:
+    """Найти существующего кандидата: сначала по talantix_person_id, затем по контактам."""
+    if tpid:
+        res = await session.execute(
+            select(Candidate).where(
+                Candidate.company_id == company_id,
+                Candidate.deleted_at.is_(None),
+                Candidate.talantix_person_id == tpid,
+            )
+        )
+        c = res.scalars().first()
+        if c is not None:
+            return c
+    dupes = await find_duplicate_candidates(session, company_id, phone, email)
+    return dupes[0] if dupes else None
+
+
+async def _import_talantix_comments(
+    session: AsyncSession, company_id: UUID, candidate_id: UUID, events: list[dict]
+) -> int:
+    """Импорт истории-комментариев (CommentAdded/HhCommentAdded) → Comment(source='talantix').
+
+    Дедуп по (company_id, source='talantix', external_id). Автор и дата ОРИГИНАЛА
+    сохраняются (author_name_ext / created_at), НЕ приписываются импортёру.
+    Каждая вставка в savepoint — гонка крон↔on-demand не валит батч."""
+    imported = 0
+    now = datetime.now(timezone.utc)
+    for node in events:
+        mapped = talantix_mapper.map_comment_event(node)
+        if not mapped:
+            continue
+        ext_id = _fit(mapped["external_id"], 120)
+        if not ext_id:
+            continue
+
+        existing = (
+            await session.execute(
+                select(Comment.id).where(
+                    Comment.company_id == company_id,
+                    Comment.candidate_id == candidate_id,  # dedup СТРОГО в пределах кандидата
+                    Comment.source == "talantix",
+                    Comment.external_id == ext_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            continue
+
+        comment = Comment(
+            company_id=company_id,
+            candidate_id=candidate_id,
+            application_id=None,
+            author_user_id=None,  # у комментария из Talantix нет нашего автора
+            source="talantix",
+            external_id=ext_id,
+            author_name_ext=mapped.get("author_name"),
+            body=mapped["body"],
+            mentions=[],
+            created_at=mapped.get("created_at") or now,
+        )
+        try:
+            async with session.begin_nested():
+                session.add(comment)
+                await session.flush()
+            imported += 1
+        except IntegrityError:
+            continue  # дедуп-гонка на partial unique index
+    return imported
+
+
+async def _ensure_talantix_consent(
+    session: AsyncSession, company_id: UUID, candidate_id: UUID, pd: dict | None
+) -> bool:
+    """Создать Consent(status='signed') если в Talantix согласие 'agree' и его ещё нет."""
+    if not talantix_mapper.pd_agreement_is_signed(pd):
+        return False
+
+    existing = (
+        await session.execute(
+            select(Consent.id).where(
+                Consent.company_id == company_id,
+                Consent.candidate_id == candidate_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return False
+
+    now = datetime.now(timezone.utc)
+    signed_at = talantix_mapper.pd_agreement_signed_at(pd) or now
+    number = await _generate_consent_number(session, company_id)
+    consent = Consent(
+        company_id=company_id,
+        candidate_id=candidate_id,
+        number=number,
+        status="signed",
+        channel="talantix",
+        requested_at=signed_at,
+        signed_at=signed_at,
+        created_at=now,
+    )
+    try:
+        async with session.begin_nested():
+            session.add(consent)
+            await session.flush()
+        return True
+    except IntegrityError:
+        return False  # гонка на uq_consents_company_number
+
+
+async def _process_talantix_person(
+    session: AsyncSession,
+    company_id: UUID,
+    mapped: dict,
+    events: list[dict],
+    pd: dict | None,
+    dedup_mode: str,
+    stats: dict,
+) -> None:
+    """Обработать ОДНУ персону против переданной session (тестируемо с db_session).
+
+    Создаёт/обогащает кандидата, импортирует комментарии (ВСЕГДА — главная ценность),
+    создаёт Consent по согласию. Обновляет счётчики stats: created/updated/skipped/
+    errors/comments. company_id ВЕЗДЕ."""
+    first_name = (mapped.get("first_name") or "").strip()
+    last_name = (mapped.get("last_name") or "").strip()
+    phone = mapped.get("phone")
+    email = mapped.get("email")
+    tpid = _fit(mapped.get("talantix_person_id"), 64) if mapped.get("talantix_person_id") else None
+
+    if not first_name and not last_name:
+        stats["errors"] = stats.get("errors", 0) + 1
+        return
+    if not phone and not email:
+        # Без контакта дедуп невозможен, кандидата не заводим — комментарии не к чему привязать.
+        stats["errors"] = stats.get("errors", 0) + 1
+        return
+
+    existing = await _resolve_existing_talantix_candidate(session, company_id, tpid, phone, email)
+
+    if existing is not None:
+        candidate = existing
+        if dedup_mode == "update":
+            _apply_talantix_update(candidate, mapped)
+            stats["updated"] = stats.get("updated", 0) + 1
+        else:
+            stats["skipped"] = stats.get("skipped", 0) + 1
+        # Бэкфилл talantix_person_id для идемпотентности будущих импортов
+        if tpid and not candidate.talantix_person_id:
+            candidate.talantix_person_id = tpid
+        await session.flush()
+    else:
+        candidate = Candidate(
+            company_id=company_id,
+            last_name=_fit(last_name, 120),
+            first_name=_fit(first_name or "Неизвестно", 120),
+            middle_name=_fit(mapped.get("middle_name"), 120) if mapped.get("middle_name") else None,
+            phone=(normalize_phone(phone) or _fit(phone, 20)) if phone else None,
+            email=_fit(email, 255) if email else None,
+            city=_fit(mapped.get("city"), 120) if mapped.get("city") else None,
+            birth_date=mapped.get("birth_date"),
+            gender=mapped.get("gender"),
+            last_position=_fit(mapped.get("last_position"), 255) if mapped.get("last_position") else None,
+            resume_text=mapped.get("resume_text"),
+            source="talantix",
+            external_source="talantix",
+            talantix_person_id=tpid,
+            messengers=mapped.get("messengers") or [],
+            extra={"imported": True},
+        )
+        session.add(candidate)
+        await session.flush()
+        stats["created"] = stats.get("created", 0) + 1
+
+    # КОММЕНТАРИИ — импортируем для НОВОГО и СУЩЕСТВУЮЩЕГО кандидата (главная ценность)
+    imported = await _import_talantix_comments(session, company_id, candidate.id, events)
+    stats["comments"] = stats.get("comments", 0) + imported
+
+    # Согласие 152-ФЗ
+    await _ensure_talantix_consent(session, company_id, candidate.id, pd)
+
+    # Кол-во откликов из Talantix — сохраняем в extra (без выдумывания структуры Response)
+    rc = mapped.get("responses_count")
+    if rc is not None:
+        candidate.extra = {**(candidate.extra or {}), "talantix_responses_count": rc}
+        await session.flush()
+
+
+async def _run_talantix_import(job_id: UUID, company_id: UUID, user_id: UUID, dedup_mode: str):
+    """Фоновое выполнение импорта из Talantix. company_id ВЕЗДЕ."""
+    client = TalantixClient(company_id)
+    stats = {"created": 0, "updated": 0, "skipped": 0, "errors": 0, "comments": 0}
+    try:
+        logger.info("Начинаем импорт из Talantix company=%s", company_id)
+
+        # Перечисляем все id персон (id-only, лёгкий запрос) → реальный total
+        person_ids = await client.collect_person_ids(max_pages=TALANTIX_IMPORT_MAX_PAGES)
+        await _update_job_progress(job_id, total=len(person_ids))
+
+        processed = 0
+        for pid in person_ids:
+            try:
+                node = await client.get_person_full(pid)
+                if node is None:
+                    # PersonError → пропускаем с логом, кандидат не создаётся
+                    stats["errors"] += 1
+                else:
+                    mapped = talantix_mapper.map_person(node)
+                    pd = node.get("personalDataAgreement")
+                    events = await client.fetch_all_history(pid)
+                    async with AsyncSessionLocal() as session:
+                        await _process_talantix_person(
+                            session, company_id, mapped, events, pd, dedup_mode, stats
+                        )
+                        await session.commit()
+            except ValidationError:
+                # Токен протух/интеграция отвалилась — тянуть нечего, прерываем весь импорт.
+                raise
+            except TalantixError as e:
+                logger.warning("[talantix] персона %s: ошибка GraphQL, пропускаем: %s", pid, e)
+                stats["errors"] += 1
+            except Exception as e:  # noqa: BLE001
+                logger.error("[talantix] персона %s: ошибка обработки: %s", pid, e)
+                stats["errors"] += 1
+
+            processed += 1
+            if processed % 10 == 0 or processed == len(person_ids):
+                await _update_job_progress(
+                    job_id,
+                    processed=processed,
+                    created=stats["created"],
+                    updated=stats["updated"],
+                    skipped=stats["skipped"],
+                    errors=stats["errors"],
+                    comments_imported=stats["comments"],
+                )
+
+        # audit
+        async with AsyncSessionLocal() as session:
+            await audit(
+                session,
+                action="candidates_import_talantix",
+                entity_type="candidate_import_job",
+                entity_id=job_id,
+                after={
+                    "source": "talantix",
+                    "created": stats["created"],
+                    "updated": stats["updated"],
+                    "skipped": stats["skipped"],
+                    "errors": stats["errors"],
+                    "comments_imported": stats["comments"],
+                },
+                actor_type="human",
+                actor_user_id=user_id,
+                company_id=company_id,
+            )
+            await session.commit()
+
+        await _finalize_job(job_id, "done")
+
+        try:
+            await reindex_all_embeddings(company_id)
+        except Exception as e:  # noqa: BLE001
+            logger.error("Ошибка переиндексации после Talantix импорта: %s", e)
+
+    except ValidationError as e:
+        logger.error("Импорт Talantix %s прерван (токен/соединение): %s", job_id, e)
+        await _finalize_job(job_id, "error", str(e)[:500])
+    except Exception as e:  # noqa: BLE001
+        logger.error("Ошибка выполнения импорта Talantix %s: %s", job_id, e)
+        await _finalize_job(job_id, "error", str(e)[:500])
+    finally:
+        await client.close()
+
+
+async def execute_talantix_import(
+    session: AsyncSession, company_id: UUID, user_id: UUID, dedup_mode: str
+) -> UUID:
+    """Запуск импорта из Talantix в фоновой задаче (total уточняется в _run_talantix_import)."""
+    job = await create_import_job(session, company_id, 0)
+    await session.commit()
+
+    task = asyncio.create_task(_run_talantix_import(job.id, company_id, user_id, dedup_mode))
     _active_tasks[job.id] = task
 
     def _cleanup_task(_t, _jid=job.id):

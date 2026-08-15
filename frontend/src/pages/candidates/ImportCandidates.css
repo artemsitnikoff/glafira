@@ -379,6 +379,24 @@
   font-size: 12px; font-weight: 700; font-family: var(--font-mono);
 }
 
+/* Talantix — доп. элементы шага токена (пара refresh/access + статус) */
+.imp-token-label-2 { margin-top: var(--space-4); }
+.imp-token-req {
+  margin-left: 6px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.02em; text-transform: none; color: var(--ark-red-600);
+}
+.imp-token-opt {
+  margin-left: 6px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.02em; text-transform: none; color: var(--fg-3);
+}
+.imp-token-connected {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: 14px; font-size: 12.5px; color: var(--ark-green-600); line-height: 1.4;
+  background: var(--ark-green-100); border: 1px solid var(--ark-green-100);
+  border-radius: var(--radius-lg); padding: 8px 12px;
+}
+.imp-token-connected svg { flex: none; }
+
 /* Превью — баннер источника */
 .imp-preview-from {
   display: flex; align-items: center; gap: 9px;
@@ -624,6 +642,7 @@
 .imp-page .src-pill.src-avito { background: var(--src-avito); }
 .imp-page .src-pill.src-telegram, .imp-page .src-pill.src-tg { background: var(--src-tg); }
 .imp-page .src-pill.src-potok { background: var(--ark-violet-500); }
+.imp-page .src-pill.src-talantix { background: var(--ark-blue-700); }
 
 /* ============================================================
    ШАГ 4 — Импорт / результат
@@ -703,6 +722,16 @@
   border-radius: var(--radius-lg); padding: 10px 14px;
 }
 .imp-result-note svg { color: var(--ark-yellow-600); flex: none; }
+/* Talantix — перенесённые комментарии рекрутёров (главная ценность источника) */
+.imp-result-comments {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 18px; padding: 10px 16px;
+  font-size: 13.5px; font-weight: 600; color: var(--ark-blue-700); line-height: 1.4;
+  background: var(--ark-blue-50); border: 1px solid var(--ark-blue-100);
+  border-radius: var(--radius-lg);
+}
+.imp-result-comments svg { color: var(--ark-blue-600); flex: none; }
+.imp-result-comments b { font-family: var(--font-mono); }
 
 /* ============================================================
    Попап резюме

@@ -85,9 +85,10 @@ export function CommentsTab({ candidateId, candidate }: Props) {
                 <div className="cmt-body">
                   <div className="cmt-head">
                     <span className="cmt-who">{who}</span>
-                    {/* Заметка импортирована с hh (read-only) — чип на существующем
-                        идиоме .src-pill.src-hh (скоуплен к .cand-detail, свои токены). */}
+                    {/* Заметка импортирована из внешней ATS (read-only) — чип на
+                        существующем идиоме .src-pill.src-* (скоуплен к .cand-detail). */}
                     {comment.source === 'hh' && <span className="src-pill src-hh">с hh</span>}
+                    {comment.source === 'talantix' && <span className="src-pill src-talantix">Talantix</span>}
                     {comment.created_at && (
                       <span className="cmt-time">{fmtTime(comment.created_at)}</span>
                     )}

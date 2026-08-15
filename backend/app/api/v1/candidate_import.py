@@ -15,9 +15,18 @@ from ...services.candidate_import import (
     MAX_IMPORT_FILE_BYTES,
     preview_potok_import,
     execute_potok_import,
+    preview_talantix_import,
+    execute_talantix_import,
 )
+from ...services.integrations.talantix import service as talantix_service
 from sqlalchemy.ext.asyncio import AsyncSession
 from ...schemas.potok_import import PotokImportRequest, PotokImportResponse
+from ...schemas.talantix_import import (
+    TalantixConnectRequest,
+    TalantixStatusResponse,
+    TalantixImportRequest,
+    TalantixImportResponse,
+)
 
 router = APIRouter()
 
@@ -177,6 +186,7 @@ async def get_import_job_status(
         "updated": job.updated,
         "skipped": job.skipped,
         "errors": job.errors,
+        "comments_imported": job.comments_imported,
         "error": job.error
     }
 
@@ -226,3 +236,70 @@ async def execute_potok_import_job(
     job_id = await execute_potok_import(session, company_id, user.id, data.token, data.dedup_mode)
 
     return PotokImportResponse(job_id=str(job_id))
+
+
+# === TALANTIX (talantix.ru) ===
+
+@router.post("/talantix/connect", response_model=TalantixStatusResponse)
+async def connect_talantix(
+    data: TalantixConnectRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Подключить Talantix: сохранить пару токенов из ЛК (Fernet) + проверка соединения.
+
+    Токены НИКОГДА не возвращаются наружу. Невалидный токен → 400 «проверьте токен».
+    """
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
+
+    await talantix_service.save_config(
+        session, company_id, refresh_token=data.refresh_token, user_id=user.id
+    )
+    await session.commit()
+    status = await talantix_service.get_status(session, company_id)
+    return TalantixStatusResponse(**status)
+
+
+@router.get("/talantix/status", response_model=TalantixStatusResponse)
+async def talantix_status(
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Статус подключения Talantix (без раскрытия токенов)."""
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
+    status = await talantix_service.get_status(session, company_id)
+    return TalantixStatusResponse(**status)
+
+
+@router.post("/talantix/preview")
+async def preview_talantix_import_data(
+    data: TalantixImportRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Превью импорта из Talantix (сколько кандидатов new/duplicate/error). Токен уже сохранён."""
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
+
+    result = await preview_talantix_import(session, company_id, data.dedup_mode)
+    return result
+
+
+@router.post("/talantix/execute", response_model=TalantixImportResponse)
+async def execute_talantix_import_job(
+    data: TalantixImportRequest,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Запуск импорта из Talantix в фоне. Прогресс — GET /candidates/import/jobs/{job_id}."""
+    if user.role == "manager":
+        raise ForbiddenError(_MANAGER_FORBIDDEN)
+
+    job_id = await execute_talantix_import(session, company_id, user.id, data.dedup_mode)
+    return TalantixImportResponse(job_id=str(job_id))

@@ -242,6 +242,11 @@
   color: #128640;
 }
 
+.cnd-funnel-wrap .cand-detail .src-pill.src-talantix {
+  background: var(--ark-blue-50);
+  color: var(--ark-blue-700);
+}
+
 .cnd-funnel-wrap .cand-detail .cd-h-main {
   display: flex;
   align-items: flex-start;

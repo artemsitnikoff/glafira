@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     POTOK_API_BASE: str = "https://app.potok.io"
     POTOK_TIMEOUT: int = 30
 
+    # Talantix (talantix.ru) ATS integration — GraphQL + OAuth refresh.
+    # Токены per-company хранятся в БД (Fernet), НЕ в env. Здесь только endpoint'ы.
+    TALANTIX_GRAPHQL_URL: str = "https://api.talantix.ru/graphql"
+    TALANTIX_TOKEN_URL: str = "https://api.talantix.ru/oauth/token"
+    TALANTIX_USER_AGENT: str = "Glafira/1.0 (glafira.dclouds.ru)"
+
     # DaData — подсказки городов (suggestions API использует только API_KEY/Token;
     # SECRET_KEY нужен лишь для Clean API стандартизации, держим на будущее).
     DADATA_API_KEY: str = ""

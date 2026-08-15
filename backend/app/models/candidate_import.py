@@ -34,6 +34,9 @@ class CandidateImportJob(Base, TimestampMixin):
     updated: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     errors: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    # Импортировано комментариев (заполняется импортом из Talantix — главная ценность;
+    # Excel/Поток не пишут комментарии → остаётся 0).
+    comments_imported: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     finished_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=False),

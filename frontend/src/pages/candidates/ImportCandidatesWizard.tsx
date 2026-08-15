@@ -7,6 +7,10 @@ import {
   useExecuteImport,
   usePreviewPotokImport,
   useExecutePotokImport,
+  useTalantixConnect,
+  useTalantixStatus,
+  useTalantixPreview,
+  useTalantixExecute,
   useImportJob,
   type ParseResponse,
   type PreviewResponse,
@@ -15,6 +19,7 @@ import {
   type FieldKey,
   type DedupMode,
 } from '@/api/hooks/useCandidateImport';
+import type { ApiError } from '@/api/aliases';
 import './ImportCandidates.css';
 
 interface Props {
@@ -42,21 +47,31 @@ const FIELD_LABEL: Record<string, string> = IMP_FIELDS.reduce((m, f) => (m[f.id]
 
 // Фазы для развилки источников
 type Phase = 'source' | 'upload' | 'columns' | 'token' | 'preview' | 'result';
-type Source = 'file' | 'potok' | null;
+type Source = 'file' | 'potok' | 'talantix' | null;
+// Источники, забирающие кандидатов по API-токену (Поток / Talantix): у них общий
+// флоу token → preview → result и структурированное резюме в detail.
+type ApiSource = 'potok' | 'talantix';
 
 // Потоки шагов по источнику (для индикатора)
 const IMP_FLOWS = {
   file: ['upload', 'columns', 'preview', 'result'] as const,
   potok: ['token', 'preview', 'result'] as const,
+  talantix: ['token', 'preview', 'result'] as const,
 };
 
 const IMP_PHASE_LABEL = {
   upload: 'Загрузка',
   columns: 'Колонки',
-  token: 'Токен Потока',
+  token: 'Токен',
   preview: 'Превью',
   result: 'Готово',
 };
+
+// Название источника для текстов интерфейса.
+const SRC_NAME: Record<ApiSource, string> = { potok: 'Поток', talantix: 'Talantix' };
+// Родительный падеж («из Потока» / «из Talantix»).
+const SRC_NAME_GEN: Record<ApiSource, string> = { potok: 'Потока', talantix: 'Talantix' };
+const isApiSource = (s: Source): s is ApiSource => s === 'potok' || s === 'talantix';
 
 export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   // Состояние визарда - теперь через фазы и источник
@@ -70,8 +85,10 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Шаг токена Потока
+  // Шаг токена (Поток / Talantix). Для Talantix tokenVal = refresh_token,
+  // accessTokenVal = опциональный access_token.
   const [tokenVal, setTokenVal] = useState('');
+  const [accessTokenVal, setAccessTokenVal] = useState('');
   const [tokenState, setTokenState] = useState<'idle' | 'connecting'>('idle');
 
   // Шаг маппинг колонок
@@ -99,10 +116,16 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
   const executeImport = useExecuteImport();
   const previewPotokImport = usePreviewPotokImport();
   const executePotokImport = useExecutePotokImport();
+  const talantixConnect = useTalantixConnect();
+  const talantixPreview = useTalantixPreview();
+  const talantixExecute = useTalantixExecute();
+  // Статус подключения Talantix — только когда мы реально на шаге токена Talantix.
+  const talantixStatus = useTalantixStatus(source === 'talantix' && phase === 'token');
+  const talantixConnected = talantixStatus.data?.connected ?? false;
   const { data: jobData } = useImportJob(jobId, phase === 'result');
 
   // Выбор источника
-  const pickSource = (s: 'file' | 'potok') => {
+  const pickSource = (s: 'file' | 'potok' | 'talantix') => {
     setSource(s);
     setPhase(s === 'file' ? 'upload' : 'token');
   };
@@ -128,6 +151,38 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
       setActionError(errorMsg);
     }
   };
+
+  // Подключение к Talantix: сначала /connect (валидирует и сохраняет токен на
+  // сервере), затем /preview (токен уже не передаём). Если аккаунт уже подключён
+  // и новый токен не введён — сразу preview.
+  const connectTalantix = async () => {
+    const refresh = tokenVal.trim();
+    if (!refresh && !talantixConnected) return;
+    setActionError(null);
+    setTokenState('connecting');
+
+    try {
+      if (refresh) {
+        await talantixConnect.mutateAsync({
+          refresh_token: refresh,
+          access_token: accessTokenVal.trim() || null,
+        });
+      }
+      const result = await talantixPreview.mutateAsync({ dedup_mode: dedupMode });
+      setPreviewData(result);
+      setTokenState('idle');
+      setPhase('preview');
+    } catch (error) {
+      setTokenState('idle');
+      // Ошибка нормализована интерцептором в ApiError ({ error: { message } }).
+      const errorMsg =
+        (error as ApiError)?.error?.message ||
+        'Не удалось подключиться к Talantix. Проверьте токен.';
+      setActionError(errorMsg);
+    }
+  };
+
+  const connectApiSource = () => (source === 'talantix' ? connectTalantix() : connectPotok());
 
   // Обработчики файлов
   const handleFileSelect = async (selectedFile: File) => {
@@ -213,9 +268,12 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setActionError(null);
 
     try {
-      const result = source === 'potok'
-        ? await executePotokImport.mutateAsync({ token: tokenVal, dedup_mode: dedupMode })
-        : await executeImport.mutateAsync({ file: file!, mapping, dedup_mode: dedupMode });
+      const result =
+        source === 'talantix'
+          ? await talantixExecute.mutateAsync({ dedup_mode: dedupMode })
+          : source === 'potok'
+          ? await executePotokImport.mutateAsync({ token: tokenVal, dedup_mode: dedupMode })
+          : await executeImport.mutateAsync({ file: file!, mapping, dedup_mode: dedupMode });
 
       setJobId(result.job_id);
       setPhase('result');
@@ -224,21 +282,23 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     }
   };
 
-  // Обработка изменения режима дедупликации (для Потока)
+  // Обработка изменения режима дедупликации (для API-источников: Поток / Talantix)
   const handleDedupModeChange = async (newMode: DedupMode) => {
     setDedupMode(newMode);
 
-    // Если мы в Потоке и в превью, перезапрашиваем превью с новым режимом
-    if (source === 'potok' && phase === 'preview' && tokenVal) {
-      try {
-        const result = await previewPotokImport.mutateAsync({
-          token: tokenVal,
-          dedup_mode: newMode,
-        });
+    if (phase !== 'preview') return;
+
+    // На превью API-источника перезапрашиваем превью с новым режимом.
+    try {
+      if (source === 'potok' && tokenVal) {
+        const result = await previewPotokImport.mutateAsync({ token: tokenVal, dedup_mode: newMode });
         setPreviewData(result);
-      } catch {
-        // При ошибке оставляем как есть
+      } else if (source === 'talantix') {
+        const result = await talantixPreview.mutateAsync({ dedup_mode: newMode });
+        setPreviewData(result);
       }
+    } catch {
+      // При ошибке оставляем как есть
     }
   };
 
@@ -250,6 +310,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
     setUploadState('idle');
     setDragging(false);
     setTokenVal('');
+    setAccessTokenVal('');
     setTokenState('idle');
     setMapping({});
     setPreviewData(null);
@@ -304,11 +365,15 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
 
           {phase === 'token' && (
             <ImpStepToken
+              source={source}
               tokenVal={tokenVal}
               setTokenVal={setTokenVal}
+              accessTokenVal={accessTokenVal}
+              setAccessTokenVal={setAccessTokenVal}
               tokenState={tokenState}
-              onConnect={connectPotok}
+              onConnect={connectApiSource}
               actionError={actionError}
+              talantixConnected={talantixConnected}
             />
           )}
 
@@ -335,7 +400,7 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               onRowClick={setDetailCandidate}
               actionError={actionError}
               onExecute={handleExecute}
-              executeLoading={executeImport.isPending || executePotokImport.isPending}
+              executeLoading={executeImport.isPending || executePotokImport.isPending || talantixExecute.isPending}
               source={source}
             />
           )}
@@ -371,7 +436,10 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
           </button>
         </div>
       )}
-      {phase === 'token' && tokenState === 'idle' && (
+      {phase === 'token' && tokenState === 'idle' && (() => {
+        const tokenBusy = previewPotokImport.isPending || talantixConnect.isPending || talantixPreview.isPending;
+        const canConnect = source === 'talantix' ? (!!tokenVal.trim() || talantixConnected) : !!tokenVal.trim();
+        return (
         <div className="imp-foot">
           <button className="btn btn-secondary btn-sm" onClick={() => { setSource(null); setPhase('source'); }}>
             <Icon name="chevL" size={13}/> Назад
@@ -381,13 +449,16 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
               ? <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {actionError}</span>
               : tokenVal.trim()
               ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Токен введён</span>
-              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> Вставьте API-токен Потока</span>}
+              : (source === 'talantix' && talantixConnected)
+              ? <span className="imp-foot-ok"><Icon name="check" size={13}/> Talantix подключён</span>
+              : <span className="imp-foot-warn"><Icon name="alert-triangle" size={13}/> {source === 'talantix' ? 'Вставьте refresh-токен Talantix' : 'Вставьте API-токен Потока'}</span>}
           </div>
-          <button className="btn btn-primary btn-sm" disabled={!tokenVal.trim() || previewPotokImport.isPending} onClick={() => tokenVal.trim() && connectPotok()}>
-            {previewPotokImport.isPending ? 'Подключаемся…' : <><Icon name="arrowRight" size={14}/> Подключиться и загрузить</>}
+          <button className="btn btn-primary btn-sm" disabled={!canConnect || tokenBusy} onClick={() => { if (canConnect) connectApiSource(); }}>
+            {tokenBusy ? 'Подключаемся…' : <><Icon name="arrowRight" size={14}/> Подключиться и загрузить</>}
           </button>
         </div>
-      )}
+        );
+      })()}
       {phase === 'columns' && (
         <div className="imp-foot">
           <button className="btn btn-secondary btn-sm" onClick={() => setPhase('upload')}>
@@ -407,8 +478,8 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
       )}
       {phase === 'preview' && previewData && (
         <div className="imp-foot">
-          <button className="btn btn-secondary btn-sm" onClick={() => setPhase(source === 'potok' ? 'token' : 'columns')}>
-            <Icon name="chevL" size={13}/> Назад{source === 'potok' ? '' : ' к колонкам'}
+          <button className="btn btn-secondary btn-sm" onClick={() => setPhase(source === 'file' ? 'columns' : 'token')}>
+            <Icon name="chevL" size={13}/> Назад{source === 'file' ? ' к колонкам' : ''}
           </button>
           <div style={{flex:1}}/>
           <button className="btn btn-primary btn-sm imp-btn-import" onClick={handleExecute}>
@@ -435,7 +506,11 @@ export function ImportCandidatesWizard({ onClose, onDone }: Props) {
 function ImpStepper({ source, phase }: { source: Source; phase: Phase }) {
   const flow = source ? IMP_FLOWS[source] : IMP_FLOWS.file;
   const phases = ['source', ...flow];
-  const labels = ['Источник', ...flow.map(p => IMP_PHASE_LABEL[p])];
+  const labels = ['Источник', ...flow.map(p =>
+    p === 'token'
+      ? (source === 'talantix' ? 'Токен Talantix' : 'Токен Потока')
+      : IMP_PHASE_LABEL[p]
+  )];
   const activeIdx = phases.indexOf(phase);
 
   return (
@@ -469,7 +544,7 @@ type SourceItem = {
   desc: string;
   status: 'live' | 'soon';
   api: 'live' | 'info' | null;
-  action?: 'file' | 'potok';
+  action?: 'file' | 'potok' | 'talantix';
   cap?: string;
 };
 
@@ -527,9 +602,10 @@ const IMP_SOURCES: SourceSection[] = [
         av: 'T',
         avBg: '#2F5FD0',
         name: 'Talantix',
-        desc: 'Перенос кандидатов и резюме',
-        status: 'soon',
-        api: null
+        desc: 'Кандидаты, резюме и комментарии рекрутёров',
+        status: 'live',
+        api: 'live',
+        action: 'talantix'
       },
       {
         key: 'sber',
@@ -655,7 +731,7 @@ const IMP_SOURCES: SourceSection[] = [
   }
 ];
 
-function ImpSourceCard({ item, onPick }: { item: SourceItem; onPick: (source: 'file' | 'potok') => void }) {
+function ImpSourceCard({ item, onPick }: { item: SourceItem; onPick: (source: 'file' | 'potok' | 'talantix') => void }) {
   const live = item.status === 'live';
   const handle = live && item.action ? () => onPick(item.action!) : undefined;
 
@@ -705,7 +781,7 @@ function ImpSourceCard({ item, onPick }: { item: SourceItem; onPick: (source: 'f
   );
 }
 
-function ImpStepSource({ onPick }: { onPick: (source: 'file' | 'potok') => void }) {
+function ImpStepSource({ onPick }: { onPick: (source: 'file' | 'potok' | 'talantix') => void }) {
   return (
     <div className="imp-hub">
       <h2 className="imp-h2">Откуда импортируем?</h2>
@@ -760,27 +836,118 @@ function ImpStepSource({ onPick }: { onPick: (source: 'file' | 'potok') => void 
 }
 
 // =====================================================================
-// ШАГ «Токен» — подключение к Потоку по API-токену
+// ШАГ «Токен» — подключение к Потоку / Talantix по API-токену
 // =====================================================================
 interface ImpStepTokenProps {
+  source: Source;
   tokenVal: string;
   setTokenVal: (val: string) => void;
+  accessTokenVal: string;
+  setAccessTokenVal: (val: string) => void;
   tokenState: 'idle' | 'connecting';
   onConnect: () => void;
   actionError: string | null;
+  talantixConnected: boolean;
 }
 
-function ImpStepToken({ tokenVal, setTokenVal, tokenState, onConnect, actionError }: ImpStepTokenProps) {
+function ImpStepToken({
+  source,
+  tokenVal,
+  setTokenVal,
+  accessTokenVal,
+  setAccessTokenVal,
+  tokenState,
+  onConnect,
+  actionError,
+  talantixConnected,
+}: ImpStepTokenProps) {
+  const isTalantix = source === 'talantix';
+
   if (tokenState === 'connecting') {
     return (
       <div className="imp-parse">
         <div className="imp-parse-dancer">💃</div>
-        <div className="imp-parse-text">Глафира подключается к Потоку<span className="cd-load-dots"></span></div>
-        <div className="imp-parse-sub">Забираем кандидатов и резюме по API</div>
+        <div className="imp-parse-text">Глафира подключается к {isTalantix ? 'Talantix' : 'Потоку'}<span className="cd-load-dots"></span></div>
+        <div className="imp-parse-sub">Забираем кандидатов{isTalantix ? ', резюме и комментарии' : ' и резюме'} по API</div>
       </div>
     );
   }
 
+  if (isTalantix) {
+    return (
+      <div className="imp-token">
+        <h2 className="imp-h2">Подключение к Talantix</h2>
+        <div className="imp-glafira-note">
+          <span className="imp-em">💃</span>
+          Вставьте токен из личного кабинета Talantix — Глафира подключится и заберёт кандидатов, резюме и комментарии рекрутёров.
+        </div>
+
+        <div className="imp-token-card">
+          {talantixConnected && !tokenVal.trim() && (
+            <div className="imp-token-connected">
+              <Icon name="check" size={13}/>
+              Talantix уже подключён — можно сразу загрузить кандидатов
+            </div>
+          )}
+
+          <label className="imp-token-label" htmlFor="imp-tlx-refresh">
+            Refresh-токен <span className="imp-token-req">обязательно</span>
+          </label>
+          <div className="imp-token-input-row">
+            <Icon name="key" size={16}/>
+            <input
+              id="imp-tlx-refresh"
+              className="imp-token-input"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Вставьте refresh-токен Talantix"
+              value={tokenVal}
+              onChange={e => setTokenVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && tokenVal.trim()) onConnect(); }}
+            />
+          </div>
+
+          <label className="imp-token-label imp-token-label-2" htmlFor="imp-tlx-access">
+            Access-токен <span className="imp-token-opt">необязательно</span>
+          </label>
+          <div className="imp-token-input-row">
+            <Icon name="key" size={16}/>
+            <input
+              id="imp-tlx-access"
+              className="imp-token-input"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Access-токен, если выдан отдельно"
+              value={accessTokenVal}
+              onChange={e => setAccessTokenVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && tokenVal.trim()) onConnect(); }}
+            />
+          </div>
+
+          {actionError && (
+            <div className="imp-token-error">
+              <Icon name="alert-triangle" size={13}/>
+              {actionError}
+            </div>
+          )}
+          <div className="imp-token-help">
+            <Icon name="info" size={13}/>
+            Токены берутся в личном кабинете Talantix: <b>Настройки → Интеграции → API</b>. Токены хранятся в зашифрованном виде и не показываются обратно.
+          </div>
+        </div>
+
+        <div className="imp-token-steps">
+          <div className="imp-token-step"><span className="imp-token-step-n">1</span> Глафира подключится к вашему аккаунту Talantix</div>
+          <div className="imp-token-step"><span className="imp-token-step-n">2</span> Заберёт кандидатов, резюме и комментарии рекрутёров</div>
+          <div className="imp-token-step"><span className="imp-token-step-n">3</span> Покажет превью перед заливкой в базу</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Поток — один API-токен
   return (
     <div className="imp-token">
       <h2 className="imp-h2">Подключение к Потоку</h2>
@@ -1106,17 +1273,21 @@ function ImpStepPreview({
     avito: 'Авито',
     telegram: 'Telegram',
     tg: 'Telegram',
-    potok: 'Поток'
+    potok: 'Поток',
+    talantix: 'Talantix'
   };
 
-  const fromPotok = source === 'potok';
+  const apiSrc = isApiSource(source) ? source : null;
+  const fromApi = apiSrc !== null;
+  const srcName = apiSrc ? SRC_NAME[apiSrc] : '';         // «Поток» / «Talantix»
+  const srcNameGen = apiSrc ? SRC_NAME_GEN[apiSrc] : '';  // «Потока» / «Talantix»
 
   return (
     <div className="imp-preview">
       <h2 className="imp-h2">Превью импорта</h2>
       <div className="imp-preview-from">
-        {fromPotok
-          ? <><span className="imp-em">💃</span> Глафира забрала кандидатов из <b>Потока</b> по API — проверьте перед заливкой в базу.</>
+        {fromApi
+          ? <><span className="imp-em">💃</span> Глафира забрала кандидатов из <b>{srcName}</b> по API — проверьте перед заливкой в базу.</>
           : <><Icon name="download" size={14}/> Кандидаты из файла — проверьте перед заливкой в базу.</>}
       </div>
 
@@ -1158,7 +1329,7 @@ function ImpStepPreview({
       </div>
 
       <div className="imp-pv-tip">
-        <Icon name="external-link" size={13}/> Нажмите на кандидата, чтобы посмотреть {fromPotok ? 'резюме, забранное из Потока' : 'детали'}
+        <Icon name="external-link" size={13}/> Нажмите на кандидата, чтобы посмотреть {fromApi ? `резюме, забранное из ${srcNameGen}` : 'детали'}
       </div>
 
       {/* таблица превью */}
@@ -1188,7 +1359,7 @@ function ImpStepPreview({
                       {r.status === 'duplicate' && <span className="imp-badge-dup">дубль</span>}
                       {r.status === 'error' && <span className="imp-badge-err"><Icon name="alert-triangle" size={10}/> {r.error}</span>}
                       {(r.detail.resume_url || r.detail.source_url) && r.status !== 'error' && (
-                        <span className="imp-badge-resume" title={fromPotok ? "Ссылка на резюме из Потока сохранится в карточке, но сам файл недоступен вне Потока" : "Ссылка на резюме сохранится в карточке"}>
+                        <span className="imp-badge-resume" title={fromApi ? `Ссылка на резюме из ${srcNameGen} сохранится в карточке, но сам файл недоступен вне ${srcNameGen}` : "Ссылка на резюме сохранится в карточке"}>
                           <Icon name="external-link" size={10}/> резюме-ссылка
                         </span>
                       )}
@@ -1231,7 +1402,10 @@ interface ImpStepResultProps {
 
 function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepResultProps) {
   const fmtIM = (n: number) => n.toLocaleString('ru-RU').replace(/,/g, ' ');
-  const fromPotok = source === 'potok';
+  const apiSrc = isApiSource(source) ? source : null;
+  const fromApi = apiSrc !== null;
+  const srcNameGen = apiSrc ? SRC_NAME_GEN[apiSrc] : '';   // «Потока» / «Talantix»
+  const srcNamePrep = apiSrc === 'potok' ? 'Потоке' : 'Talantix'; // предложный падеж
 
   if (!jobData || jobData.status === 'running') {
     const processed = jobData?.processed || 0;
@@ -1250,7 +1424,7 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepR
         <div className="imp-run-dancer">💃</div>
         <div className="imp-run-phase">
           {loading
-            ? (fromPotok ? 'Загружаем кандидатов из Потока…' : 'Готовим импорт…')
+            ? (fromApi ? `Загружаем кандидатов из ${srcNameGen}…` : 'Готовим импорт…')
             : 'Импортируем кандидатов в базу…'}
         </div>
         <div className="imp-run-detail">
@@ -1296,12 +1470,13 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepR
   const updated = jobData.updated || 0;
   const skipped = jobData.skipped || 0;
   const errors = jobData.errors || 0;
+  const commentsImported = jobData.comments_imported || 0;
 
   return (
     <div className="imp-result">
       <div className="imp-result-check"><Icon name="check" size={28}/></div>
       <h2 className="imp-result-title">Импорт завершён</h2>
-      <div className="imp-result-sub">{fromPotok ? 'Кандидаты из Потока добавлены в общую базу' : 'Кандидаты из файла добавлены в общую базу'}</div>
+      <div className="imp-result-sub">{fromApi ? `Кандидаты из ${srcNameGen} добавлены в общую базу` : 'Кандидаты из файла добавлены в общую базу'}</div>
 
       <div className="imp-result-stats">
         <div className="imp-rstat is-new">
@@ -1318,6 +1493,13 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepR
         </div>
       </div>
 
+      {source === 'talantix' && (
+        <div className="imp-result-comments">
+          <Icon name="message-square" size={15}/>
+          Комментариев рекрутёров импортировано: <b>{fmtIM(commentsImported)}</b>
+        </div>
+      )}
+
       <div className="imp-result-actions">
         <button className="btn btn-primary" onClick={onDone}>
           <Icon name="users" size={15}/> Смотреть в базе
@@ -1330,7 +1512,7 @@ function ImpStepResult({ jobData, dedupMode, onDone, onAgain, source }: ImpStepR
       {errors > 0 && (
         <div className="imp-result-note">
           <Icon name="alert-triangle" size={13}/>
-          {fmtIM(errors)} строк пропущено из-за отсутствия имени или контакта — {fromPotok ? 'их можно поправить в Потоке и подключиться повторно.' : 'их можно поправить в файле и загрузить повторно.'}
+          {fmtIM(errors)} строк пропущено из-за отсутствия имени или контакта — {fromApi ? `их можно поправить в ${srcNamePrep} и подключиться повторно.` : 'их можно поправить в файле и загрузить повторно.'}
         </div>
       )}
     </div>
@@ -1358,24 +1540,29 @@ function ImpResumeModal({ candidate, source, onClose }: ImpResumeModalProps) {
     avito: 'Авито',
     telegram: 'Telegram',
     tg: 'Telegram',
-    potok: 'Поток'
+    potok: 'Поток',
+    talantix: 'Talantix'
   };
 
-  const fromPotok = source === 'potok';
+  // Talantix отдаёт detail той же структурой, что и Поток (форма 1:1 с /potok/preview),
+  // поэтому оба источника парсим одинаково; отличается только название в текстах.
+  const apiSrc = isApiSource(source) ? source : null;
+  const isApi = apiSrc !== null;
+  const srcNameGen = apiSrc ? SRC_NAME_GEN[apiSrc] : '';  // «Потока» / «Talantix»
 
-  // detail приходит в двух формах: «Файл» (Excel, плоские поля) и «Поток» (структура из API).
-  // Нормализуем, чтобы не показывать пустоту/«[object Object]» (experience у Потока — список).
+  // detail приходит в двух формах: «Файл» (Excel, плоские поля) и API (структура из Потока/Talantix).
+  // Нормализуем, чтобы не показывать пустоту/«[object Object]» (experience у API — список).
   const d = candidate.detail;
-  const title = fromPotok ? (d.last_position || null) : (d.position || null);
+  const title = isApi ? (d.last_position || null) : (d.position || null);
   const expList = Array.isArray(d.experience) ? d.experience : null;
   const expString = typeof d.experience === 'string' ? d.experience : null;
-  const lastCompany = fromPotok ? (expList && expList[0]?.company) || null : (d.company || null);
-  const about = fromPotok ? (d.resume_summary || null) : (d.comment || null);
-  const resumeLink = fromPotok ? (d.source_url || null) : (d.resume_url || null);
-  const skills = fromPotok && Array.isArray(d.skills) ? d.skills : null;
-  const education = fromPotok && Array.isArray(d.education) ? d.education : null;
-  const languages = fromPotok && Array.isArray(d.languages) ? d.languages : null;
-  const salaryVal = fromPotok ? d.salary_expectation : d.salary;
+  const lastCompany = isApi ? (expList && expList[0]?.company) || null : (d.company || null);
+  const about = isApi ? (d.resume_summary || null) : (d.comment || null);
+  const resumeLink = isApi ? (d.source_url || null) : (d.resume_url || null);
+  const skills = isApi && Array.isArray(d.skills) ? d.skills : null;
+  const education = isApi && Array.isArray(d.education) ? d.education : null;
+  const languages = isApi && Array.isArray(d.languages) ? d.languages : null;
+  const salaryVal = isApi ? d.salary_expectation : d.salary;
 
   return (
     <div className="imp-modal-overlay" onClick={onClose}>
@@ -1390,7 +1577,7 @@ function ImpResumeModal({ candidate, source, onClose }: ImpResumeModalProps) {
           <div className="imp-modal-chips">
             <span className="imp-resume-from">
               <span className="imp-resume-from-dot"/>
-              {fromPotok ? 'Резюме из Потока' : 'Резюме из файла'}
+              {isApi ? `Резюме из ${srcNameGen}` : 'Резюме из файла'}
             </span>
             {candidate.source && (
               <span className={`src-pill src-${candidate.source}`}>{SRC_LABEL[candidate.source] || candidate.source}</span>
@@ -1418,7 +1605,7 @@ function ImpResumeModal({ candidate, source, onClose }: ImpResumeModalProps) {
               {expString && candidate.city && <span className="imp-rcard-sep">·</span>}
               {candidate.city && <span>Город: <b>{candidate.city}</b></span>}
               {(expString || candidate.city) && lastCompany && <span className="imp-rcard-sep">·</span>}
-              {lastCompany && <span>{fromPotok ? 'Последнее место' : 'Компания'}: <b>{lastCompany}</b></span>}
+              {lastCompany && <span>{isApi ? 'Последнее место' : 'Компания'}: <b>{lastCompany}</b></span>}
             </div>
 
             <div className="imp-resume-contacts">
@@ -1432,8 +1619,8 @@ function ImpResumeModal({ candidate, source, onClose }: ImpResumeModalProps) {
 
             <div className="imp-resume-note">
               <Icon name="alert-triangle" size={13}/>
-              {fromPotok
-                ? 'Резюме и биография забраны из Потока. Ссылка на исходный файл сохранится в карточке, но сам PDF-файл резюме недоступен вне Потока.'
+              {isApi
+                ? `Резюме и биография забраны из ${srcNameGen}. Ссылка на исходный файл сохранится в карточке, но сам PDF-файл резюме недоступен вне ${srcNameGen}.`
                 : 'Резюме забрано из исходного файла. Ссылка сохранится в карточке, но детальные данные ограничены файлом импорта.'}
             </div>
 
@@ -1503,7 +1690,7 @@ function ImpResumeModal({ candidate, source, onClose }: ImpResumeModalProps) {
               {languages && languages.length > 0 && (
                 <div><span className="imp-re-k">Языки:</span> {languages.join(', ')}</div>
               )}
-              {!fromPotok && candidate.detail.age && (
+              {!isApi && candidate.detail.age && (
                 <div><span className="imp-re-k">Возраст:</span> {candidate.detail.age}</div>
               )}
               {salaryVal && (

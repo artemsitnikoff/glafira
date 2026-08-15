@@ -59,6 +59,9 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     is_anonymized: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     external_source: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # id персоны в ATS Talantix (PersonItem.id) — идемпотентность повторного импорта:
+    # существующего кандидата находим по нему И по контактам, не создаём дубль.
+    talantix_person_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # Ссылка на резюме/профиль кандидата у источника (страница резюме на hh.ru и т.п.).
     # Заполняется вручную в форме ИЛИ автоматически при импорте с hh (alternate_url).
     source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -76,7 +79,7 @@ class Candidate(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
             name="check_candidate_gender"
         ),
         CheckConstraint(
-            "source IN ('hh', 'avito', 'superjob', 'telegram', 'referral', 'direct', 'agency', 'import', 'manual', 'linkedin', 'potok', 'smart', 'habr', 'other')",
+            "source IN ('hh', 'avito', 'superjob', 'telegram', 'referral', 'direct', 'agency', 'import', 'manual', 'linkedin', 'potok', 'smart', 'habr', 'talantix', 'other')",
             name="check_candidate_source"
         ),
         CheckConstraint(

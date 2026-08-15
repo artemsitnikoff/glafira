@@ -37,6 +37,7 @@ from .hh_integration import HhIntegration, HhOauthState
 from .user_hh_integration import UserHhIntegration
 from .habr_integration import HabrIntegration, HabrOauthState
 from .avito_integration import AvitoIntegration
+from .talantix_integration import TalantixIntegration
 from .smart_search import SmartSearchRun
 from .candidate_import import CandidateImportJob
 from .base_search import BaseSearchRun
@@ -104,6 +105,7 @@ __all__ = [
     "HabrIntegration",
     "HabrOauthState",
     "AvitoIntegration",
+    "TalantixIntegration",
     "SmartSearchRun",
     "CandidateImportJob",
     "BaseSearchRun",
