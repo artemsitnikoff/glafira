@@ -22,7 +22,7 @@ from app.services.candidate_import import (
     _process_talantix_person,
     _import_talantix_comments,
 )
-from app.models import Candidate, Comment, Consent
+from app.models import Candidate, Comment, Consent, CandidateExperience, CandidateSkill
 
 
 class _FakeResult:
@@ -57,7 +57,15 @@ def _person_node(pid=555):
         ]},
         "resumes": {"items": [
             {"id": 9, "title": "Python-разработчик",
-             "skills": "Опыт 5 лет. Python, Django. <b>PostgreSQL</b>"},
+             "skills": "Опыт 5 лет. Python, Django. <b>PostgreSQL</b>",
+             "keySkills": ["Python", "Django", "PostgreSQL"],
+             "salary": {"amount": 150000, "currency": "RUR"},
+             "education": {"level": {"name": "Высшее"}},
+             "experiences": {"items": [
+                 {"position": "Backend-разработчик", "description": "Разработка API",
+                  "company": {"name": "ООО Ромашка"}, "area": {"name": "Москва"},
+                  "period": {"start": 1577836800000, "end": 1656633600000, "months": 30}},
+             ]}},
         ]},
         "personalDataAgreement": {
             "personalDataAgreementStatus": "agree",
@@ -102,10 +110,20 @@ class TestTalantixPersonMapper:
         assert m["email"] == "ivan@example.com"
         assert m["city"] == "Москва"
         assert m["gender"] == "male"
-        # резюме = плоский текст skills (HTML снят)
+        # резюме собирается из структуры (title + о себе + опыт), HTML снят
         assert "Python" in m["resume_text"]
         assert "<b>" not in m["resume_text"]
+        assert "Опыт работы" in m["resume_text"]
         assert m["last_position"] == "Python-разработчик"
+        # структурные секции (опыт/навыки) — из experiences/keySkills, НЕ из пустого skills
+        assert [s["skill"] for s in m["skills"]] == ["Python", "Django", "PostgreSQL"]
+        assert len(m["experience"]) == 1
+        exp = m["experience"][0]
+        assert exp["position"] == "Backend-разработчик"
+        assert exp["company"] == "ООО Ромашка"
+        assert exp["period"] == "2020-01 — 2022-07"  # формат hh (start/end мс → YYYY-MM)
+        # зарплата ИЗ резюме Talantix (amount+currency), раньше терялась
+        assert m["salary_expectation"] == 150000
         assert m["messengers"] == [{"type": "tg", "value": "@ivan"}]
         assert m["responses_count"] == 3
         assert m["birth_date"] is not None
@@ -291,6 +309,34 @@ class TestTalantixProcessPerson:
         assert consent.signed_at is not None
 
     @pytest.mark.asyncio
+    async def test_creates_structured_resume_and_salary(self, db_session, admin_user):
+        """Опыт/навыки/зарплата из резюме Talantix → структурные записи (таб «Резюме»)."""
+        company_id = admin_user.company_id
+        mapped = tmap.map_person(_person_node())
+        stats: dict = {}
+        await _process_talantix_person(db_session, company_id, mapped, [], None, "skip", stats)
+        await db_session.flush()
+
+        cand = (await db_session.execute(
+            select(Candidate).where(Candidate.talantix_person_id == "555")
+        )).scalar_one()
+        assert cand.salary_expectation == 150000
+        assert cand.salary_from == 150000 and cand.salary_to == 150000
+
+        exps = (await db_session.execute(
+            select(CandidateExperience).where(CandidateExperience.candidate_id == cand.id)
+        )).scalars().all()
+        assert len(exps) == 1
+        assert exps[0].position == "Backend-разработчик"
+        assert exps[0].company == "ООО Ромашка"
+        assert exps[0].period == "2020-01 — 2022-07"
+
+        skills = (await db_session.execute(
+            select(CandidateSkill).where(CandidateSkill.candidate_id == cand.id)
+        )).scalars().all()
+        assert {s.skill for s in skills} == {"Python", "Django", "PostgreSQL"}
+
+    @pytest.mark.asyncio
     async def test_dedup_existing_candidate_enriched_not_duplicated(self, db_session, admin_user):
         company_id = admin_user.company_id
         existing = Candidate(
@@ -316,6 +362,12 @@ class TestTalantixProcessPerson:
         await db_session.refresh(existing)
         assert existing.talantix_person_id == "555"
         assert stats.get("comments") == 1
+        # структурное резюме дозалилось на существующего (был без опыта) — режим «Обновить»
+        exps = (await db_session.execute(
+            select(CandidateExperience).where(CandidateExperience.candidate_id == existing.id)
+        )).scalars().all()
+        assert len(exps) == 1
+        assert exps[0].period == "2020-01 — 2022-07"
 
     @pytest.mark.asyncio
     async def test_idempotent_reimport(self, db_session, admin_user):

@@ -1437,6 +1437,40 @@ def _apply_talantix_update(candidate: Candidate, mapped: dict) -> None:
         candidate.last_position = _fit(mapped["last_position"], 255)
     if mapped.get("resume_text"):
         candidate.resume_text = mapped["resume_text"]
+    # Зарплату проставляем только если у кандидата её ещё нет (не затираем чужой источник).
+    if mapped.get("salary_expectation") and not candidate.salary_expectation:
+        candidate.salary_expectation = mapped["salary_expectation"]
+        candidate.salary_from = mapped["salary_expectation"]
+        candidate.salary_to = mapped["salary_expectation"]
+
+
+async def _create_talantix_child_records(
+    session: AsyncSession, company_id: UUID, candidate_id: UUID, mapped: dict
+) -> None:
+    """Структурные секции резюме (опыт, навыки) для кандидата Talantix — зеркало Потока.
+
+    Опыт → CandidateExperience (period в формате hh, фронт «Резюме» его парсит),
+    навыки keySkills → CandidateSkill. Образование Talantix отдаёт только уровнем —
+    оно уже вошло в resume_text, отдельной строки CandidateEducation без вуза не заводим."""
+    for exp in (mapped.get("experience") or []):
+        if exp.get("position"):
+            session.add(CandidateExperience(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                position=_fit(exp["position"], 255),
+                company=_fit(exp.get("company"), 255) if exp.get("company") else None,
+                period=_fit(exp.get("period"), 120) if exp.get("period") else None,
+                description=exp.get("description"),
+                order_index=exp.get("order_index", 0),
+            ))
+    for sk in (mapped.get("skills") or []):
+        if sk.get("skill"):
+            session.add(CandidateSkill(
+                company_id=company_id,
+                candidate_id=candidate_id,
+                skill=_fit(sk["skill"], 120),
+                order_index=sk.get("order_index", 0),
+            ))
 
 
 async def _resolve_existing_talantix_candidate(
@@ -1585,6 +1619,15 @@ async def _process_talantix_person(
         candidate = existing
         if dedup_mode == "update":
             _apply_talantix_update(candidate, mapped)
+            # Бэкфилл структурного резюме (опыт/навыки), если его ещё нет — так дозаполняем
+            # кандидатов, залитых ДО фикса резюме. Идемпотентно: при наличии опыта не дублируем.
+            has_exp = await session.scalar(
+                select(func.count())
+                .select_from(CandidateExperience)
+                .where(CandidateExperience.candidate_id == candidate.id)
+            )
+            if not has_exp and (mapped.get("experience") or mapped.get("skills")):
+                await _create_talantix_child_records(session, company_id, candidate.id, mapped)
             stats["updated"] = stats.get("updated", 0) + 1
         else:
             stats["skipped"] = stats.get("skipped", 0) + 1
@@ -1605,6 +1648,9 @@ async def _process_talantix_person(
             gender=mapped.get("gender"),
             last_position=_fit(mapped.get("last_position"), 255) if mapped.get("last_position") else None,
             resume_text=mapped.get("resume_text"),
+            salary_expectation=mapped.get("salary_expectation"),
+            salary_from=mapped.get("salary_expectation"),
+            salary_to=mapped.get("salary_expectation"),
             source="talantix",
             external_source="talantix",
             talantix_person_id=tpid,
@@ -1613,6 +1659,8 @@ async def _process_talantix_person(
         )
         session.add(candidate)
         await session.flush()
+        # Структурное резюме (опыт/навыки) — как у Потока, чтобы таб «Резюме» не был пустым.
+        await _create_talantix_child_records(session, company_id, candidate.id, mapped)
         stats["created"] = stats.get("created", 0) + 1
 
     # КОММЕНТАРИИ — импортируем для НОВОГО и СУЩЕСТВУЮЩЕГО кандидата (главная ценность)
