@@ -83,69 +83,89 @@ def _talantix_period(period: dict | None) -> str | None:
 
 
 def _extract_resume(node: dict) -> dict:
-    """Разбор StructuredResume в структурные секции (опыт/навыки/зарплата) + плоский текст.
+    """Разбор резюме Talantix в структурные секции (опыт/навыки/зарплата) + плоский текст.
 
-    ⚠️ Схема выяснена пробингом живого API (интроспекция Talantix отключена):
-    `skills` — это лишь «о себе» (часто пусто), НЕ всё резюме. Реальные данные:
-    `keySkills` [String], `experiences.items{position, description, company{name},
-    period{start,end}(мс)}`, `education.level{name}`, `salary{amount,currency}`, `languages`.
+    ⚠️ Схема выяснена пробингом живого API (интроспекция Talantix отключена). ДВА типа
+    резюме в `resumes.items` (различаем по `__typename`):
+    - `StructuredResume` — структурное: `title`, `skills`(о себе, часто пусто),
+      `keySkills`[String], `experiences.items{position, description, company{name},
+      period{start,end}(мс)}`, `education.level{name}`, `salary{amount,currency}`, `languages`.
+    - `CustomResume` — произвольное (свёрстанное/вставленное): `name`(заголовок) + `text`
+      (весь текст резюме). Структурного опыта НЕТ — берём текст+должность, не теряем.
     """
     resumes = ((node.get("resumes") or {}).get("items")) or []
+    empty = {"resume_title": None, "resume_text": None, "experience": [], "skills": [], "salary_expectation": None}
     if not resumes:
-        return {"resume_title": None, "resume_text": None, "experience": [], "skills": [], "salary_expectation": None}
-    r = resumes[0] or {}
-    title = (r.get("title") or "").strip() or None
-    about = _html_to_text((r.get("skills") or "").strip() or None)
+        return empty
 
-    key_skills = [s.strip() for s in (r.get("keySkills") or []) if isinstance(s, str) and s.strip()]
+    structured = [r for r in resumes if isinstance(r, dict) and r.get("__typename") == "StructuredResume"]
+    customs = [r for r in resumes if isinstance(r, dict) and r.get("__typename") == "CustomResume"]
 
+    title = None
+    about = None
+    key_skills: list[str] = []
     experience: list[dict] = []
-    for idx, ex in enumerate(((r.get("experiences") or {}).get("items")) or []):
-        if not isinstance(ex, dict):
-            continue
-        pos = (ex.get("position") or "").strip()
-        comp = None
-        if isinstance(ex.get("company"), dict):
-            comp = (ex["company"].get("name") or "").strip() or None
-        period = _talantix_period(ex.get("period"))
-        desc = _html_to_text((ex.get("description") or "").strip() or None)
-        if not pos and not comp and not desc:
-            continue
-        experience.append({
-            "position": pos or (title or "Специалист"),
-            "company": comp,
-            "period": period,
-            "description": desc,
-            "order_index": idx,
-        })
-
     edu_level = None
-    if isinstance(r.get("education"), dict) and isinstance(r["education"].get("level"), dict):
-        edu_level = (r["education"]["level"].get("name") or "").strip() or None
-
     salary_expectation = None
-    salary = r.get("salary")
-    if isinstance(salary, dict):
-        amount = salary.get("amount")
-        currency = (salary.get("currency") or "").strip().upper()
-        if isinstance(amount, (int, float)) and amount > 0 and currency in ("", "RUR", "RUB"):
-            salary_expectation = int(amount)
-
     languages: list[str] = []
-    for lang in ((r.get("languages") or {}).get("items")) or []:
-        if not isinstance(lang, dict):
-            continue
-        nm = (lang.get("name") or "").strip()
-        lvl = ""
-        if isinstance(lang.get("level"), dict):
-            lvl = (lang["level"].get("name") or "").strip()
-        if nm:
-            languages.append(f"{nm} — {lvl}" if lvl else nm)
 
-    # Плоский текст резюме (для AI-скоринга; таб «Резюме» рендерит структуру ниже).
+    if structured:
+        # Берём структурное резюме с максимумом опыта (обычно оно одно).
+        r = max(structured, key=lambda x: len(((x.get("experiences") or {}).get("items")) or []))
+        title = (r.get("title") or "").strip() or None
+        about = _html_to_text((r.get("skills") or "").strip() or None)
+        key_skills = [s.strip() for s in (r.get("keySkills") or []) if isinstance(s, str) and s.strip()]
+        for idx, ex in enumerate(((r.get("experiences") or {}).get("items")) or []):
+            if not isinstance(ex, dict):
+                continue
+            pos = (ex.get("position") or "").strip()
+            comp = None
+            if isinstance(ex.get("company"), dict):
+                comp = (ex["company"].get("name") or "").strip() or None
+            period = _talantix_period(ex.get("period"))
+            desc = _html_to_text((ex.get("description") or "").strip() or None)
+            if not pos and not comp and not desc:
+                continue
+            experience.append({
+                "position": pos or (title or "Специалист"),
+                "company": comp,
+                "period": period,
+                "description": desc,
+                "order_index": idx,
+            })
+        if isinstance(r.get("education"), dict) and isinstance(r["education"].get("level"), dict):
+            edu_level = (r["education"]["level"].get("name") or "").strip() or None
+        salary = r.get("salary")
+        if isinstance(salary, dict):
+            amount = salary.get("amount")
+            currency = (salary.get("currency") or "").strip().upper()
+            if isinstance(amount, (int, float)) and amount > 0 and currency in ("", "RUR", "RUB"):
+                salary_expectation = int(amount)
+        for lang in ((r.get("languages") or {}).get("items")) or []:
+            if not isinstance(lang, dict):
+                continue
+            nm = (lang.get("name") or "").strip()
+            lvl = ""
+            if isinstance(lang.get("level"), dict):
+                lvl = (lang["level"].get("name") or "").strip()
+            if nm:
+                languages.append(f"{nm} — {lvl}" if lvl else nm)
+
+    # Произвольное резюме (CustomResume): заголовок + весь текст.
+    custom_name = None
+    custom_text = None
+    if customs:
+        cr = customs[0] or {}
+        custom_name = (cr.get("name") or "").strip() or None
+        custom_text = _html_to_text((cr.get("text") or "").strip() or None)
+
+    resume_title = title or custom_name
+
+    # Плоский текст резюме (для AI-скоринга; таб «Резюме» рендерит структуру ниже,
+    # а произвольное резюме — как текст).
     parts: list[str] = []
-    if title:
-        parts.append(title)
+    if resume_title:
+        parts.append(resume_title)
     if about:
         parts.append(about)
     if key_skills:
@@ -162,10 +182,12 @@ def _extract_resume(node: dict) -> dict:
         parts.append("Образование: " + edu_level)
     if languages:
         parts.append("Языки: " + ", ".join(languages))
-    resume_text = ("\n".join(parts).strip() or about) or None
+    if custom_text:
+        parts.append(custom_text)
+    resume_text = "\n".join(parts).strip() or None
 
     return {
-        "resume_title": title,
+        "resume_title": resume_title,
         "resume_text": resume_text,
         "experience": experience,
         "skills": [{"skill": s, "order_index": i} for i, s in enumerate(key_skills)],

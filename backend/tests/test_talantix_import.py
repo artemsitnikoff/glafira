@@ -56,7 +56,7 @@ def _person_node(pid=555):
             {"type": "telegram", "value": "@ivan"},
         ]},
         "resumes": {"items": [
-            {"id": 9, "title": "Python-разработчик",
+            {"__typename": "StructuredResume", "id": 9, "title": "Python-разработчик",
              "skills": "Опыт 5 лет. Python, Django. <b>PostgreSQL</b>",
              "keySkills": ["Python", "Django", "PostgreSQL"],
              "salary": {"amount": 150000, "currency": "RUR"},
@@ -137,6 +137,25 @@ class TestTalantixPersonMapper:
         assert m["email"] is None
         assert m["resume_text"] is None
         assert m["talantix_person_id"] == "1"
+
+    def test_map_person_custom_resume(self):
+        # Произвольное резюме (CustomResume): name+text, структурного опыта НЕТ,
+        # но текст и должность не теряем (раньше выходило пусто).
+        node = {
+            "__typename": "PersonItem", "id": 77, "firstName": "Дарья", "lastName": "Горева",
+            "contacts": {"items": [{"type": "cell", "value": "+79001234567"}]},
+            "resumes": {"items": [
+                {"__typename": "CustomResume", "name": "Врач-косметолог",
+                 "text": "Опыт работы косметологом 3 года. <b>Инъекции</b>, чистки."},
+            ]},
+        }
+        m = tmap.map_person(node)
+        assert m["last_position"] == "Врач-косметолог"
+        assert m["experience"] == []
+        assert m["skills"] == []
+        assert "Врач-косметолог" in m["resume_text"]
+        assert "Инъекции" in m["resume_text"]
+        assert "<b>" not in m["resume_text"]  # HTML снят
 
 
 # --- Маппер комментариев истории -------------------------------------------

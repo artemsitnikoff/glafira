@@ -66,13 +66,17 @@ query Person($id: Int!) {
       area { id name }
       source { id name }
       contacts { items { ... on ContactItem { type value } } }
-      resumes { items { ... on StructuredResume {
-        id title skills keySkills
-        salary { amount currency }
-        experiences { items { position description company { name } area { name } period { start end months } } }
-        education { level { name } }
-        languages { items { name level { name } } }
-      } } }
+      resumes { items {
+        __typename
+        ... on StructuredResume {
+          id title skills keySkills
+          salary { amount currency }
+          experiences { items { position description company { name } area { name } period { start end months } } }
+          education { level { name } }
+          languages { items { name level { name } } }
+        }
+        ... on CustomResume { name text }
+      } }
       personalDataAgreement { personalDataAgreementStatus updatedAt expiredAt }
       responses { count }
     }

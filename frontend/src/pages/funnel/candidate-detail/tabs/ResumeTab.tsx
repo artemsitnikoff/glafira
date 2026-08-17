@@ -169,6 +169,19 @@ export function ResumeTab({ candidateId, candidate: candidateProps, fromPool, ap
         </>
       )}
 
+      {/* Плоское/произвольное резюме (напр. CustomResume из Talantix): текст целиком,
+          когда нет структурного опыта и нет отдельной сводки «Обо мне». */}
+      {!(candidate as any).resume_summary &&
+        !(candidate.experience && candidate.experience.length > 0) &&
+        (candidate as any).resume_text && (
+        <>
+          <h3 className="cc-sec-title">Резюме</h3>
+          <div className="job-desc" style={{ whiteSpace: 'pre-line' }}>
+            {htmlToText((candidate as any).resume_text)}
+          </div>
+        </>
+      )}
+
       {candidate.experience && candidate.experience.length > 0 && (
         <>
           <h3 className="cc-sec-title">
