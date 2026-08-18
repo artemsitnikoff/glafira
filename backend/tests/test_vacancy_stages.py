@@ -1,8 +1,49 @@
 from httpx import AsyncClient
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import VacancyStage, Application
+
+
+async def test_terminal_stages_sorted_last(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    default_client: str,
+):
+    """Терминальные этапы (Нанят/Отказ) ВСЕГДА внизу, даже если order_index кривой.
+
+    Иначе редактор воронки закрепляет «два последних по позиции» — и Скрининг не
+    двигается, а Нанят гуляет по середине (жалоба заказчика)."""
+    created = await async_client.post(
+        "/api/v1/vacancies", headers=auth_headers,
+        json={"name": "Order Vacancy", "client_id": default_client},
+    )
+    vacancy_id = created.json()["id"]
+
+    # Портим порядок: hired в середину (маленький order_index), нетерминальный interview — вниз.
+    await db_session.execute(
+        update(VacancyStage)
+        .where(VacancyStage.vacancy_id == vacancy_id, VacancyStage.stage_key == "hired")
+        .values(order_index=1)
+    )
+    await db_session.execute(
+        update(VacancyStage)
+        .where(VacancyStage.vacancy_id == vacancy_id, VacancyStage.stage_key == "interview")
+        .values(order_index=99)
+    )
+    await db_session.commit()
+
+    resp = await async_client.get(
+        f"/api/v1/vacancies/{vacancy_id}/stages", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    keys = [s["stage_key"] for s in resp.json()]
+    # Два последних — именно терминальные
+    assert set(keys[-2:]) == {"hired", "rejected"}
+    # Нетерминальный interview (даже с order_index=99) — ВЫШЕ терминальных
+    assert keys.index("interview") < keys.index("hired")
+    assert keys.index("interview") < keys.index("rejected")
 
 
 async def test_add_vacancy_stage(

@@ -895,7 +895,11 @@ async def get_vacancy_stages(session: AsyncSession, vacancy_id: UUID, company_id
             VacancyStage.is_terminal,
             VacancyStage.description
         )
-        .order_by(VacancyStage.order_index, VacancyStage.stage_key)
+        # Терминальные этапы (Нанят/Отказ) ВСЕГДА внизу, даже если их order_index
+        # оказался в середине (кривой порядок из старых данных/коллизий order_index).
+        # Иначе редактор воронки закрепляет «два последних ПО ПОЗИЦИИ», и закрепляется
+        # не тот этап (двигать нельзя середину, а Нанят гуляет).
+        .order_by(VacancyStage.is_terminal, VacancyStage.order_index, VacancyStage.stage_key)
     )
 
     result = await session.execute(query)
