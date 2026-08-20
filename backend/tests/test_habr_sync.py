@@ -178,6 +178,28 @@ class TestHabrResponseUserMapper:
         assert result["salary_from"] == 200000
         assert result["currency"] == "RUB"
 
+    def test_experiences_and_educations_as_single_object(self):
+        """⚠️ Хабр отдаёт experiences/educations ОДНИМ объектом (не списком), когда запись
+        одна (проверено живьём). Маппер обязан их извлечь — регресс: раньше `for exp in dict`
+        итерировал по ключам-строкам и всё выкидывалось → «пустое резюме»."""
+        user = _make_habr_user()
+        user["experiences"] = {
+            "company": "Smart Systems", "position": "Software developer",
+            "period": "5 лет и 6 месяцев",
+        }
+        user["educations"] = {
+            "university": "Политех", "faculty": "ИТ",
+            "start_date": "2008-09-01", "end_date": "2014-05-01",
+        }
+        result = _habr_response_user_to_normalized(user)
+        assert len(result["experience"]) == 1
+        assert result["experience"][0]["position"] == "Software developer"
+        assert result["experience"][0]["company"] == "Smart Systems"
+        edu = result["education"]["primary"]
+        assert len(edu) == 1
+        assert edu[0]["name"] == "Политех"
+        assert edu[0]["year"] == "2014"
+
     def test_skills_from_title(self):
         """Навыки извлекаются из skills[{title}]."""
         user = _make_habr_user(skills=[

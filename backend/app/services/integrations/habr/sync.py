@@ -93,9 +93,16 @@ def _habr_response_user_to_normalized(user: dict) -> dict:
         if curr:
             currency = curr
 
-    # --- Опыт (experiences[{company, position, period}]) ---
-    # period — строка (например «Январь 2020 — Декабрь 2023»); храним as-is
-    raw_experiences = user.get("experiences") or []
+    # --- Опыт (experiences) ---
+    # ⚠️ Хабр отдаёт experiences ОДНИМ объектом (не списком), когда запись одна
+    # (проверено живьём 2026-08-20). Нормализуем в список — иначе `for exp in dict`
+    # итерирует по КЛЮЧАМ-строкам, isinstance(exp, dict) их отсекает → опыт терялся
+    # целиком («пустое резюме»).
+    raw_experiences = user.get("experiences")
+    if isinstance(raw_experiences, dict):
+        raw_experiences = [raw_experiences]
+    elif not isinstance(raw_experiences, list):
+        raw_experiences = []
     experience: list[dict] = []
     for exp in raw_experiences:
         if not isinstance(exp, dict):
@@ -123,8 +130,13 @@ def _habr_response_user_to_normalized(user: dict) -> dict:
         elif isinstance(sk, str) and sk.strip():
             skill_set.append(sk.strip())
 
-    # --- Образование (educations[{university, faculty, start_date, end_date}]) ---
-    raw_educations = user.get("educations") or []
+    # --- Образование (educations) ---
+    # Аналогично experiences: приходит одним объектом при одной записи → нормализуем.
+    raw_educations = user.get("educations")
+    if isinstance(raw_educations, dict):
+        raw_educations = [raw_educations]
+    elif not isinstance(raw_educations, list):
+        raw_educations = []
     education_primary: list[dict] = []
     for ed in raw_educations:
         if not isinstance(ed, dict):
