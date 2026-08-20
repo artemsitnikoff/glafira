@@ -331,3 +331,38 @@ async def update_company(
             },
             "error": str(e)
         })
+
+
+@app.post("/super/companies/{company_id}/reset-password")
+async def reset_admin_password(
+    request: Request,
+    company_id: UUID,
+    username: str = Depends(require_super_admin),
+    new_password: Optional[str] = Form(""),
+):
+    """Сброс пароля администратора компании («забыл пароль»)."""
+    if isinstance(username, RedirectResponse):
+        return username
+
+    company_settings = await company_service.get_company_settings(company_id)
+    if not company_settings:
+        return RedirectResponse("/super/?error=Компания не найдена", status_code=303)
+
+    ctx = {
+        "request": request,
+        "username": username,
+        "company": company_settings,
+        "form_data": {},
+    }
+
+    np = (new_password or "").strip()
+    if np and len(np) < 6:
+        ctx["error"] = "Пароль слишком короткий (минимум 6 символов)"
+        return templates.TemplateResponse(request, "company_form.html", ctx)
+
+    result = await company_service.reset_admin_password(company_id, np or None)
+    if result is None:
+        ctx["error"] = "У компании нет пользователя-администратора"
+    else:
+        ctx["reset_result"] = result
+    return templates.TemplateResponse(request, "company_form.html", ctx)

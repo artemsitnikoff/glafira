@@ -148,6 +148,31 @@
         </form>
     </div>
 
+    {% if company %}
+    <!-- Сброс пароля администратора (для «забыл пароль») -->
+    <div class="card" style="margin-top: 20px;">
+        <h2 style="font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--ark-gray-800);">Сброс пароля администратора</h2>
+        <div style="font-size: 12px; color: var(--ark-gray-500); margin-bottom: 12px;">
+            Для «забыл пароль». Сбросит пароль первому админу компании (по email). Старый пароль перестанет работать сразу.
+        </div>
+        {% if reset_result %}
+            <div class="alert alert-success">
+                Новый пароль для <strong>{{ reset_result.email }}</strong>{% if reset_result.full_name %} ({{ reset_result.full_name }}){% endif %}:
+                <div style="font-family: monospace; font-size: 18px; margin: 8px 0; user-select: all;">{{ reset_result.password }}</div>
+                ⚠️ Скопируйте сейчас — больше не покажем. Передайте клиенту.
+            </div>
+        {% endif %}
+        <form method="post" action="/super/companies/{{ company.id }}/reset-password"
+              onsubmit="return confirm('Сбросить пароль администратора этой компании? Старый пароль перестанет работать.');">
+            <div class="form-group">
+                <label class="form-label" for="new_password">Новый пароль <span style="font-weight: 400; color: var(--ark-gray-500);">(пусто = сгенерировать)</span></label>
+                <input type="text" id="new_password" name="new_password" class="form-input" placeholder="Оставьте пустым для авто-генерации">
+            </div>
+            <button type="submit" class="btn btn-secondary">Сбросить пароль админа</button>
+        </form>
+    </div>
+    {% endif %}
+
     {% if not company %}
         <div style="margin-top: 20px; padding: 16px; background: var(--ark-blue-50); border-radius: 6px; font-size: 13px; color: var(--ark-gray-700);">
             <strong>Что произойдёт:</strong>

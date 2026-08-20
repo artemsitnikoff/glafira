@@ -1,3 +1,4 @@
+import secrets
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import date, datetime, timezone
@@ -12,6 +13,7 @@ from app.provision_company import provision_company, ProvisionError
 from app.services.settings.glafira import get_glafira_settings
 from app.services.settings.crypto import encrypt_text, decrypt_text
 from app.services.glafira.models import ALLOWED_MODEL_VALUES
+from app.core.security import get_password_hash
 
 # Sentinel for optional parameters in update functions
 _UNSET = object()
@@ -237,6 +239,30 @@ class CompanyService:
                 "paid_until": company.paid_until.isoformat() if company.paid_until else "",
                 "is_expired": (company.paid_until is None or company.paid_until < datetime.now(timezone.utc).date())
             }
+
+    async def reset_admin_password(
+        self, company_id: UUID, new_password: Optional[str] = None
+    ) -> Optional[Dict[str, str]]:
+        """Сброс пароля администратора компании (для «забыл пароль»).
+
+        Сбрасывает ПЕРВОГО админа компании (по email — тот же, что показан в списке).
+        new_password пустой → генерируется надёжный. Возвращает {email, full_name, password}
+        или None, если у компании нет пользователя-администратора. Хеш — тот же bcrypt,
+        что в основном приложении (get_password_hash), поэтому логин сразу работает.
+        """
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(User)
+                .where(User.company_id == company_id, User.role == "admin")
+                .order_by(User.email.asc())
+            )
+            admin = result.scalars().first()
+            if admin is None:
+                return None
+            pwd = (new_password or "").strip() or secrets.token_urlsafe(9)
+            admin.password_hash = get_password_hash(pwd)
+            await session.commit()
+            return {"email": admin.email, "full_name": admin.full_name, "password": pwd}
 
 
 company_service = CompanyService()
