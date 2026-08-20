@@ -200,6 +200,43 @@ class TestHabrResponseUserMapper:
         assert edu[0]["name"] == "Политех"
         assert edu[0]["year"] == "2014"
 
+    def test_profile_mapper_full_resume_and_contacts(self):
+        """Полный профиль GET /users/{login} → весь опыт (реальные даты) + образование +
+        контакты. Схема отличается от отклика: company_name/start_date/end_date, university_name,
+        contacts{phones,emails,messengers}. Раньше импортировали тонкий отклик (1 работа, без контактов)."""
+        from app.services.integrations.habr.sync import _habr_profile_to_normalized
+        profile = {
+            "location": {"city": "Ростов"},
+            "resume_headline": "Веб разработчик",
+            "salary": {"from": 300000, "currency": "rur"},
+            "contacts": {
+                "phones": [{"value": "+7 (918) 507-47-31"}],
+                "emails": [{"value": "a@b.ru"}],
+                "messengers": [{"type": "telegram", "value": "izd"}],
+            },
+            "experiences": [
+                {"start_date": "2021-01-01", "end_date": None, "company_name": "Ростелеком",
+                 "position": "Lead", "description": "<p>работал</p>", "skills": [{"title": "Git"}]},
+                {"start_date": "2011-03-01", "end_date": "2012-04-01", "company_name": "3W",
+                 "position": "Dev", "description": None, "skills": []},
+            ],
+            "university_educations": [{"university_name": "ЮФУ", "faculty_name": "ММ",
+                                      "start_date": "2001-01-01", "end_date": "2007-01-01"}],
+        }
+        r = _habr_profile_to_normalized(profile)
+        assert r["city"] == "Ростов"
+        assert r["title"] == "Веб разработчик"
+        assert r["salary_from"] == 300000
+        assert r["phone"] == "79185074731"
+        assert r["email"] == "a@b.ru"
+        assert len(r["messengers"]) == 1
+        assert len(r["experience"]) == 2
+        assert r["experience"][0]["company"] == "Ростелеком"
+        assert r["experience"][0]["start"] == "2021-01-01"
+        assert "Git" in (r["experience"][0]["description"] or "")
+        assert r["education"]["primary"][0]["name"] == "ЮФУ"
+        assert r["education"]["primary"][0]["year"] == "2007"
+
     def test_skills_from_title(self):
         """Навыки извлекаются из skills[{title}]."""
         user = _make_habr_user(skills=[

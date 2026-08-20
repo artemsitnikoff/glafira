@@ -39,6 +39,7 @@ from ....services.candidate_dedup import find_duplicate_candidates
 from ....services.phone import normalize_phone
 from ....core.errors import ValidationError
 from ....services.settings.crypto import decrypt_text
+from ..potok.mapper import _html_to_text
 from . import client as habr_client
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,121 @@ def _habr_response_user_to_normalized(user: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Маппер ПОЛНОГО профиля GET /users/{login} (бесплатный, богаче отклика)
+# ---------------------------------------------------------------------------
+
+def _habr_profile_to_normalized(p: dict) -> dict:
+    """Полный профиль Хабра → части резюме + контакты (для обогащения тонкого отклика).
+
+    ⚠️ Схема профиля выяснена живым пробингом (2026-08-20). Отличается от response.user:
+      experiences[{start_date, end_date(null=сейчас), company_name, position,
+                   location{city}, description(HTML), skills[{title}]}],
+      university_educations[{university_name, faculty_name, start_date, end_date}],
+      college_educations[...], specializations[{id,title}], resume_headline,
+      skills[{title,alias_name}], salary{from,currency},
+      contacts{emails[{value}], phones[{value}], messengers[{type,value}], contactsAvailable}.
+    ⚠️ ФИО из профиля НЕ берём (full_name нестабильного порядка) — оно из отклика.
+    """
+    loc = p.get("location") or {}
+    city = (loc.get("city") or "").strip() or None if isinstance(loc, dict) else None
+
+    title = (p.get("resume_headline") or "").strip() or None
+    if not title:
+        specs = p.get("specializations") or []
+        if specs and isinstance(specs[0], dict):
+            title = (specs[0].get("title") or "").strip() or None
+
+    salary_from = None
+    currency = "RUB"
+    salary = p.get("salary")
+    if isinstance(salary, dict):
+        val = salary.get("from")
+        try:
+            salary_from = int(val) if val is not None else None
+        except (TypeError, ValueError):
+            salary_from = None
+        curr = (salary.get("currency") or "").upper()
+        if curr:
+            currency = curr
+
+    experience: list[dict] = []
+    for exp in p.get("experiences") or []:
+        if not isinstance(exp, dict):
+            continue
+        pos = (exp.get("position") or "").strip()
+        comp = (exp.get("company_name") or "").strip() or None
+        desc = _html_to_text((exp.get("description") or "").strip() or None)
+        # Навыки конкретного места — строкой в конец описания (как показывает Хабр)
+        job_skills = [s.get("title") for s in (exp.get("skills") or [])
+                      if isinstance(s, dict) and s.get("title")]
+        if job_skills:
+            desc = (f"{desc}\n" if desc else "") + "Навыки: " + " • ".join(job_skills)
+        if not pos and not comp and not desc:
+            continue
+        experience.append({
+            "position": pos,
+            "company": comp,
+            "start": exp.get("start_date"),   # 'YYYY-MM-DD' → hh-маппер сделает период
+            "end": exp.get("end_date"),        # None = «по наст. время»
+            "description": desc,
+        })
+
+    skill_set: list[str] = []
+    for sk in p.get("skills") or []:
+        if isinstance(sk, dict):
+            nm = (sk.get("title") or sk.get("alias_name") or "").strip()
+            if nm:
+                skill_set.append(nm)
+
+    education_primary: list[dict] = []
+    for ed in (p.get("university_educations") or []) + (p.get("college_educations") or []):
+        if not isinstance(ed, dict):
+            continue
+        inst = (ed.get("university_name") or ed.get("college_name") or ed.get("name") or "").strip()
+        if not inst:
+            continue
+        faculty = (ed.get("faculty_name") or ed.get("faculty") or "").strip() or None
+        end_date = ed.get("end_date") or ""
+        year = str(end_date)[:4] if end_date else None
+        education_primary.append({
+            "name": inst, "organization": faculty, "result": "", "year": year,
+        })
+
+    # Контакты (если contactsAvailable) — телефон/email/мессенджеры
+    phone = None
+    email = None
+    messengers: list[dict] = []
+    contacts = p.get("contacts") or {}
+    if isinstance(contacts, dict):
+        for ph in contacts.get("phones") or []:
+            val = ph.get("value") if isinstance(ph, dict) else ph
+            if val:
+                phone = normalize_phone(str(val)) or str(val)
+                break
+        for em in contacts.get("emails") or []:
+            val = em.get("value") if isinstance(em, dict) else em
+            if val:
+                email = str(val).strip()[:255]
+                break
+        for m in contacts.get("messengers") or []:
+            if isinstance(m, dict) and m.get("value"):
+                messengers.append({"type": (m.get("type") or "msg"), "value": m["value"]})
+
+    return {
+        "city": city,
+        "title": title,
+        "salary_from": salary_from,
+        "currency": currency,
+        "experience": experience,
+        "skill_set": skill_set,
+        "education": {"primary": education_primary},
+        "phone": phone,
+        "email": email,
+        "messengers": messengers,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Вспомогательная функция построения секций резюме
 # ---------------------------------------------------------------------------
 
@@ -274,6 +390,26 @@ async def import_habr_response(
     login = (user.get("login") or "").strip()
 
     normalized = _habr_response_user_to_normalized(user)
+
+    # ⚠️ Отклик тонкий: одна текущая работа, БЕЗ контактов. Полный профиль
+    # GET /users/{login} — БЕСПЛАТНЫЙ и богаче: весь опыт (реальные даты), образование,
+    # навыки, зарплата И контакты (если contactsAvailable). Берём из него резюме+контакты;
+    # ФИО оставляем из отклика (стабильный порядок «Фамилия Имя»). Профиль недоступен →
+    # молча остаёмся на данных отклика (graceful).
+    if login:
+        try:
+            profile = await habr_client.get_user_profile(access_token, login)
+            prof = _habr_profile_to_normalized(profile)
+            for k in ("city", "title", "experience", "skill_set", "education",
+                      "phone", "email", "messengers"):
+                if prof.get(k):
+                    normalized[k] = prof[k]
+            if prof.get("salary_from") is not None:
+                normalized["salary_from"] = prof["salary_from"]
+                normalized["currency"] = prof.get("currency") or "RUB"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[habr] полный профиль %s недоступен, беру из отклика: %s", login, e)
+
     first_name = normalized.get("first_name") or ""
     last_name = normalized.get("last_name") or ""
     middle_name = normalized.get("middle_name")
@@ -282,9 +418,10 @@ async def import_habr_response(
     salary_from = normalized.get("salary_from")
     currency = normalized.get("currency") or "RUB"
     extra_data = normalized.get("extra") or {}
-
-    # phone/email в отклике ОТСУТСТВУЮТ — они None
-    # (контакты открываются отдельно через open_habr_contacts)
+    # phone/email/мессенджеры — из ПОЛНОГО профиля (в самом отклике их нет)
+    phone = normalized.get("phone")
+    email = normalized.get("email")
+    messengers = normalized.get("messengers") or []
 
     # --- Существующая заявка по habr_response_id? ---
     existing_app = (await session.execute(
@@ -327,8 +464,8 @@ async def import_habr_response(
             candidate = candidate_by_login
             is_new = False
         else:
-            # Дедуп по телефону/email (при импорте из хабр-отклика оба None)
-            duplicates = await find_duplicate_candidates(session, company_id, None, None)
+            # Дедуп по телефону/email из полного профиля (тот же человек мог прийти из hh)
+            duplicates = await find_duplicate_candidates(session, company_id, phone, email)
             if duplicates:
                 candidate = duplicates[0]
                 is_new = False
@@ -357,6 +494,18 @@ async def import_habr_response(
         candidate.salary_from = salary_from
         candidate.salary_expectation = salary_from  # синхронизация по invariant
         candidate.currency = currency
+    # Контакты из полного профиля (не затираем непустое). Раз пришли бесплатно —
+    # помечаем открытыми, чтобы платная кнопка «Открыть контакты» не показывалась.
+    if phone and not candidate.phone:
+        candidate.phone = phone
+    if email and not candidate.email:
+        candidate.email = email
+    if messengers:
+        cur_extra = dict(candidate.extra or {})
+        cur_extra["habr_messengers"] = messengers
+        candidate.extra = cur_extra
+    if (phone or email) and candidate.habr_contacts_opened_at is None:
+        candidate.habr_contacts_opened_at = datetime.now(timezone.utc)
 
     # Источник/external проставляем ТОЛЬКО НОВОМУ кандидату
     if is_new:
