@@ -73,7 +73,7 @@ async def habr_integration(db_session: AsyncSession, admin_user) -> HabrIntegrat
 
 def _make_habr_user(
     login: str = "alexsmirn",
-    name: str = "Смирнов Алексей",
+    name: str = "Алексей Смирнов",  # Хабр-формат «Имя Фамилия»
     specialization: str = "Python Developer",
     city: str = "Москва",
     skills: list | None = None,
@@ -150,15 +150,14 @@ class TestHabrResponseUserMapper:
 
     def test_basic_fields(self):
         user = _make_habr_user(
-            name="Иванов Иван Сергеевич",
+            name="Иван Петров",
             specialization="Backend Developer",
             city="Санкт-Петербург",
         )
         result = _habr_response_user_to_normalized(user)
-        # ФИО из name (первый токен = фамилия)
-        assert result["last_name"] == "Иванов"
+        # ⚠️ Хабр отдаёт «Имя Фамилия» → первый токен = ИМЯ
         assert result["first_name"] == "Иван"
-        assert result["middle_name"] == "Сергеевич"
+        assert result["last_name"] == "Петров"
         assert result["city"] == "Санкт-Петербург"
         assert result["title"] == "Backend Developer"
         # Контакты ОТСУТСТВУЮТ в отклике
@@ -359,7 +358,7 @@ class TestImportHabrResponse:
         item = _make_response_item(
             response_id="habr-resp-name",
             login="ivpetrov",
-            name="Петров Иван Сергеевич",
+            name="Иван Петров Сергеевич",  # Хабр-формат «Имя Фамилия [Отчество]»
         )
 
         await import_habr_response(

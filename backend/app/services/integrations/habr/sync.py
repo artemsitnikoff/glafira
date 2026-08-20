@@ -63,11 +63,13 @@ def _habr_response_user_to_normalized(user: dict) -> dict:
     ⚠️ phone/email в response.user ОТСУТСТВУЮТ (только через платный /contacts).
     Кандидат создаётся БЕЗ контактов. Для получения контактов — open_habr_contacts().
     """
-    # --- ФИО из поля name (формат: «Фамилия Имя» или «Имя Фамилия») ---
+    # --- ФИО из поля name ---
+    # ⚠️ Хабр отдаёт «Имя Фамилия» (проверено живьём: «Ilya Zdesenko», «Микаель Аветисян»).
+    # Раньше маппер брал первое слово как фамилию → ФИО было перепутано.
     full_name = (user.get("name") or "").strip()
     parts = full_name.split() if full_name else []
-    last_name = parts[0] if len(parts) >= 1 else ""
-    first_name = parts[1] if len(parts) >= 2 else ""
+    first_name = parts[0] if len(parts) >= 1 else ""
+    last_name = parts[1] if len(parts) >= 2 else ""
     middle_name = parts[2] if len(parts) >= 3 else None
 
     # --- Город ---
@@ -399,7 +401,7 @@ async def import_habr_response(
     if login:
         try:
             profile = await habr_client.get_user_profile(access_token, login)
-            prof = _habr_profile_to_normalized(profile)
+            prof = _habr_profile_to_normalized(profile) if isinstance(profile, dict) else {}
             for k in ("city", "title", "experience", "skill_set", "education",
                       "phone", "email", "messengers"):
                 if prof.get(k):
