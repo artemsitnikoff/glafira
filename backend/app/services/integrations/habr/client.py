@@ -6,6 +6,7 @@
 Секреты (access_token) НЕ логируются нигде в этом модуле.
 """
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -15,6 +16,22 @@ from ....config import settings
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 30.0
+
+
+def normalize_habr_vacancy_id(raw: str) -> str:
+    """Числовой id вакансии Хабра из того, что ввёл пользователь.
+
+    Терпит и чистый id ('1000168230'), и полный URL
+    ('https://career.habr.com/vacancies/1000168230' — из него достаём цифры).
+    Иначе — последний сегмент пути. Иначе поведение при чистом id не меняется.
+    Нужно потому, что в форме привязки легко вставить ссылку целиком → API-URL
+    ломается (URL внутри URL → Хабр отдаёт HTML → «не-JSON ответ»).
+    """
+    s = (raw or "").strip()
+    m = re.search(r"vacancies/(\d+)", s)
+    if m:
+        return m.group(1)
+    return s.rstrip("/").split("/")[-1] if s else s
 
 
 def _make_headers(access_token: str) -> dict[str, str]:
@@ -71,12 +88,14 @@ async def get_vacancy_responses(
     Raises:
         ValueError: HTTP >= 400, не-JSON, сетевая ошибка.
     """
+    # Терпим полный URL в vacancy_id (старые привязки/вставка ссылки) — достаём id.
+    vid = normalize_habr_vacancy_id(vacancy_id)
     base = settings.HABR_API_BASE
-    url = f"{base}/vacancies/{vacancy_id}/responses"
+    url = f"{base}/vacancies/{vid}/responses"
 
     params: dict[str, Any] = {"page": page}
 
-    logger.info("[habr] GET %s?page=%d", url, page)
+    logger.info("[habr] GET %s?page=%d (raw id=%s)", url, page, vacancy_id)
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             resp = await client.get(url, headers=_make_headers(access_token), params=params)

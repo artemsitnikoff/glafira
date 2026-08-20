@@ -966,3 +966,18 @@ class TestGetValidAccessTokenHabr:
 
         token = await get_valid_access_token_habr(db_session, admin_user.company_id)
         assert token == "no-expires-token"
+
+
+def test_normalize_habr_vacancy_id():
+    """id вакансии Хабра нормализуется: полная ссылка → числовой id, чистый id — как есть.
+
+    Регресс на реальный баг: в форме привязки вставили ссылку целиком
+    (https://career.habr.com/vacancies/1000168230), из-за чего API-URL ломался
+    (URL внутри URL → Хабр отдавал HTML → «не-JSON ответ»), откликов приходило 0."""
+    from app.services.integrations.habr.client import normalize_habr_vacancy_id
+
+    assert normalize_habr_vacancy_id("https://career.habr.com/vacancies/1000168230") == "1000168230"
+    assert normalize_habr_vacancy_id("https://career.habr.com/vacancies/1000168230/") == "1000168230"
+    assert normalize_habr_vacancy_id("https://career.habr.com/vacancies/1000168230?utm=1") == "1000168230"
+    assert normalize_habr_vacancy_id("1000168230") == "1000168230"
+    assert normalize_habr_vacancy_id("  1000168230  ") == "1000168230"

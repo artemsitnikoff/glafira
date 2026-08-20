@@ -968,14 +968,16 @@ async def link_habr_vacancy(
     if not vacancy:
         raise NotFoundError("Вакансия не найдена")
 
-    vacancy.habr_vacancy_id = habr_vacancy_id
+    # Нормализуем: пользователь мог вставить полную ссылку вместо числового id.
+    normalized_id = habr_client.normalize_habr_vacancy_id(habr_vacancy_id)
+    vacancy.habr_vacancy_id = normalized_id
 
     await audit(
         session,
         action="habr_vacancy_linked",
         entity_type="vacancy",
         entity_id=vacancy_id,
-        after={"habr_vacancy_id": habr_vacancy_id},
+        after={"habr_vacancy_id": normalized_id},
         actor_user_id=user_id,
         company_id=company_id,
     )
