@@ -581,6 +581,16 @@ async def import_habr_response(
         application = existing_app
         await session.flush()
 
+    # Диагностика импорта (без PII: логин Хабра публичен, значения контактов НЕ пишем)
+    logger.info(
+        "[habr] импорт rid=%s login=%s: %s | опыт=%d навыки=%d образование=%d | контакты(тел=%s email=%s)",
+        response_id, login, ("created" if existing_app is None else "updated"),
+        len(normalized.get("experience") or []),
+        len(normalized.get("skill_set") or []),
+        len((normalized.get("education") or {}).get("primary") or []),
+        "да" if phone else "нет", "да" if email else "нет",
+    )
+
     # --- Аудит ---
     action = "habr_response_imported" if existing_app is None else "habr_response_updated"
     await audit(

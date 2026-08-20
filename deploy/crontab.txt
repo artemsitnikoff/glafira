@@ -20,6 +20,9 @@
 # Импорт новых откликов с hh.ru в воронку.
 */5 * * * * /usr/bin/flock -n /tmp/glafira-hh-import.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_hh_responses' >> /var/www/glafira/hh-import.log 2>&1
 
+# Импорт новых откликов с Хабр Карьера в воронку (резюме+контакты из /users/{login}, v1.7.14).
+*/5 * * * * /usr/bin/flock -n /tmp/glafira-habr.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.poll_habr_responses' >> /var/www/glafira/habr.log 2>&1
+
 # Синхронизация отказов hh: отклонённых у нас кандидатов с hh_negotiation_id отклоняет на hh.ru
 # (PUT /negotiations/discard) + вежливое сообщение в чат; идемпотентно (hh_discard_synced_at).
 */5 * * * * /usr/bin/flock -n /tmp/glafira-hh-reject.lock -c 'cd /var/www/glafira && docker compose -f docker-compose.prod.yml run --rm backend python -m app.jobs.sync_hh_rejections' >> /var/www/glafira/hh-reject.log 2>&1
