@@ -109,9 +109,10 @@ class Settings(BaseSettings):
     HABR_TOKEN_URL: str = "https://career.habr.com/integrations/oauth/token"
     HABR_SCOPE: str = ""  # scope неизвестен — добавляется в authorize URL ТОЛЬКО если непустой
 
-    # HABR_API_BASE — base URL API Хабр Карьера (подтверждён документацией).
-    # Конфигурируемый через .env на VPS при необходимости смены пути.
-    HABR_API_BASE: str = "https://career.habr.com/v1/integrations"
+    # HABR_API_BASE — base URL API Хабр Карьера. ⚠️ Верный путь — С префиксом /api/
+    # (проверено живым пробингом на токене работодателя 2026-08-20: /api/v1/integrations/vacancies
+    # → 200; без /api → 404). Прежний дефолт был БЕЗ /api → все запросы летели в 404.
+    HABR_API_BASE: str = "https://career.habr.com/api/v1/integrations"
 
     # Telegram MTProto user-аккаунт (my.telegram.org) — одно приложение на инстанс.
     # TELETHON_* имеют приоритет над TELEGRAM_* (так можно задать любые из двух пар).
