@@ -248,7 +248,11 @@ export function CandidateHeader({ candidateId, application }: Props) {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                {candidate.source === 'hh' ? 'Открыть на hh.ru' : 'Открыть оригинал'}
+                {candidate.source === 'hh'
+                  ? 'Открыть на hh.ru'
+                  : candidate.source === 'habr'
+                    ? 'Открыть на Хабр Карьере'
+                    : 'Открыть оригинал'}
                 <Icon name="open" size={12} />
               </a>
             </div>

@@ -349,6 +349,10 @@ async def import_habr_response(
         candidate.city = city[:120]
     if title:
         candidate.last_position = title[:255]
+    # Ссылка на профиль кандидата на Хабр Карьере → кнопка «Открыть на Хабре» на карточке
+    # (механизм source_url уже есть в CandidateHeader). login = external_id кандидата.
+    if login:
+        candidate.source_url = f"https://career.habr.com/{login}"
     if salary_from is not None:
         candidate.salary_from = salary_from
         candidate.salary_expectation = salary_from  # синхронизация по invariant
