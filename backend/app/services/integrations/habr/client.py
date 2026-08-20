@@ -76,6 +76,7 @@ async def get_vacancy_responses(
 
     params: dict[str, Any] = {"page": page}
 
+    logger.info("[habr] GET %s?page=%d", url, page)
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             resp = await client.get(url, headers=_make_headers(access_token), params=params)
@@ -83,7 +84,23 @@ async def get_vacancy_responses(
         logger.warning("[habr] get_vacancy_responses network error — %s", exc)
         raise ValueError(f"Сетевая ошибка при получении откликов Хабра: {exc}") from exc
 
-    return _check_response(resp, f"получение откликов вакансии {vacancy_id}")
+    data = _check_response(resp, f"получение откликов вакансии {vacancy_id}")
+    # Диагностика формы ответа (без PII: только ключи/счётчики) — схема /responses
+    # на живом токене публично не пинилась, реальный ответ может отличаться от доки.
+    if isinstance(data, dict):
+        resp_list = data.get("responses")
+        logger.info(
+            "[habr] responses vacancy=%s page=%d: HTTP %d, top-keys=%s, responses=%s, pagination=%s",
+            vacancy_id, page, resp.status_code, list(data.keys()),
+            (len(resp_list) if isinstance(resp_list, list) else f"НЕ-список({type(resp_list).__name__})"),
+            data.get("pagination"),
+        )
+    else:
+        logger.info(
+            "[habr] responses vacancy=%s page=%d: ответ НЕ dict (%s)",
+            vacancy_id, page, type(data).__name__,
+        )
+    return data
 
 
 async def get_employer_vacancies(access_token: str) -> dict[str, Any]:
@@ -100,6 +117,7 @@ async def get_employer_vacancies(access_token: str) -> dict[str, Any]:
     base = settings.HABR_API_BASE
     url = f"{base}/vacancies"
 
+    logger.info("[habr] GET %s", url)
     try:
         async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT) as client:
             resp = await client.get(url, headers=_make_headers(access_token))
@@ -107,7 +125,18 @@ async def get_employer_vacancies(access_token: str) -> dict[str, Any]:
         logger.warning("[habr] get_employer_vacancies network error — %s", exc)
         raise ValueError(f"Сетевая ошибка при получении вакансий Хабра: {exc}") from exc
 
-    return _check_response(resp, "получение вакансий работодателя")
+    data = _check_response(resp, "получение вакансий работодателя")
+    # Диагностика: сколько вакансий Хабр отдаёт и их id — сверить с привязанным habr_vacancy_id.
+    if isinstance(data, dict):
+        vlist = data.get("vacancies")
+        ids = [v.get("id") for v in vlist if isinstance(v, dict)] if isinstance(vlist, list) else None
+        logger.info(
+            "[habr] employer vacancies: HTTP %d, top-keys=%s, vacancies=%s, ids=%.300s",
+            resp.status_code, list(data.keys()),
+            (len(vlist) if isinstance(vlist, list) else f"НЕ-список({type(vlist).__name__})"),
+            str(ids),
+        )
+    return data
 
 
 async def get_user_profile(access_token: str, login: str) -> dict[str, Any]:

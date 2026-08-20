@@ -475,6 +475,18 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
     )
     existing_rids = {str(r[0]) for r in existing_rows if r[0] is not None}
 
+    logger.info(
+        "[habr] poll старт: компания=%s, привязанных вакансий=%d, habr_vacancy_ids=%s, "
+        "уже импортировано откликов=%d",
+        company_id, len(vacancies),
+        [v.habr_vacancy_id for v in vacancies], len(existing_rids),
+    )
+    if not vacancies:
+        logger.info(
+            "[habr] poll: НЕТ вакансий с habr_vacancy_id — привяжите вакансию к Хабру "
+            "(Вакансия → Хабр). Проверять нечего."
+        )
+
     stats: dict = {
         "imported": 0,
         "updated": 0,
@@ -484,6 +496,10 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
     }
 
     for vacancy in vacancies:
+        logger.info(
+            "[habr] poll вакансия глафиры=%s (%s) → habr_vacancy_id=%s",
+            vacancy.id, vacancy.name, vacancy.habr_vacancy_id,
+        )
         page = 1
         while True:
             try:
@@ -507,7 +523,19 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
 
             # Структура ответа: { responses: [...], pagination: {total, page, per} }
             items = data.get("responses") or []
+            logger.info(
+                "[habr] poll вакансия=%s стр.%d: получено откликов=%d, pagination=%s",
+                vacancy.habr_vacancy_id, page, len(items), data.get("pagination"),
+            )
             if not items:
+                # 0 откликов → логируем реальную структуру ответа (PII нет — откликов ноль),
+                # чтобы запиннить схему, если ключ откликов НЕ 'responses' (как было с Talantix).
+                logger.info(
+                    "[habr] poll вакансия=%s: 0 откликов на стр.%d. top-keys=%s | сырой ответ (обрезан): %.600s",
+                    vacancy.habr_vacancy_id, page,
+                    list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                    str(data),
+                )
                 break
 
             for item in items:
@@ -546,6 +574,12 @@ async def poll_habr_responses_now(session: AsyncSession, company_id: UUID) -> di
                 break
             page += 1
 
+    logger.info(
+        "[habr] poll финал: компания=%s, импортировано=%d, обновлено=%d, пропущено=%d, "
+        "вакансий=%d, ошибок=%d",
+        company_id, stats["imported"], stats["updated"], stats["skipped"],
+        stats["vacancies"], len(stats["errors"]),
+    )
     return stats
 
 
