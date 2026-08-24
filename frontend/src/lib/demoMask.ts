@@ -71,6 +71,9 @@ export function maskPiiDeep(data: unknown): void {
   if ('source_url' in o && o.source_url) o.source_url = null;
   if ('birth_date' in o && o.birth_date) o.birth_date = null;
   if ('messengers' in o && Array.isArray(o.messengers)) o.messengers = [];
+  // Свободный текст резюме может содержать имя/телефон внутри — прячем целиком.
+  if ('resume_summary' in o && o.resume_summary) o.resume_summary = '(скрыто для показа)';
+  if ('resume_text' in o && o.resume_text) o.resume_text = '(скрыто для показа)';
 
   for (const key of Object.keys(o)) {
     const v = o[key];
