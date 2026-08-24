@@ -2,6 +2,7 @@ import axios, { AxiosError } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/store/authStore';
 import type { ApiError } from './aliases';
+import { demoMaskActive, maskPiiDeep } from '@/lib/demoMask';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -44,7 +45,19 @@ function runRefresh(): Promise<string> {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Демо-маскировка ПДн: только пока открыта демо-вакансия (по URL) и не для /auth/*
+    // (имя залогиненного рекрутёра в сайдбаре оставляем настоящим). БД не трогается.
+    try {
+      const url = response.config?.url || '';
+      if (demoMaskActive() && !url.includes('/auth/')) {
+        maskPiiDeep(response.data);
+      }
+    } catch {
+      /* маскировка не должна ломать ответ */
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     const original = error.config as RetriableConfig | undefined;
     const isRefreshCall = original?.url?.endsWith('/auth/refresh');
