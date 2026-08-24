@@ -16,25 +16,26 @@ export function demoMaskActive(): boolean {
   return !!m && DEMO_VACANCY_IDS.has(m[1].toLowerCase());
 }
 
-// Пул фейковых ФИО [Фамилия, Имя, Отчество] — назначается детерминированно по исходному
-// имени (одно и то же реальное имя → всегда одно фейковое, чтобы в списке и карточке совпадало).
-const FAKE_NAMES: ReadonlyArray<readonly [string, string, string]> = [
-  ['Иванов', 'Иван', 'Иванович'],
-  ['Петров', 'Пётр', 'Сергеевич'],
-  ['Смирнов', 'Алексей', 'Андреевич'],
-  ['Кузнецов', 'Дмитрий', 'Николаевич'],
-  ['Соколов', 'Максим', 'Викторович'],
-  ['Попова', 'Анна', 'Сергеевна'],
-  ['Новикова', 'Мария', 'Александровна'],
-  ['Морозов', 'Артём', 'Игоревич'],
-  ['Волкова', 'Елена', 'Дмитриевна'],
-  ['Лебедев', 'Игорь', 'Олегович'],
-];
+// Один фейк на пол (по просьбе заказчика). Пол определяем ПО ИСХОДНОМУ ФИО (скан всех
+// токенов: отчество на вна/вич или женское окончание фамилии) — а НЕ по полю gender,
+// которого нет в строке списка. Список и карточка держат одно и то же full_name → пол
+// определяется одинаково → фейк в списке и карточке СОВПАДАЕТ.
+const MALE_NAME: readonly [string, string, string] = ['Иванов', 'Иван', 'Иванович'];
+const FEMALE_NAME: readonly [string, string, string] = ['Дементьева', 'Глафира', 'Ивановна'];
 
-function hashStr(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
+function nameIsFemale(o: Record<string, unknown>): boolean {
+  const full = String(
+    o.full_name || `${o.last_name || ''} ${o.first_name || ''} ${o.middle_name || ''}`
+  ).toLowerCase();
+  const toks = full.split(/\s+/).filter(Boolean);
+  for (const t of toks) {
+    if (/(вна|чна)$/.test(t)) return true;   // женское отчество
+    if (/(ич|ыч)$/.test(t)) return false;    // мужское отчество
+  }
+  for (const t of toks) {
+    if (/(ова|ева|ёва|ина|ына|ская|цкая|ая)$/.test(t)) return true;  // женская фамилия
+  }
+  return false;  // по умолчанию — мужской
 }
 
 const MASK_PHONE = '+7 (XXX) XXX-XX-XX';
@@ -56,9 +57,7 @@ export function maskPiiDeep(data: unknown): void {
 
   const hasName = 'first_name' in o || 'last_name' in o || 'full_name' in o;
   if (hasName) {
-    const seed =
-      String(o.last_name || '') + '|' + String(o.first_name || '') + '|' + String(o.full_name || '');
-    const [last, first, middle] = FAKE_NAMES[hashStr(seed) % FAKE_NAMES.length];
+    const [last, first, middle] = nameIsFemale(o) ? FEMALE_NAME : MALE_NAME;
     if ('first_name' in o && o.first_name) o.first_name = first;
     if ('last_name' in o && o.last_name) o.last_name = last;
     if ('middle_name' in o && o.middle_name) o.middle_name = middle;
