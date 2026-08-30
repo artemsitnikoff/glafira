@@ -344,3 +344,41 @@ async def test_resume_sections_reparent_and_no_dup(db_session, test_company, adm
     # только СВОЙ опыт survivor (1), loser'ов опыт удалён (не 2)
     assert await _count(db_session, CandidateExperience, candidate_id=s2.id) == 1
     assert await _count(db_session, CandidateExperience, candidate_id=l2.id) == 0
+
+
+# --- 9. плейсхолдер-телефон НЕ образует компонента (защита от смешения) -------
+
+@pytest.mark.asyncio
+async def test_placeholder_phone_not_merged(db_session, test_company, admin_user):
+    cid = test_company.id
+    # РАЗНЫЕ люди с плейсхолдер-телефоном (все нули / 8-800) и разными email → не мержим
+    await _mk_candidate(db_session, cid, last_name="Иванов", phone="70000000000", email="a@x.ru")
+    await _mk_candidate(db_session, cid, last_name="Иванов", phone="70000000000", email="b@y.ru")
+    await _mk_candidate(db_session, cid, last_name="Петров", phone="78005553535", email="c@z.ru")
+    await _mk_candidate(db_session, cid, last_name="Петров", phone="78005553535", email="d@w.ru")
+    await db_session.flush()
+
+    candidates = await load_company_candidates(db_session, cid)
+    components, _review = compute_components(candidates)
+    # плейсхолдер-ключи отброшены → ни рёбер, ни компонентов (никого не слили)
+    assert components == []
+
+
+# --- 10. пустая фамилия НЕ бриджит разных людей с общим телефоном -------------
+
+@pytest.mark.asyncio
+async def test_empty_lastname_not_bridged(db_session, test_company, admin_user):
+    cid = test_company.id
+    # пустая фамилия + двое с разными фамилиями, общий телефон, разные email
+    c_empty = await _mk_candidate(db_session, cid, last_name="", first_name="Аноним",
+                                  phone="79001112200", email="e@x.ru")
+    c_p = await _mk_candidate(db_session, cid, last_name="Петров", phone="79001112200", email="p@x.ru")
+    c_s = await _mk_candidate(db_session, cid, last_name="Сидоров", phone="79001112200", email="s@x.ru")
+    await db_session.flush()
+
+    candidates = await load_company_candidates(db_session, cid)
+    components, review = compute_components(candidates)
+    # пустая фамилия НЕ даёт сильного ребра → авто-мержа нет, все в review (на глаза)
+    assert components == []
+    review_ids = {r.candidate_id for r in review}
+    assert {c_empty.id, c_p.id, c_s.id} <= review_ids

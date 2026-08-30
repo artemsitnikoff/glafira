@@ -18,6 +18,7 @@
 ⚠️ Уникальные констрейнты, которые обязаны быть обработаны, иначе UPDATE оборвёт
 транзакцию: candidate_tags(candidate_id,tag_id), candidate_embeddings(candidate_id),
 message_reads(user_id,candidate_id), ai_evaluations(candidate_id,application_id),
+employees(application_id) uq_employees_application_id (коллизия «нанят дважды»),
 comments talantix-partial(company_id,candidate_id,external_id), applications partial
 (company_id,hh_negotiation_id)/(…habr_response_id)/(…avito_application_id).
 """
@@ -111,12 +112,24 @@ def _last_name_key(last_name: str | None) -> str:
     return _NUM_PREFIX_RE.sub("", str(last_name).strip()).strip().lower()
 
 
-def _last_name_match(a: str | None, b: str | None) -> bool:
-    """Совпадение фамилий: равны после нормализации ИЛИ одна из сторон пустая."""
+def _last_name_strong(a: str | None, b: str | None) -> bool:
+    """Строгое совпадение фамилий для СИЛЬНОГО ребра: ОБЕ непусты и равны после
+    нормализации. Пустая фамилия = «неизвестно», НЕ совпадение — иначе кандидат с
+    пустой фамилией бриджил бы РАЗНЫХ людей, делящих один телефон (в review, не мерж)."""
     ka, kb = _last_name_key(a), _last_name_key(b)
-    if not ka or not kb:
-        return True
-    return ka == kb
+    return bool(ka) and bool(kb) and ka == kb
+
+
+# Вырожденные ключи (плейсхолдер/мусорный телефон, общий корп-номер): НЕ образуют
+# рёбер, иначе схлопнули бы РАЗНЫХ людей в один компонент. Реальный максимум живой
+# группы на проде — 8; порог берём с запасом. Плейсхолдер-телефоны: все одинаковые
+# цифры (0000000000) и горячая линия 8-800 (её вписывают «за компанию»).
+MAX_KEY_GROUP = 15
+_PLACEHOLDER_PHONE_RE = re.compile(r"^(?:(\d)\1{9}|800\d{7})$")
+
+
+def _is_placeholder_phone(key: str) -> bool:
+    return bool(_PLACEHOLDER_PHONE_RE.match(key))
 
 
 def _strip_num_prefix(value: str | None) -> str | None:
@@ -178,8 +191,13 @@ def compute_components(
     phone_groups = _index(lambda c: _phone_key(c.phone))
     email_groups = _index(lambda c: _email_key(c.email))
 
+    # Плейсхолдер-телефоны не образуют рёбер (0000000000 / 8-800 — не личный номер).
+    phone_groups = {k: v for k, v in phone_groups.items() if not _is_placeholder_phone(k)}
+
     def _add_pairs(groups: dict[str, list[UUID]], slot: int) -> None:
         for ids in groups.values():
+            if len(ids) > MAX_KEY_GROUP:
+                continue  # вырожденный ключ (плейсхолдер/общий) — рёбер не строим
             for i in range(len(ids)):
                 for j in range(i + 1, len(ids)):
                     key = frozenset((ids[i], ids[j]))
@@ -195,7 +213,7 @@ def compute_components(
     weak_pairs: list[tuple[UUID, UUID]] = []
     for key, (shares_phone, shares_email) in pair_flags.items():
         a_id, b_id = tuple(key)
-        ln_match = _last_name_match(by_id[a_id].last_name, by_id[b_id].last_name)
+        ln_match = _last_name_strong(by_id[a_id].last_name, by_id[b_id].last_name)
         strong = (
             (shares_phone and shares_email)
             or (shares_phone and ln_match)
@@ -332,12 +350,15 @@ async def merge_component(
     now = now or datetime.now(timezone.utc)
 
     # Живые члены (уже слитые проигравшие имеют deleted_at → выпадают).
+    # populate_existing=True: перечитать ВСЕ поля, даже если инстанс уже в сессии с
+    # expired-полями (created_at/extra — server_default). Иначе синхронный доступ к
+    # expired-полю в sorted(key=…created_at) ниже → MissingGreenlet (грабля identity-map).
     res = await session.execute(
         select(Candidate).where(
             Candidate.id.in_(member_ids),
             Candidate.company_id == company_id,
             Candidate.deleted_at.is_(None),
-        )
+        ).execution_options(populate_existing=True)
     )
     members = list(res.scalars().all())
     if len(members) < 2:
@@ -371,7 +392,13 @@ async def merge_component(
     )
 
     result = ComponentResult(company_id=company_id, survivor_id=S, merged_ids=loser_ids)
+    # hh_seen_nids: объединяем survivor + ВСЕХ проигравших (+ nid коллизий ниже). Иначе
+    # «увиденные» nid проигравших потерялись бы и поллер v1.7.22 взял бы эти отклики заново.
     seen_nids: list[str] = list((survivor.extra or {}).get("hh_seen_nids") or [])
+    for _m in losers:
+        for _n in ((_m.extra or {}).get("hh_seen_nids") or []):
+            if _n not in seen_nids:
+                seen_nids.append(_n)
 
     # --- 4a. Заявки: план коллизий ------------------------------------------
     app_res = await session.execute(
@@ -412,17 +439,30 @@ async def merge_component(
 
     # --- 4b. ДЕТЕЙ проигравших заявок → winner-app (ДО удаления заявок, иначе
     #         CASCADE их сотрёт). ai_evaluations — отдельно (уник + dedup). -----
+    # winner-заявки, у которых УЖЕ есть Employee: второй на них не переносим (уник
+    # uq_employees_application_id оборвал бы компонент). loser-Employee останется на
+    # своей заявке → при её DELETE ниже FK SET NULL обнулит application_id (сам Employee
+    # уцелеет, candidate_id уедет на survivor в общем reparent). Случай «нанят дважды».
+    winner_has_emp: set = set()
+    if app_remap:
+        _emp_rows = await session.execute(
+            select(Employee.application_id).where(Employee.application_id.in_(set(app_remap.values())))
+        )
+        winner_has_emp = {r[0] for r in _emp_rows.all() if r[0] is not None}
     for losing_id, winner_id in app_remap.items():
         for model in (StageHistory, Comment, Message, TestAssignment, TestAttempt, TestResult, InterviewLink):
             await _exec(
                 session,
                 update(model).where(model.application_id == losing_id).values(application_id=winner_id),
             )
-        # employees.application_id (SET NULL) — переуказываем на winner.
-        await _exec(
-            session,
-            update(Employee).where(Employee.application_id == losing_id).values(application_id=winner_id),
-        )
+        # employees.application_id → winner ТОЛЬКО если у winner ещё нет Employee.
+        if winner_id not in winner_has_emp:
+            res_emp = await session.execute(
+                update(Employee).where(Employee.application_id == losing_id).values(application_id=winner_id),
+                execution_options={"synchronize_session": False},
+            )
+            if (res_emp.rowcount or 0) > 0:
+                winner_has_emp.add(winner_id)  # занят — следующий loser сюда не перенесём
 
     # ai_evaluations: candidate_id=S + application_id (remap) + dedup (candidate_id, application_id).
     # Делаем ДО удаления заявок (FK на applications = CASCADE).
@@ -504,8 +544,19 @@ async def merge_component(
     if tag_reparent:
         await _exec(session, update(CandidateTag).where(CandidateTag.id.in_(tag_reparent)).values(candidate_id=S))
 
-    # --- candidate_embeddings: survivor оставляем, проигравших удаляем --------
-    await _exec(session, delete(CandidateEmbedding).where(CandidateEmbedding.candidate_id.in_(loser_ids)))
+    # --- candidate_embeddings: survivor оставляем; если у него НЕТ вектора, а у
+    #     проигравшего есть — переносим ОДИН (богатейшего), чтобы survivor не выпал из
+    #     семантического поиска (уник candidate_id → только один). Остальных удаляем.
+    emb_res = await session.execute(
+        select(CandidateEmbedding.candidate_id).where(CandidateEmbedding.candidate_id.in_(live_ids))
+    )
+    emb_owners = {r[0] for r in emb_res.all()}
+    adopt_emb = None if S in emb_owners else next((m.id for m in losers_by_rich if m.id in emb_owners), None)
+    if adopt_emb is not None:
+        await _exec(session, update(CandidateEmbedding).where(CandidateEmbedding.candidate_id == adopt_emb).values(candidate_id=S))
+    drop_emb = [lid for lid in loser_ids if lid != adopt_emb]
+    if drop_emb:
+        await _exec(session, delete(CandidateEmbedding).where(CandidateEmbedding.candidate_id.in_(drop_emb)))
 
     # --- message_reads: одна строка на user_id, last_read_at = max -----------
     mr_res = await session.execute(
