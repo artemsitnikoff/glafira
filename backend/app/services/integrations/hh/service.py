@@ -24,6 +24,7 @@ from ....services.company_display import resolve_company_display_name
 from ....services.storage import storage_service
 from ....core.errors import ValidationError, NotFoundError
 from ....services.phone import normalize_phone
+from ....services.candidate_dedup import find_duplicate_candidates
 from ....services.photo_proxy import build_photo_proxy_url
 from ....schemas.vacancy import VacancyCreate
 from ....services.vacancy import create_vacancy
@@ -1570,7 +1571,7 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
     # vacancy_closed/to_other_vacancy) — это завершённый/отклонённый отклик → «Отказ».
     stage = "rejected" if str(state_id).startswith("discard") else "response"
 
-    # --- Существующая заявка? (create-or-update) ---
+    # --- Существующая заявка по hh_negotiation_id? (create-or-update / re-poll) ---
     existing = (await session.execute(
         select(Application).where(
             Application.hh_negotiation_id == nid,
@@ -1578,108 +1579,221 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         )
     )).scalar_one_or_none()
 
+    # Флаги резолва кандидата:
+    #   is_new           — создан НОВЫЙ Candidate (нет ни заявки по nid, ни дедуп-матча).
+    #   reused_via_dedup — взят СУЩЕСТВУЮЩИЙ кандидат НЕ по nid (по resume_id или phone/email).
+    #                      Для него бережём данные: скаляры только в пустое, источник и
+    #                      секции резюме не трогаем (мог прийти из talantix/потока/вручную).
+    is_new = False
+    reused_via_dedup = False
+
     if existing:
+        # Тот же отклик уже импортирован — обновляем данные кандидата (re-poll).
         candidate = await session.get(Candidate, existing.candidate_id)
-        is_new = candidate is None
         if candidate is None:
+            # Заявка есть, а кандидат пропал (каскад/ручное удаление) — восстанавливаем.
             candidate = Candidate(company_id=company_id, source="hh", first_name="Неизвестно", last_name="")
             session.add(candidate)
+            is_new = True
     else:
-        candidate = Candidate(company_id=company_id, source="hh", first_name="Неизвестно", last_name="")
-        session.add(candidate)
-        is_new = True
+        # Нового nid ещё нет. Прежде чем плодить карточку — 3-уровневый дедуп (как у Habr):
+        #   a) по resume_id (external_source='hh', external_id=resume_id);
+        #   b) по телефону/email (тот же человек мог прийти из другого источника);
+        #   c) иначе — новый кандидат.
+        candidate = None
+        if resume_id:
+            candidate = (await session.execute(
+                select(Candidate).where(
+                    Candidate.company_id == company_id,
+                    Candidate.external_source == "hh",
+                    Candidate.external_id == resume_id,
+                    Candidate.deleted_at.is_(None),
+                )
+            )).scalars().first()
+        if candidate is None and (phone or email):
+            duplicates = await find_duplicate_candidates(session, company_id, phone, email)
+            if duplicates:
+                candidate = duplicates[0]
+        if candidate is not None:
+            reused_via_dedup = True  # существующий кандидат НЕ по nid — бережём его данные
+        else:
+            candidate = Candidate(company_id=company_id, source="hh", first_name="Неизвестно", last_name="")
+            session.add(candidate)
+            is_new = True
 
-    # Заполняем поля (непустым значением — не затираем уже заполненное пустым)
+    # ФИО — всегда fill-non-empty (не затираем непустым пустым) для обеих политик.
     candidate.first_name = first_name or candidate.first_name or "Неизвестно"
     candidate.last_name = last_name or candidate.last_name or ""
-    if middle_name:
-        candidate.middle_name = middle_name
-    if city:
-        candidate.city = city[:120]
-    if gender:
-        candidate.gender = gender[:10]
-    if birth_date:
-        candidate.birth_date = birth_date
-    if phone:
-        candidate.phone = normalize_phone(phone) or phone[:20]
-    if email:
-        candidate.email = email[:255]
-    if isinstance(salary_amount, int):
-        candidate.salary_expectation = salary_amount
-        candidate.salary_from = salary_amount
-        candidate.salary_to = salary_amount
-    if salary_currency:
-        candidate.currency = str(salary_currency)[:3]
-    if last_position:
-        candidate.last_position = last_position[:255]
-    if last_company:
-        candidate.last_company = last_company[:255]
-    if last_period:
-        candidate.last_period = last_period[:120]
-    if resume_text:
-        candidate.resume_text = resume_text
-    candidate.source = "hh"
-    candidate.external_source = "hh"
-    if resume_id:
-        candidate.external_id = resume_id
-    # Ссылка на резюме hh.ru — заполняем при импорте (не затираем пустым)
-    if resume_alt_url:
-        candidate.source_url = resume_alt_url[:500]
+
+    if reused_via_dedup:
+        # Дедуп-матч существующего кандидата (НЕ по nid): бережём его данные —
+        # скаляры пишем ТОЛЬКО в пустое; источник и external_* НЕ трогаем (мог быть
+        # talantix/поток/manual); секции резюме ниже тоже не трогаем.
+        if middle_name and not candidate.middle_name:
+            candidate.middle_name = middle_name
+        if city and not candidate.city:
+            candidate.city = city[:120]
+        if gender and not candidate.gender:
+            candidate.gender = gender[:10]
+        if birth_date and not candidate.birth_date:
+            candidate.birth_date = birth_date
+        if phone and not candidate.phone:
+            candidate.phone = normalize_phone(phone) or phone[:20]
+        if email and not candidate.email:
+            candidate.email = email[:255]
+        if isinstance(salary_amount, int) and not candidate.salary_from:
+            candidate.salary_expectation = salary_amount
+            candidate.salary_from = salary_amount
+            candidate.salary_to = salary_amount
+            if salary_currency:
+                candidate.currency = str(salary_currency)[:3]
+        if last_position and not candidate.last_position:
+            candidate.last_position = last_position[:255]
+        if last_company and not candidate.last_company:
+            candidate.last_company = last_company[:255]
+        if last_period and not candidate.last_period:
+            candidate.last_period = last_period[:120]
+        if resume_text and not candidate.resume_text:
+            candidate.resume_text = resume_text
+        if resume_alt_url and not candidate.source_url:
+            candidate.source_url = resume_alt_url[:500]
+    else:
+        # is_new ИЛИ re-poll(nid): текущее поведение точь-в-точь — скаляры перезаписываются,
+        # источник помечается hh.
+        if middle_name:
+            candidate.middle_name = middle_name
+        if city:
+            candidate.city = city[:120]
+        if gender:
+            candidate.gender = gender[:10]
+        if birth_date:
+            candidate.birth_date = birth_date
+        if phone:
+            candidate.phone = normalize_phone(phone) or phone[:20]
+        if email:
+            candidate.email = email[:255]
+        if isinstance(salary_amount, int):
+            candidate.salary_expectation = salary_amount
+            candidate.salary_from = salary_amount
+            candidate.salary_to = salary_amount
+        if salary_currency:
+            candidate.currency = str(salary_currency)[:3]
+        if last_position:
+            candidate.last_position = last_position[:255]
+        if last_company:
+            candidate.last_company = last_company[:255]
+        if last_period:
+            candidate.last_period = last_period[:120]
+        if resume_text:
+            candidate.resume_text = resume_text
+        candidate.source = "hh"
+        candidate.external_source = "hh"
+        if resume_id:
+            candidate.external_id = resume_id
+        # Ссылка на резюме hh.ru — заполняем при импорте (не затираем пустым)
+        if resume_alt_url:
+            candidate.source_url = resume_alt_url[:500]
     await session.flush()
 
-    # Опыт/навыки/образование: при обновлении заменяем старые (от прежнего импорта)
-    if not is_new:
-        await session.execute(delete(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id))
-        await session.execute(delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id))
-        await session.execute(delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id))
+    # Опыт/навыки/образование:
+    #   reused_via_dedup → НЕ трогаем вовсе (бережём резюме существующего кандидата);
+    #   re-poll(nid)     → delete+add (пересоздаём от свежего резюме);
+    #   новый кандидат   → add (пусто было).
+    if reused_via_dedup:
+        pass
+    else:
+        if not is_new:
+            await session.execute(delete(CandidateExperience).where(CandidateExperience.candidate_id == candidate.id))
+            await session.execute(delete(CandidateSkill).where(CandidateSkill.candidate_id == candidate.id))
+            await session.execute(delete(CandidateEducation).where(CandidateEducation.candidate_id == candidate.id))
+        for row in build_candidate_resume_sections(candidate.id, company_id, resume):
+            session.add(row)
 
-    for row in build_candidate_resume_sections(candidate.id, company_id, resume):
-        session.add(row)
-
-    # Заявка: создать (этап по hh) или оставить как есть (этап не трогаем)
+    # Заявка: решение заказчика «одна строка на вакансию, этап не трогать».
     now = datetime.now(timezone.utc)
     chat_id_str = str(item.get("chat_id")) if item.get("chat_id") is not None else None
 
-    if existing is None:
-        application = Application(
-            company_id=company_id, candidate_id=candidate.id, vacancy_id=vacancy.id,
-            stage=stage, hh_negotiation_id=nid, hh_chat_id=chat_id_str,
-            # Импортирован из discard-коллекции = УЖЕ отклонён на hh → сразу synced,
-            # чтобы cron не пытался повторно отклонять (вернёт wrong_state).
-            hh_discard_synced_at=(now if stage == "rejected" else None),
-            created_at=now, selected_at=now,
-        )
-        session.add(application)
-        try:
-            # Savepoint: при гонке откатывается ТОЛЬКО этот INSERT, а не вся сессия.
-            # poll коммитит батч целиком — голый session.rollback() сметал бы уже
-            # импортированных в этом прогоне кандидатов/секции/audit_log.
-            async with session.begin_nested():
-                await session.flush()
-        except IntegrityError:
-            # Параллельный крон/клик успел INSERT раньше. После отката savepoint
-            # неудавшийся объект восстановлен в session.new — убираем его, иначе
-            # autoflush на ближайшем select пере-вставит его → снова IntegrityError.
-            if application in session:
-                session.expunge(application)
-            existing = (await session.execute(
-                select(Application).where(
-                    Application.hh_negotiation_id == nid,
-                    Application.company_id == company_id,
-                )
-            )).scalar_one_or_none()
-            if existing is None:
-                raise  # непредвиденная ошибка целостности — пробрасываем
-            application = existing
-    else:
+    if existing is not None:
+        # Re-poll того же отклика → заявка та же, этап НЕ трогаем.
         application = existing
         await session.flush()
+        result = "updated"
+    else:
+        # Новый nid. Если это ПЕРЕИСПОЛЬЗОВАННЫЙ кандидат и у него уже есть заявка на
+        # ЭТОЙ вакансии — вторую НЕ создаём (иначе тот же человек = N строк в воронке).
+        same_vac_app = None
+        if not is_new:
+            same_vac_app = (await session.execute(
+                select(Application).where(
+                    Application.company_id == company_id,
+                    Application.candidate_id == candidate.id,
+                    Application.vacancy_id == vacancy.id,
+                )
+            )).scalars().first()
+
+        if same_vac_app is not None:
+            # ВАРИАНТ 1: переиспользуем существующую заявку на этой вакансии.
+            # Этап / hh_negotiation_id / hh_chat_id НЕ меняем.
+            application = same_vac_app
+            # Запоминаем nid в кандидате, чтобы поллер НЕ передёргивал резюме каждый крон
+            # (переприсваиваем dict целиком — для dirty-tracking JSONB).
+            seen = list((candidate.extra or {}).get("hh_seen_nids") or [])
+            if nid not in seen:
+                seen.append(nid)
+                candidate.extra = {**(candidate.extra or {}), "hh_seen_nids": seen}
+            await session.flush()
+            result = "updated"  # поллер спец-обрабатывает только 'created'
+        else:
+            # Новый кандидат ЛИБО существующий на ДРУГОЙ вакансии → создаём заявку.
+            application = Application(
+                company_id=company_id, candidate_id=candidate.id, vacancy_id=vacancy.id,
+                stage=stage, hh_negotiation_id=nid, hh_chat_id=chat_id_str,
+                # Импортирован из discard-коллекции = УЖЕ отклонён на hh → сразу synced,
+                # чтобы cron не пытался повторно отклонять (вернёт wrong_state).
+                hh_discard_synced_at=(now if stage == "rejected" else None),
+                created_at=now, selected_at=now,
+            )
+            session.add(application)
+            try:
+                # Savepoint: при гонке откатывается ТОЛЬКО этот INSERT, а не вся сессия.
+                # poll коммитит батч целиком — голый session.rollback() сметал бы уже
+                # импортированных в этом прогоне кандидатов/секции/audit_log.
+                async with session.begin_nested():
+                    await session.flush()
+            except IntegrityError:
+                # Параллельный крон/клик успел INSERT раньше. После отката savepoint
+                # неудавшийся объект восстановлен в session.new — убираем его, иначе
+                # autoflush на ближайшем select пере-вставит его → снова IntegrityError.
+                if application in session:
+                    session.expunge(application)
+                existing_race = (await session.execute(
+                    select(Application).where(
+                        Application.hh_negotiation_id == nid,
+                        Application.company_id == company_id,
+                    )
+                )).scalar_one_or_none()
+                if existing_race is None:
+                    raise  # непредвиденная ошибка целостности — пробрасываем
+                application = existing_race
+            result = "created"
 
     # Единообразно пишем hh_resume_id + photo_url в extra (JSONB переприсваиваем
     # для dirty-tracking). Фото берём из УЖЕ полученного резюме — доп. сетевых
     # вызовов НЕТ; прокси-URL заполнит аватар в воронке/пуле/карточке.
     _photo_url = build_photo_proxy_url(resume.get("photo"))
-    if resume_id or _photo_url:
+    if reused_via_dedup:
+        # Бережём extra существующего кандидата: hh_resume_id/photo_url добавляем
+        # ТОЛЬКО если их ещё нет (не перетираем данные talantix/потока). При этом
+        # hh_seen_nids (мог быть записан выше) сохраняется как база словаря.
+        _cur_extra = candidate.extra or {}
+        _patch = {}
+        if resume_id and not _cur_extra.get("hh_resume_id"):
+            _patch["hh_resume_id"] = resume_id
+        if _photo_url and not _cur_extra.get("photo_url"):
+            _patch["photo_url"] = _photo_url
+        if _patch:
+            candidate.extra = {**_cur_extra, **_patch}
+    elif resume_id or _photo_url:
         candidate.extra = {
             **(candidate.extra or {}),
             **({"hh_resume_id": resume_id} if resume_id else {}),
@@ -1699,7 +1813,7 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
 
     await audit(
         session,
-        action=("hh_response_imported" if existing is None else "hh_response_updated"),
+        action=("hh_response_imported" if result == "created" else "hh_response_updated"),
         entity_type="application",
         entity_id=application.id,
         after={"candidate_name": f"{first_name} {last_name}".strip(), "hh_negotiation_id": nid, "stage": stage},
@@ -1708,7 +1822,6 @@ async def import_response(session: AsyncSession, company_id: UUID, vacancy: "Vac
         company_id=company_id,
     )
 
-    result = "created" if existing is None else "updated"
     # Журнал: ОТКУДА взяли + что с резюме. Пустой = ни опыта, ни навыков, ни должности
     # (такой уйдёт в скоринг как 0/bad — по логу видно, что виноват урезанный/недогруженный
     # резюме, а не сам кандидат). Причина обычно — fetch_error догрузки (см. resume_source).
@@ -1757,6 +1870,21 @@ async def poll_responses_now(session: AsyncSession, company_id: UUID) -> dict:
         )
     )
     existing_nids = {str(r[0]) for r in existing_rows if r[0] is not None}
+
+    # Плюс nid, «свёрнутые» в существующую заявку той же вакансии (дедуп, ВАРИАНТ 1):
+    # они НЕ висят на Application.hh_negotiation_id (заявка одна, nid другой), а лежат в
+    # candidate.extra['hh_seen_nids']. Без этого поллер каждый крон снова тянул бы их
+    # резюме (дорогой GET) и звал import_response. Строго company-scoped.
+    seen_rows = await session.execute(
+        select(Candidate.extra).where(
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None),
+            Candidate.extra.has_key("hh_seen_nids"),  # JSONB ? оператор
+        )
+    )
+    for (ex,) in seen_rows:
+        for x in (ex.get("hh_seen_nids") or []):
+            existing_nids.add(str(x))
 
     # Диагностику возвращаем В ОТВЕТЕ (а не в логи — кастомный logger.info может не
     # выводиться в docker logs, если root-логгер не на INFO). По каждой вакансии:
