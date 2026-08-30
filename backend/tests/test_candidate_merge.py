@@ -101,7 +101,7 @@ async def test_simple_merge_two_duplicates(db_session, test_company, admin_user)
 
     res = await merge_component(db_session, cid, [c1.id, c2.id])
     await db_session.commit()
-    db_session.expire_all()  # избегаем stale identity-map после Core UPDATE/commit
+    db_session.expunge_all()  # детач: значения PK сохраняются (синхронный доступ без IO), get() ниже перечитает свежее
 
     assert res.skipped is False and res.error is None
     assert res.survivor_id == c1.id
@@ -149,7 +149,7 @@ async def test_application_collision_most_advanced_wins(db_session, test_company
 
     res = await merge_component(db_session, cid, [c1.id, c2.id])
     await db_session.commit()
-    db_session.expire_all()
+    db_session.expunge_all()
 
     assert res.survivor_id == c1.id
     assert res.app_collisions_resolved == 1
@@ -193,7 +193,7 @@ async def test_survivor_is_employee_despite_poorer(db_session, test_company, adm
 
     res = await merge_component(db_session, cid, [c1.id, c2.id])
     await db_session.commit()
-    db_session.expire_all()
+    db_session.expunge_all()
 
     assert res.survivor_id == c1.id  # employee победил «богатство»
     loser = await db_session.get(Candidate, c2.id)
@@ -288,13 +288,13 @@ async def test_idempotent_second_merge_is_noop(db_session, test_company, admin_u
 
     res1 = await merge_component(db_session, cid, [c1.id, c2.id])
     await db_session.commit()
-    db_session.expire_all()
+    db_session.expunge_all()
     assert res1.skipped is False and res1.survivor_id == c1.id
 
     # повторный мерж того же компонента — no-op (loser уже удалён → живых <2)
     res2 = await merge_component(db_session, cid, [c1.id, c2.id])
     await db_session.commit()
-    db_session.expire_all()
+    db_session.expunge_all()
     assert res2.skipped is True
 
     surv = await db_session.get(Candidate, c1.id)
@@ -321,7 +321,7 @@ async def test_resume_sections_reparent_and_no_dup(db_session, test_company, adm
 
     resA = await merge_component(db_session, cid, [s1.id, l1.id])
     await db_session.commit()
-    db_session.expire_all()
+    db_session.expunge_all()
     assert resA.survivor_id == s1.id
     assert await _count(db_session, CandidateExperience, candidate_id=s1.id) == 1
     assert await _count(db_session, CandidateExperience, candidate_id=l1.id) == 0
@@ -339,7 +339,7 @@ async def test_resume_sections_reparent_and_no_dup(db_session, test_company, adm
 
     resB = await merge_component(db_session, cid, [s2.id, l2.id])
     await db_session.commit()
-    db_session.expire_all()
+    db_session.expunge_all()
     assert resB.survivor_id == s2.id
     # только СВОЙ опыт survivor (1), loser'ов опыт удалён (не 2)
     assert await _count(db_session, CandidateExperience, candidate_id=s2.id) == 1
