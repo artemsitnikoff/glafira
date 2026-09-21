@@ -247,6 +247,79 @@ async def get_employer_vacancies(access_token: str, employer_id: str, page: int 
             raise ValidationError(f"Ошибка получения вакансий hh.ru: {e}")
 
 
+async def get_manager_active_vacancies(
+    access_token: str,
+    employer_id: str,
+    manager_id: str | None = None,
+    page: int = 0,
+    per_page: int = 50,
+) -> list[dict]:
+    """
+    Активные вакансии работодателя через ЭНДПОИНТ УПРАВЛЕНИЯ (все страницы одним вызовом).
+
+    GET {HH_API_BASE}/employers/{employer_id}/vacancies/active
+
+    В отличие от публичного поиска GET /vacancies?employer_id= (get_employer_vacancies),
+    этот эндпоинт отдаёт И АНОНИМНЫЕ вакансии (type=anonymous — работодатель скрыт от
+    соискателей): публичный поиск такие к работодателю НЕ привязывает, поэтому там их
+    не видно. Листинг своих вакансий — БЕСПЛАТНО (квоту просмотров резюме не тратит).
+
+    Args:
+        access_token: access token работодателя
+        employer_id: ID работодателя на hh.ru
+        manager_id: опц. ID менеджера; по умолчанию hh берёт текущего менеджера токена
+                    (этого достаточно — токен работодателя видит свои вакансии)
+        page: стартовая страница (0-based)
+        per_page: размер страницы, КАП 50 (per_page > 50 → hh отдаёт 400)
+
+    Returns:
+        list[dict]: собранные item'ы всех страниц. Каждый item — как отдаёт hh,
+                    включая type={"id","name"}, area={"name"} и т.д.
+
+    Raises:
+        ValidationError: при сетевой/HTTP-ошибке (как у соседних вызовов клиента).
+    """
+    per_page = min(int(per_page or 50), 50)  # hh: per_page > 50 → 400
+    start = int(page or 0)
+
+    all_items: list[dict] = []
+    async with _get_client() as client:
+        # Предохранитель ≤ 20 страниц (1000 вакансий при per_page=50) — защита от
+        # аномального pages в ответе hh.
+        for current in range(start, start + 20):
+            params: dict = {"page": current, "per_page": per_page}
+            if manager_id:
+                params["manager_id"] = manager_id
+            try:
+                response = await client.get(
+                    f"{settings.HH_API_BASE}/employers/{employer_id}/vacancies/active",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=params,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except httpx.HTTPError as e:
+                raise ValidationError(
+                    f"Ошибка получения активных вакансий работодателя hh.ru: {e}"
+                )
+
+            if not isinstance(data, dict):
+                raise ValidationError(
+                    "Некорректный формат ответа hh.ru /employers/{id}/vacancies/active"
+                )
+
+            items = data.get("items") or []
+            if not items:
+                break
+            all_items.extend(items)
+
+            pages = data.get("pages", 1)
+            if current >= pages - 1:
+                break
+
+    return all_items
+
+
 async def get_negotiation_collections(access_token: str, vacancy_id: str) -> list[dict]:
     """Список коллекций откликов работодателя по вакансии.
 

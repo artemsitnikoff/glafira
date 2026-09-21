@@ -1026,10 +1026,9 @@ async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dic
     )
     linked_ids: set[str] = {str(row[0]) for row in linked_rows}
 
-    # Получаем все страницы (начинаем с первой)
-    all_items = []
+    # (1) Публичный поиск (как раньше) — открытые вакансии, привязанные к работодателю.
+    public_items: list[dict] = []
     page = 0
-
     # Кап страниц (2000 вакансий при per_page=50) — защита от аномального pages в ответе hh.
     while page < 40:
         data = await hh_client.get_employer_vacancies(
@@ -1040,7 +1039,7 @@ async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dic
         if not items:
             break
 
-        all_items.extend(items)
+        public_items.extend(items)
 
         # Проверяем, есть ли ещё страницы
         if page >= data.get("pages", 1) - 1:
@@ -1048,15 +1047,46 @@ async def list_hh_vacancies(session: AsyncSession, company_id: UUID) -> list[dic
 
         page += 1
 
-    # Возвращаем упрощённый список с признаком привязки
+    # (2) Эндпоинт УПРАВЛЕНИЯ — отдаёт И АНОНИМНЫЕ вакансии (type=anonymous), которые
+    # публичный поиск к работодателю НЕ привязывает. Fail-soft: если управляющий список
+    # недоступен (нет прав вебхука/сеть), НЕ роняем весь список — деградируем к публичному
+    # (прежнее поведение). Листинг бесплатен.
+    manager_items: list[dict] = []
+    try:
+        manager_items = await hh_client.get_manager_active_vacancies(
+            access_token, integration.hh_employer_id, per_page=50
+        )
+    except ValidationError as exc:
+        logger.warning(
+            "[hh] list_hh_vacancies: управляющий список недоступен, только публичный: %s", exc
+        )
+
+    # Мерж по id (dedup): публичные + анонимные менеджера. Порядок — публичные (в их
+    # порядке пагинации), затем найденные ТОЛЬКО в управляющем эндпоинте (обычно анонимные).
+    merged: dict[str, dict] = {}
+    for item in public_items + manager_items:
+        hh_id = str(item.get("id") or "")
+        if not hh_id:
+            continue
+        existing = merged.get(hh_id)
+        if existing is None:
+            merged[hh_id] = item
+        elif not (existing.get("type")) and item.get("type"):
+            # Публичный item первым — если у него не было type, добираем из менеджерского.
+            existing["type"] = item.get("type")
+
+    # Возвращаем упрощённый список с признаком привязки + типом (анонимность).
     result = []
-    for item in all_items:
-        hh_id = str(item["id"])
+    for hh_id, item in merged.items():
+        raw_type = item.get("type")
+        type_id = raw_type.get("id") if isinstance(raw_type, dict) else None
         result.append({
             "id": hh_id,
             "name": item.get("name", ""),
             "area": item.get("area", {}).get("name") if item.get("area") else None,
             "linked": hh_id in linked_ids,
+            "type": type_id,
+            "is_anonymous": type_id == "anonymous",
         })
 
     return result
@@ -1102,13 +1132,15 @@ async def import_hh_vacancies(
         target_ids = [vid for vid in hh_vacancy_ids if vid not in already_linked]
         skipped = len(hh_vacancy_ids) - len(target_ids)
     else:
-        # Получаем все вакансии работодателя пагинацией
+        # Получаем все вакансии работодателя из ДВУХ источников: публичный поиск +
+        # управляющий эндпоинт (последний отдаёт И АНОНИМНЫЕ). Merge/dedup по hh_id,
+        # чтобы «Создать все новые» подхватывало и анонимные вакансии.
         integration = await get_integration(session, company_id)
         if not integration or not integration.hh_employer_id:
             raise ValidationError("hh.ru не подключён или отсутствует hh_employer_id")
 
-        all_hh_ids: list[str] = []
-        skipped = 0
+        discovered: dict[str, None] = {}  # упорядоченное множество hh_id (dedup)
+
         page = 0
         # Кап страниц (2000 вакансий при per_page=50) — защита от аномального pages в ответе hh.
         while page < 40:
@@ -1119,14 +1151,34 @@ async def import_hh_vacancies(
             if not items:
                 break
             for item in items:
-                hid = str(item["id"])
-                if hid not in already_linked:
-                    all_hh_ids.append(hid)
-                else:
-                    skipped += 1  # реально попавшиеся в листинге и уже привязанные
+                discovered.setdefault(str(item["id"]), None)
             if page >= data.get("pages", 1) - 1:
                 break
             page += 1
+
+        # Управляющий эндпоинт — анонимные вакансии. Fail-soft: сбой НЕ роняет импорт
+        # публичных (деградируем к прежнему поведению).
+        try:
+            manager_items = await hh_client.get_manager_active_vacancies(
+                token, integration.hh_employer_id, per_page=50
+            )
+            for item in manager_items:
+                hid = str(item.get("id") or "")
+                if hid:
+                    discovered.setdefault(hid, None)
+        except ValidationError as exc:
+            logger.warning(
+                "[hh] import_hh_vacancies: управляющий список недоступен, только публичный: %s",
+                exc,
+            )
+
+        all_hh_ids: list[str] = []
+        skipped = 0
+        for hid in discovered:
+            if hid in already_linked:
+                skipped += 1  # реально попавшиеся в листинге и уже привязанные
+            else:
+                all_hh_ids.append(hid)
 
         target_ids = all_hh_ids
 

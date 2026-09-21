@@ -286,6 +286,10 @@ class TestListHhVacanciesLinked:
                 new_callable=AsyncMock,
                 return_value=mock_data,
             ), patch(
+                "app.services.integrations.hh.client.get_manager_active_vacancies",
+                new_callable=AsyncMock,
+                return_value=[],
+            ), patch(
                 "app.services.integrations.hh.service.get_valid_access_token",
                 new_callable=AsyncMock,
                 return_value="tok",
@@ -305,6 +309,126 @@ class TestListHhVacanciesLinked:
             # Убираем hh_vacancy_id с test_vacancy чтобы не влиять на другие тесты
             test_vacancy.hh_vacancy_id = None
             await db_session.commit()
+
+    async def test_merges_anonymous_from_manager_endpoint(self, db_session, test_company, admin_user):
+        """Публичный [open1] + управляющий [open1, anon1] → 2 уникальных, anon1.is_anonymous=True."""
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+        from cryptography.fernet import Fernet
+        import app.config as _cfg
+
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_anon",
+                access_token=encrypt_text("tok"),
+                refresh_token=encrypt_text("ref"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+            await db_session.commit()
+
+            # Публичный поиск отдаёт только открытую (open1); анонимная там не появляется.
+            public_data = {
+                "items": [
+                    {"id": "op1", "name": "Открытая", "area": {"name": "Москва"},
+                     "type": {"id": "open", "name": "Открытая"}},
+                ],
+                "pages": 1,
+                "page": 0,
+            }
+            # Управляющий эндпоинт отдаёт И open1 (дубль), И анонимную (an1).
+            manager_items = [
+                {"id": "op1", "name": "Открытая", "area": {"name": "Москва"},
+                 "type": {"id": "open", "name": "Открытая"}},
+                {"id": "an1", "name": "Аноним", "area": {"name": "Санкт-Петербург"},
+                 "type": {"id": "anonymous", "name": "Анонимная"}},
+            ]
+
+            with patch(
+                "app.services.integrations.hh.client.get_employer_vacancies",
+                new_callable=AsyncMock,
+                return_value=public_data,
+            ), patch(
+                "app.services.integrations.hh.client.get_manager_active_vacancies",
+                new_callable=AsyncMock,
+                return_value=manager_items,
+            ), patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ):
+                result = await hh_service.list_hh_vacancies(db_session, test_company.id)
+
+            # Дедуп по id: op1 (из обоих источников) склеен в одну запись + an1.
+            assert len(result) == 2
+            by_id = {r["id"]: r for r in result}
+            assert set(by_id) == {"op1", "an1"}
+            assert by_id["an1"]["is_anonymous"] is True
+            assert by_id["an1"]["type"] == "anonymous"
+            assert by_id["op1"]["is_anonymous"] is False
+            assert by_id["op1"]["type"] == "open"
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
+
+    async def test_manager_endpoint_failure_degrades_to_public(self, db_session, test_company, admin_user):
+        """Сбой управляющего эндпоинта (ValidationError) не роняет список — остаётся публичный."""
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+        from app.core.errors import ValidationError as AppValidationError
+        from cryptography.fernet import Fernet
+        import app.config as _cfg
+
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_degrade",
+                access_token=encrypt_text("tok"),
+                refresh_token=encrypt_text("ref"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+            await db_session.commit()
+
+            public_data = {
+                "items": [
+                    {"id": "pub1", "name": "Открытая", "area": None,
+                     "type": {"id": "open", "name": "Открытая"}},
+                ],
+                "pages": 1,
+                "page": 0,
+            }
+
+            with patch(
+                "app.services.integrations.hh.client.get_employer_vacancies",
+                new_callable=AsyncMock,
+                return_value=public_data,
+            ), patch(
+                "app.services.integrations.hh.client.get_manager_active_vacancies",
+                new_callable=AsyncMock,
+                side_effect=AppValidationError("нет прав"),
+            ), patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tok",
+            ):
+                result = await hh_service.list_hh_vacancies(db_session, test_company.id)
+
+            assert len(result) == 1
+            assert result[0]["id"] == "pub1"
+            assert result[0]["is_anonymous"] is False
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +599,92 @@ class TestImportHhVacancies:
             assert len(result["errors"]) == 1
             # Ни одна из переданных не была привязана заранее → skipped=0
             assert result["skipped"] == 0
+
+        finally:
+            _cfg.settings.FERNET_KEY = orig_key
+
+    async def test_import_all_discovers_anonymous(self, db_session, test_company, admin_user):
+        """Импорт всех новых (ids=None) находит анонимную вакансию через управляющий эндпоинт."""
+        from cryptography.fernet import Fernet
+        import app.config as _cfg
+        from app.services.settings.crypto import encrypt_text
+        from app.models import HhIntegration
+
+        test_key = Fernet.generate_key().decode()
+        orig_key = _cfg.settings.FERNET_KEY
+        _cfg.settings.FERNET_KEY = test_key
+
+        try:
+            integration = HhIntegration(
+                company_id=test_company.id,
+                hh_employer_id="emp_all_anon",
+                access_token=encrypt_text("tokx"),
+                refresh_token=encrypt_text("refx"),
+                expires_at=__import__("datetime").datetime(2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+            )
+            db_session.add(integration)
+            await db_session.commit()
+
+            # Публичный поиск отдаёт только открытую (hh_open); анонимной там нет.
+            public_data = {
+                "items": [{"id": "hh_open", "name": "Открытая", "area": None,
+                           "type": {"id": "open", "name": "Открытая"}}],
+                "pages": 1,
+                "page": 0,
+            }
+            # Управляющий эндпоинт добавляет анонимную (hh_anon) + дубль открытой.
+            manager_items = [
+                {"id": "hh_open", "name": "Открытая", "type": {"id": "open", "name": "Открытая"}},
+                {"id": "hh_anon", "name": "Аноним", "type": {"id": "anonymous", "name": "Анонимная"}},
+            ]
+
+            # get_vacancy_by_id вернёт полные данные для каждого целевого id.
+            full_by_id = {
+                "hh_open": {"name": "Открытая вакансия", "description": None,
+                            "area": {"name": "Москва"}, "salary": None, "employment": None},
+                "hh_anon": {"name": "Анонимная вакансия", "description": None,
+                            "area": {"name": "Казань"}, "salary": None, "employment": None},
+            }
+
+            async def _fake_get_vacancy_by_id(_token, hh_id):
+                return full_by_id.get(hh_id)
+
+            with patch(
+                "app.services.integrations.hh.service.get_valid_access_token",
+                new_callable=AsyncMock,
+                return_value="tokx",
+            ), patch(
+                "app.services.integrations.hh.client.get_employer_vacancies",
+                new_callable=AsyncMock,
+                return_value=public_data,
+            ), patch(
+                "app.services.integrations.hh.client.get_manager_active_vacancies",
+                new_callable=AsyncMock,
+                return_value=manager_items,
+            ), patch(
+                "app.services.integrations.hh.client.get_vacancy_by_id",
+                side_effect=_fake_get_vacancy_by_id,
+            ):
+                result = await hh_service.import_hh_vacancies(
+                    db_session, test_company.id, admin_user.id, None
+                )
+
+            # Обе созданы (dedup: hh_open один раз), включая анонимную.
+            assert result["created"] == 2
+            assert result["failed"] == 0
+            assert result["skipped"] == 0
+            assert "Анонимная вакансия" in result["created_names"]
+
+            from sqlalchemy import select as sa_select
+            from app.models import Vacancy as VacancyModel
+            anon_rows = (await db_session.execute(
+                sa_select(VacancyModel).where(
+                    VacancyModel.company_id == test_company.id,
+                    VacancyModel.hh_vacancy_id == "hh_anon",
+                )
+            )).scalars().all()
+            assert len(anon_rows) == 1
+            assert anon_rows[0].external_source == "hh"
 
         finally:
             _cfg.settings.FERNET_KEY = orig_key

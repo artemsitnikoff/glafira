@@ -17,6 +17,11 @@ export interface HhVacancy {
   name: string;
   area: string | null;
   linked: boolean;
+  // type = hh vacancy type id ('open' | 'anonymous' | 'closed' | 'direct'); is_anonymous —
+  // работодатель скрыт от соискателей (анонимная вакансия). Оба опциональны: openapi
+  // протух (types.ts не регенерён), поля приходят из бэка как дополнительные ключи.
+  type?: string | null;
+  is_anonymous?: boolean;
 }
 
 export interface HhAuthorizeResponse {
