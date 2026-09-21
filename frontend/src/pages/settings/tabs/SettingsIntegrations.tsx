@@ -825,6 +825,15 @@ export function SettingsIntegrations({ readOnly = false }: SettingsIntegrationsP
                                     {v.area && (
                                       <span style={{ color: 'var(--fg-3)', fontSize: '12px' }}>{v.area}</span>
                                     )}
+                                    {v.is_anonymous && (
+                                      <span
+                                        className="conn-pill"
+                                        title="Анонимная вакансия на hh — работодатель скрыт от соискателей, в публичном поиске её нет"
+                                        style={{ background: 'var(--ark-blue-100)', color: 'var(--accent)' }}
+                                      >
+                                        анонимная
+                                      </span>
+                                    )}
                                     {v.linked && (
                                       <span className="conn-pill ok" style={{ fontSize: '11px', padding: '2px 8px' }}>
                                         уже в системе
