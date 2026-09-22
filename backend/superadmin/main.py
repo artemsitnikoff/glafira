@@ -114,7 +114,8 @@ async def logout():
 async def dashboard(
     request: Request,
     username: str = Depends(require_super_admin),
-    error: Optional[str] = None
+    error: Optional[str] = None,
+    success: Optional[str] = None
 ):
     # Handle redirects from require_super_admin
     if isinstance(username, RedirectResponse):
@@ -129,7 +130,8 @@ async def dashboard(
         "companies": companies,
         "test_results": test_results,
         "test_results_path": config.TEST_RESULTS_PATH,
-        "error": error
+        "error": error,
+        "success": success
     })
 
 
@@ -366,3 +368,43 @@ async def reset_admin_password(
     else:
         ctx["reset_result"] = result
     return templates.TemplateResponse(request, "company_form.html", ctx)
+
+
+@app.post("/super/companies/{company_id}/delete")
+async def delete_company_route(
+    request: Request,
+    company_id: UUID,
+    username: str = Depends(require_super_admin),
+    confirm_name: str = Form(""),
+):
+    """ПОЛНОЕ удаление компании со всеми объектами. Подтверждение — точный ввод названия."""
+    if isinstance(username, RedirectResponse):
+        return username
+
+    settings_ = await company_service.get_company_settings(company_id)
+    if not settings_:
+        return RedirectResponse("/super/?error=Компания не найдена", status_code=303)
+
+    # Защита от случайного удаления: введённое название должно ТОЧНО совпасть.
+    if (confirm_name or "").strip() != (settings_.get("name") or ""):
+        return RedirectResponse(
+            f"/super/companies/{company_id}/edit?error="
+            "Название не совпадает — удаление отменено",
+            status_code=303,
+        )
+
+    try:
+        result = await company_service.delete_company(company_id)
+    except Exception as e:
+        return RedirectResponse(
+            f"/super/companies/{company_id}/edit?error=Ошибка удаления: {str(e)[:200]}",
+            status_code=303,
+        )
+    if result is None:
+        return RedirectResponse("/super/?error=Компания не найдена", status_code=303)
+
+    return RedirectResponse(
+        f"/super/?success=Компания «{result['name']}» удалена "
+        f"({result['deleted_rows']} записей)",
+        status_code=303,
+    )

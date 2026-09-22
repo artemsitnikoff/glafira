@@ -5,7 +5,8 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, and_, distinct
+from sqlalchemy import func, and_, distinct, text
+from sqlalchemy.exc import IntegrityError
 
 from app.database import AsyncSessionLocal
 from app.models import Company, User, GlafiraSettings, Candidate
@@ -230,6 +231,17 @@ class CompanyService:
                 except Exception:
                     openrouter_key_display = "••••"
 
+            # Счётчики объектов (для «Опасной зоны» — что удалится вместе с компанией)
+            cand_n = (await session.execute(text(
+                "SELECT count(*) FROM candidates WHERE company_id=:c AND deleted_at IS NULL"
+            ), {"c": str(company_id)})).scalar() or 0
+            vac_n = (await session.execute(text(
+                "SELECT count(*) FROM vacancies WHERE company_id=:c"
+            ), {"c": str(company_id)})).scalar() or 0
+            usr_n = (await session.execute(text(
+                "SELECT count(*) FROM users WHERE company_id=:c"
+            ), {"c": str(company_id)})).scalar() or 0
+
             return {
                 "id": company.id,
                 "name": company.name,
@@ -237,7 +249,10 @@ class CompanyService:
                 "llm_model": gs.llm_model or "",
                 "available_models": ALLOWED_MODEL_VALUES if ALLOWED_MODEL_VALUES else [],
                 "paid_until": company.paid_until.isoformat() if company.paid_until else "",
-                "is_expired": (company.paid_until is None or company.paid_until < datetime.now(timezone.utc).date())
+                "is_expired": (company.paid_until is None or company.paid_until < datetime.now(timezone.utc).date()),
+                "candidates_count": cand_n,
+                "vacancies_count": vac_n,
+                "users_count": usr_n,
             }
 
     async def reset_admin_password(
@@ -263,6 +278,85 @@ class CompanyService:
             admin.password_hash = get_password_hash(pwd)
             await session.commit()
             return {"email": admin.email, "full_name": admin.full_name, "password": pwd}
+
+    async def delete_company(self, company_id: UUID) -> Optional[Dict[str, Any]]:
+        """ПОЛНОЕ И НЕОБРАТИМОЕ удаление компании со ВСЕМИ объектами.
+
+        Удаляет строки во всех таблицах с колонкой company_id (авто-обнаружение через
+        information_schema — устойчиво к появлению новых таблиц), затем саму строку в
+        companies. ВСЁ в ОДНОЙ транзакции: любой сбой → полный откат (частичного удаления
+        не бывает). Порядок FK разрешается авто-ретраем с savepoint'ами: таблица, чью
+        DELETE блокирует внешний ключ (RESTRICT — напр. employees→candidates,
+        *_search_runs→vacancies), откладывается и удаляется следующим проходом, когда её
+        зависимости уже вычищены. Строго ОДНА company_id — чужие компании не затрагиваются.
+        Дети без company_id (stage_history, funnel_template_stages) удаляются каскадом с
+        родителями. Возвращает {name, deleted_rows} или None, если компании нет.
+        """
+        async with AsyncSessionLocal() as session:
+            company = (await session.execute(
+                select(Company).where(Company.id == company_id)
+            )).scalar_one_or_none()
+            if company is None:
+                return None
+            company_name = company.name
+
+            # Все таблицы с company_id (кроме самой companies — у неё этой колонки нет).
+            rows = await session.execute(text(
+                "SELECT table_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND column_name='company_id'"
+            ))
+            tables = [r[0] for r in rows]
+
+            cid = str(company_id)
+            total_deleted = 0
+            try:
+                # Разрываем самоссылку candidates.duplicate_of (SET NULL и так не блокирует,
+                # обнуляем явно, чтобы не зависеть от правила FK).
+                await session.execute(
+                    text("UPDATE candidates SET duplicate_of = NULL WHERE company_id = :c"),
+                    {"c": cid},
+                )
+
+                remaining = list(tables)
+                # Проходов с запасом; на практике хватает 2–3 (глубина RESTRICT ≤ 2).
+                for _ in range(len(tables) + 2):
+                    if not remaining:
+                        break
+                    blocked: list[str] = []
+                    for t in remaining:
+                        sp = await session.begin_nested()
+                        try:
+                            res = await session.execute(
+                                text(f'DELETE FROM "{t}" WHERE company_id = :c'),
+                                {"c": cid},
+                            )
+                            await sp.commit()
+                            total_deleted += (res.rowcount or 0)
+                        except IntegrityError:
+                            # FK-блокировка (родитель раньше ребёнка) → откладываем на проход
+                            await sp.rollback()
+                            blocked.append(t)
+                    if blocked and len(blocked) == len(remaining):
+                        # Прогресса нет — неразрешимая зависимость (новая RESTRICT-FK?) →
+                        # весь delete откатится (частичного удаления не будет).
+                        raise RuntimeError(
+                            "Не удалось удалить таблицы из-за FK-блокировки: "
+                            + ", ".join(sorted(blocked))
+                        )
+                    remaining = blocked
+
+                # Сама компания — последней (на неё все FK RESTRICT; строк уже нет).
+                res = await session.execute(
+                    text("DELETE FROM companies WHERE id = :c"), {"c": cid}
+                )
+                total_deleted += (res.rowcount or 0)
+
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+            return {"name": company_name, "deleted_rows": total_deleted}
 
 
 company_service = CompanyService()

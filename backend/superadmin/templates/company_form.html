@@ -173,6 +173,36 @@
     </div>
     {% endif %}
 
+    {% if company %}
+    <!-- Опасная зона: полное и необратимое удаление компании со всеми объектами -->
+    <div class="card" style="margin-top: 20px; border: 1px solid #e0a0a0;">
+        <h2 style="font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #c0392b;">
+            Опасная зона — удалить компанию
+        </h2>
+        <div style="font-size: 12px; color: var(--ark-gray-600); margin-bottom: 12px; line-height: 1.5;">
+            Удалит компанию <strong>{{ company.name }}</strong> и <strong>ВСЕ</strong> её объекты
+            <strong>без возможности восстановления</strong>: кандидатов ({{ company.candidates_count }}),
+            вакансий ({{ company.vacancies_count }}), пользователей ({{ company.users_count }}), а также
+            все отклики, сообщения, документы, комментарии, интеграции, настройки и прочее. Действие
+            <strong>необратимо</strong>. Сделайте бэкап БД, если данные могут понадобиться.
+        </div>
+        <form method="post" action="/super/companies/{{ company.id }}/delete"
+              onsubmit="return confirm('УДАЛИТЬ компанию «{{ company.name }}» и ВСЕ её данные безвозвратно? Отменить будет нельзя.');">
+            <div class="form-group">
+                <label class="form-label" for="confirm_name">
+                    Для подтверждения введите точное название компании:
+                    <span style="font-family: monospace; user-select: all;">{{ company.name }}</span>
+                </label>
+                <input type="text" id="confirm_name" name="confirm_name" class="form-input"
+                       placeholder="{{ company.name }}" autocomplete="off" required>
+            </div>
+            <button type="submit" class="btn" style="background: #c0392b; color: #fff;">
+                Удалить компанию навсегда
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
     {% if not company %}
         <div style="margin-top: 20px; padding: 16px; background: var(--ark-blue-50); border-radius: 6px; font-size: 13px; color: var(--ark-gray-700);">
             <strong>Что произойдёт:</strong>

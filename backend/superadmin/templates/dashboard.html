@@ -10,6 +10,13 @@
     <a href="/super/companies/new" class="btn btn-primary">+ Создать компанию</a>
 </div>
 
+{% if success %}
+    <div class="alert alert-success" style="margin-bottom: 20px;">{{ success }}</div>
+{% endif %}
+{% if error %}
+    <div class="alert alert-error" style="margin-bottom: 20px;">{{ error }}</div>
+{% endif %}
+
 <!-- Companies List -->
 <div class="card">
     <div class="card-title">Компании ({{ companies|length }})</div>
