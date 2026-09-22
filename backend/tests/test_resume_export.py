@@ -291,6 +291,41 @@ class TestResumeExportService:
         assert len(pdf_content) > 0
         assert pdf_content.startswith(b"%PDF")
 
+    def test_build_resume_pdf_long_experience_description(self, test_company):
+        """Регресс: опыт с ОЧЕНЬ длинным описанием (строка таблицы выше страницы) раньше
+        валил reportlab LayoutError → 500 на экспорте PDF. splitInRow=1 (без KeepTogether)
+        разбивает строку между страницами."""
+        candidate = Candidate(
+            company_id=test_company.id,
+            last_name="Длиннов",
+            first_name="Опыт",
+            source="manual",
+        )
+        # ~40 абзацев → строка правой ячейки заведомо выше одной страницы A4
+        long_desc = "\n".join(
+            f"Пункт {i}: ответственность и достижения на позиции, с подробностями "
+            "работы над проектами, задачами и результатами команды."
+            for i in range(40)
+        )
+        candidate.experience = [
+            CandidateExperience(
+                company_id=test_company.id,
+                candidate_id=candidate.id,
+                position="Ведущий специалист",
+                company="Большая Компания",
+                period="2019 - настоящее время",
+                description=long_desc,
+                order_index=0,
+            )
+        ]
+        candidate.skills = []
+        candidate.education = []
+
+        pdf_content = build_resume_pdf(candidate)  # НЕ должно кидать LayoutError
+
+        assert isinstance(pdf_content, bytes)
+        assert pdf_content.startswith(b"%PDF")
+
 
 class TestResumeExportEndpoint:
     """Тесты эндпоинта экспорта резюме"""

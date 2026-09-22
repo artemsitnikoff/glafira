@@ -325,7 +325,12 @@ def build_resume_pdf(candidate: Candidate, ai_analysis: dict | None = None) -> b
                 company_position
             ])
 
-            exp_table = Table(exp_data, colWidths=[3*cm, 13*cm])
+            # splitInRow=1 — разрешаем разбить ОДНУ строку между страницами: у опыта с
+            # длинным описанием (правая ячейка = список абзацев) строка может быть выше
+            # страницы; без этого reportlab кидает LayoutError (а KeepTogether его усугублял,
+            # запрещая разрыв вовсе) → был 500 на экспорте PDF. Правая ячейка — Paragraph'ы
+            # (разбиваемые), период в левой короткий → строка корректно перетекает.
+            exp_table = Table(exp_data, colWidths=[3*cm, 13*cm], splitInRow=1)
             exp_table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -334,7 +339,7 @@ def build_resume_pdf(candidate: Candidate, ai_analysis: dict | None = None) -> b
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
             ]))
 
-            story.append(KeepTogether(exp_table))
+            story.append(exp_table)
 
     # Секция "Образование"
     if candidate.education:
