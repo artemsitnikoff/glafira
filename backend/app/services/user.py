@@ -10,7 +10,7 @@ from ..models import User, Vacancy, Employee
 from ..schemas.user import UserCreate, UserUpdate, UserShort, UserListItem
 from ..schemas.base import Paginated
 from ..core.security import get_password_hash
-from ..core.errors import NotFoundError, ConflictError, ForbiddenError
+from ..core.errors import NotFoundError, ConflictError, ForbiddenError, ValidationError
 from ..services.audit import audit
 
 
@@ -85,6 +85,36 @@ async def get_user(session: AsyncSession, user_id: UUID, company_id: UUID) -> Us
     user = result.scalar_one_or_none()
     if user is None:
         raise NotFoundError("Пользователь")
+    return user
+
+
+async def set_user_password(
+    session: AsyncSession,
+    user_id: UUID,
+    new_password: str,
+    company_id: UUID,
+    actor_user_id: UUID,
+) -> User:
+    """Админ задаёт новый пароль пользователю СВОЕЙ компании (§2.3).
+
+    get_user скоуплен по company_id → чужого юзера не тронуть (NotFound). Хэш — тот же
+    bcrypt (get_password_hash), логин срабатывает сразу. Пишем audit (§2.2), пароль в
+    audit НЕ кладём. НЕ коммитит — коммит в роуте.
+    """
+    user = await get_user(session, user_id, company_id)
+    pwd = (new_password or "").strip()
+    if len(pwd) < 6:
+        raise ValidationError("Пароль должен быть не короче 6 символов")
+    user.password_hash = get_password_hash(pwd)
+    await audit(
+        session,
+        action="set_password",
+        entity_type="user",
+        entity_id=user.id,
+        after={"user_email": user.email},
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
     return user
 
 

@@ -47,6 +47,11 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class SetPasswordRequest(BaseModel):
+    """Админ задаёт новый пароль пользователю компании. Длину валидирует сервис (400)."""
+    password: str
+
+
 class UserCreateResult(UserShort):
     """Returned by POST /users — temp_password (once) + emailed (отправлено ли письмо)."""
     temp_password: str

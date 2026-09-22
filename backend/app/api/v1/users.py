@@ -5,9 +5,9 @@ from typing import Optional
 
 from ...database import get_db
 from ...deps import get_current_user, get_current_company_id
-from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate, UserListItem
+from ...schemas.user import UserShort, UserCreate, UserCreateResult, UserUpdate, UserListItem, SetPasswordRequest
 from ...schemas.base import Paginated, MessageResult
-from ...services.user import get_user, create_user, update_user, delete_user, get_users_paginated
+from ...services.user import get_user, create_user, update_user, delete_user, get_users_paginated, set_user_password
 from ...services.integrations.smtp import service as smtp_service
 from ...models import User
 from ...core.errors import ForbiddenError
@@ -112,3 +112,21 @@ async def delete_user_by_id(
     await session.commit()
 
     return MessageResult(message="Пользователь удалён")
+
+
+@router.post("/{user_id}/set-password", response_model=MessageResult)
+async def set_user_password_by_id(
+    user_id: UUID,
+    data: SetPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id)
+):
+    """Задать новый пароль пользователю (только админ, в рамках своей компании)."""
+    if current_user.role != "admin":
+        raise ForbiddenError("Только администратор может менять пароль пользователей")
+
+    await set_user_password(session, user_id, data.password, company_id, current_user.id)
+    await session.commit()
+
+    return MessageResult(message="Пароль изменён")
