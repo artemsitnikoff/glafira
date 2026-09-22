@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Icon } from '@/components/ui/Icon';
-import { useUpdateUser, useDeleteUser } from '@/api/mutations/settings';
+import { useUpdateUser, useDeleteUser, useSetUserPassword } from '@/api/mutations/settings';
 import { api } from '@/api/client';
 import type { UserListItem } from '@/api/hooks/useUsers';
 
@@ -14,6 +14,12 @@ interface Props {
 export function UserActionMenu({ user, currentUserId, onError, showB24 = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Смена пароля пользователя.
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [pwd1, setPwd1] = useState('');
+  const [pwd2, setPwd2] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [pwdHint, setPwdHint] = useState<string | null>(null);
   // Если снизу мало места (последний ряд) — открываем меню вверх, чтобы не уезжало за экран.
   const [openUp, setOpenUp] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -37,8 +43,43 @@ export function UserActionMenu({ user, currentUserId, onError, showB24 = false }
 
   const updateUserMutation = useUpdateUser();
   const deleteUserMutation = useDeleteUser();
+  const setPasswordMutation = useSetUserPassword();
 
   const isCurrentUser = user.id === currentUserId;
+
+  const handleOpenPasswordForm = () => {
+    setPwd1('');
+    setPwd2('');
+    setShowPwd(false);
+    setPwdHint(null);
+    setShowPasswordForm(true);
+    setIsOpen(false);
+  };
+
+  const handleClosePasswordForm = () => {
+    setShowPasswordForm(false);
+    setPwd1('');
+    setPwd2('');
+    setPwdHint(null);
+  };
+
+  const handleSetPassword = async () => {
+    if (pwd1.length < 6) {
+      setPwdHint('Пароль должен быть не короче 6 символов');
+      return;
+    }
+    if (pwd1 !== pwd2) {
+      setPwdHint('Пароли не совпадают');
+      return;
+    }
+    try {
+      await setPasswordMutation.mutateAsync({ id: user.id, password: pwd1 });
+      handleClosePasswordForm();
+    } catch (err: any) {
+      onError(err?.error?.message || 'Не удалось сменить пароль');
+      handleClosePasswordForm();
+    }
+  };
 
   const currentB24Id = (user as unknown as { b24_user_id?: number | null }).b24_user_id;
 
@@ -185,6 +226,59 @@ export function UserActionMenu({ user, currentUserId, onError, showB24 = false }
     );
   }
 
+  if (showPasswordForm) {
+    return (
+      <div className="user-menu" ref={menuRef}>
+        <div className={`user-menu-content confirm${openUp ? ' up' : ''}`}>
+          <div className="confirm-text">
+            Сменить пароль — {user.full_name}
+          </div>
+          <input
+            className="pwd-input"
+            type={showPwd ? 'text' : 'password'}
+            placeholder="Новый пароль"
+            value={pwd1}
+            onChange={(e) => { setPwd1(e.target.value); setPwdHint(null); }}
+            autoComplete="new-password"
+            autoFocus
+          />
+          <input
+            className="pwd-input"
+            type={showPwd ? 'text' : 'password'}
+            placeholder="Повторите пароль"
+            value={pwd2}
+            onChange={(e) => { setPwd2(e.target.value); setPwdHint(null); }}
+            autoComplete="new-password"
+          />
+          <label className="pwd-show">
+            <input
+              type="checkbox"
+              checked={showPwd}
+              onChange={(e) => setShowPwd(e.target.checked)}
+            />
+            Показать пароль
+          </label>
+          {pwdHint && <div className="pwd-hint">{pwdHint}</div>}
+          <div className="confirm-actions">
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={handleClosePasswordForm}
+            >
+              Отмена
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={handleSetPassword}
+              disabled={setPasswordMutation.isPending}
+            >
+              {setPasswordMutation.isPending ? '...' : 'Сохранить'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (showDeleteConfirm) {
     return (
       <div className="user-menu" ref={menuRef}>
@@ -231,6 +325,14 @@ export function UserActionMenu({ user, currentUserId, onError, showB24 = false }
           >
             <Icon name={user.is_active ? 'x' : 'check'} size={14} />
             {user.is_active ? 'Заблокировать' : 'Активировать'}
+          </button>
+          <button
+            className="user-menu-item"
+            onClick={handleOpenPasswordForm}
+            disabled={setPasswordMutation.isPending || isCurrentUser}
+          >
+            <Icon name="lock" size={14} />
+            Сменить пароль
           </button>
           {showB24 && (
             <button

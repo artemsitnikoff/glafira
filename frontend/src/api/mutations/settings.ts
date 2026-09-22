@@ -213,3 +213,18 @@ export function useDeleteUser() {
     },
   });
 }
+
+// Смена пароля пользователя админом (Настройки → Команда/Доступ).
+// POST /users/{id}/set-password { password } → { message }
+export function useSetUserPassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, password }: { id: string; password: string }) => {
+      const response = await api.post(`/users/${id}/set-password`, { password });
+      return response.data as MessageResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}
