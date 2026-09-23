@@ -19,8 +19,29 @@ type MessageCreate = {
 type CommentCreate = {
   body: string;
 };
+// Запрос онлайн-согласия. channel пустой/null → бэк сам выбирает канал (email→telegram→hh).
 type ConsentRequest = {
-  channel: string;
+  channel?: 'email' | 'telegram' | 'hh' | null;
+};
+
+// Ответ 201 POST /consent/request. openapi ещё без полей доставки (link/delivered/…) —
+// описываем локально + as-cast. Контракт сверен с бэкендом v1.9.0.
+export type ConsentRequestResult = {
+  id: string;
+  candidate_id: string;
+  number: string;
+  status: string;
+  channel: string | null;
+  signed_at: string | null;
+  requested_at: string | null;
+  expires_at: string | null;
+  signed_by: string | null;
+  /** Публичная ссылка подписания /consent/{token} — показать рекрутёру всегда. */
+  link: string;
+  /** Удалось ли доставить ссылку кандидату автоматически. */
+  delivered: boolean;
+  delivery_channel: string | null;
+  delivery_error: string | null;
 };
 type ScoreRequest = components['schemas']['ScoreRequest'];
 
@@ -41,11 +62,13 @@ export function useRequestConsent(candidateId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: ConsentRequest) => {
-      return (await api.post(`/candidates/${candidateId}/consent/request`, data)).data;
+    mutationFn: async (data: ConsentRequest): Promise<ConsentRequestResult> => {
+      return (await api.post(`/candidates/${candidateId}/consent/request`, data)).data as ConsentRequestResult;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'verification'] });
+      // Обновить снимок статуса согласия в блоке согласия таба Верификация.
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'consent'] });
     },
   });
 }

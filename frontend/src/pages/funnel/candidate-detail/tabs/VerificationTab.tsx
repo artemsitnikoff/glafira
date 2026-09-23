@@ -1,8 +1,26 @@
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { useVerification } from '@/api/hooks/useVerification';
+import { useConsentStatus } from '@/api/hooks/useConsent';
 import { useRequestConsent, useRunVerification, useConfirmConsentSigned } from '@/api/mutations/candidateDetail';
 import type { ApiError } from '@/api/aliases';
+
+// Человекочитаемая подпись канала доставки ссылки согласия.
+const CHANNEL_LABELS: Record<string, string> = {
+  email: 'email', telegram: 'Telegram', hh: 'hh.ru',
+};
+function channelLabel(ch: string | null | undefined): string {
+  if (!ch) return 'сообщением';
+  return CHANNEL_LABELS[ch] || ch;
+}
+
+// Дата/время согласия «ДД.ММ.ГГ ЧЧ:ММ» — как в vf-meta ниже.
+function formatConsentDt(iso: string): string {
+  return new Date(iso).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
 
 // Человекочитаемые подписи полей блоков верификации (ключи из backend verify.py).
 const FIELD_LABELS: Record<string, string> = {
@@ -111,7 +129,17 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
   // Подписанное согласие: проп из application/candidate (has_pdn = exists Consent signed),
   // либо рекрутёр только что подтвердил вручную (confirmMutation).
   const consentSigned = (hasPdn ?? candidate?.has_pdn ?? false) || confirmMutation.isSuccess;
+  // Снимок последнего согласия нужен ТОЛЬКО пока гейт закрыт (иначе показываем верификацию).
+  const { data: consentStatus } = useConsentStatus(actualCandidateId, !consentSigned);
   const runErrorCode = (verifyMutation.error as unknown as ApiError)?.error?.code;
+
+  const [copied, setCopied] = useState(false);
+  function copyLink(link: string) {
+    navigator.clipboard?.writeText(link).then(
+      () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
+      () => { /* буфер недоступен — ссылка видна, скопируется вручную */ },
+    );
+  }
 
   function handleRequestConsent() {
     consentMutation.mutate({
@@ -219,6 +247,29 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
     );
   }
 
+  // Согласие уже подписано онлайн, но has_pdn (проп из application/candidate) ещё не
+  // подтянулся → показываем факт подписания вместо кнопок запроса. Как только has_pdn
+  // обновится, таб сам перейдёт к верификации.
+  if (!consentSigned && consentStatus?.status === 'signed') {
+    const bySigner = consentStatus.signed_by === 'recruiter' ? 'рекрутёром' : 'кандидатом';
+    return (
+      <div className="verify-locked">
+        <div className="verify-locked-ico" style={{ color: 'var(--ark-green-600)' }}>
+          <Icon name="check-circle" size={36} />
+        </div>
+        <h3>Согласие получено</h3>
+        <p>
+          Подписано {bySigner}
+          {consentStatus.signed_at ? ` ${formatConsentDt(consentStatus.signed_at)}` : ''}.
+          Верификация станет доступна автоматически.
+        </p>
+      </div>
+    );
+  }
+
+  // Результат запроса ссылки: показываем всегда (кандидату можно отправить и вручную).
+  const consentResult = consentMutation.data;
+
   // Нет подписанного согласия → запросить у кандидата ИЛИ отметить подписанным (ответственность рекрутёра).
   if (!consentSigned) {
     return (
@@ -250,6 +301,34 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
             {confirmMutation.isPending ? 'Проверяем…' : 'ПдН подписан'}
           </button>
         </div>
+
+        {consentResult && (
+          <div className="consent-link-box">
+            <p className="consent-link-status">
+              {consentResult.delivered ? (
+                <>
+                  <Icon name="check" size={14} />
+                  Ссылка отправлена кандидату ({channelLabel(consentResult.delivery_channel)})
+                </>
+              ) : (
+                <>
+                  <Icon name="alert-triangle" size={14} />
+                  Не удалось отправить автоматически
+                  {consentResult.delivery_error ? `: ${consentResult.delivery_error}` : ''}.
+                  {' '}Скопируйте ссылку и отправьте кандидату:
+                </>
+              )}
+            </p>
+            <div className="consent-link-row">
+              <input className="consent-link-input" readOnly value={consentResult.link} onFocus={(e) => e.currentTarget.select()} />
+              <button className="btn btn-secondary btn-sm" onClick={() => copyLink(consentResult.link)}>
+                <Icon name={copied ? 'check' : 'copy'} size={14} />
+                {copied ? 'Скопировано' : 'Скопировать'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {confirmMutation.isError && (
           <p className="empty-state__text" style={{ color: 'var(--ark-red-600)', marginTop: 'var(--space-2)' }} role="alert">
             {(confirmMutation.error as unknown as ApiError)?.error?.message || 'Не удалось подтвердить согласие'}

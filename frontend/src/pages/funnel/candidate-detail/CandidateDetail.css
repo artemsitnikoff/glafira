@@ -809,6 +809,50 @@
   margin-top: 8px;
 }
 
+/* Результат запроса онлайн-согласия: статус доставки + сама ссылка подписания. */
+.cnd-funnel-wrap .cand-detail .consent-link-box {
+  margin-top: 12px;
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.cnd-funnel-wrap .cand-detail .consent-link-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+.cnd-funnel-wrap .cand-detail .consent-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cnd-funnel-wrap .cand-detail .consent-link-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+.cnd-funnel-wrap .cand-detail .consent-link-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.cnd-funnel-wrap .cand-detail .consent-link-row .btn {
+  margin-top: 0;
+  flex: none;
+}
+
 /* Контейнер верификации */
 .cnd-funnel-wrap .cand-detail .verify-tab {
   display: flex;
