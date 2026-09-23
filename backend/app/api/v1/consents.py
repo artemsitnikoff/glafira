@@ -6,7 +6,7 @@ from ...models import User
 from ...database import get_db
 from ...core.errors import ForbiddenError
 from ...core.permissions import can_manager_access_candidate
-from ...schemas.consent import ConsentOut, ConsentRequest
+from ...schemas.consent import ConsentOut, ConsentRequest, ConsentRequestResult
 from ...services.consent import (
     get_candidate_consent,
     request_consent,
@@ -37,7 +37,7 @@ async def get_consent(
     return consent
 
 
-@router.post("/candidates/{candidate_id}/consent/request", response_model=ConsentOut, status_code=201)
+@router.post("/candidates/{candidate_id}/consent/request", response_model=ConsentRequestResult, status_code=201)
 async def request_consent_route(
     candidate_id: UUID,
     data: ConsentRequest = ConsentRequest(),
