@@ -119,10 +119,9 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
             "archive_result IN ('hired', 'cancelled', 'frozen')",
             name="check_vacancy_archive_result"
         ),
-        CheckConstraint(
-            "funnel_template IN ('default', 'mass', 'technical', 'sales')",
-            name="check_funnel_template"
-        ),
+        # ⚠️ CHECK на funnel_template СНЯТ (миграция e7f8a9b0c1d2): воронки настраиваемые,
+        # funnel_template хранит id кастомного пресета (таблица funnel_templates), а не
+        # только 4 хардкод-значения. Жёсткий список ронял создание вакансии (500).
         CheckConstraint(
             "glafira_mode IN ('A', 'B', 'C')",
             name="check_glafira_mode"
