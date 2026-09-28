@@ -9,6 +9,13 @@ import '../requests/requests.css';
 
 type VacancyDetail = components['schemas']['VacancyDetail'];
 
+// Человекочитаемый формат занятости (work_format с бэка: office|remote|hybrid|null).
+const WORK_FORMAT_LABELS: Record<string, string> = {
+  office: 'Офис',
+  remote: 'Удалёнка',
+  hybrid: 'Гибрид',
+};
+
 type Props = {
   vacancy: VacancyDetail;
   /** Число активных (нетерминальных) кандидатов — для подтверждения «Переоценить всех». */
@@ -117,6 +124,15 @@ export default function VacancyHeader({ vacancy, activeCount, onEdit, onAddCandi
           <span>{vacancy.responsible_user?.full_name || 'Без ответственного'}</span>
           <span className="sep">·</span>
           <span>{vacancy.city || 'Удалённо'}</span>
+          {(() => {
+            const wf = (vacancy as { work_format?: string | null }).work_format;
+            return wf && WORK_FORMAT_LABELS[wf] ? (
+              <>
+                <span className="sep">·</span>
+                <span>Формат: {WORK_FORMAT_LABELS[wf]}</span>
+              </>
+            ) : null;
+          })()}
           <span className="sep">·</span>
           <span>создана {new Date(vacancy.created_at).toLocaleDateString('ru-RU')}</span>
           {(vacancy as any).request_num != null && (

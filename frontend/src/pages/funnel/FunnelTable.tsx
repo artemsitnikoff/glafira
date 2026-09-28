@@ -20,6 +20,11 @@ function shortName(full: string | null | undefined): string {
   return full.trim().split(/\s+/).slice(0, 2).join(' ');
 }
 
+// Нормализация города для сравнения (город кандидата vs город вакансии): trim + lower.
+function normCity(c: string | null | undefined): string {
+  return (c || '').trim().toLowerCase();
+}
+
 // Клиентский фильтр по результату теста (test_status/test_score из ApplicationRow).
 // result: 'passed' | 'waiting' | 'none' | undefined(=неважно); scoreMin: 0=выкл.
 function applyTestFilter(
@@ -49,6 +54,9 @@ type Props = {
   activeCandidateId?: string;
   detailMode: boolean;
   onCandidateSelect: (candidateId: string) => void;
+  /** Город и формат занятости вакансии — для бейджа «иногородний» (см. FunnelRow). */
+  vacancyCity?: string | null;
+  vacancyWorkFormat?: string | null;
 };
 
 export default function FunnelTable({
@@ -60,6 +68,8 @@ export default function FunnelTable({
   activeCandidateId,
   detailMode,
   onCandidateSelect,
+  vacancyCity,
+  vacancyWorkFormat,
 }: Props) {
   const {
     data,
@@ -294,6 +304,8 @@ export default function FunnelTable({
               detailMode={detailMode}
               onToggleRow={onToggleRow}
               onOpenRow={onOpenRow}
+              vacancyCity={vacancyCity}
+              vacancyWorkFormat={vacancyWorkFormat}
             />
           ))}
 
@@ -359,6 +371,8 @@ const FunnelRow = React.memo(function FunnelRow({
   detailMode,
   onToggleRow,
   onOpenRow,
+  vacancyCity,
+  vacancyWorkFormat,
 }: {
   candidate: any;
   stageLabel?: string;
@@ -368,7 +382,17 @@ const FunnelRow = React.memo(function FunnelRow({
   detailMode: boolean;
   onToggleRow: (id: string) => void;
   onOpenRow: (candidateId: string) => void;
+  vacancyCity?: string | null;
+  vacancyWorkFormat?: string | null;
 }) {
+
+  // «Иногородний»: вакансия — офис, у вакансии и кандидата заполнены города, и они разные.
+  // Просто хинт (не фильтр). Города сравниваем нормализованно (trim + lower).
+  const outOfTown =
+    vacancyWorkFormat === 'office' &&
+    !!vacancyCity &&
+    !!candidate.city &&
+    normCity(vacancyCity) !== normCity(candidate.city);
 
   return (
     <div
@@ -444,7 +468,17 @@ const FunnelRow = React.memo(function FunnelRow({
           </div>
 
           <div className="ct-col" style={{ width: 140 }}>
-            {candidate.city || 'Не указан'}
+            <div className="city-cell">
+              <span>{candidate.city || 'Не указан'}</span>
+              {outOfTown && (
+                <span
+                  className="outoftown-badge"
+                  title="Формат — офис, город кандидата отличается от города вакансии"
+                >
+                  иногородний
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="ct-col t-mono" style={{ width: 120, color: 'var(--fg-2)' }}>

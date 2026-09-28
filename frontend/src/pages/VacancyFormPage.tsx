@@ -47,6 +47,8 @@ type VacancyUpdate = components['schemas']['VacancyUpdate'];
 
 // Локальные типы для новых полей автоматизации (openapi отстаёт)
 type VacancyFormData = VacancyCreate & {
+  // Формат занятости (openapi не регенерён, as-cast в payload). null = не указан.
+  work_format: 'office' | 'remote' | 'hybrid' | null;
   auto_qa: boolean;
   auto_reject_message: boolean;
   rejection_text: string | null;
@@ -268,6 +270,16 @@ const EMPLOYMENT_TYPES = [
   { id: 'project', label: 'Проектная' },
 ];
 
+// Формат занятости (work_format) — опциональное поле вакансии (office|remote|hybrid|null).
+// В отличие от employment_type дефолта нет: пока не кликнут — null («не указан»).
+const WORK_FORMATS = [
+  { id: 'office', name: 'Офис' },
+  { id: 'remote', name: 'Удалёнка' },
+  { id: 'hybrid', name: 'Гибрид' },
+] as const;
+
+type WorkFormat = (typeof WORK_FORMATS)[number]['id'];
+
 const STEPS = [
   { id: 'desc', label: 'Описание вакансии', icon: 'briefcase' },
   { id: 'funnel', label: 'Воронка', icon: 'funnel' },
@@ -436,6 +448,8 @@ export default function VacancyFormPage() {
     positions_count: 1,
     department: null,
     employment_type: 'full',
+    // Формат занятости — опционален, дефолт «не указан» (в отличие от employment_type).
+    work_format: null,
     is_confidential: false,
     salary_from: null,
     salary_to: null,
@@ -485,6 +499,7 @@ export default function VacancyFormPage() {
         positions_count: vacancy.positions_count,
         department: vacancy.department,
         employment_type: vacancy.employment_type || 'full',
+        work_format: (vacancy as { work_format?: 'office' | 'remote' | 'hybrid' | null }).work_format ?? null,
         is_confidential: vacancy.is_confidential,
         salary_from: vacancy.salary_from,
         salary_to: vacancy.salary_to,
@@ -999,8 +1014,8 @@ function DescriptionStep({
   rubricError,
   onGenerateRubric,
 }: {
-  data: VacancyCreate;
-  onChange: (updates: Partial<VacancyCreate>) => void;
+  data: VacancyFormData;
+  onChange: (updates: Partial<VacancyFormData>) => void;
   clients: any[];
   recruiterScoring: string;
   onRecruiterScoringChange: (v: string) => void;
@@ -1221,6 +1236,23 @@ function DescriptionStep({
               onClick={() => onChange({ employment_type: type.id as any })}
             >
               {type.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="nv-field">
+        <label className="nv-label">Формат занятости</label>
+        <div className="nv-segmented">
+          {WORK_FORMATS.map(fmt => (
+            <button
+              key={fmt.id}
+              type="button"
+              className={data.work_format === fmt.id ? 'active' : ''}
+              // Повторный клик по активному — снимает выбор (возврат к «не указан»/null).
+              onClick={() => onChange({ work_format: data.work_format === fmt.id ? null : (fmt.id as WorkFormat) })}
+            >
+              {fmt.name}
             </button>
           ))}
         </div>

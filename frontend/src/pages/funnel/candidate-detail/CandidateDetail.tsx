@@ -133,6 +133,7 @@ export function CandidateDetail({ application, onClose, isResolving, vacancyId }
       <CandidateHeader
         candidateId={candidateId}
         application={application}
+        vacancyId={vacancyId}
       />
 
       <div className="cc-tabs">

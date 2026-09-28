@@ -4,6 +4,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { formatSalaryRange } from '@/lib/format';
 import { useCandidateDetail } from '@/api/hooks/useCandidateDetail';
+import { useVacancy } from '@/api/hooks/useVacancy';
 import type { ApplicationRow } from '@/api/aliases';
 import { MessIconRound } from '@/components/ui/MessIconRound';
 import { messengerChannel } from '@/lib/messengers';
@@ -18,10 +19,15 @@ import { ImageLightbox } from '@/components/ui/ImageLightbox';
 type Props = {
   candidateId: string | null | undefined;
   application: ApplicationRow | null;
+  /** Вакансия воронки — для бейджа «иногородний» (формат/город). В пуле не задаётся. */
+  vacancyId?: string;
 };
 
-export function CandidateHeader({ candidateId, application }: Props) {
+export function CandidateHeader({ candidateId, application, vacancyId }: Props) {
   const { data: candidate, isLoading } = useCandidateDetail(candidateId || null);
+  // Тот же queryKey ['vacancies', id], что уже загружен на странице воронки → берётся из кеша,
+  // без второго HTTP-запроса. Пустой id → запрос выключен (enabled: !!id).
+  const { data: vacancy } = useVacancy(vacancyId || '');
   const navigate = useNavigate();
   const userRole = useAuthStore((s) => s.user?.role);
   const isAdmin = userRole === 'admin';
@@ -105,6 +111,17 @@ export function CandidateHeader({ candidateId, application }: Props) {
   const isSmartSearch = !!((candidate as any)?.from_smart_search);
   const formattedDate = (application as any)?.created_at ? formatDate((application as any).created_at) : null;
 
+  // «Иногородний»: вакансия — офис, у вакансии и кандидата заполнены города, и они разные
+  // (нормализованно: trim + lower). Минимальный хинт, не фильтр. Нет vacancy (пул) → false.
+  const vacWorkFormat = (vacancy as { work_format?: string | null } | undefined)?.work_format ?? null;
+  const vacCity = vacancy?.city ?? null;
+  const norm = (c: string | null | undefined) => (c || '').trim().toLowerCase();
+  const outOfTown =
+    vacWorkFormat === 'office' &&
+    !!vacCity &&
+    !!candidate.city &&
+    norm(vacCity) !== norm(candidate.city);
+
   return (
     <div className="cd-header">
       <div className="cd-context">
@@ -127,6 +144,14 @@ export function CandidateHeader({ candidateId, application }: Props) {
             <span className="sep">·</span>
             <span>{candidate.city}</span>
           </>
+        )}
+        {outOfTown && (
+          <span
+            className="outoftown-badge"
+            title="Формат — офис, город кандидата отличается от города вакансии"
+          >
+            иногородний
+          </span>
         )}
       </div>
 

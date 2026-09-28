@@ -219,6 +219,8 @@ export default function VacancyDetailPage() {
           activeCandidateId={cid}
           detailMode={isDetailMode}
           onCandidateSelect={handleCandidateSelect}
+          vacancyCity={vacancy.city}
+          vacancyWorkFormat={(vacancy as { work_format?: string | null }).work_format ?? null}
         />
 
         {isDetailMode && (
