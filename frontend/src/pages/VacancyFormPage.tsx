@@ -448,8 +448,9 @@ export default function VacancyFormPage() {
     positions_count: 1,
     department: null,
     employment_type: 'full',
-    // Формат занятости — опционален, дефолт «не указан» (в отличие от employment_type).
-    work_format: null,
+    // Формат занятости — по умолчанию «Офис» при СОЗДАНИИ (как employment_type='full').
+    // При редактировании (ниже) берётся значение вакансии, не форсируется.
+    work_format: 'office',
     is_confidential: false,
     salary_from: null,
     salary_to: null,
