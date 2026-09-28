@@ -35,6 +35,9 @@ class Vacancy(Base, TimestampMixin, CompanyMixin, SoftDeleteMixin):
     positions_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     department: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     employment_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    # Формат занятости: 'office' | 'remote' | 'hybrid' (опционально). Влияет на AI-скоринг
+    # (веса по локации). ⚠️ БЕЗ CheckConstraint — валидация значений в Pydantic (Literal → 422).
+    work_format: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_confidential: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     salary_from: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     salary_to: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

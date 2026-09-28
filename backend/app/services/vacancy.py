@@ -378,6 +378,7 @@ async def create_vacancy(
         positions_count=vacancy_data.positions_count,
         department=vacancy_data.department,
         employment_type=vacancy_data.employment_type,
+        work_format=vacancy_data.work_format,
         is_confidential=vacancy_data.is_confidential,
         salary_from=vacancy_data.salary_from,
         salary_to=vacancy_data.salary_to,
@@ -553,6 +554,7 @@ async def create_vacancy(
             "name": vacancy.name,
             "status": vacancy.status,
             "funnel_template": vacancy.funnel_template,
+            "work_format": vacancy.work_format,
             "team": [str(uid) for uid in vacancy_data.team],
         },
         actor_user_id=actor_user_id,
@@ -609,6 +611,8 @@ async def update_vacancy(
         vacancy.department = vacancy_data.department
     if vacancy_data.employment_type is not None:
         vacancy.employment_type = vacancy_data.employment_type
+    if vacancy_data.work_format is not None:
+        vacancy.work_format = vacancy_data.work_format
     if vacancy_data.is_confidential is not None:
         vacancy.is_confidential = vacancy_data.is_confidential
     if vacancy_data.salary_from is not None:
@@ -801,6 +805,7 @@ async def duplicate_vacancy(
         positions_count=src.positions_count,
         department=src.department,
         employment_type=src.employment_type,
+        work_format=src.work_format,
         is_confidential=src.is_confidential,
         salary_from=src.salary_from,
         salary_to=src.salary_to,

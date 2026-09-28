@@ -33,6 +33,46 @@ def _strip_html(s: str | None) -> str:
     text = (text.replace("&nbsp;", " ").replace("&amp;", "&")
                 .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"'))
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _work_format_line(vacancy: "Vacancy") -> str:
+    """Строка про формат занятости вакансии + инструкция учёта локации в весах скоринга.
+
+    Формат влияет на то, насколько локация кандидата и готовность к переезду важны:
+    - office  → присутствие в городе обязательно, локация/переезд ВАЖНЫ (иногородний
+                без готовности к переезду — существенный минус к соответствию);
+    - remote  → локация кандидата НЕ важна (не снижать оценку за город/регион);
+    - hybrid  → частичное присутствие, локация важна умеренно;
+    - не указан → нейтрально, локацию не делать решающим фактором.
+    Меняет ТОЛЬКО текст промпта — строгий JSON-контракт ответа скоринга не затрагивается.
+    Общий хелпер для обоих путей построения промпта (score_candidate / score_resume_dict).
+    """
+    wf = (getattr(vacancy, "work_format", None) or "").strip().lower()
+    city = vacancy.city or "не указан"
+    if wf == "office":
+        return (
+            f"Формат работы: офис (присутствие в городе {city} обязательно). "
+            f"УЧТИ В ВЕСАХ: локация кандидата и готовность к переезду ВАЖНЫ — иногородний "
+            f"кандидат без явной готовности к переезду в город {city} — существенный минус "
+            f"к соответствию."
+        )
+    if wf == "remote":
+        return (
+            "Формат работы: удалённо (локация кандидата значения не имеет). "
+            "УЧТИ В ВЕСАХ: не снижай оценку за город/регион проживания и не требуй переезда."
+        )
+    if wf == "hybrid":
+        return (
+            f"Формат работы: гибрид (частичное присутствие в городе {city}). "
+            f"УЧТИ В ВЕСАХ: локация кандидата важна умеренно — предпочтительна близость к "
+            f"городу вакансии или готовность к переезду, но это не критично."
+        )
+    return (
+        "Формат работы: не указан. "
+        "УЧТИ В ВЕСАХ: без явного формата не делай локацию кандидата решающим фактором."
+    )
+
+
 from ...models import Candidate, Vacancy, Application, AiEvaluation, Event, CandidateExperience, CandidateSkill, Consent, Verification, VacancyStage
 from ...core.stages import AUTO_MOVE_EXCLUDED_STAGE_KEYS
 from ...schemas.glafira import RequirementMatch
@@ -121,6 +161,7 @@ async def score_resume_dict(hh_resume: dict, vacancy: "Vacancy", company_id: UUI
 Название: {vacancy.name}
 Город: {vacancy.city or "не указан"}
 Зарплата: {vacancy_salary}
+{_work_format_line(vacancy)}
 Описание: {_strip_html(vacancy.description) or "описание отсутствует"}
 
 КАНДИДАТ:
@@ -351,6 +392,7 @@ async def score_candidate(
             vacancy_name=vacancy.name,
             vacancy_city=vacancy.city or "не указан",
             vacancy_salary=vacancy_salary,
+            work_format_line=_work_format_line(vacancy),
             vacancy_description=_strip_html(vacancy.description) or "описание отсутствует",
             candidate_name=candidate.full_name,
             candidate_city=candidate.city or "не указан",

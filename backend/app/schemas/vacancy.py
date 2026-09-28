@@ -74,6 +74,7 @@ class VacancyDetail(ORMBase):
     positions_count: int
     department: str | None = None
     employment_type: str | None = None
+    work_format: Literal["office", "remote", "hybrid"] | None = None
     is_confidential: bool
     salary_from: int | None = None
     salary_to: int | None = None
@@ -148,6 +149,7 @@ class VacancyCreate(BaseModel):
     positions_count: int = 1
     department: str | None = None
     employment_type: str | None = None
+    work_format: Literal["office", "remote", "hybrid"] | None = None
     is_confidential: bool = False
     salary_from: int | None = None
     salary_to: int | None = None
@@ -195,6 +197,7 @@ class VacancyUpdate(BaseModel):
     positions_count: int | None = None
     department: str | None = None
     employment_type: str | None = None
+    work_format: Literal["office", "remote", "hybrid"] | None = None
     is_confidential: bool | None = None
     salary_from: int | None = None
     salary_to: int | None = None

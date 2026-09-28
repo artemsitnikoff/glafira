@@ -298,3 +298,125 @@ async def test_create_vacancy_too_few_custom_stages_fails(
     response = await async_client.post("/api/v1/vacancies", headers=auth_headers, json=payload)
     assert response.status_code == 422
     assert "Minimum 3 stages required" in response.text
+
+
+# ─────────────────────────── work_format (формат занятости) ───────────────────────────
+
+async def test_create_vacancy_with_work_format(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    default_client: str,
+):
+    """Создание вакансии с work_format сохраняет и отдаёт его."""
+    response = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Remote Backend", "client_id": default_client, "work_format": "remote"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["work_format"] == "remote"
+
+
+async def test_create_vacancy_without_work_format_is_null(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    default_client: str,
+):
+    """work_format необязателен: без него — null (обратная совместимость)."""
+    response = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "No Format", "client_id": default_client},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["work_format"] is None
+
+
+async def test_update_vacancy_work_format(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    default_client: str,
+):
+    """PATCH выставляет work_format; повторный PATCH без поля его НЕ затирает (is not None)."""
+    created = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "To Update", "client_id": default_client, "work_format": "office"},
+    )
+    vacancy_id = created.json()["id"]
+    assert created.json()["work_format"] == "office"
+
+    # Смена значения
+    resp = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"work_format": "hybrid"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["work_format"] == "hybrid"
+
+    # PATCH другого поля не сбрасывает work_format (is not None-паттерн)
+    resp2 = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"city": "Казань"},
+    )
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["work_format"] == "hybrid"
+
+
+async def test_create_vacancy_invalid_work_format_422(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    default_client: str,
+):
+    """Некорректное значение work_format → 422 (Pydantic Literal), НЕ 500 и НЕ молчаливое сохранение."""
+    response = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Bad Format", "client_id": default_client, "work_format": "foo"},
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_update_vacancy_invalid_work_format_422(
+    async_client: AsyncClient,
+    auth_headers: dict[str, str],
+    default_client: str,
+):
+    """Некорректное work_format в PATCH → 422."""
+    created = await async_client.post(
+        "/api/v1/vacancies",
+        headers=auth_headers,
+        json={"name": "Bad Update", "client_id": default_client},
+    )
+    vacancy_id = created.json()["id"]
+    resp = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"work_format": "onsite"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_work_format_line_helper_covers_all_values():
+    """Хелпер скоринга _work_format_line даёт корректную строку+инструкцию весов для
+    office/remote/hybrid/None и НЕ ломает контракт (только текст промпта)."""
+    from types import SimpleNamespace
+    from app.services.glafira.scoring import _work_format_line
+
+    office = _work_format_line(SimpleNamespace(work_format="office", city="Москва"))
+    assert "офис" in office and "Москва" in office and "переезд" in office.lower()
+
+    remote = _work_format_line(SimpleNamespace(work_format="remote", city="Москва"))
+    assert "удал" in remote.lower() and "не снижай" in remote.lower()
+
+    hybrid = _work_format_line(SimpleNamespace(work_format="hybrid", city="Казань"))
+    assert "гибрид" in hybrid.lower() and "Казань" in hybrid
+
+    none_wf = _work_format_line(SimpleNamespace(work_format=None, city=None))
+    assert "не указан" in none_wf.lower()
+
+    # Пустая строка/мусор трактуются как «не указан» (нейтрально)
+    empty = _work_format_line(SimpleNamespace(work_format="  ", city="Сочи"))
+    assert "не указан" in empty.lower()
