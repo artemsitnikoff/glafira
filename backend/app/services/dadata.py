@@ -111,7 +111,8 @@ async def clean_phone(phone: str) -> dict | None:
             return data[0]
         return None
     except (httpx.HTTPError, ValueError, IndexError) as e:
-        logger.warning("[dadata] clean_phone failed: %s: %s", type(e).__name__, e)
+        body = (getattr(getattr(e, "response", None), "text", "") or "")[:300]
+        logger.warning("[dadata] clean_phone failed: %s: %s | %s", type(e).__name__, e, body)
         return None
 
 
@@ -148,7 +149,8 @@ async def clean_email(email: str) -> dict | None:
             return data[0]
         return None
     except (httpx.HTTPError, ValueError, IndexError) as e:
-        logger.warning("[dadata] clean_email failed: %s: %s", type(e).__name__, e)
+        body = (getattr(getattr(e, "response", None), "text", "") or "")[:300]
+        logger.warning("[dadata] clean_email failed: %s: %s | %s", type(e).__name__, e, body)
         return None
 
 
@@ -185,5 +187,6 @@ async def clean_name(full_name: str) -> dict | None:
             return data[0]
         return None
     except (httpx.HTTPError, ValueError, IndexError) as e:
-        logger.warning("[dadata] clean_name failed: %s: %s", type(e).__name__, e)
+        body = (getattr(getattr(e, "response", None), "text", "") or "")[:300]
+        logger.warning("[dadata] clean_name failed: %s: %s | %s", type(e).__name__, e, body)
         return None
