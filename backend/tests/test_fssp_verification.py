@@ -277,7 +277,7 @@ class TestFsspVerificationBlock:
         assert block["status"] != "clean"
         assert block["status"] == "info"
         assert block["data"]["status"] == "Не удалось проверить"
-        assert "недоступна" in block["data"]["note"].lower()
+        assert "недоступ" in block["data"]["note"].lower()
         # никаких фейк-вердиктов «чисто/долгов нет»
         assert "чисто" not in str(block["data"]).lower()
 

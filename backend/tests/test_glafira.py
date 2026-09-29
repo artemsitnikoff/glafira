@@ -598,7 +598,8 @@ class TestGlafiraLLMClusterFixes:
             'resume_text': 'Текст резюме',
             'experience_text': 'Опыт работы',
             'skills_text': 'Навыки',
-            'salary_expectation': '120k RUB'
+            'salary_expectation': '120k RUB',
+            'work_format_line': 'Формат работы: офис',
         }
 
         # This should not raise KeyError or IndexError
