@@ -83,6 +83,55 @@ function renderProfiles(data: any) {
   );
 }
 
+// Блок «Исполнительные производства» (ФССП) — список найденных ИП. Без items (info-состояния:
+// «Не подключено» / «Нужна дата рождения» / «Не удалось проверить» / «Не найдено») показываем
+// статус + примечание. С items — плашка про однофамильца + карточка на каждое производство.
+// Переиспользуем существующие классы (vf-group/vf-kv), новый CSS не заводим.
+function renderFsspItems(data: any) {
+  const items: any[] = Array.isArray(data?.items) ? data.items : [];
+  if (!items.length) {
+    return (
+      <>
+        {data?.status && (
+          <div className="vf-kv">
+            <span className="vf-k">Статус</span>
+            <span className="vf-v">{data.status}</span>
+          </div>
+        )}
+        {data?.note && <p className="vf-empty">{data.note}</p>}
+      </>
+    );
+  }
+  return (
+    <>
+      {data?.note && <p className="vf-empty">{data.note}</p>}
+      {items.map((it, i) => (
+        <div key={i} className="vf-group">
+          <div className="vf-group-title">{it.production || `Производство ${i + 1}`}</div>
+          {it.debtor && (
+            <div className="vf-kv"><span className="vf-k">Должник</span><span className="vf-v">{it.debtor}</span></div>
+          )}
+          {it.subject && (
+            <div className="vf-kv"><span className="vf-k">Предмет</span><span className="vf-v">{it.subject}</span></div>
+          )}
+          {it.amount && (
+            <div className="vf-kv"><span className="vf-k">Сумма</span><span className="vf-v">{it.amount} ₽</span></div>
+          )}
+          {it.status && (
+            <div className="vf-kv"><span className="vf-k">Статус ИП</span><span className="vf-v">{it.status}</span></div>
+          )}
+          {it.department && (
+            <div className="vf-kv"><span className="vf-k">Отдел</span><span className="vf-v">{it.department}</span></div>
+          )}
+          {it.bailiff && (
+            <div className="vf-kv"><span className="vf-k">Пристав</span><span className="vf-v">{it.bailiff}</span></div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // Блок «Упоминания» — цитаты со ссылкой на источник.
 function renderMentions(data: any) {
   if (data?.pending) {
@@ -456,6 +505,8 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
                   renderProfiles(block.data)
                 ) : block.key === 'mentions' ? (
                   renderMentions(block.data)
+                ) : block.key === 'fssp' ? (
+                  renderFsspItems(block.data)
                 ) : typeof block.data === 'string' ? (
                   <p>{block.data}</p>
                 ) : block.data && typeof block.data === 'object' && Object.keys(block.data).length > 0 ? (

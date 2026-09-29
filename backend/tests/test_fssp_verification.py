@@ -169,6 +169,47 @@ class TestFsspClient:
         assert norm["amount"] == "500"
         assert norm["debtor"] == ""  # неизвестный ключ ФИО → пусто, не падаем
 
+    def test_normalize_parser_api_real_shape(self):
+        """Реальная запись parser-api (запинена на живом ключе): debtor_name/process_title/
+        subjects[] со `sum`/officer_name/department_title/stop_* → корректные поля UI."""
+        raw = {
+            "debtor_name": "ИВАНОВ ИВАН АЛЕКСЕЕВИЧ",
+            "debtor_dob": "1980-01-01",
+            "process_title": "4631314/20/50015-ИП",
+            "subjects": [
+                {"title": "Взыскание налогов и сборов, включая пени (кроме таможенных)"},
+                {"title": "Общая сумма задолженности", "sum": "3621.21"},
+            ],
+            "stop_date": "2024-02-14",
+            "stop_reason": "ст. 46 ч. 1 п. 3",
+            "department_title": "Коломенский РОСП",
+            "officer_name": "ПРАВДЫВЫЙ О. В.",
+            "officer_phones": ["+7(498)568-98-30"],
+        }
+        norm = _normalize_record(raw)
+        assert norm["debtor"] == "ИВАНОВ ИВАН АЛЕКСЕЕВИЧ"
+        assert norm["production"] == "4631314/20/50015-ИП"
+        # предмет — из subjects, БЕЗ метки «Общая сумма задолженности»
+        assert norm["subject"] == "Взыскание налогов и сборов, включая пени (кроме таможенных)"
+        assert norm["amount"] == "3621.21"          # сумма из entry «Общая сумма задолженности»
+        assert norm["department"] == "Коломенский РОСП"
+        assert norm["bailiff"].startswith("ПРАВДЫВЫЙ О. В.")
+        assert "+7(498)568-98-30" in norm["bailiff"]  # телефон пристава добавлен
+        assert norm["status"].startswith("Окончено")   # есть stop_date → окончено
+        assert norm["raw"] == raw
+
+    def test_normalize_execution_fee_only(self):
+        """subjects из одной строки со `sum` (исполнительский сбор) → и предмет, и сумма."""
+        raw = {
+            "debtor_name": "ПЕТРОВ П. П.",
+            "process_title": "25072/26/65006-ИП",
+            "subjects": [{"title": "Исполнительский сбор", "sum": "2513.73"}],
+        }
+        norm = _normalize_record(raw)
+        assert norm["subject"] == "Исполнительский сбор"
+        assert norm["amount"] == "2513.73"
+        assert norm["status"] == "На исполнении"  # нет stop_* → на исполнении
+
 
 # --------------------------------------------------------------------------- #
 # Блок верификации `fssp`                                                       #

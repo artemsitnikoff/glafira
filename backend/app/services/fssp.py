@@ -53,11 +53,14 @@ def _extract_records(data: dict) -> list:
 
 
 def _normalize_record(rec: dict) -> dict:
-    """Одна запись ИП провайдера → нормализованный словарь.
+    """Одна запись ИП provider parser-api → нормализованный словарь для UI.
 
-    Ключи мапим ЗАЩИТНО (несколько вариантов имён — точная форма пиннится на живом
-    ключе), исходную запись целиком сохраняем в `raw`: фронт/аудит увидят всё как
-    отдал провайдер, даже если конкретное поле не распозналось.
+    Реальная форма записи parser-api (запинена на живом ключе 2026-09-29):
+      debtor_name, debtor_address, debtor_dob, process_title (номер ИП), process_date,
+      subjects: [{title}, {title:"Общая сумма задолженности", sum:"3621.21"}],
+      stop_date, stop_reason, department_title, officer_name, officer_phones[].
+    Старые имена (name/exe_production/…) оставлены как ФОЛБЭК. Исходная запись целиком —
+    в `raw`: фронт/аудит видят всё, даже если конкретное поле не распозналось.
     """
     def pick(*keys: str) -> str:
         for k in keys:
@@ -66,14 +69,48 @@ def _normalize_record(rec: dict) -> dict:
                 return str(v).strip()
         return ""
 
+    # subjects — список: предмет(ы) взыскания + отдельной строкой «Общая сумма задолженности»
+    # со `sum`. Разносим: title'ы (кроме метки суммы) → предмет, значение суммы → amount.
+    subject_titles: list[str] = []
+    amount = ""
+    subjects = rec.get("subjects")
+    if isinstance(subjects, list):
+        for s in subjects:
+            if not isinstance(s, dict):
+                continue
+            t = str(s.get("title") or "").strip()
+            sm = s.get("sum")
+            is_total = "сумма задолж" in t.lower()  # метка суммы, не предмет
+            if sm not in (None, "") and (is_total or not amount):
+                amount = str(sm).strip()
+            if t and not is_total:
+                subject_titles.append(t)
+    subject = "; ".join(dict.fromkeys(subject_titles))  # dedupe, порядок сохранён
+
+    # Статус ИП: parser-api не отдаёт явную строку — выводим из stop_date/stop_reason
+    # (есть → производство окончено; иначе «на исполнении»).
+    stop_date = pick("stop_date")
+    stop_reason = pick("stop_reason")
+    if stop_date or stop_reason:
+        status = "Окончено" + (f" {stop_date}" if stop_date else "")
+        if stop_reason:
+            status += f" ({stop_reason})"
+    else:
+        status = "На исполнении"
+
+    bailiff = pick("officer_name", "bailiff", "officer", "executor", "spi")
+    phones = rec.get("officer_phones")
+    if bailiff and isinstance(phones, list) and phones:
+        bailiff = f"{bailiff}, {phones[0]}"
+
     return {
-        "debtor": pick("name", "debtor", "fio", "full_name"),
-        "production": pick("exe_production", "exeProduction", "ip_number", "number"),
-        "subject": pick("subject", "details", "exe_subject", "purpose"),
-        "amount": pick("subject_amount", "amount", "debt", "sum", "summ"),
-        "status": pick("ip_end", "status", "state", "ip_status"),
-        "department": pick("department", "osp", "subdivision", "division"),
-        "bailiff": pick("bailiff", "officer", "executor", "spi"),
+        "debtor": pick("debtor_name", "name", "debtor", "fio", "full_name"),
+        "production": pick("process_title", "exe_production", "exeProduction", "ip_number", "number"),
+        "subject": subject or pick("subject", "details", "exe_subject", "purpose"),
+        "amount": amount or pick("subject_amount", "amount", "debt", "sum", "summ"),
+        "status": status,
+        "department": pick("department_title", "department", "osp", "subdivision", "division"),
+        "bailiff": bailiff,
         "raw": rec,
     }
 
