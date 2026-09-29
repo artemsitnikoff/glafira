@@ -10,11 +10,13 @@ const Icon = ({ name, size = 18, ...rest }) => {
     search:  <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     plus:    <><path d="M12 5v14M5 12h14"/></>,
     bell:    <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9z"/><path d="M10 21h4"/></>,
+    logout:  <><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M16 17l5-5-5-5M21 12H9"/></>,
     chevR:   <><path d="M9 6l6 6-6 6"/></>,
     chevD:   <><path d="M6 9l6 6 6-6"/></>,
     chevL:   <><path d="M15 6l-6 6 6 6"/></>,
     more:    <><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></>,
     archive: <><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></>,
+    grid:    <><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></>,
     clock:   <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     flame:   <><path d="M12 2c1 4 5 5 5 10a5 5 0 1 1-10 0c0-3 2-4 2-7 1 1 2 2 3 2"/></>,
     alert:   <><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></>,
@@ -45,6 +47,10 @@ const Icon = ({ name, size = 18, ...rest }) => {
     telegram: <><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></>,
     key:      <><circle cx="8" cy="8" r="4.5"/><path d="M11.2 11.2 21 21M18 18l2-2M15 15l2-2"/></>,
     link:     <><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></>,
+    database: <><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></>,
+    cpu:      <><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/><rect x="10" y="10" width="4" height="4"/></>,
+    lock:     <><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></>,
+    inbox:    <><path d="M3 13l3-8h12l3 8v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 13h5a4 4 0 0 0 8 0h5"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -65,13 +71,13 @@ function initials(name) {
   return name.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 function Avatar({ name, size = 'md' }) {
-  const px = { sm: 28, md: 34, lg: 44 }[size];
+  const px = { xs: 20, sm: 28, md: 34, lg: 44 }[size];
   return (
     <div style={{
       width: px, height: px, borderRadius: '50%',
       background: avatarColor(name), color: '#fff',
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      fontWeight: 600, fontSize: size === 'sm' ? 11 : 13, flex: 'none',
+      fontWeight: 600, fontSize: size === 'xs' ? 9 : (size === 'sm' ? 11 : 13), flex: 'none',
     }}>{initials(name)}</div>
   );
 }

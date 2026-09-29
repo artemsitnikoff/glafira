@@ -1,0 +1,126 @@
+/* Тесты — каталог, настройка, назначение, результат */
+
+/* ---------- 8. Каталог ---------- */
+.ts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.ts-card{background:#fff;border:1px solid var(--border-1);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;transition:box-shadow var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.ts-card:hover{box-shadow:var(--shadow-2);border-color:var(--border-strong)}
+.ts-card-top{display:flex;gap:12px;align-items:flex-start}
+.ts-ico{flex:none;width:38px;height:38px;border-radius:10px;background:var(--ark-blue-50);color:var(--accent);display:flex;align-items:center;justify-content:center}
+.ts-ico.kit{background:var(--ark-violet-100);color:var(--ark-violet-500)}
+.ts-card-ttl{flex:1;min-width:0}
+.ts-card-ttl h3{margin:0 0 3px;font-size:14.5px;font-weight:600;letter-spacing:-0.01em}
+.ts-card-ttl .kind{font-size:12px;color:var(--fg-3)}
+.ts-state{flex:none;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px}
+.ts-state.on{background:var(--ark-green-100);color:var(--ark-green-600)}
+.ts-state.draft{background:var(--ark-gray-200);color:var(--fg-2)}
+.ts-meta{display:flex;flex-wrap:wrap;gap:6px}
+.ts-meta span{font-size:11.5px;color:var(--fg-2);background:var(--ark-gray-100);border-radius:6px;padding:3px 8px}
+.ts-meta span b{font-family:var(--font-mono);font-weight:500;color:var(--fg-1)}
+.ts-blocks{font-size:12px;color:var(--fg-3);line-height:1.5}
+.ts-card-foot{display:flex;gap:6px;align-items:center;border-top:1px solid var(--border-2);padding-top:11px;margin-top:auto}
+.ts-card-foot .assigned{margin-left:auto;font-size:11.5px;color:var(--fg-3);font-family:var(--font-mono)}
+
+/* ---------- 9. Настройка ---------- */
+.ts-thresholds{display:flex;flex-direction:column;gap:8px}
+.ts-thr{display:grid;grid-template-columns:14px 1fr 88px 88px;align-items:center;gap:12px;padding:9px 12px;border:1px solid var(--border-2);border-radius:9px;background:var(--bg-panel-2)}
+.ts-thr .lamp{width:11px;height:11px;border-radius:50%}
+.ts-thr .nm{font-size:13px;font-weight:500}
+.ts-thr input{width:100%;border:1px solid var(--border-1);border-radius:7px;padding:6px 9px;font-size:13px;font-family:var(--font-mono);background:#fff;color:var(--fg-1)}
+.ts-thr input:focus{outline:none;border-color:var(--border-focus);box-shadow:0 0 0 3px var(--ark-blue-50)}
+.ts-thr .to{font-size:11px;color:var(--fg-3);text-align:center}
+.ts-blk{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--border-2);border-radius:9px;background:#fff;margin-bottom:8px}
+.ts-blk .drag{color:var(--ark-gray-400);cursor:grab;flex:none}
+.ts-blk .n{flex:none;width:22px;height:22px;border-radius:6px;background:var(--ark-gray-100);color:var(--fg-2);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono)}
+.ts-blk .nm{flex:1;font-size:13.5px;font-weight:500}
+.ts-blk .qn{font-size:12px;color:var(--fg-3);font-family:var(--font-mono)}
+.ts-blk .mins{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2)}
+.ts-blk .mins input{width:54px;border:1px solid var(--border-1);border-radius:7px;padding:5px 8px;font-size:13px;font-family:var(--font-mono);text-align:center}
+.ts-total{display:flex;justify-content:flex-end;gap:8px;font-size:12.5px;color:var(--fg-2);padding-top:4px}
+.ts-total b{font-family:var(--font-mono);color:var(--fg-1)}
+
+/* ---------- 10. Модалка назначения ---------- */
+.ts-ovl{position:fixed;inset:0;background:rgba(15,22,32,.4);display:flex;align-items:center;justify-content:center;z-index:80;padding:24px}
+.ts-modal{background:#fff;border-radius:16px;width:min(560px,100%);max-height:calc(100vh - 60px);display:flex;flex-direction:column;box-shadow:var(--shadow-3);overflow:hidden}
+.ts-modal-head{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border-2)}
+.ts-modal-head h3{margin:0;font-size:15.5px;font-weight:600;letter-spacing:-0.01em}
+.ts-modal-head .sub{font-size:12px;color:var(--fg-3)}
+.ts-modal-head .x{margin-left:auto;border:0;background:transparent;color:var(--fg-3);cursor:pointer;padding:4px;border-radius:6px}
+.ts-modal-head .x:hover{background:var(--bg-hover);color:var(--fg-1)}
+.ts-modal-body{padding:18px 20px;overflow:auto;display:flex;flex-direction:column;gap:16px}
+.ts-modal-foot{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--border-2);background:var(--bg-panel-2)}
+.ts-modal-foot .sp{flex:1}
+.ts-lbl{font-size:12px;font-weight:600;color:var(--fg-2);margin-bottom:7px;display:block}
+.ts-pick{display:flex;flex-direction:column;gap:7px}
+.ts-pick-opt{display:flex;align-items:center;gap:11px;border:1px solid var(--border-1);border-radius:10px;padding:11px 13px;cursor:pointer;background:#fff;text-align:left;font-family:inherit;transition:all var(--dur-fast) var(--ease-out)}
+.ts-pick-opt:hover{border-color:var(--border-strong);background:var(--bg-hover)}
+.ts-pick-opt.on{border-color:var(--accent);border-width:2px;padding:10px 12px;background:var(--ark-blue-50)}
+.ts-pick-opt .nm{flex:1;font-size:13.5px;font-weight:500;color:var(--fg-1)}
+.ts-pick-opt .mt{font-size:11.5px;color:var(--fg-3);font-family:var(--font-mono)}
+.ts-chan{display:flex;gap:8px}
+.ts-chan button{flex:1;border:1px solid var(--border-1);background:#fff;border-radius:10px;padding:10px;font-family:inherit;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--fg-1);position:relative}
+.ts-chan button:hover{background:var(--bg-hover)}
+.ts-chan button.on{border-color:var(--accent);border-width:2px;padding:9px;background:var(--ark-blue-50);color:var(--accent);font-weight:600}
+.ts-chan button .pref{position:absolute;top:-7px;right:6px;font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;background:var(--ark-green-500);color:#fff;padding:2px 6px;border-radius:999px}
+.ts-tpl{width:100%;border:1px solid var(--border-1);border-radius:10px;padding:12px 13px;font-family:inherit;font-size:13px;line-height:1.55;color:var(--fg-1);resize:vertical;min-height:112px;background:#fff}
+.ts-tpl:focus{outline:none;border-color:var(--border-focus);box-shadow:0 0 0 3px var(--ark-blue-50)}
+.ts-days{display:flex;align-items:center;gap:8px}
+.ts-days input{width:70px;border:1px solid var(--border-1);border-radius:8px;padding:8px 10px;font-family:var(--font-mono);font-size:13px;text-align:center}
+.ts-days span{font-size:12.5px;color:var(--fg-2)}
+.ts-sent{display:flex;align-items:center;gap:10px;background:var(--ark-green-100);color:var(--ark-green-600);border-radius:10px;padding:12px 14px;font-size:13px;font-weight:500}
+
+/* ---------- 11. Результат в карточке ---------- */
+.ts-res{display:flex;flex-direction:column;gap:14px}
+.ts-res-card{border:1px solid var(--border-1);border-radius:12px;background:#fff;overflow:hidden}
+.ts-res-head{display:flex;align-items:center;gap:14px;padding:16px 18px;border-bottom:1px solid var(--border-2)}
+.ts-res-head .ttl{flex:1;min-width:0}
+.ts-res-head h4{margin:0 0 3px;font-size:14.5px;font-weight:600;letter-spacing:-0.01em}
+.ts-res-head .when{font-size:12px;color:var(--fg-3)}
+.ts-score{display:flex;align-items:baseline;gap:2px;font-family:var(--font-mono);font-size:30px;font-weight:500;letter-spacing:-0.02em;line-height:1}
+.ts-score .of{font-size:16px;color:var(--fg-3)}
+.ts-cat{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.ts-cat.c5{background:var(--ark-green-100);color:var(--ark-green-600)}
+.ts-cat.c4{background:#E4F5E9;color:#3E8A57}
+.ts-cat.c3{background:var(--ark-yellow-100);color:var(--ark-yellow-600)}
+.ts-cat.c2{background:#FBE7DA;color:#B96A0B}
+.ts-cat.c1{background:var(--ark-red-100);color:var(--ark-red-600)}
+.ts-res-body{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+.ts-subhead{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-3);font-weight:600}
+.ts-bars{display:flex;flex-direction:column;gap:9px}
+.ts-bar{display:grid;grid-template-columns:150px 1fr 52px;align-items:center;gap:12px}
+.ts-bar .nm{font-size:13px;color:var(--fg-1)}
+.ts-bar .track{height:8px;border-radius:4px;background:var(--ark-gray-200);overflow:hidden}
+.ts-bar .track i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.ts-bar .track i.weak{background:var(--ark-yellow-500)}
+.ts-bar .track i.strong{background:var(--ark-green-500)}
+.ts-bar .val{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-2);text-align:right}
+.ts-pct{display:flex;align-items:center;gap:9px;background:var(--ark-blue-50);color:var(--ark-blue-700);border-radius:9px;padding:10px 13px;font-size:13px}
+.ts-flag{display:flex;gap:10px;background:#FFF6E5;border:1px solid #F2DFA8;border-radius:9px;padding:11px 13px;font-size:12.5px;color:#8A5B0B;line-height:1.5}
+.ts-flag b{display:block;margin-bottom:2px;color:#6E4708}
+.ts-exp{border-top:1px solid var(--border-2);margin:0 -18px -16px;padding:0}
+.ts-exp-btn{width:100%;border:0;background:transparent;font-family:inherit;font-size:13px;color:var(--fg-2);padding:12px 18px;cursor:pointer;display:flex;align-items:center;gap:7px}
+.ts-exp-btn:hover{background:var(--bg-hover);color:var(--fg-1)}
+.ts-ans{width:100%;border-collapse:collapse;font-size:12.5px}
+.ts-ans th{text-align:left;font-weight:600;color:var(--fg-3);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:8px 18px;background:var(--bg-panel-2);border-top:1px solid var(--border-2);border-bottom:1px solid var(--border-2)}
+.ts-ans td{padding:7px 18px;border-bottom:1px solid var(--border-2);color:var(--fg-1)}
+.ts-ans td.mono{font-family:var(--font-mono);color:var(--fg-2)}
+.ts-ans .ok{color:var(--ark-green-600);font-weight:600}
+.ts-ans .no{color:var(--ark-red-500);font-weight:600}
+.ts-ans tr:last-child td{border-bottom:0}
+.ts-pending{display:flex;align-items:center;gap:14px;border:1px dashed var(--border-strong);border-radius:12px;padding:16px 18px;background:var(--bg-panel-2)}
+.ts-pending .ico{width:36px;height:36px;border-radius:10px;background:var(--ark-yellow-100);color:var(--ark-yellow-600);display:flex;align-items:center;justify-content:center;flex:none}
+.ts-pending .tx{flex:1}
+.ts-pending .tx b{display:block;font-size:13.5px;margin-bottom:2px}
+.ts-pending .tx span{font-size:12px;color:var(--fg-3)}
+.ts-empty{text-align:center;padding:44px 20px;color:var(--fg-2)}
+.ts-empty h3{margin:14px 0 6px;font-size:15px;color:var(--fg-1)}
+.ts-empty p{margin:0 auto 18px;font-size:13px;max-width:340px;line-height:1.55;color:var(--fg-3)}
+
+/* ---------- 12. Колонка «Тест» в воронке ---------- */
+.ts-pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;font-family:var(--font-mono);white-space:nowrap}
+.ts-pill.c5{background:var(--ark-green-100);color:var(--ark-green-600)}
+.ts-pill.c4{background:#E4F5E9;color:#3E8A57}
+.ts-pill.c3{background:var(--ark-yellow-100);color:var(--ark-yellow-600)}
+.ts-pill.c2{background:#FBE7DA;color:#B96A0B}
+.ts-pill.c1{background:var(--ark-red-100);color:var(--ark-red-600)}
+.ts-pill.wait{background:var(--ark-gray-100);color:var(--fg-2);font-weight:500}
+.ts-dash{color:var(--ark-gray-400);font-family:var(--font-mono)}

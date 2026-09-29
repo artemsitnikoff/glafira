@@ -41,6 +41,13 @@ const VACANCY_INFO = {
   hr: { title: 'HR-дженералист',                client: 'Логос',  recruiter: 'А. Седова', city: 'Москва', created: '25 марта 2026' },
   do: { title: 'DevOps-инженер',                client: 'Atlas',  recruiter: 'И. Корнев', city: 'Москва', created: '10 марта 2026' },
 };
+// остальные вакансии — из общего списка, чтобы любая открывалась со своим заголовком
+(window.VACANCIES || []).forEach(v => {
+  if (!VACANCY_INFO[v.id]) VACANCY_INFO[v.id] = {
+    title: v.name, client: 'Логос', recruiter: (v.owner || '').replace(/^(\S)\S*\s/, '$1. '),
+    city: v.city || 'Москва', created: `${v.days || 10} дн. назад`,
+  };
+});
 
 function scoreColor(s) {
   if (s == null) return null;
@@ -205,6 +212,30 @@ function FilterDrawer({ filters, setFilters, toggleSetFilter, resetFilters,
             </div>
           </Section>
 
+          <Section id="test" title="Результат теста"
+                   count={(filters.testState !== 'any' ? 1 : 0) + (filters.testMin > 0 ? 1 : 0)}>
+            <div className="fdr-chip-row">
+              {[
+                {id:'any',  label:'Неважно'},
+                {id:'done', label:'Пройден'},
+                {id:'wait', label:'Ожидаем'},
+                {id:'none', label:'Не назначен'},
+              ].map(s => (
+                <button key={s.id}
+                        className={`filter-chip ${filters.testState === s.id ? 'active' : ''}`}
+                        onClick={() => setFilters({...filters, testState: s.id})}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <div className="fdr-slider-row" style={{marginTop:10}}>
+              <input type="range" min="0" max="20" step="1"
+                     value={filters.testMin}
+                     onChange={e => setFilters({...filters, testMin: +e.target.value})}/>
+              <span className="fdr-slider-val t-mono">от {filters.testMin}/20</span>
+            </div>
+          </Section>
+
           <Section id="salary" title="Зарплата, тыс ₽" count={filters.salaryMax < 500 ? 1 : 0}>
             <div className="fdr-slider-row">
               <input type="range" min="100" max="500" step="10"
@@ -307,7 +338,7 @@ function FilterDrawer({ filters, setFilters, toggleSetFilter, resetFilters,
 // =====================================================================
 // CandidatesList — handles both list mode and detail panel mode
 // =====================================================================
-function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandidate, onBack, onAddCandidate, onEditVacancy }) {
+function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandidate, onBack, onAddCandidate, onEditVacancy, requestRef, onOpenRequest }) {
   const v = VACANCY_INFO[vacancyId] || VACANCY_INFO.fe;
   const [stage, setStage] = useStateC('response');
   const [query, setQuery] = useStateC('');
@@ -331,10 +362,14 @@ function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandid
     stages: new Set(),
     messengers: new Set(), // tg/wa/vb
     relocate: false,
+    testState: 'any',      // any | done | wait | none
+    testMin: 0,            // мин. балл из 20
   });
   const activeFilterCount =
     (filters.aiMin > 0 ? 1 : 0) +
     (filters.salaryMax < 500 ? 1 : 0) +
+    (filters.testState !== 'any' ? 1 : 0) +
+    (filters.testMin > 0 ? 1 : 0) +
     filters.sources.size +
     filters.cities.size +
     filters.stages.size +
@@ -348,7 +383,7 @@ function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandid
   const resetFilters = () => setFilters({
     aiMin: 0, salaryMax: 500,
     sources: new Set(), cities: new Set(), stages: new Set(), messengers: new Set(),
-    relocate: false,
+    relocate: false, testState: 'any', testMin: 0,
   });
 
   const SORT_OPTIONS = [
@@ -392,7 +427,14 @@ function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandid
     }
     if (query) list = list.filter(x => x.name.toLowerCase().includes(query.toLowerCase()));
     if (filters.aiMin > 0) list = list.filter(x => x.score >= filters.aiMin);
-    if (filters.salaryMax < 500) list = list.filter(x => x.salary <= filters.salaryMax * 1000);
+    if (filters.testState !== 'any' || filters.testMin > 0) {
+      const TR = window.TEST_RESULTS || {};
+      if (filters.testState === 'done') list = list.filter(x => TR[x.id]?.status === 'done');
+      if (filters.testState === 'wait') list = list.filter(x => TR[x.id]?.status === 'sent');
+      if (filters.testState === 'none') list = list.filter(x => !TR[x.id]);
+      if (filters.testMin > 0) list = list.filter(x => TR[x.id]?.status === 'done'
+        && Math.round(TR[x.id].score / TR[x.id].max * 20) >= filters.testMin);
+    }    if (filters.salaryMax < 500) list = list.filter(x => x.salary <= filters.salaryMax * 1000);
     if (filters.sources.size > 0) list = list.filter(x => filters.sources.has(x.source));
     if (filters.cities.size > 0) list = list.filter(x => filters.cities.has(x.city));
     if (filters.stages.size > 0) list = list.filter(x => filters.stages.has(x.stage));
@@ -438,6 +480,10 @@ function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandid
             <span>{v.city}</span>
             <span className="sep">·</span>
             <span>создана {v.created}</span>
+            {requestRef && <><span className="sep">·</span>
+              <button className="vh-req-link" onClick={() => onOpenRequest && onOpenRequest(requestRef.id)}>
+                <Icon name="link" size={12}/> по заявке №{requestRef.num}
+              </button></>}
           </div>
         </div>
         <div className="vh-actions">
@@ -558,6 +604,7 @@ function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandid
                   <SortHead label="ЗП" id="salary" w={120} sortField={sortField} sortDir={sortDir} onSort={setSort}/>
                   <SortHead label="Город" id="city" w={140} sortField={sortField} sortDir={sortDir} onSort={setSort}/>
                   <SortHead label="Дата отбора" id="date" w={120} sortField={sortField} sortDir={sortDir} onSort={setSort}/>
+                  <SortHead label="Тест" id="test" w={110} sortField={sortField} sortDir={sortDir} onSort={setSort}/>
                   <SortHead label="Этап" id="stage" w={200} sortField={sortField} sortDir={sortDir} onSort={setSort}/>
                 </div>
               )}
@@ -602,6 +649,7 @@ function CandidatesList({ vacancyId, candidateId, onOpenCandidate, onCloseCandid
                     <div className="ct-col t-mono" style={{width:120}}>{fmtSalary(c.salary)} ₽</div>
                     <div className="ct-col" style={{width:140}}>{c.city}</div>
                     <div className="ct-col t-mono" style={{width:120, color:'var(--fg-2)'}}>{c.date}</div>
+                    <div className="ct-col" style={{width:110}}>{window.TestPill ? <window.TestPill candidateId={c.id}/> : null}</div>
                     <div className="ct-col" style={{width:200}}><StageChip stage={c.stage} size="sm"/></div>
                   </div>
                 )}
@@ -832,6 +880,7 @@ function CandidateDetail({ candidate: c, vacancy: v, onClose, fromPool }) {
           { id: 'resume', label: 'Резюме' },
           { id: 'ai', label: 'Оценка AI' },
           { id: 'verify', label: 'Верификация' },
+          { id: 'tests', label: 'Тесты' },
           { id: 'chat', label: 'Чат' },
           { id: 'calls', label: 'Звонки' },
           { id: 'docs', label: 'Документы' },
@@ -852,6 +901,7 @@ function CandidateDetail({ candidate: c, vacancy: v, onClose, fromPool }) {
         {tab === 'docs' && <DocsTab/>}
         {tab === 'ai' && <AITab c={c}/>}
         {tab === 'verify' && <VerifyTab c={c}/>}
+        {tab === 'tests' && window.TestsTab && <window.TestsTab c={c}/>}
         {tab === 'comments' && <CommentsTab c={c}/>}
       </div>
     </div>
@@ -865,34 +915,152 @@ function AIVerdictCard({ c, hideLink, onOpenAI, showScreening }) {
     : c.score >= 50
     ? 'Подходит частично. Есть релевантный опыт, но не хватает части ключевых навыков.'
     : 'Не подходит. Опыт не совпадает с требованиями вакансии.';
+  const short = c.score >= 80
+    ? 'Хорошо подходит — релевантный опыт и ключевые навыки совпадают.'
+    : c.score >= 50
+    ? 'Подходит частично — не хватает части ключевых навыков.'
+    : 'Не подходит — опыт не совпадает с требованиями.';
   return (
-    <div className="filo-card filo-card-compact">
+    <div className={`filo-card filo-card-compact${showScreening ? '' : ' filo-card-mini'}`}>
       <div className="filo-head">
-        <div className="filo-head-left">
-          <div className="filo-ai-mark filo-glafira" aria-label="Глафира">
-            <span className="glafira-emoji">👩🏻</span>
-          </div>
-          <div>
-            <div className="filo-title">Оценка от Глафиры</div>
-            <div className="filo-sub">{verdict}</div>
-            {showScreening && (
-              <div className="filo-screening">
-                Уточнила ожидания ({fmtSalary(c.salary)} ₽), опыт {c.lastDur}, готовность — {c.city} или удалёнка.
-                Резюме совпадает с требованиями на {c.score}%.
-              </div>
+        <div className="filo-ai-mark filo-glafira" aria-label="Глафира">
+          <span className="glafira-emoji">👩🏻</span>
+        </div>
+        <div className="filo-head-body">
+          <div className="filo-title-row">
+            <span className="filo-title">Оценка от Глафиры</span>
+            {!hideLink && !showScreening && (
+              <a className="filo-link" href="#" onClick={(e)=>{e.preventDefault(); if (onOpenAI) onOpenAI();}}>
+                Подробнее →
+              </a>
             )}
           </div>
+          <div className="filo-sub">{showScreening ? verdict : short}</div>
+          {showScreening && (
+            <div className="filo-screening">
+              Уточнила ожидания ({fmtSalary(c.salary)} ₽), опыт {c.lastDur}, готовность — {c.city} или удалёнка.
+              Резюме совпадает с требованиями на {c.score}%.
+            </div>
+          )}
         </div>
-        <ScoreBadge score={c.score} size="xl"/>
-      </div>
-      <div className="filo-link-row" style={hideLink ? {display:'none'} : null}>
-        <a className="filo-link" href="#" onClick={(e)=>{e.preventDefault(); if (onOpenAI) onOpenAI();}}>
-          Посмотреть подробную оценку →
-        </a>
+        <ScoreBadge score={c.score} size={showScreening ? 'xl' : 'lg'}/>
       </div>
     </div>
   );
 }
+
+const RESUME_JOBS = [
+  { role:'Директор по продажам', co:'Интабия', sphere:'ИТ, разработка ПО', period:'2025-03 — наст. время', dur:'1 год 3 мес', items:[
+    'анализ рынка',
+    'активный поиск клиентов, взаимодействие с партнёрами',
+    'работа с базой контактов',
+    'выход на ЛПР — встречи, переговоры',
+    'участие в мероприятиях (конференции, выставки) от лица компании',
+    'ведение работы в CRM',
+  ]},
+  { role:'Менеджер по продажам', co:'Softline', sphere:'ИТ, системная интеграция, поставка ПО', period:'2024-11 — 2025-03', dur:'4 мес', items:[
+    'выстраивание долговременных, доверительных отношений с заказчиками (государственный сектор)',
+    'прямые продажи полного портфеля продуктов/услуг компании',
+    'исследование выделенного списка клиентов, знакомство с ЛПР, анализ инфраструктуры, генерация проектов',
+    'работа в CRM, поддержание информации в актуальном виде',
+    'проведение встреч и переговоров с ЛПР, консультирование, бюджетирование, подготовка КП, участие в конкурсных процедурах',
+    'работа в команде с pre-sale специалистами для продвижения проектов',
+  ]},
+  { role:'Руководитель группы прямых продаж', co:'ООО «Атом Безопасность» (Staffcop)', sphere:'Информационная безопасность, разработка ПО', period:'2023-02 — 2024-07', dur:'1 год 5 мес', items:[
+    'работа с воронкой продаж группы прямых продаж (первичная продажа)',
+    'анализ воронки и составление прогноза на период квартал/месяц/неделя',
+    'декомпозирование квартального плана продаж и распределение среди менеджеров',
+    'определение KPI для менеджеров группы и контроль их исполнения',
+    'разработка мероприятий, направленных на достижение плановых показателей',
+    'защита квартального планирования перед руководителем отдела продаж',
+    'взаимодействие со смежными подразделениями (телемаркетинг, маркетинг, разработка, партнёры, внедрение)',
+    'проведение собеседований с кандидатами на должность менеджера и приём на работу',
+    'обучение и наставничество в период адаптации менеджера',
+    'регулярный разбор клиентского списка для конкретизации прогноза по выручке',
+    'проведение индивидуальных встреч с менеджерами для обратной связи',
+    'участие в профильных мероприятиях (ИТ, ИБ) как представитель компании',
+    'ведение переговоров на уровне первых лиц с крупными клиентами',
+  ]},
+  { role:'Ведущий специалист отдела продаж и партнёрских отношений', co:'ООО «Атом Безопасность» (Staffcop)', sphere:'Информационная безопасность, DLP', period:'2019-03 — 2023-02', dur:'3 года 11 мес', items:[
+    'полное ведение клиента по этапам продаж — от входящего лида до закрывающих документов',
+    'постановка задачи и контроль действий инженера техподдержки на этапе тестирования',
+    'организация и участие в онлайн-демонстрациях программного комплекса',
+    'участие в профильных мероприятиях как представитель компании',
+    'продажа ПО по прямым договорам, а также через партнёров',
+    'сопровождение сделок через различные ЭТП',
+    'работа с CRM-системой Битрикс24',
+  ]},
+  { role:'Менеджер по развитию бизнеса', co:'ООО ТПК «Эргомедикс», Новосибирск', sphere:'Производство и продажа мебели', period:'2018-09 — 2019-03', dur:'6 мес', items:[
+    {h:'Работа с CRM (AmoCRM):'},
+    'формирование и экспорт «холодной» базы для звонков, распределение задач между менеджерами',
+    'настройка CRM под задачи компании, решение организационных вопросов при сбоях',
+    {h:'Отчётность отдела продаж (еженедельно):'},
+    'звонки, задачи в CRM, выставленные счета, отгрузки, поступление оплат',
+    {h:'Работа с сайтом:'},
+    'анализ и распределение входящих заявок, расчёт конверсии сайта',
+    {h:'Аналитика и развитие:'},
+    'анализ структуры продаж по направлениям за 2016–2018, рекомендации по товарному запасу',
+    'разработка системы скидок и условий для торгующих организаций и дилеров',
+    'вывод торговых предложений на Единый агрегатор торговли «Берёзка» (ЕАТ)',
+  ]},
+  { role:'Менеджер продаж', co:'ООО «Технолоджи трейд»', sphere:'ИТ, продажа ПО', period:'2018-07 — 2018-08', dur:'1 мес', items:[
+    'активный поиск новых клиентов, холодные звонки',
+    'ведение переговоров на уровне первых лиц',
+    'онлайн-презентация продуктов (демонстрация через Skype)',
+    'ведение клиентов в CRM-системе',
+  ]},
+  { role:'Менеджер по продажам', co:'ООО «СёрчИнформ»', sphere:'Информационная безопасность, DLP', period:'2018-03 — 2018-06', dur:'3 мес', items:[
+    'холодные и тёплые звонки по имеющейся базе клиентов',
+    'онлайн-презентации (демонстрация через Skype), подготовка КП',
+    'переговоры с руководителями и ЛПР',
+    'ведение клиентов в CRM, постановка задач в техподдержку и отдел внедрения',
+    'составление отчётов (ежедневных, еженедельных, о встречах)',
+  ]},
+  { role:'Руководитель отдела продаж', co:'ООО «Термомир»', sphere:'Отопительное оборудование, тендерные продажи', period:'2017-02 — 2017-09', dur:'7 мес', items:[
+    'развитие тендерного канала продаж',
+    'мониторинг тендеров (ТендерЛэнд, BiCo), расчёт целесообразности участия',
+    'контроль подготовки тендерной документации',
+    'взаимодействие с поставщиками и заказчиками',
+    'полное сопровождение сделки (отгрузка, документация, оплата)',
+  ]},
+  { role:'Управляющий директор', co:'ООО Регистрационная компания «ДИА»', sphere:'Регистрационные услуги, ценные бумаги', period:'2008-06 — 2016-12', dur:'8 лет 6 мес', items:[
+    'организация работы компании с нуля, руководство командой (до 10 человек)',
+    {h:'Управление бизнесом:'},
+    'определение стратегии развития, бизнес-планирование, бюджетирование, финансовый анализ',
+    'ценообразование, контроль и распределение финансовых потоков (касса, р/счёт)',
+    'разработка внутренней системы контроля движения денежных средств, контроль бухгалтерии',
+    'внедрение документооборота (Google Drive) и 1С с обучением сотрудников',
+    {h:'Развитие рынка, продажи:'},
+    'поиск новых клиентов, переговоры на уровне первых лиц',
+    'заключение договоров с компаниями-партнёрами для доп. услуг клиентам',
+    'промо-акции, рекламная продукция, система онлайн-заказа, работа сайта',
+    'аналитика эффективности рекламы (промо, e-mail, Яндекс), корректировки',
+    {h:'Управление персоналом:'},
+    'поиск, собеседования и приём сотрудников, определение функционала, обучение',
+    {h:'Результат:'},
+    'выстроил бизнес-процессы, наработал базу постоянных клиентов, оптимизировал налогообложение, вывел новую услугу на рынок',
+  ]},
+  { role:'Консультант', co:'Региональное отделение ФСФР в Сибирском федеральном округе', sphere:'Государственный финансовый надзор', period:'2005-11 — 2008-06', dur:'2 года 7 мес', items:[
+    'камеральные и выездные проверки эмитентов (АО) на соблюдение законодательства о рынке ценных бумаг',
+    'рассмотрение жалоб и обращений граждан по вопросам законодательства о РЦБ',
+    'руководство группой инспекторов при выездных проверках (в подчинении 2 человека)',
+    'выступления спикером на семинарах и круглых столах',
+    '2006 — повышение до ведущего специалиста-эксперта; 2007 — до консультанта отдела контроля эмитентов',
+  ]},
+  { role:'Менеджер', co:'ООО «Экологические программы Новосибирск»', sphere:'Оптовая торговля, минеральные удобрения', period:'2005-04 — 2005-10', dur:'6 мес', items:[
+    'поиск новых клиентов, презентация товара, переговоры с покупателями',
+    'подготовка документов для оформления продажи',
+    'продвижение нового бренда на рынке минеральных удобрений',
+    'организация и участие в профильной ярмарке («ITE Сибирь»)',
+  ]},
+  { role:'Менеджер', co:'ООО «Топ-Сиб»', sphere:'Оптовая торговля ГСМ', period:'2003-07 — 2005-03', dur:'1 год 8 мес', items:[
+    'активный поиск клиентов, поддержание клиентской базы',
+    'переговоры с контрагентами (покупатели/поставщики)',
+    'подготовка документов для купли-продажи ГСМ, организация доставки',
+    'управление дебиторской и кредиторской задолженностью',
+    'изучил рынок ГСМ Новосибирска, привлёк две сети АЗС',
+  ]},
+];
 
 function ResumeTab({ c, onOpenAI }) {
   const [prefContact, setPrefContact] = useStateC('tg');
@@ -906,46 +1074,41 @@ function ResumeTab({ c, onOpenAI }) {
       <AIVerdictCard c={c} onOpenAI={onOpenAI}/>
 
       <h3 className="cc-sec-title">Опыт работы</h3>
-      <div className="job">
-        <div className="job-header">
-          <div>
-            <div className="job-title">Менеджер по развитию клиентов (B2B продажи)</div>
-            <div className="job-co">{c.lastCo}</div>
+      {RESUME_JOBS.map((j, i) => (
+        <div className="job" key={i}>
+          <div className="job-when">
+            <div className="job-period">{j.period}</div>
+            <div className="job-dur">{j.dur}</div>
           </div>
-          <div className="job-period">апрель 2024 — наст. время</div>
-        </div>
-        <div className="job-desc">
-          Работа с ключевыми клиентами в сегменте B2B. Развитие портфеля, переговоры на уровне C-level.
-          Внедрил систему скоринга лидов, поднял конверсию на 22%.
-        </div>
-      </div>
-      <div className="job">
-        <div className="job-header">
-          <div>
-            <div className="job-title">Senior Sales Manager</div>
-            <div className="job-co">Сбер · Корпоративные клиенты</div>
+          <div className="job-main">
+            <div className="job-co">{j.co}</div>
+            {j.sphere && <div className="job-sphere">{j.sphere}</div>}
+            <div className="job-title">{j.role}</div>
+            <ul className="job-bullets">
+              {j.items.map((it, k) => (
+                typeof it === 'object'
+                  ? <li className="job-subhead" key={k}>{it.h}</li>
+                  : <li key={k}>{it}</li>
+              ))}
+            </ul>
           </div>
-          <div className="job-period">февраль 2022 — март 2024</div>
         </div>
-        <div className="job-desc">
-          Воронка от первичного контакта до контракта. Среднегодовой объём — 180 М ₽. Команда 4 человека.
-        </div>
-      </div>
+      ))}
 
       <h3 className="cc-sec-title">Навыки</h3>
       <div className="skill-row">
-        {['B2B продажи','CRM','Переговоры','Презентации','Тендеры','Аналитика воронки','Excel/PowerBI','Английский B2'].map(s => (
+        {['B2B продажи','Прямые продажи','CRM (Битрикс24, AmoCRM)','Переговоры с ЛПР','Тендеры · ЭТП','Управление командой','Информационная безопасность (DLP)','Обучаемость'].map(s => (
           <span key={s} className="skill-chip">{s}</span>
         ))}
       </div>
 
       <h3 className="cc-sec-title">Образование</h3>
-      <div className="edu-row">
-        <div>
-          <div className="job-title">МГТУ им. Баумана</div>
-          <div className="job-co">Менеджмент</div>
+      <div className="job">
+        <div className="job-when"></div>
+        <div className="job-main">
+          <div className="job-co">Новосибирский государственный университет экономики и управления</div>
+          <div className="job-title">Экономика, учёт и статистика · Новосибирск</div>
         </div>
-        <div className="job-period">2012 — 2018</div>
       </div>
 
       <h3 className="cc-sec-title">Дополнительно</h3>
@@ -1329,28 +1492,22 @@ function ChatTab({ c }) {
 
   return (
     <div className="chat-tab">
-      <div className="chat-stream">
-        <div className="chat-day-divider"><span>{today}</span></div>
-        {messages.map(m => {
+      <div className="chat-stream chp-msgs-tab">
+        <div className="chp-day">{today}</div>
+        {messages.map((m, i) => {
           const ch = channelMeta(m.ch);
           const isMe = m.who === 'me';
+          const prev = messages[i - 1];
+          const newRun = !prev || prev.who !== m.who;
           return (
-            <div key={m.id} className={`chat-row ${isMe ? 'chat-row-me' : 'chat-row-them'}`}>
-              {!isMe && <Avatar name={m.who_name} size="sm"/>}
-              <div className="chat-bubble-wrap">
-                <div className="chat-meta">
-                  <span className="chat-who">{isMe ? recruiterName : m.who_name}</span>
-                  <span className={`chat-ch chat-ch-${m.ch}`} style={{'--ch-color': ch.color}}>
-                    <span className="chat-ch-dot" style={{background: ch.color}}/>
-                    {ch.label}
-                  </span>
-                </div>
-                <div className={`chat-bubble ${isMe ? 'chat-bubble-me' : 'chat-bubble-them'}`}>
-                  {m.text}
-                </div>
-                <div className="chat-time t-mono">{m.time.split(' · ')[1]}</div>
+            <div key={m.id} className={`chp-msg ${isMe ? 'out' : 'in'}`}>
+              {newRun && <div className="chp-msg-who">{m.who_name}</div>}
+              {m.text}
+              <div className="chp-msg-meta">
+                <span className="chp-msg-ch"><span className="chat-ch-dot" style={{background: ch.color}}></span>{ch.label}</span>
+                {m.time.split(' · ')[1]}
+                {isMe && <span className="chp-ticks">✓✓</span>}
               </div>
-              {isMe && <Avatar name={recruiterName} size="sm"/>}
             </div>
           );
         })}
@@ -1383,32 +1540,19 @@ function ChatTab({ c }) {
             )}
           </div>
         </div>
-        <div className="chat-compose-body">
-          <div className="chat-input-wrap">
-            <textarea
-              className="chat-input"
+        <div className="chp-composer chp-composer-tab">
+          <div className="chp-input">
+            <input
               placeholder={`Сообщение в ${active.label}…`}
-              rows={2}
               value={draft}
               onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); }}
-            ></textarea>
-            <button
-              className="chat-send-btn"
-              onClick={send}
-              disabled={!draft.trim()}
-              type="button"
-              title="Отправить (Ctrl+Enter)"
-              aria-label="Отправить"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 2 11 13"/>
-                <path d="M22 2 15 22l-4-9-9-4z"/>
-              </svg>
-            </button>
+              onKeyDown={e => { if (e.key === 'Enter') send(); }}
+            />
+            <button className="chp-emoji-btn" aria-label="Эмодзи" onClick={() => setDraft(d => d + ' 🙂')}>🙂</button>
           </div>
+          <button className="chp-send" aria-label="Отправить" disabled={!draft.trim()} onClick={send}><Icon name="arrowUp" size={16}/></button>
         </div>
-        <div className="chat-compose-hint">Ctrl + Enter — отправить · ответ уйдёт в <b>{active.label}</b></div>
+        <div className="chat-compose-hint">Enter — отправить · ответ уйдёт в <b>{active.label}</b></div>
       </div>
     </div>
   );

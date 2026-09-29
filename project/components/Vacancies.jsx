@@ -2,19 +2,19 @@
 const { useState: useStateVac, useMemo: useMemoVac } = React;
 
 const VACANCIES = [
-  { id: 'fe',   name: 'Frontend-разработчик (Senior)', count: 47, newCount: 5, unread: true },
-  { id: 'wh',   name: 'Кладовщик · смена 2/2',         count: 132, newCount: 12, unread: true },
-  { id: 'hr',   name: 'HR-дженералист',                count: 8, newCount: 0, unread: false },
-  { id: 'do',   name: 'DevOps-инженер',                count: 23, newCount: 2, unread: true },
-  { id: 'pm',   name: 'Product Manager',               count: 19, newCount: 0, unread: false },
-  { id: 'qa',   name: 'QA-инженер (автоматизация)',    count: 31, newCount: 4, unread: true },
-  { id: 'ux',   name: 'UX/UI Дизайнер',                count: 14, newCount: 0, unread: false },
-  { id: 'sa',   name: 'Системный аналитик',            count: 22, newCount: 1, unread: false },
-  { id: 'ba',   name: 'Бухгалтер на первичку',         count: 9,  newCount: 0, unread: false },
-  { id: 'cs',   name: 'Customer Success Manager',      count: 17, newCount: 3, unread: true },
-  { id: 'mk',   name: 'Маркетолог · performance',      count: 11, newCount: 0, unread: false },
-  { id: 'sl',   name: 'Менеджер по продажам B2B',      count: 38, newCount: 0, unread: false },
+  { id: 'fe',   name: 'Frontend-разработчик (Senior)', count: 47, newCount: 5, unread: true,  owner: 'Анна Седова',  dept: 'Engineering', city: 'Москва',   days: 23, hired: 0, positions: 2 },
+  { id: 'wh',   name: 'Кладовщик · смена 2/2',         count: 132, newCount: 12, unread: true, owner: 'Иван Корнев',  dept: 'Логистика',   city: 'Подольск', days: 12, hired: 1, positions: 6 },  { id: 'hr',   name: 'HR-дженералист',                count: 8, newCount: 0, unread: false, owner: 'Анна Седова',  dept: 'HR',          city: 'Москва',   days: 9,  hired: 0, positions: 1 },
+  { id: 'do',   name: 'DevOps-инженер',                count: 23, newCount: 2, unread: true,  owner: 'Анна Седова',  dept: 'Engineering', city: 'Москва',   days: 31, hired: 0, positions: 1 },
+  { id: 'pm',   name: 'Product Manager',               count: 19, newCount: 0, unread: false, owner: 'Ольга Реброва', dept: 'Product',    city: 'Москва',   days: 18, hired: 0, positions: 1 },
+  { id: 'qa',   name: 'QA-инженер (автоматизация)',    count: 31, newCount: 4, unread: true,  owner: 'Иван Корнев',  dept: 'Engineering', city: 'Москва',   days: 41, hired: 0, positions: 1 },
+  { id: 'ux',   name: 'UX/UI Дизайнер',                count: 14, newCount: 0, unread: false, owner: 'Ольга Реброва', dept: 'Product',    city: 'Москва',   days: 7,  hired: 0, positions: 1 },
+  { id: 'sa',   name: 'Системный аналитик',            count: 22, newCount: 1, unread: false, owner: 'Анна Седова',  dept: 'Engineering', city: 'Москва',   days: 26, hired: 0, positions: 2 },
+  { id: 'ba',   name: 'Бухгалтер на первичку',         count: 9,  newCount: 0, unread: false, owner: 'Иван Корнев',  dept: 'Финансы',     city: 'Москва',   days: 15, hired: 0, positions: 1 },
+  { id: 'cs',   name: 'Customer Success Manager',      count: 17, newCount: 3, unread: true,  owner: 'Анна Седова',  dept: 'Поддержка',   city: 'Удалённо', days: 5,  hired: 0, positions: 2 },
+  { id: 'mk',   name: 'Маркетолог · performance',      count: 11, newCount: 0, unread: false, owner: 'Ольга Реброва', dept: 'Маркетинг',  city: 'Москва',   days: 20, hired: 0, positions: 1 },
+  { id: 'sl',   name: 'Менеджер по продажам B2B',      count: 38, newCount: 0, unread: false, owner: 'Иван Корнев',  dept: 'Продажи',     city: 'Москва',   days: 33, hired: 1, positions: 3 },
 ];
+const ME = 'Анна Седова';
 
 const ARCHIVE_DATA = [
   { id: 1, title: 'Senior Backend (Go)',         result: 'success', client: 'Логос', recruiter: 'А. Седова',  days: 23, date: '12 марта 2026',     candidates: 47, hired: 1, period: 'quarter' },
@@ -244,4 +244,115 @@ function Archive() {
   );
 }
 
-Object.assign(window, { VacanciesSubmenu, EmptyVacancyPane, VacancyDetailStub, Archive, VACANCIES, ARCHIVE_DATA });
+/* ---------- Разводящая: все вакансии ---------- */
+function AllVacancies({ onSelectVacancy, onCreateVacancy, onArchive, requests }) {
+  const [scope, setScope] = useStateVac('mine');
+  const [dept, setDept] = useStateVac('all');
+  const [query, setQuery] = useStateVac('');
+  const owners = useMemoVac(() => [...new Set(VACANCIES.map(v => v.owner))], []);
+  const list = useMemoVac(() => VACANCIES.filter(v => {
+    if (scope === 'mine' && v.owner !== ME) return false;
+    if (scope !== 'mine' && scope !== 'all' && v.owner !== scope) return false;
+    if (dept !== 'all' && v.dept !== dept) return false;
+    if (query && !v.name.toLowerCase().includes(query.toLowerCase())) return false;
+    return true;
+  }), [scope, dept, query]);
+  const mine = VACANCIES.filter(v => v.owner === ME);
+  const groups = scope === 'all'
+    ? [{ title: `Мои · ${mine.length}`, items: list.filter(v => v.owner === ME) },
+       { title: 'Другие рекрутеры', items: list.filter(v => v.owner !== ME) }]
+    : [{ title: null, items: list }];
+  const totalNew = mine.reduce((s, v) => s + v.newCount, 0);
+  const linkedReq = (v) => (requests || []).find(r => r.vacancyId === v.id);  return (
+    <div className="content-inner">
+      <div className="archive-head">
+        <h1>Все вакансии</h1>
+        <div className="sub">
+          {scope === 'mine'
+            ? <><span className="t-mono">{mine.length}</span> моих из <span className="t-mono">{VACANCIES.length}</span> активных</>
+            : <>Показано <span className="t-mono">{list.length}</span> из <span className="t-mono">{VACANCIES.length}</span></>}
+        </div>
+      </div>
+
+      <div className="filter-bar">
+        <div className="filter-group">
+          <span className="filter-label">Ответственный</span>
+          <div className="seg-sm">
+            <button className={scope === 'mine' ? 'active' : ''} onClick={() => setScope('mine')}>Мои</button>
+            <button className={scope === 'all' ? 'active' : ''} onClick={() => setScope('all')}>Все</button>
+            {owners.filter(o => o !== ME).map(o => (
+              <button key={o} className={scope === o ? 'active' : ''} onClick={() => setScope(o)}>{o}</button>
+            ))}
+          </div>
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Отдел</span>
+          <button className="dropdown" onClick={() => setDept(dept === 'all' ? 'Engineering' : 'all')}>
+            {dept === 'all' ? 'Все' : dept} <Icon name="chevD" size={12}/>
+          </button>
+        </div>
+        <div className="filter-spacer"/>
+        <div className="submenu-search" style={{width:240, height:28}}>
+          <Icon name="search" size={14} style={{color:'var(--fg-3)', flex:'none'}}/>
+          <input placeholder="Поиск по вакансиям…" value={query} onChange={e => setQuery(e.target.value)}/>
+        </div>
+        {(scope !== 'mine' || dept !== 'all' || query) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setScope('mine'); setDept('all'); setQuery(''); }}>
+            <Icon name="x" size={14}/> Сбросить
+          </button>
+        )}
+        <button className="btn btn-primary btn-sm" onClick={onCreateVacancy}><Icon name="plus" size={14}/> Новая</button>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="empty-pane" style={{height:280}}>
+          <div className="empty-illust"><Icon name="briefcase" size={36}/></div>
+          <h3>Ничего не найдено</h3>
+          <p>По заданным фильтрам вакансий нет. Попробуйте сбросить часть условий.</p>
+          <button className="btn btn-secondary btn-sm" onClick={() => { setScope('all'); setDept('all'); setQuery(''); }}>Сбросить фильтры</button>
+        </div>
+      ) : groups.map((g, gi) => g.items.length === 0 ? null : (
+        <div key={gi} style={{marginBottom:18}}>
+          {g.title && <div className="av-group-title">{g.title}</div>}
+          <div className="archive-grid">
+            {g.items.map(v => {
+              const req = linkedReq(v);
+              return (
+                <div key={v.id} className="arch-card" onClick={() => onSelectVacancy(v.id)}>
+                  <div className="top-row">
+                    <span className="result-badge open"><Icon name="briefcase" size={11}/> В работе</span>
+                    {v.newCount > 0 && <span className="av-new">+{v.newCount} новых</span>}
+                    <button className="more-btn" onClick={e => e.stopPropagation()}><Icon name="more" size={14}/></button>
+                  </div>
+                  <div className="title">{v.name}</div>
+                  <div className="meta">
+                    {v.dept} <span className="sep">·</span> {v.owner === ME ? 'Я' : v.owner}
+                  </div>
+                  <div className="meta" style={{display:'flex', gap:10, alignItems:'center'}}>
+                    <Icon name="clock" size={13} style={{color:'var(--fg-3)'}}/>
+                    В работе {v.days} {v.days === 1 ? 'день' : (v.days < 5 ? 'дня' : 'дней')}
+                    <span className="sep">·</span>
+                    {v.city}
+                    {req && <><span className="sep">·</span><span className="av-req">заявка №{req.num}</span></>}
+                  </div>
+                  <div className="stats-row">
+                    <div className="stat-cell">
+                      <span className="stat-val">{v.count}</span>
+                      <span className="stat-lbl">кандидатов</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-val" style={{color: v.hired > 0 ? 'var(--ark-green-600)' : 'var(--fg-3)'}}>{v.hired} из {v.positions}</span>
+                      <span className="stat-lbl">нанято</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+Object.assign(window, { VacanciesSubmenu, EmptyVacancyPane, VacancyDetailStub, Archive, AllVacancies, VACANCIES, ARCHIVE_DATA, ME });

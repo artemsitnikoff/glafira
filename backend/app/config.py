@@ -136,12 +136,14 @@ class Settings(BaseSettings):
     DADATA_API_KEY: str = ""
     DADATA_SECRET_KEY: str = ""
 
-    # ФССП (исполнительные производства) — сторонний провайдер parser-api.com (офиц. API
-    # ФССП закрыт). Пусто FSSP_API_KEY → интеграция ВЫКЛЮЧЕНА (блок «Исполнительные
-    # производства» в верификации остаётся честной заглушкой «Не подключено»). BASE вынесен
-    # в env, чтобы сменить провайдера без правки кода.
+    # ФССП (исполнительные производства) — сторонний провайдер api-cloud.ru (офиц. API
+    # ФССП закрыт). Контракт: GET {BASE}/fssp.php?type=physical&token=…&lastname=…&
+    # firstname=…&secondname=…&birthdate=дд.мм.гггг → {"status":200,"records":[…]}.
+    # Пусто FSSP_API_KEY → интеграция ВЫКЛЮЧЕНА (блок «Исполнительные производства» в
+    # верификации остаётся честной заглушкой «Не подключено»). BASE вынесен в env, чтобы
+    # сменить домен провайдера (у api-cloud есть клоны/реселлеры с тем же API) без правки кода.
     FSSP_API_KEY: str = ""
-    FSSP_API_BASE: str = "https://parser-api.com/parser/fssp_api"
+    FSSP_API_BASE: str = "https://api-cloud.ru/api"
 
     FERNET_KEY: str | None = None
 

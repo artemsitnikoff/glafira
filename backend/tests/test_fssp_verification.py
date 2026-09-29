@@ -1,7 +1,7 @@
-"""Тесты реальной проверки ФССП (исполнительные производства) через parser-api.com.
+"""Тесты реальной проверки ФССП (исполнительные производства) через api-cloud.ru.
 
 Покрывают:
-  - клиент services/fssp.py (формат dob, done!=1 → None, нет ключа/ДР → None, парсинг
+  - клиент services/fssp.py (формат dob, status!=200 → None, нет ключа/ДР → None, парсинг
     записей, [] при 0 записях, сетевые/HTTP-ошибки → None);
   - блок верификации `fssp` (заглушка без ключа, «нужна дата рождения», warn+плашка при
     находках, clean при 0, honest «не удалось» при None — НЕ «чисто»);
@@ -68,18 +68,20 @@ class TestFsspClient:
             result = await search_enforcement("Иванов", "Иван", None, None)
         assert result is None
 
-    async def test_done_not_1_returns_none(self):
-        """done != 1 → None (не удалось проверить, НЕ «чисто»)."""
-        mock = _mock_async_client(json_data={"done": 0, "error": "limit"})
+    async def test_status_not_200_returns_none(self):
+        """Ошибка провайдера (status!=200, напр. TOKEN_NOT_REGISTERED) → None (НЕ «чисто»)."""
+        mock = _mock_async_client(
+            json_data={"error": "503", "message": "TOKEN_NOT_REGISTERED_IN_THE_SYSTEM"}
+        )
         with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
              patch("app.services.fssp.httpx.AsyncClient", mock):
             result = await search_enforcement("Иванов", "Иван", None, date(1990, 1, 1))
         assert result is None
 
     async def test_success_parses_records(self):
-        """done=1 + записи → список нормализованных словарей (с raw)."""
+        """status=200 + записи → список нормализованных словарей (с raw)."""
         payload = {
-            "done": 1,
+            "status": 200,
             "records": [
                 {
                     "name": "Иванов Иван Иванович, 01.01.1990",
@@ -104,8 +106,8 @@ class TestFsspClient:
         assert rec["raw"] == payload["records"][0]  # исходник сохранён целиком
 
     async def test_zero_records_returns_empty_list(self):
-        """done=1 + нет записей → [] (провайдер отработал, ИП нет). [] ≠ None."""
-        mock = _mock_async_client(json_data={"done": 1, "records": []})
+        """status=200 + нет записей → [] (провайдер отработал, ИП нет). [] ≠ None."""
+        mock = _mock_async_client(json_data={"status": 200, "records": []})
         with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
              patch("app.services.fssp.httpx.AsyncClient", mock):
             result = await search_enforcement("Иванов", "Иван", None, date(1990, 1, 1))
@@ -130,13 +132,13 @@ class TestFsspClient:
             result = await search_enforcement("Иванов", "Иван", None, date(1990, 1, 1))
         assert result is None
 
-    async def test_query_params_include_key_dob_and_optional_patronymic(self):
-        """dob уходит в формате дд.мм.ГГГГ; patronymic — только если задан."""
+    async def test_query_params_include_token_dob_and_optional_patronymic(self):
+        """api-cloud: type=physical, token, birthdate дд.мм.ГГГГ; secondname — только если задан."""
         captured = {}
 
         def _client_factory(*args, **kwargs):
             resp = MagicMock()
-            resp.json.return_value = {"done": 1, "records": []}
+            resp.json.return_value = {"status": 200, "records": []}
             resp.raise_for_status.return_value = None
 
             async def _get(url, params=None):
@@ -155,12 +157,13 @@ class TestFsspClient:
              patch("app.services.fssp.httpx.AsyncClient", _client_factory):
             await search_enforcement("Сидоров", "Пётр", "Иванович", date(1988, 12, 5))
 
-        assert captured["url"].endswith("/search_fiz")
-        assert captured["params"]["key"] == "secret"
-        assert captured["params"]["lastName"] == "Сидоров"
-        assert captured["params"]["firstName"] == "Пётр"
-        assert captured["params"]["dob"] == "05.12.1988"
-        assert captured["params"]["patronymic"] == "Иванович"
+        assert captured["url"].endswith("/fssp.php")
+        assert captured["params"]["type"] == "physical"
+        assert captured["params"]["token"] == "secret"
+        assert captured["params"]["lastname"] == "Сидоров"
+        assert captured["params"]["firstname"] == "Пётр"
+        assert captured["params"]["birthdate"] == "05.12.1988"
+        assert captured["params"]["secondname"] == "Иванович"
 
     def test_normalize_record_defensive_and_keeps_raw(self):
         raw = {"unknown_key": "x", "amount": 500}

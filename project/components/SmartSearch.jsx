@@ -49,7 +49,7 @@ function SmartSearch(props) {
   const presetView = props.presetView || 'auto';
   // какой режим открыть исходя из пресета (для превью в Tweaks):
   //  auto/fork → развилка; base → своя база; остальное (hh-состояния) → hh
-  const modeFor = (pv) => pv === 'base' ? 'base' : (pv === 'auto' || pv === 'fork') ? null : 'hh';
+  const modeFor = (pv) => pv === 'base' ? 'base' : pv === 'autosearch' ? 'auto' : (pv === 'auto' || pv === 'fork') ? null : 'hh';
   const [mode, setMode] = useStateSS(modeFor(presetView));
   useEffectSS(() => { setMode(modeFor(presetView)); }, [presetView]);
 
@@ -63,6 +63,15 @@ function SmartSearch(props) {
         onBack={() => setMode(null)}
         onOpenCandidate={props.onOpenCandidate}
         onGoFunnel={props.onGoFunnel}
+      />
+    );
+  }
+  if (mode === 'auto') {
+    return (
+      <SSAutoFlow
+        onBack={() => setMode(null)}
+        onGoFunnel={props.onGoFunnel}
+        onGoPool={props.onGoPool}
       />
     );
   }
@@ -583,9 +592,10 @@ function SSHeader({ onBack, sub }) {
 
 // ====== Развилка: выбор источника подбора ======
 function SSFork({ hasHhAccess, poolCount, onPick }) {
+  const totalNew = (typeof SA_SEARCHES !== 'undefined' ? SA_SEARCHES : []).reduce((s, x) => s + x.newCount, 0);
   return (
     <div className="ss-page" data-screen-label="Smart Search / Fork">
-      <SSHeader sub={<>С чего начнём? Глафира умеет искать кандидатов <b>снаружи</b> — в базе резюме hh.ru — и <b>внутри</b>, по вашей собственной базе кандидатов.</>}/>
+      <SSHeader sub={<>С чего начнём? Глафира ищет <b>снаружи</b> — в базе резюме hh.ru, ведёт ваши <b>автопоиски</b> на hh и ищет <b>внутри</b> — по вашей базе кандидатов.</>}/>
 
       <div className="ssf-grid">
         {/* hh.ru */}
@@ -624,6 +634,27 @@ function SSFork({ hasHhAccess, poolCount, onPick }) {
             <li><Icon name="message" size={14}/> Поиск промтом — «напишите, кто нужен»</li>
             <li><Icon name="briefcase" size={14}/> Или поиск под открытую вакансию</li>
             <li><Icon name="filter" size={14}/> Автофильтры как на hh — по базе</li>
+          </ul>
+          <span className="ssf-go">Выбрать <Icon name="arrowRight" size={15}/></span>
+        </button>
+
+        {/* Автоподбор — сохранённые автопоиски hh */}
+        <button className="ssf-card ssf-auto" onClick={() => onPick('auto')}>
+          <div className="ssf-card-top">
+            <div className="ssf-card-ic ic-auto"><Icon name="antenna" size={22}/></div>
+            {totalNew > 0
+              ? <span className="ssf-tag auto"><Icon name="bell" size={11}/> +{totalNew} новых</span>
+              : <span className="ssf-tag neutral">автопоиски hh</span>}
+          </div>
+          <div className="ssf-card-title">Автоподбор</div>
+          <div className="ssf-card-desc">
+            Ваши автопоиски на hh.ru: настроили фильтры и подписались — новые резюме приходят в поток.
+            Глафира забирает и оценивает их сразу. <b>Пока через hh.</b>
+          </div>
+          <ul className="ssf-card-list">
+            <li><Icon name="antenna" size={14}/> Готовые автопоиски hh — по названиям</li>
+            <li><Icon name="sparkle" size={14}/> Авто-оценка новых резюме</li>
+            <li><Icon name="key" size={14}/> Забрать контакт → в воронку / пул</li>
           </ul>
           <span className="ssf-go">Выбрать <Icon name="arrowRight" size={15}/></span>
         </button>

@@ -6,8 +6,10 @@ const SET_SECTIONS = [
   { id: 'profile',      label: 'Профиль',                icon: 'user',     adminOnly: false },
   { id: 'general',      label: 'Общие',                  icon: 'settings', adminOnly: true  },
   { id: 'funnel',       label: 'Воронка по умолчанию',   icon: 'funnel',   adminOnly: true  },
+  { id: 'reqfunnel',    label: 'Воронка заявок',        icon: 'inbox',    adminOnly: true  },
   { id: 'access',       label: 'Права доступа',          icon: 'users',    adminOnly: true  },
   { id: 'tags',         label: 'Теги',                   icon: 'pin',      adminOnly: false },
+  { id: 'tests',        label: 'Тесты',                  icon: 'grid',     adminOnly: true  },
   { id: 'integrations', label: 'Интеграции',             icon: 'antenna',  adminOnly: true  },
   { id: 'ai',           label: 'AI',                     icon: 'sparkle',  adminOnly: true  },
 ];
@@ -1186,8 +1188,10 @@ function Settings({ section, onSectionChange, isAdmin = true, hasBitrix = true }
   if (active === 'profile')           content = <SettingsProfile/>;
   else if (active === 'general')      content = <SettingsGeneral hasBitrix={hasBitrix}/>;
   else if (active === 'funnel')       content = <SettingsFunnel/>;
+  else if (active === 'reqfunnel')    content = <SettingsReqFunnel/>;
   else if (active === 'access')       content = <SettingsAccess/>;
   else if (active === 'tags')         content = <SettingsTags/>;
+  else if (active === 'tests')        content = <window.SettingsTests/>;
   else if (active === 'ai')           content = <SettingsAI/>;
   else if (active === 'integrations') content = <SettingsIntegrations/>;
 
@@ -1201,6 +1205,88 @@ function Settings({ section, onSectionChange, isAdmin = true, hasBitrix = true }
   );
 }
 
+/* ============================================================
+   ВОРОНКА ЗАЯВОК — этапы жизненного цикла заявки на подбор
+   ============================================================ */
+function SettingsReqFunnel() {
+  const [dirty, setDirty] = useStateSet(false);
+  const [stages, setStages] = useStateSet([
+    { id:1, name:'Новая',      type:'start',    desc:'Менеджер подал заявку по ссылке или рекрутер внёс её вручную.' },
+    { id:2, name:'В работе',   type:'middle',   desc:'Рекрутер взял заявку: уточняет детали с заказчиком.' },
+    { id:3, name:'В подборе',  type:'system',   desc:'По заявке создана вакансия — они связаны. Системный этап, не удаляется.' },
+    { id:4, name:'Закрыта',    type:'finalOk',  desc:'Наняты все позиции — заявка закрывается автоматически.' },
+    { id:5, name:'Отклонена',  type:'finalBad', desc:'Отклонена с причиной — причину видит менеджер-заказчик.' },
+  ]);
+  const [autoClose, setAutoClose] = useStateSet(true);
+  const [questionToWork, setQuestionToWork] = useStateSet(true);
+  const [notifyManager, setNotifyManager] = useStateSet(true);
+  return (
+    <div className="set-content-inner">
+      <PageHead title="Воронка заявок"
+        subtitle="Этапы, по которым движется заявка на подбор: от подачи менеджером до закрытия наймом"
+        dirty={dirty} onSave={() => setDirty(false)}/>
+      <div className="info-banner">
+        <Icon name="sparkle" size={16}/>
+        <div><b>Заявка ≠ вакансия.</b> Вакансия появляется на этапе «В подборе» и связывается с заявкой. Найм всех позиций закрывает заявку.</div>
+      </div>
+      <Card title="Этапы воронки заявок" desc="Первый, системный и финальные этапы закреплены. Между ними можно добавлять свои — например, «На согласовании».">
+        <div className="funnel-editor">
+          {stages.map((s, idx) => {
+            const t = FUNNEL_STAGE_TYPES[s.type];
+            const isFinal = s.type === 'finalOk' || s.type === 'finalBad';
+            const locked = idx === 0 || isFinal || s.type === 'system';
+            return (
+              <div key={s.id} className={`fn-stage ${isFinal ? 'fn-final' : ''}`}>
+                <div className="fn-num">{idx+1}</div>
+                <div className="fn-body">
+                  <div className="fn-row1">
+                    <input className="fn-name" defaultValue={s.name}
+                           onChange={(e) => { const next = stages.slice(); next[idx] = {...s, name: e.target.value}; setStages(next); setDirty(true); }}/>
+                    <span className="stage-type-pill" style={{background:t.bg, color:t.fg}}>
+                      <span className="st-dot" style={{background:t.dot}}/>{t.label}
+                    </span>
+                    {locked && <span className="nv-locked-pill" title="Зафиксирован">
+                      <Icon name="pin" size={11}/> закреплён
+                    </span>}
+                  </div>
+                  <div className="fn-desc">{s.desc}</div>
+                </div>
+                <button className="row-icon-btn" disabled={locked}
+                        onClick={() => { if (!locked) { setStages(stages.filter((_, i) => i !== idx)); setDirty(true); } }}
+                        title={locked ? 'Этап нельзя удалить' : 'Удалить этап'}>
+                  <Icon name="x" size={14}/>
+                </button>
+              </div>
+            );
+          })}
+          <button className="fn-add" onClick={() => {
+            const next = stages.slice();
+            next.splice(1, 0, { id: Date.now(), name:'На согласовании', type:'middle', desc:'Опишите, что происходит на этом этапе.' });
+            setStages(next); setDirty(true);
+          }}>
+            <Icon name="plus" size={14}/> Добавить этап
+          </button>
+        </div>
+      </Card>
+      <Card title="Правила" desc="Автоматика движения заявок по воронке.">
+        <div className="req-rules">
+          {[
+            { v: autoClose, set: setAutoClose, label: 'Закрывать заявку автоматически, когда наняты все позиции' },
+            { v: questionToWork, set: setQuestionToWork, label: 'Вопрос менеджеру переводит «Новая» → «В работе»' },
+            { v: notifyManager, set: setNotifyManager, label: 'Уведомлять менеджера-заказчика при смене этапа' },
+          ].map((r, i) => (
+            <label key={i} className="nv-toggle-row" style={{marginBottom: i < 2 ? 10 : 0}}>
+              <span className={`nv-switch ${r.v ? 'on' : ''}`} onClick={() => { r.set(!r.v); setDirty(true); }}/>
+              <span>{r.label}</span>
+            </label>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 window.Settings = Settings;
 window.SET_SECTIONS = SET_SECTIONS;
 window.FUNNEL_STAGE_TYPES = FUNNEL_STAGE_TYPES;
+Object.assign(window, { PageHead, Card, FormRow, TextInput, Textarea, Select, Switch, Radio });

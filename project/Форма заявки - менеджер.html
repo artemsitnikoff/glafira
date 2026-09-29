@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Заявка на подбор — Глафира</title>
+<link rel="stylesheet" href="styles/tokens.css"/>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:linear-gradient(180deg,var(--ark-blue-50) 0%,var(--ark-gray-50) 320px);color:var(--fg-1);-webkit-font-smoothing:antialiased}
+a{color:var(--fg-link)}a:hover{color:var(--accent-press)}
+.fm-page{max-width:600px;margin:0 auto;padding:40px 20px 32px}
+.fm-brand{display:flex;align-items:center;gap:10px;margin-bottom:22px;font-weight:650;font-size:15px}
+.fm-mark{width:38px;height:38px;border-radius:12px;background:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:20px;flex:none}
+.fm-brand span.co{color:var(--fg-3);font-weight:500}
+.fm-card{background:#fff;border:1px solid var(--border-2);border-radius:16px;padding:28px;box-shadow:0 10px 40px -18px rgba(15,22,32,.18)}
+.fm-card h1{font-size:22px;letter-spacing:-0.02em;margin:0 0 6px}
+.fm-sub{font-size:13.5px;color:var(--fg-2);line-height:1.5;margin:0 0 22px;text-wrap:pretty}
+.fm-field{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.fm-field>span{font-size:12.5px;font-weight:600;color:var(--fg-2)}
+.fm-field .req{color:var(--ark-red-500)}
+.fm-hint{font-size:11.5px;color:var(--fg-3);font-weight:400}
+input,select,textarea{width:100%;border:1px solid var(--border-1);border-radius:9px;padding:9px 12px;font-size:14px;font-family:inherit;background:#fff;color:var(--fg-1)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--border-focus);box-shadow:0 0 0 3px var(--ark-blue-50)}
+input.err,textarea.err{border-color:var(--ark-red-500)}
+textarea{resize:vertical;min-height:110px;line-height:1.5}
+.fm-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fm-row3{display:grid;grid-template-columns:110px 1fr 1fr;gap:12px}
+.fm-seg{display:flex;border:1px solid var(--border-1);border-radius:9px;overflow:hidden}
+.fm-seg button{flex:1;border:0;background:#fff;padding:9px 8px;font-size:13px;font-family:inherit;color:var(--fg-2);cursor:pointer;white-space:nowrap}
+.fm-seg button.on{background:var(--ark-blue-50);color:var(--accent);font-weight:600}
+.fm-inline{display:flex;align-items:center;gap:8px}
+.fm-check{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--fg-2);white-space:nowrap;cursor:pointer}
+.fm-check input{width:15px;height:15px;padding:0}
+.fm-salary{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fm-suf{position:relative}
+.fm-suf i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--fg-3);font-size:13px}
+.fm-submit{width:100%;margin-top:6px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;padding:13px;cursor:pointer;font-family:inherit}
+.fm-submit:hover{background:var(--accent-hover)}
+.fm-note{font-size:12px;color:var(--fg-3);text-align:center;margin:12px 0 0;line-height:1.5}
+.fm-success{display:none;background:#fff;border:1px solid var(--border-2);border-radius:16px;padding:40px 28px;text-align:center;box-shadow:0 10px 40px -18px rgba(15,22,32,.18)}
+.fm-success .ok{width:56px;height:56px;border-radius:50%;background:var(--ark-green-100);color:var(--ark-green-600);display:inline-flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:14px}
+.fm-success h2{font-size:19px;margin:0 0 8px}
+.fm-success p{font-size:13.5px;color:var(--fg-2);line-height:1.55;margin:0;text-wrap:pretty}
+.fm-foot{text-align:center;font-size:12px;color:var(--fg-3);margin-top:20px}
+@media (max-width:560px){.fm-row2,.fm-row3,.fm-salary{grid-template-columns:1fr}.fm-card{padding:22px 18px}}
+</style>
+</head>
+<body>
+<div class="fm-page">
+<div class="fm-brand"><span class="fm-mark">👩🏻</span> Глафира <span class="co">· для сотрудников «Логос»</span></div>
+<div class="fm-card" id="card">
+<h1>Заявка на подбор сотрудника</h1>
+<p class="fm-sub">Опишите, кто вам нужен, — рекрутинг возьмёт заявку в работу и вернётся с уточнениями. Обычно в течение одного рабочего дня.</p>
+<div class="fm-row2">
+<label class="fm-field"><span>Ваше имя</span><input id="fName" placeholder="Марина Ковалёва"></label>
+<label class="fm-field"><span>Ваша должность</span><input placeholder="Руководитель отдела продаж"></label>
+</div>
+<div class="fm-row2">
+<label class="fm-field"><span>Отдел</span><input placeholder="Отдел продаж"></label>
+<label class="fm-field"><span>Telegram или телефон для уточнений</span><input placeholder="@mkovaleva"></label>
+</div>
+<label class="fm-field"><span>Кто нужен <b class="req">*</b></span><input id="fTitle" placeholder="Например: Менеджер по продажам B2B"></label>
+<div class="fm-row3">
+<label class="fm-field"><span>Сколько человек</span><input type="number" min="1" value="1"></label>
+<label class="fm-field"><span>Город</span><input placeholder="Москва"></label>
+<label class="fm-field"><span>Формат</span><select><option>Офис</option><option>Гибрид</option><option>Удалённо</option></select></label>
+</div>
+<div class="fm-row2">
+<div class="fm-field"><span>К какому сроку</span>
+<div class="fm-inline"><input type="date" id="fDate" style="flex:1"><label class="fm-check"><input type="checkbox" id="fNoRush"> не срочно</label></div>
+</div>
+<div class="fm-field"><span>Приоритет</span>
+<div class="fm-seg" id="fPrio"><button type="button" class="on">Обычный</button><button type="button">🔥 Срочно</button></div>
+</div>
+</div>
+<div class="fm-field"><span>Зарплатная вилка <span class="fm-hint">— если не знаете, оставьте пустым: подскажем по рынку</span></span>
+<div class="fm-salary">
+<span class="fm-suf"><input placeholder="от" inputmode="numeric"><i>₽</i></span>
+<span class="fm-suf"><input placeholder="до" inputmode="numeric"><i>₽</i></span>
+</div>
+</div>
+<label class="fm-field"><span>Кратко: кто нужен и зачем <b class="req">*</b></span>
+<textarea id="fDesc" placeholder="Задачи, обязательный опыт и навыки, условия. Например: нужны два менеджера активных продаж в B2B, опыт холодных продаж от 2 лет, база лидов есть, оклад + %."></textarea>
+</label>
+<button class="fm-submit" id="fSubmit">Отправить заявку</button>
+<p class="fm-note">Заявка попадёт к рекрутеру в CRM «Глафира» с пометкой «по ссылке-форме». Статус и уточнения придут вам в Telegram.</p>
+</div>
+<div class="fm-success" id="done">
+<div class="ok">✓</div>
+<h2>Заявка №22 отправлена</h2>
+<p>Рекрутер Анна Седова получила её и возьмёт в работу. Уточняющие вопросы и статусы придут вам в Telegram — обычно первый ответ в течение рабочего дня.</p>
+</div>
+<div class="fm-foot">Работает на «Глафире» 💃</div>
+</div>
+<script>
+const prio = document.getElementById('fPrio');
+prio.querySelectorAll('button').forEach(b => b.onclick = () => { prio.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
+document.getElementById('fNoRush').onchange = e => { document.getElementById('fDate').disabled = e.target.checked; };
+document.getElementById('fSubmit').onclick = () => {
+  let ok = true;
+  ['fTitle','fDesc'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.toggle('err', !el.value.trim());
+    if (!el.value.trim()) ok = false;
+  });
+  if (!ok) return;
+  document.getElementById('card').style.display = 'none';
+  document.getElementById('done').style.display = 'block';
+  window.scrollTo(0, 0);
+};
+</script>
+</body>
+</html>

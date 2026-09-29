@@ -1,8 +1,13 @@
-"""ФССП (исполнительные производства) через стороннего провайдера parser-api.com.
+"""ФССП (исполнительные производства) через стороннего провайдера api-cloud.ru.
 
-Официальный API ФССП закрыт → используем parser-api.com (СИНХРОННЫЙ поиск по банку
-данных исполнительных производств ФССП). Провайдер требует ФИО + ДАТУ РОЖДЕНИЯ (dob):
-без даты рождения поиск невозможен вовсе.
+Официальный API ФССП закрыт → используем api-cloud.ru (СИНХРОННЫЙ поиск по банку
+данных исполнительных производств ФССП). Контракт:
+    GET {FSSP_API_BASE}/fssp.php?type=physical&token=…&lastname=…&firstname=…
+        &secondname=…&birthdate=дд.мм.гггг&region=…
+    → успех: {"status": 200, "records": [ … ], "countAll": N, …}
+    → ошибка: {"error": "503", "message": "TOKEN_NOT_REGISTERED_IN_THE_SYSTEM"} и т.п.
+Провайдер требует ФИО + ДАТУ РОЖДЕНИЯ (dob): без даты рождения поиск невозможен вовсе.
+BASE в env — у api-cloud есть клоны/реселлеры с тем же API, но своим токеном.
 
 ⚠️ Результат — ВОЗМОЖНЫЕ совпадения по ФИО + ДР, а НЕ подтверждённая задолженность
 конкретного кандидата (возможны однофамильцы). Подача в UI — со строгой плашкой,
@@ -42,7 +47,7 @@ def _extract_records(data: dict) -> list:
     """Достать список исполнительных производств из ответа провайдера.
 
     Основной документированный ключ — `records`; остальные — защитный фолбэк на случай
-    иной формы. Если done=1, но список не нашёлся — вернём [] (провайдер отработал,
+    иной формы. Если status=200, но список не нашёлся — вернём [] (провайдер отработал,
     производств нет). Реальную форму ответа пиннить на живом ключе (см. лог ниже).
     """
     for k in ("records", "result", "data", "items", "enforcements", "productions"):
@@ -67,13 +72,13 @@ def _normalize_record(rec: dict) -> dict:
         return ""
 
     return {
-        "debtor": pick("name", "debtor", "fio", "full_name"),
-        "production": pick("exe_production", "exeProduction", "ip_number", "number"),
-        "subject": pick("subject", "details", "exe_subject", "purpose"),
+        "debtor": pick("name", "debtor", "fio", "full_name", "debtor_name"),
+        "production": pick("process_title", "exe_production", "exeProduction", "ip_number", "number"),
+        "subject": pick("subject", "details", "exe_subject", "purpose", "process_subject"),
         "amount": pick("subject_amount", "amount", "debt", "sum", "summ"),
-        "status": pick("ip_end", "status", "state", "ip_status"),
-        "department": pick("department", "osp", "subdivision", "division"),
-        "bailiff": pick("bailiff", "officer", "executor", "spi"),
+        "status": pick("ip_end", "status", "state", "ip_status", "process_status"),
+        "department": pick("department", "osp", "subdivision", "division", "department_name"),
+        "bailiff": pick("bailiff", "officer", "executor", "spi", "bailiff_name"),
         "raw": rec,
     }
 
@@ -85,7 +90,7 @@ async def search_enforcement(
     birth_date,
     region_id: str | int | None = None,
 ) -> list[dict] | None:
-    """Поиск исполнительных производств физлица через parser-api.com (синхронно, один GET).
+    """Поиск исполнительных производств физлица через api-cloud.ru (синхронно, один GET).
 
     Возвращает:
       - list[dict] (НЕПУСТОЙ) — найдены возможные совпадения ИП;
@@ -110,17 +115,18 @@ async def search_enforcement(
         return None
 
     params = {
-        "key": settings.FSSP_API_KEY,
-        "lastName": last_name.strip(),
-        "firstName": first_name.strip(),
-        "dob": dob,
+        "type": "physical",
+        "token": settings.FSSP_API_KEY,
+        "lastname": last_name.strip(),
+        "firstname": first_name.strip(),
+        "birthdate": dob,
     }
     if patronymic and patronymic.strip():
-        params["patronymic"] = patronymic.strip()
+        params["secondname"] = patronymic.strip()
     if region_id not in (None, ""):
-        params["regionID"] = str(region_id)
+        params["region"] = str(region_id)
 
-    url = f"{settings.FSSP_API_BASE}/search_fiz"
+    url = f"{settings.FSSP_API_BASE}/fssp.php"
     try:
         async with httpx.AsyncClient(timeout=FSSP_TIMEOUT) as client:
             resp = await client.get(url, params=params)
@@ -132,13 +138,18 @@ async def search_enforcement(
         logger.warning("[fssp] search_enforcement failed: %s: %s | %s", type(e).__name__, e, body)
         return None
 
-    # done=1 — успех. Любое другое (done=0/отсутствует, код 403/400 в теле) → не удалось.
-    if not isinstance(data, dict) or data.get("done") != 1:
-        logger.warning("[fssp] provider done!=1 or bad payload: %s", str(data)[:300])
+    # api-cloud: успех → {"status": 200, ...}. Ошибка провайдера (нет токена/лимит/неверный
+    # type) приходит с HTTP 200, но телом {"error": "...", "message": "..."} (напр.
+    # TOKEN_NOT_REGISTERED_IN_THE_SYSTEM) → status!=200 → не удалось (None, НЕ «чисто», §0).
+    if not isinstance(data, dict):
+        logger.warning("[fssp] bad payload (not a dict): %s", str(data)[:300])
+        return None
+    if data.get("status") not in (200, "200"):
+        logger.warning("[fssp] provider status!=200: %s", str(data)[:300])
         return None
 
     records = _extract_records(data)
     # info-лог формы ответа — помогает пиннить ключ списка на живом провайдере, если наш
-    # маппинг разошёлся (done=1, но records пуст при непривычном ключе → ложное «чисто»).
-    logger.info("[fssp] done=1 keys=%s records=%d", list(data.keys()), len(records))
+    # маппинг разошёлся (status=200, но records пуст при непривычном ключе → ложное «чисто»).
+    logger.info("[fssp] status=200 keys=%s records=%d", list(data.keys()), len(records))
     return [_normalize_record(r) for r in records if isinstance(r, dict)]
