@@ -383,7 +383,7 @@ def _fssp_stub_block() -> dict:
 
 
 async def _build_fssp_block(candidate: Candidate) -> dict:
-    """Блок «Исполнительные производства» (ФССП) через api-cloud.ru.
+    """Блок «Исполнительные производства» (ФССП) через parser-api.com.
 
     Token-gated: пусто FSSP_API_KEY → честная заглушка (как раньше). Провайдер требует
     дату рождения — без неё честный info «нужна дата рождения». Найденные ИП — status
@@ -575,7 +575,7 @@ async def verify_candidate(
     blocks.append(contacts_block)
 
     # 2. Honest government stubs (NOT fake verdicts). Блок ФССП — реальная проверка через
-    #    api-cloud.ru, если провайдер настроен (FSSP_API_KEY); иначе остаётся честной
+    #    parser-api.com, если провайдер настроен (FSSP_API_KEY); иначе остаётся честной
     #    заглушкой. Остальные (inn/bankruptcy/registries/alimony) — как прежде.
     gov_blocks = _build_government_stub_blocks()
     fssp_block = await _build_fssp_block(candidate)
