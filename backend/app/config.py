@@ -136,6 +136,13 @@ class Settings(BaseSettings):
     DADATA_API_KEY: str = ""
     DADATA_SECRET_KEY: str = ""
 
+    # ФССП (исполнительные производства) — сторонний провайдер parser-api.com (офиц. API
+    # ФССП закрыт). Пусто FSSP_API_KEY → интеграция ВЫКЛЮЧЕНА (блок «Исполнительные
+    # производства» в верификации остаётся честной заглушкой «Не подключено»). BASE вынесен
+    # в env, чтобы сменить провайдера без правки кода.
+    FSSP_API_KEY: str = ""
+    FSSP_API_BASE: str = "https://parser-api.com/parser/fssp_api"
+
     FERNET_KEY: str | None = None
 
     # === Очередь фоновых задач (arq + Redis) ===
