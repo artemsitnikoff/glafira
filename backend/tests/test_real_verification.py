@@ -4,7 +4,14 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from sqlalchemy import select
 from app.models import Verification, Event, Consent
-from app.services.glafira.verify import verify_candidate, _build_contacts_block, _build_government_stub_blocks
+from app.services.glafira.verify import (
+    verify_candidate,
+    _build_contacts_block,
+    _build_fssp_block,
+    _build_alimony_block,
+    _build_fssp_wanted_block,
+    _build_mvd_wanted_block,
+)
 from app.core.errors import ConsentRequiredError
 
 
@@ -68,9 +75,9 @@ class TestRealVerification:
             assert verification.is_mock is False  # Real verification
             assert verification.status in ['clean', 'info', 'warn', 'risk']
 
-            # Check blocks structure: contacts + 5 gov stubs + public_expertise + mentions
+            # Check blocks structure: contacts + 4 gov checks + public_expertise + mentions
             blocks = verification.blocks
-            assert len(blocks) >= 8
+            assert len(blocks) >= 7
 
             # Find contacts block
             contacts_block = next((b for b in blocks if b["key"] == "contacts"), None)
@@ -81,14 +88,14 @@ class TestRealVerification:
             assert "email" in contacts_block["data"]
             assert "name" in contacts_block["data"]
 
-            # Check government stub blocks
-            gov_keys = ["inn", "fssp", "bankruptcy", "registries", "alimony"]
+            # Госпроверки parser-api (в тесте ключ не задан → честные заглушки «Не подключено»).
+            gov_keys = ["fssp", "alimony", "fssp_wanted", "mvd_wanted"]
             for gov_key in gov_keys:
                 gov_block = next((b for b in blocks if b["key"] == gov_key), None)
                 assert gov_block is not None
                 assert gov_block["status"] == "info"
                 assert gov_block["data"]["status"] == "Не подключено"
-                assert "152-ФЗ" in gov_block["data"]["note"]
+                assert gov_block["data"]["note"]  # честное непустое примечание, без фейк-вердикта
 
             # Check OSINT blocks (публичная экспертиза + упоминания)
             pe_block = next((b for b in blocks if b["key"] == "public_expertise"), None)
@@ -152,16 +159,21 @@ class TestRealVerification:
             assert contacts_block["status"] == "warn"  # Gender mismatch should trigger warning
             assert not contacts_block["data"]["name"]["gender_match"]
 
-    async def test_government_stubs_are_honest(self):
-        """Test that government blocks are honest stubs, not fake verdicts"""
+    async def test_government_checks_are_honest_stubs_without_key(self, test_candidate):
+        """Без ключа провайдера госпроверки — честные заглушки «Не подключено», без фейк-вердиктов."""
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", ""):
+            blocks = [
+                await _build_fssp_block(test_candidate),
+                await _build_alimony_block(test_candidate),
+                await _build_fssp_wanted_block(test_candidate),
+                await _build_mvd_wanted_block(test_candidate),
+            ]
 
-        gov_blocks = _build_government_stub_blocks()
-
-        assert len(gov_blocks) == 5
-        for block in gov_blocks:
+        assert len(blocks) == 4
+        for block in blocks:
             assert block["status"] == "info"
             assert block["data"]["status"] == "Не подключено"
-            assert "152-ФЗ" in block["data"]["note"]
+            assert block["data"]["note"]
             # Ensure no fake verdicts
             assert "чисто" not in str(block["data"]).lower()
             assert "долгов нет" not in str(block["data"]).lower()

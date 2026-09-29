@@ -18,7 +18,13 @@ import pytest
 
 from app.services import fssp
 from app.services.fssp import _format_dob, _normalize_record, search_enforcement
-from app.services.glafira.verify import _build_fssp_block, verify_candidate
+from app.services.glafira.verify import (
+    _build_fssp_block,
+    _build_alimony_block,
+    _build_fssp_wanted_block,
+    _build_mvd_wanted_block,
+    verify_candidate,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -223,7 +229,7 @@ class TestFsspVerificationBlock:
         assert block["key"] == "fssp"
         assert block["status"] == "info"
         assert block["data"]["status"] == "Не подключено"
-        assert "152-ФЗ" in block["data"]["note"]
+        assert "не настроена" in block["data"]["note"]
         assert "items" not in block["data"]
 
     async def test_needs_birth_date(self, test_candidate):
@@ -248,7 +254,7 @@ class TestFsspVerificationBlock:
         assert block["data"]["items"] == items
         note = block["data"]["note"].lower()
         assert "однофамил" in note
-        assert "не подтверждённая" in note
+        assert "не подтвержд" in note
 
     async def test_clean_when_zero(self, test_candidate):
         """0 ИП (провайдер отработал) → clean, честный текст «не найдено»."""
@@ -330,3 +336,171 @@ class TestFsspInVerifyCandidate:
         fssp_block = next((b for b in verification.blocks if b["key"] == "fssp"), None)
         assert fssp_block is not None
         assert fssp_block["data"]["status"] == "Не подключено"
+
+
+# --------------------------------------------------------------------------- #
+# Смежные проверки parser-api: алименты, розыск ФССП, розыск МВД                #
+# --------------------------------------------------------------------------- #
+class TestSiblingSearches:
+
+    async def test_alimony_success(self):
+        payload = {"success": 1, "result": [{
+            "debtor_name": "Петров Иван Сергеевич",
+            "process_title": "12/24-ИП",
+            "subjects": [{"title": "Алименты на содержание детей"},
+                         {"title": "Общая сумма задолженности", "sum": "5000"}],
+        }]}
+        mock = _mock_async_client(json_data=payload)
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.fssp.httpx.AsyncClient", mock):
+            r = await fssp.search_alimony("Петров", "Иван", None, date(1985, 3, 15))
+        assert isinstance(r, list) and len(r) == 1
+        assert r[0]["debtor"] == "Петров Иван Сергеевич"
+        assert r[0]["amount"] == "5000"
+
+    async def test_alimony_empty_list(self):
+        mock = _mock_async_client(json_data={"success": 1, "result": []})
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.fssp.httpx.AsyncClient", mock):
+            r = await fssp.search_alimony("Петров", "Иван", None, date(1985, 3, 15))
+        assert r == []
+
+    async def test_alimony_no_dob_returns_none(self):
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"):
+            r = await fssp.search_alimony("Петров", "Иван", None, None)
+        assert r is None
+
+    async def test_fssp_wanted_parses(self):
+        payload = {"success": 1, "result": [{
+            "search_category": "должник — физическое лицо",
+            "search_title": "79/86/21/21", "search_date": "2021-01-29",
+            "process_title": "64167/16-ИП", "debtor_name": "ИВАНОВ ИВАН",
+            "debtor_dob": "1986-11-20", "department_title": "ОСП по г. Х",
+            "department_phone": "+7(34673)5-65-32",
+        }]}
+        mock = _mock_async_client(json_data=payload)
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.fssp.httpx.AsyncClient", mock):
+            r = await fssp.search_fssp_wanted("Иванов", "Иван")
+        assert len(r) == 1
+        assert r[0]["debtor"] == "ИВАНОВ ИВАН"
+        assert r[0]["search_case"] == "79/86/21/21"
+        assert r[0]["production"] == "64167/16-ИП"
+        assert "ОСП по г. Х" in r[0]["department"]
+
+    async def test_mvd_wanted_records_key_and_iso_dob(self):
+        """МВД: записи в `records` (не `result`), запись = {name}; dob уходит в YYYY-MM-DD."""
+        captured = {}
+
+        def _factory(*a, **k):
+            resp = MagicMock()
+            resp.json.return_value = {"success": 1, "count": 1, "records": [{"name": "МАХМУДОВ ФАХРУДИН"}]}
+            resp.raise_for_status.return_value = None
+
+            async def _get(url, params=None):
+                captured["url"] = url
+                captured["params"] = params
+                return resp
+
+            client = MagicMock()
+            client.get = _get
+            ctx = MagicMock()
+            ctx.__aenter__ = AsyncMock(return_value=client)
+            ctx.__aexit__ = AsyncMock(return_value=None)
+            return ctx
+
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.fssp.httpx.AsyncClient", _factory):
+            r = await fssp.search_mvd_wanted("Махмудов", "Фахрудин", "Алибегович", date(1965, 12, 13))
+        assert len(r) == 1 and r[0]["debtor"] == "МАХМУДОВ ФАХРУДИН"
+        assert captured["url"].endswith("/mvd_wanted_api/")
+        assert captured["params"]["dob"] == "1965-12-13"  # ISO, не дд.мм.гггг
+        assert captured["params"]["patronymic"] == "Алибегович"
+
+    async def test_success_flag_accepted(self):
+        """Провайдер отдаёт success:1 (не done:1) — тоже успех, пустой список → []."""
+        mock = _mock_async_client(json_data={"success": 1, "result": []})
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.fssp.httpx.AsyncClient", mock):
+            r = await fssp.search_alimony("Петров", "Иван", None, date(1985, 3, 15))
+        assert r == []
+
+    async def test_error_body_returns_none(self):
+        """Тело без done/success (ошибка провайдера) → None (НЕ «чисто», §0)."""
+        mock = _mock_async_client(json_data={"success": 0, "error": "limit"})
+        with patch("app.services.fssp.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.fssp.httpx.AsyncClient", mock):
+            r = await fssp.search_alimony("Петров", "Иван", None, date(1985, 3, 15))
+        assert r is None
+
+
+class TestSiblingBlocks:
+
+    async def test_alimony_block_warn(self, test_candidate):
+        test_candidate.birth_date = date(1990, 1, 1)
+        items = [{"debtor": "Т", "production": "1-ИП", "raw": {}}]
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.glafira.verify.search_alimony", new=AsyncMock(return_value=items)):
+            b = await _build_alimony_block(test_candidate)
+        assert b["key"] == "alimony"
+        assert b["status"] == "warn"
+        assert b["data"]["items"] == items
+        assert "однофамил" in b["data"]["note"].lower()
+
+    async def test_alimony_block_stub_no_key(self, test_candidate):
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", ""):
+            b = await _build_alimony_block(test_candidate)
+        assert b["key"] == "alimony"
+        assert b["data"]["status"] == "Не подключено"
+
+    async def test_fssp_wanted_block_runs_without_dob(self, test_candidate):
+        """Розыск ФССП не требует ДР — при пустой ДР всё равно ищет (не «нужна ДР»)."""
+        test_candidate.birth_date = None
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.glafira.verify.search_fssp_wanted", new=AsyncMock(return_value=[])):
+            b = await _build_fssp_wanted_block(test_candidate)
+        assert b["key"] == "fssp_wanted"
+        assert b["status"] == "clean"
+
+    async def test_mvd_wanted_block_needs_dob(self, test_candidate):
+        test_candidate.birth_date = None
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", "k"):
+            b = await _build_mvd_wanted_block(test_candidate)
+        assert b["key"] == "mvd_wanted"
+        assert b["data"]["status"] == "Нужна дата рождения"
+
+    async def test_mvd_wanted_block_clean(self, test_candidate):
+        test_candidate.birth_date = date(1990, 1, 1)
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.glafira.verify.search_mvd_wanted", new=AsyncMock(return_value=[])):
+            b = await _build_mvd_wanted_block(test_candidate)
+        assert b["status"] == "clean"
+        assert b["data"]["found"] == 0
+
+    async def test_all_four_registry_blocks_in_verification(
+        self, db_session, test_candidate, signed_consent
+    ):
+        """Все 4 реальных блока (fssp/alimony/fssp_wanted/mvd_wanted) попадают в верификацию;
+        удалённых заглушек (inn/bankruptcy/registries) больше нет."""
+        test_candidate.birth_date = date(1990, 1, 1)
+        await db_session.commit()
+        with patch("app.services.glafira.verify.settings.FSSP_API_KEY", "k"), \
+             patch("app.services.glafira.verify.search_enforcement", new=AsyncMock(return_value=[])), \
+             patch("app.services.glafira.verify.search_alimony", new=AsyncMock(return_value=[])), \
+             patch("app.services.glafira.verify.search_fssp_wanted", new=AsyncMock(return_value=[])), \
+             patch("app.services.glafira.verify.search_mvd_wanted", new=AsyncMock(return_value=[])), \
+             patch("app.services.glafira.verify.clean_phone", return_value=None), \
+             patch("app.services.glafira.verify.clean_email", return_value=None), \
+             patch("app.services.glafira.verify.clean_name", return_value=None), \
+             patch("app.services.glafira.verify.claude_cli_complete", return_value=None):
+            verification = await verify_candidate(
+                db_session,
+                candidate_id=test_candidate.id,
+                company_id=test_candidate.company_id,
+                actor_user_id=None,
+            )
+        keys = [b["key"] for b in verification.blocks]
+        for k in ("fssp", "alimony", "fssp_wanted", "mvd_wanted"):
+            assert k in keys
+        for gone in ("inn", "bankruptcy", "registries"):
+            assert gone not in keys

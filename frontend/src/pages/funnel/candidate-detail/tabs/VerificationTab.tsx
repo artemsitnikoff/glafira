@@ -83,11 +83,26 @@ function renderProfiles(data: any) {
   );
 }
 
-// Блок «Исполнительные производства» (ФССП) — список найденных ИП. Без items (info-состояния:
-// «Не подключено» / «Нужна дата рождения» / «Не удалось проверить» / «Не найдено») показываем
-// статус + примечание. С items — плашка про однофамильца + карточка на каждое производство.
-// Переиспользуем существующие классы (vf-group/vf-kv), новый CSS не заводим.
-function renderFsspItems(data: any) {
+// Реестровые проверки ФССП/МВД (исполнительные производства, алименты, розыск ФССП, розыск МВД).
+// Без items (info-состояния: «Не подключено» / «Нужна дата рождения» / «Не удалось проверить» /
+// «Не найдено») показываем статус + примечание. С items — плашка про однофамильца + карточка на
+// каждую запись. Разные проверки дают разный набор полей — рендерим известные по порядку, пустые
+// пропускаем. Переиспользуем существующие классы (vf-group/vf-kv), новый CSS не заводим.
+const REG_ITEM_FIELDS: [string, string][] = [
+  ['debtor', 'ФИО'],
+  ['debtor_dob', 'Дата рождения'],
+  ['category', 'Категория'],
+  ['production', 'Исполнительное производство'],
+  ['search_case', 'Розыскное дело'],
+  ['search_date', 'Дата розыска'],
+  ['subject', 'Предмет'],
+  ['amount', 'Сумма'],
+  ['status', 'Статус'],
+  ['department', 'Отдел'],
+  ['bailiff', 'Пристав'],
+];
+
+function renderRegistryItems(data: any) {
   const items: any[] = Array.isArray(data?.items) ? data.items : [];
   if (!items.length) {
     return (
@@ -107,24 +122,14 @@ function renderFsspItems(data: any) {
       {data?.note && <p className="vf-empty">{data.note}</p>}
       {items.map((it, i) => (
         <div key={i} className="vf-group">
-          <div className="vf-group-title">{it.production || `Производство ${i + 1}`}</div>
-          {it.debtor && (
-            <div className="vf-kv"><span className="vf-k">Должник</span><span className="vf-v">{it.debtor}</span></div>
-          )}
-          {it.subject && (
-            <div className="vf-kv"><span className="vf-k">Предмет</span><span className="vf-v">{it.subject}</span></div>
-          )}
-          {it.amount && (
-            <div className="vf-kv"><span className="vf-k">Сумма</span><span className="vf-v">{it.amount} ₽</span></div>
-          )}
-          {it.status && (
-            <div className="vf-kv"><span className="vf-k">Статус ИП</span><span className="vf-v">{it.status}</span></div>
-          )}
-          {it.department && (
-            <div className="vf-kv"><span className="vf-k">Отдел</span><span className="vf-v">{it.department}</span></div>
-          )}
-          {it.bailiff && (
-            <div className="vf-kv"><span className="vf-k">Пристав</span><span className="vf-v">{it.bailiff}</span></div>
+          <div className="vf-group-title">{it.production || it.search_case || it.debtor || `Запись ${i + 1}`}</div>
+          {REG_ITEM_FIELDS.map(([f, label]) =>
+            it[f] ? (
+              <div key={f} className="vf-kv">
+                <span className="vf-k">{label}</span>
+                <span className="vf-v">{f === 'amount' ? `${it[f]} ₽` : it[f]}</span>
+              </div>
+            ) : null,
           )}
         </div>
       ))}
@@ -222,6 +227,10 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
         return <span className="vf-icon-letter">№</span>;
       case 'fssp':
         return <span className="vf-icon-letter">⚖</span>;
+      case 'fssp_wanted':
+        return <span className="vf-icon-letter">🔍</span>;
+      case 'mvd_wanted':
+        return <span className="vf-icon-letter">🚨</span>;
       case 'bankruptcy':
         return <span className="vf-icon-letter">Ю</span>;
       case 'registries':
@@ -505,8 +514,8 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
                   renderProfiles(block.data)
                 ) : block.key === 'mentions' ? (
                   renderMentions(block.data)
-                ) : block.key === 'fssp' ? (
-                  renderFsspItems(block.data)
+                ) : (block.key === 'fssp' || block.key === 'alimony' || block.key === 'fssp_wanted' || block.key === 'mvd_wanted') ? (
+                  renderRegistryItems(block.data)
                 ) : typeof block.data === 'string' ? (
                   <p>{block.data}</p>
                 ) : block.data && typeof block.data === 'object' && Object.keys(block.data).length > 0 ? (

@@ -14,7 +14,12 @@ from ...core.errors import ConsentRequiredError, NotFoundError
 from ...models import Candidate, Consent, Verification, Event
 from ...services.audit import audit
 from ...services.dadata import clean_phone, clean_email, clean_name
-from ...services.fssp import search_enforcement
+from ...services.fssp import (
+    search_enforcement,
+    search_alimony,
+    search_fssp_wanted,
+    search_mvd_wanted,
+)
 from .claude_cli import claude_cli_complete, resolve_claude_token
 
 logger = logging.getLogger(__name__)
@@ -300,164 +305,144 @@ async def _build_osint_blocks(candidate: Candidate) -> list[dict]:
     ]
 
 
-def _build_government_stub_blocks() -> list[dict]:
-    """Создать честные заглушки для госреестров (без фейк-вердиктов)"""
-    gov_blocks = [
-        {
-            "key": "inn",
-            "title": "Проверка ИНН",
-            "sources": [{"name": "ФНС", "type": "gov"}],
-            "status": "info",
-            "data": {
-                "status": "Не подключено",
-                "note": "Проверка по госреестрам требует официальной интеграции (152-ФЗ) — в разработке"
-            }
-        },
-        {
-            "key": "fssp",
-            "title": "Исполнительные производства",
-            "sources": [{"name": "ФССП", "type": "gov"}],
-            "status": "info",
-            "data": {
-                "status": "Не подключено",
-                "note": "Проверка по госреестрам требует официальной интеграции (152-ФЗ) — в разработке"
-            }
-        },
-        {
-            "key": "bankruptcy",
-            "title": "Реестр банкротов",
-            "sources": [{"name": "ЕФРСБ", "type": "gov"}],
-            "status": "info",
-            "data": {
-                "status": "Не подключено",
-                "note": "Проверка по госреестрам требует официальной интеграции (152-ФЗ) — в разработке"
-            }
-        },
-        {
-            "key": "registries",
-            "title": "Прочие реестры",
-            "sources": [{"name": "РОСРЕЕСТР", "type": "gov"}],
-            "status": "info",
-            "data": {
-                "status": "Не подключено",
-                "note": "Проверка по госреестрам требует официальной интеграции (152-ФЗ) — в разработке"
-            }
-        },
-        {
-            "key": "alimony",
-            "title": "Алименты",
-            "sources": [{"name": "ФССП", "type": "gov"}],
-            "status": "info",
-            "data": {
-                "status": "Не подключено",
-                "note": "Проверка по госреестрам требует официальной интеграции (152-ФЗ) — в разработке"
-            }
-        }
-    ]
-    return gov_blocks
-
-
-# Обязательная плашка при найденных совпадениях: результат НЕ вердикт (§0 — молчаливый
-# обман в HR-решениях критичен). ФССП ищет по ФИО+ДР → возможен однофамилец.
-_FSSP_MATCH_NOTE = (
-    "Возможные совпадения по ФИО и дате рождения. Требуют ручной проверки — "
-    "возможен однофамилец. НЕ подтверждённая задолженность кандидата."
+# Плашка при найденных совпадениях: результат — ВОЗМОЖНЫЕ совпадения по ФИО(+ДР), НЕ вердикт
+# про кандидата (§0 — молчаливый обман в HR-решениях критичен; возможен однофамилец).
+_NAMESAKE_NOTE = (
+    "Возможные совпадения по ФИО. Требуют ручной проверки — возможен однофамилец. "
+    "НЕ подтверждённые сведения о кандидате."
 )
 
+# Заглушка, когда провайдер parser-api не настроен (FSSP_API_KEY пуст). На проде ключ задан,
+# показывается только при мисконфиге. Честный «Не подключено», без фейк-вердикта.
+_PROVIDER_OFF_NOTE = "Проверка через провайдера (parser-api) не настроена — нет ключа доступа."
 
-def _fssp_stub_block() -> dict:
-    """Честная заглушка блока ФССП, когда провайдер не настроен (FSSP_API_KEY пуст).
 
-    Формулировка идентична заглушке из _build_government_stub_blocks (статус «Не подключено»).
-    """
+def _provider_off_block(key: str, title: str, source_name: str) -> dict:
     return {
-        "key": "fssp",
-        "title": "Исполнительные производства",
-        "sources": [{"name": "ФССП", "type": "gov"}],
+        "key": key,
+        "title": title,
+        "sources": [{"name": source_name, "type": "gov"}],
+        "status": "info",
+        "data": {"status": "Не подключено", "note": _PROVIDER_OFF_NOTE},
+    }
+
+
+def _needs_dob_block(key: str, title: str, source_name: str, what: str) -> dict:
+    return {
+        "key": key,
+        "title": title,
+        "sources": [{"name": source_name, "type": "gov"}],
         "status": "info",
         "data": {
-            "status": "Не подключено",
-            "note": "Проверка по госреестрам требует официальной интеграции (152-ФЗ) — в разработке",
+            "status": "Нужна дата рождения",
+            "note": f"Проверка «{what}» требует дату рождения кандидата — она не заполнена.",
         },
     }
 
 
-async def _build_fssp_block(candidate: Candidate) -> dict:
-    """Блок «Исполнительные производства» (ФССП) через parser-api.com.
-
-    Token-gated: пусто FSSP_API_KEY → честная заглушка (как раньше). Провайдер требует
-    дату рождения — без неё честный info «нужна дата рождения». Найденные ИП — status
-    warn (ВНИМАНИЕ, не вердикт) + плашка про однофамильца. 0 ИП → clean. None/сбой → info
-    «не удалось проверить» (НЕ «чисто», §0). Синхронно, встроено в verify_candidate.
-    """
-    source = {"name": "ФССП", "type": "gov"}
-    title = "Исполнительные производства"
-
-    # Провайдер не настроен → остаётся честной заглушкой (поведение как до фичи).
-    if not settings.FSSP_API_KEY:
-        return _fssp_stub_block()
-
-    # Провайдер БЕЗ даты рождения искать не может — честный info (не «чисто», не заглушка).
-    if not candidate.birth_date:
+def _registry_result_block(key, title, source_name, items, empty_note) -> dict:
+    """items: None → info «не удалось проверить» (НЕ «чисто», §0); [] → clean «не найдено»;
+    [ … ] → warn + список + обязательная плашка про однофамильца."""
+    source = {"name": source_name, "type": "gov"}
+    if items is None:
         return {
-            "key": "fssp",
-            "title": title,
-            "sources": [source],
-            "status": "info",
-            "data": {
-                "status": "Нужна дата рождения",
-                "note": "Проверка ФССП требует дату рождения кандидата — она не заполнена.",
-            },
+            "key": key, "title": title, "sources": [source], "status": "info",
+            "data": {"status": "Не удалось проверить",
+                     "note": "Источник недоступен. Попробуйте перепроверить позже."},
         }
+    if not items:
+        return {
+            "key": key, "title": title, "sources": [source], "status": "clean",
+            "data": {"status": "Не найдено", "found": 0, "items": [], "note": empty_note},
+        }
+    return {
+        "key": key, "title": title, "sources": [source], "status": "warn",
+        "data": {"status": "Найдены возможные совпадения", "found": len(items),
+                 "items": items, "note": _NAMESAKE_NOTE},
+    }
 
+
+# Обратная совместимость имени (использовалось в тестах/коде до унификации).
+def _fssp_stub_block() -> dict:
+    return _provider_off_block("fssp", "Исполнительные производства", "ФССП")
+
+
+async def _build_fssp_block(candidate: Candidate) -> dict:
+    """Блок «Исполнительные производства» (ФССП, `fssp_api/search_fiz`). ФИО + ДР.
+
+    Token-gated: пусто FSSP_API_KEY → честная заглушка «Не подключено». Нет ДР → info
+    «нужна дата рождения». Найдено → warn + список + плашка про однофамильца; 0 → clean;
+    None/сбой → info «не удалось проверить» (НЕ «чисто», §0). Синхронно, в verify_candidate.
+    """
+    key, title, src = "fssp", "Исполнительные производства", "ФССП"
+    if not settings.FSSP_API_KEY:
+        return _provider_off_block(key, title, src)
+    if not candidate.birth_date:
+        return _needs_dob_block(key, title, src, "исполнительных производств")
     items = await search_enforcement(
         last_name=candidate.last_name,
         first_name=candidate.first_name,
         patronymic=candidate.middle_name,
         birth_date=candidate.birth_date,
     )
+    return _registry_result_block(
+        key, title, src, items,
+        empty_note="Исполнительных производств по ФИО и дате рождения не найдено.",
+    )
 
-    # None → не удалось проверить (сеть / провайдер / лимит / done!=1 / 403/400). НЕ «чисто».
-    if items is None:
-        return {
-            "key": "fssp",
-            "title": title,
-            "sources": [source],
-            "status": "info",
-            "data": {
-                "status": "Не удалось проверить",
-                "note": "Не удалось проверить (ФССП недоступна). Попробуйте перепроверить позже.",
-            },
-        }
 
-    # Провайдер отработал, производств не найдено → чисто.
-    if not items:
-        return {
-            "key": "fssp",
-            "title": title,
-            "sources": [source],
-            "status": "clean",
-            "data": {
-                "status": "Не найдено",
-                "found": 0,
-                "items": [],
-                "note": "Исполнительных производств по ФИО и дате рождения не найдено.",
-            },
-        }
+async def _build_alimony_block(candidate: Candidate) -> dict:
+    """Блок «Алименты» (ФССП, `fssp_alim_api/`). ФИО + ДР. Форма записи — как у ИП."""
+    key, title, src = "alimony", "Алименты (ФССП)", "ФССП"
+    if not settings.FSSP_API_KEY:
+        return _provider_off_block(key, title, src)
+    if not candidate.birth_date:
+        return _needs_dob_block(key, title, src, "алиментов")
+    items = await search_alimony(
+        last_name=candidate.last_name,
+        first_name=candidate.first_name,
+        patronymic=candidate.middle_name,
+        birth_date=candidate.birth_date,
+    )
+    return _registry_result_block(
+        key, title, src, items,
+        empty_note="Задолженности по алиментам по ФИО и дате рождения не найдено.",
+    )
 
-    # Найдены возможные совпадения — ВНИМАНИЕ (не вердикт), обязательная плашка про однофамильца.
-    return {
-        "key": "fssp",
-        "title": title,
-        "sources": [source],
-        "status": "warn",
-        "data": {
-            "status": "Найдены возможные совпадения",
-            "found": len(items),
-            "items": items,
-            "note": _FSSP_MATCH_NOTE,
-        },
-    }
+
+async def _build_fssp_wanted_block(candidate: Candidate) -> dict:
+    """Блок «Розыск ФССП» (реестр розыска должников, `fssp_search_api/`). По ФИО (ДР не нужна)."""
+    key, title, src = "fssp_wanted", "Розыск ФССП (реестр должников)", "ФССП"
+    if not settings.FSSP_API_KEY:
+        return _provider_off_block(key, title, src)
+    items = await search_fssp_wanted(
+        last_name=candidate.last_name,
+        first_name=candidate.first_name,
+        patronymic=candidate.middle_name,
+    )
+    return _registry_result_block(
+        key, title, src, items,
+        empty_note="В реестре розыска ФССП по ФИО не найдено.",
+    )
+
+
+async def _build_mvd_wanted_block(candidate: Candidate) -> dict:
+    """Блок «Розыск МВД» (`mvd_wanted_api/`). ФИО + ДР."""
+    key, title, src = "mvd_wanted", "Розыск МВД", "МВД"
+    if not settings.FSSP_API_KEY:
+        return _provider_off_block(key, title, src)
+    if not candidate.birth_date:
+        return _needs_dob_block(key, title, src, "розыска МВД")
+    items = await search_mvd_wanted(
+        last_name=candidate.last_name,
+        first_name=candidate.first_name,
+        patronymic=candidate.middle_name,
+        birth_date=candidate.birth_date,
+    )
+    return _registry_result_block(
+        key, title, src, items,
+        empty_note="В базе розыска МВД по ФИО и дате рождения не найдено.",
+    )
 
 
 async def fill_candidate_osint(candidate_id: UUID, company_id: UUID) -> None:
@@ -574,13 +559,15 @@ async def verify_candidate(
     contacts_block = await _build_contacts_block(candidate)
     blocks.append(contacts_block)
 
-    # 2. Honest government stubs (NOT fake verdicts). Блок ФССП — реальная проверка через
-    #    parser-api.com, если провайдер настроен (FSSP_API_KEY); иначе остаётся честной
-    #    заглушкой. Остальные (inn/bankruptcy/registries/alimony) — как прежде.
-    gov_blocks = _build_government_stub_blocks()
-    fssp_block = await _build_fssp_block(candidate)
-    gov_blocks = [fssp_block if b.get("key") == "fssp" else b for b in gov_blocks]
-    blocks.extend(gov_blocks)
+    # 2. Госпроверки через parser-api (ФССП/МВД), если настроен FSSP_API_KEY (иначе честная
+    #    заглушка «Не подключено», без фейк-вердикта). Реальны по данным кандидата (ФИО+ДР):
+    #    исполнительные производства, алименты, розыск ФССП, розыск МВД. Проверки, требующие
+    #    доп. данных (ИНН — паспорт, СНИЛС, штрафы — ВУ/СТС, ЕГРН — адрес), НЕ включаем
+    #    фейк-блоками (§0). Банкротство (ЕФРСБ) провайдер по ФИО не отдаёт.
+    blocks.append(await _build_fssp_block(candidate))
+    blocks.append(await _build_alimony_block(candidate))
+    blocks.append(await _build_fssp_wanted_block(candidate))
+    blocks.append(await _build_mvd_wanted_block(candidate))
 
     # 3. Интернет-разведка идёт ДОЛГО (4 платформы + упоминания = 60–90с) — не блокируем
     #    HTTP-запрос/скоринг: кладём блоки как «идёт разведка», заполняет fill_candidate_osint.
