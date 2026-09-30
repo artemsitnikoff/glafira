@@ -167,40 +167,6 @@ function NCDropdown({
   );
 }
 
-function parseDate(dateStr: string): string | null {
-  if (!dateStr.trim()) return null;
-
-  // Parse DD.MM.YYYY format
-  const match = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (!match) return null;
-
-  const [, day, month, year] = match;
-  const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-
-  // Validate date
-  if (
-    date.getFullYear() !== parseInt(year) ||
-    date.getMonth() !== parseInt(month) - 1 ||
-    date.getDate() !== parseInt(day)
-  ) {
-    return null;
-  }
-
-  // Return ISO YYYY-MM-DD из распарсенных частей.
-  // НЕ toISOString(): он берёт локальную полночь и переводит в UTC,
-  // из-за чего для UTC+ (Москва) дата рождения уезжает на день назад.
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-}
-
-// ISO YYYY-MM-DD → ДД.ММ.ГГГГ для предзаполнения поля в режиме правки.
-function isoToDisplayDate(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return '';
-  const [, y, mo, d] = m;
-  return `${d}.${mo}.${y}`;
-}
-
 // Первый мессенджер в объектной форме {type,url}. Форма поддерживает одну соц-сеть;
 // старые строковые мессенджеры (["telegram"]) без url замапить нельзя — пропускаем.
 function firstSocial(messengers: (Record<string, unknown> | string)[] | undefined): { type: string; url: string } {
@@ -277,7 +243,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
     gender: (candidate?.gender === 'male' || candidate?.gender === 'female'
       ? candidate.gender
       : 'unset') as 'female' | 'male' | 'unset',
-    birth_date: isoToDisplayDate(candidate?.birth_date),
+    birth_date: (candidate?.birth_date ?? '').slice(0, 10),  // ISO YYYY-MM-DD для <input type="date">
     city: candidate?.city ?? '',
     salary_from: candidate?.salary_from != null
       ? String(candidate.salary_from)
@@ -595,7 +561,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
           phone: formData.phone || null,
           email: formData.email.trim() || null,
           gender: formData.gender === 'unset' ? null : formData.gender,
-          birth_date: parseDate(formData.birth_date),
+          birth_date: formData.birth_date || null,
           city: formData.city.trim() || null,
           salary_from: formData.salary_from ? parseInt(formData.salary_from) : null,
           salary_to: formData.salary_to ? parseInt(formData.salary_to) : null,
@@ -649,7 +615,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
         phone: formData.phone || null,
         email: formData.email.trim() || null,
         gender: formData.gender === 'unset' ? null : formData.gender,
-        birth_date: parseDate(formData.birth_date),
+        birth_date: formData.birth_date || null,
         city: formData.city.trim() || null,
         salary_from: formData.salary_from ? parseInt(formData.salary_from) : null,
         salary_to: formData.salary_to ? parseInt(formData.salary_to) : null,
@@ -1099,7 +1065,7 @@ export default function NewCandidateForm({ vacancyId, candidate, onClose, onSave
                 <label className="nv-label">Дата рождения</label>
                 <input
                   className="nv-input"
-                  placeholder="ДД.ММ.ГГГГ"
+                  type="date"
                   value={formData.birth_date}
                   onChange={e => updateFormData({ birth_date: e.target.value })}
                 />
