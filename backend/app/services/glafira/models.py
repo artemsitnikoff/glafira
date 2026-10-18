@@ -28,14 +28,14 @@ DEFAULT_MODEL = "anthropic/claude-sonnet-5.5"
 # Рекомендованные модели — показываются в Настройки→AI в этом порядке
 # (только те, что реально присутствуют в live-каталоге OpenRouter).
 RECOMMENDED_MODELS = [
-    "deepseek/deepseek-v4-flash",
-    "anthropic/claude-haiku-5.5",
-    "google/gemini-3.1-flash-lite",
+    "deepseek/deepseek-v4-pro",
     "z-ai/glm-5.2",
-    "moonshotai/kimi-k2.6",
+    "google/gemini-3.8-flash",
     "qwen/qwen3.7-max",
+    "moonshotai/kimi-k3",
+    "qwen/qwen3.8-max-0902",
     "anthropic/claude-sonnet-5.5",
-    "anthropic/claude-opus-5.5",
+    "openai/gpt-6.1-sol",
 ]
 
 # --- DEPRECATED shim -----------------------------------------------------------
