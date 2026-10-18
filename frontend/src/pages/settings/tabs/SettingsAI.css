@@ -155,7 +155,7 @@
   color: var(--fg-2);
 }
 
-/* Селектор модели LLM */
+/* Селектор модели LLM (legacy — оставлен на случай переиспользования) */
 .ai-model-select {
   display: flex;
   align-items: center;
@@ -164,4 +164,207 @@
 
 .ai-model-select .sel {
   flex: 1;
+}
+
+/* ============================================================
+   Список LLM-моделей с оценкой стоимости (радио-карточки)
+   .rd / .rd.on — глобальные примитивы радио-точки (Settings.css)
+   ============================================================ */
+.ai-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-mo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--bg-elevated);
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+
+.ai-mo:hover { border-color: var(--ark-gray-400); }
+
+.ai-mo.on {
+  border-color: var(--accent);
+  background: var(--ark-blue-50);
+}
+
+.ai-mo.on:hover { border-color: var(--accent); }
+
+.ai-mo.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ai-mo .rd { margin-top: 0; }
+
+.ai-mo-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-mo-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-1);
+  word-break: break-word;
+}
+
+.ai-mo-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+}
+
+.ai-mo-id {
+  font-size: 11px;
+  color: var(--fg-3);
+  word-break: break-all;
+}
+
+.ai-mo-ctx {
+  font-size: 11px;
+  color: var(--fg-3);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--ark-gray-200);
+}
+
+.ai-mo-price {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  text-align: right;
+}
+
+.ai-mo-price-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+  white-space: nowrap;
+}
+
+.ai-mo-price-cap {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.ai-mo-price-na {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* Выбрана модель вне шорт-листа */
+.ai-custom-pick {
+  margin-top: 12px;
+}
+
+.ai-custom-pick-cap {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+/* Честная оговорка по оценке стоимости */
+.ai-cost-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-3);
+}
+
+.ai-cost-note > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--fg-4);
+}
+
+/* Блок поиска «Другая модель» */
+.ai-other {
+  margin-top: 20px;
+}
+
+.ai-other-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.ai-other-sub {
+  font-size: 11px;
+  color: var(--fg-3);
+  line-height: 1.4;
+  margin: 2px 0 10px;
+}
+
+.ai-search {
+  gap: 8px;
+}
+
+.ai-search > svg {
+  flex: none;
+  color: var(--fg-3);
+}
+
+.ai-search-spin { animation: spin 1s linear infinite; }
+
+.ai-search-results {
+  margin-top: 10px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ai-search-note {
+  font-size: 12px;
+  color: var(--fg-3);
+  padding: 8px 2px;
+}
+
+/* Ключ OpenRouter */
+.ai-key-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ai-key-input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ai-key-input input { font-family: var(--font-mono); }
+
+/* Статус успешного сохранения */
+.ai-save-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-md);
+  color: var(--success-fg);
+  font-size: 13px;
 }

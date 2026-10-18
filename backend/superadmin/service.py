@@ -13,7 +13,7 @@ from app.models import Company, User, GlafiraSettings, Candidate
 from app.provision_company import provision_company, ProvisionError
 from app.services.settings.glafira import get_glafira_settings
 from app.services.settings.crypto import encrypt_text, decrypt_text
-from app.services.glafira.models import ALLOWED_MODEL_VALUES
+from app.services.glafira.models import ALLOWED_MODEL_VALUES, RECOMMENDED_MODELS
 from app.core.security import get_password_hash
 
 # Sentinel for optional parameters in update functions
@@ -247,7 +247,9 @@ class CompanyService:
                 "name": company.name,
                 "openrouter_key_display": openrouter_key_display,
                 "llm_model": gs.llm_model or "",
-                "available_models": ALLOWED_MODEL_VALUES if ALLOWED_MODEL_VALUES else [],
+                # Статический whitelist удалён (модели динамические из OpenRouter);
+                # оператору показываем рекомендованный шорт-лист, значение можно задать любое.
+                "available_models": list(RECOMMENDED_MODELS),
                 "paid_until": company.paid_until.isoformat() if company.paid_until else "",
                 "is_expired": (company.paid_until is None or company.paid_until < datetime.now(timezone.utc).date()),
                 "candidates_count": cand_n,

@@ -343,6 +343,25 @@ _LLM_MODEL_SITES = (
 )
 
 
+# === Детерминированный каталог OpenRouter для офлайн-тестов =================
+# Эндпоинты Настройки→AI и валидация модели (is_valid_model) тянут каталог
+# моделей из публичного /models OpenRouter. В тестах в сеть не ходим — автоюз-
+# фикстура ниже подменяет fetch_openrouter_models этим каталогом. Содержит все
+# RECOMMENDED_MODELS + legacy anthropic/claude-sonnet-4.6 (его дёргают старые
+# тесты ключа). Цены — ПРАВДОПОДОБНЫЕ, НЕ реальные (USD за 1 токен).
+_FAKE_OPENROUTER_CATALOG = {
+    "anthropic/claude-sonnet-5.5": {"name": "Claude Sonnet 5.5", "prompt": 3e-6, "completion": 1.5e-5, "context_length": 200000},
+    "anthropic/claude-opus-5.5": {"name": "Claude Opus 5.5", "prompt": 1.5e-5, "completion": 7.5e-5, "context_length": 200000},
+    "anthropic/claude-haiku-5.5": {"name": "Claude Haiku 5.5", "prompt": 8e-7, "completion": 4e-6, "context_length": 200000},
+    "deepseek/deepseek-v4-flash": {"name": "DeepSeek V4 Flash", "prompt": 1e-7, "completion": 2e-7, "context_length": 128000},
+    "google/gemini-3.1-flash-lite": {"name": "Gemini 3.1 Flash Lite", "prompt": 5e-8, "completion": 2e-7, "context_length": 1000000},
+    "z-ai/glm-5.2": {"name": "GLM 5.2", "prompt": 2e-7, "completion": 6e-7, "context_length": 128000},
+    "moonshotai/kimi-k2.6": {"name": "Kimi K2.6", "prompt": 3e-7, "completion": 9e-7, "context_length": 200000},
+    "qwen/qwen3.7-max": {"name": "Qwen3.7 Max", "prompt": 4e-7, "completion": 1.2e-6, "context_length": 256000},
+    "anthropic/claude-sonnet-4.6": {"name": "Claude Sonnet 4.6", "prompt": 3e-6, "completion": 1.5e-5, "context_length": 200000},
+}
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
@@ -351,6 +370,25 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "billing_gate: тест проверяет реальный billing-гейт (без авто-обхода conftest)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "real_openrouter_catalog: тест проверяет реальный fetch_openrouter_models (без авто-мока каталога)",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _mock_openrouter_catalog(request, monkeypatch):
+    """Офлайн: не ходим в сеть за каталогом OpenRouter. Все вызовы
+    fetch_openrouter_models получают детерминированный каталог. Тесты, которым
+    нужен другой сценарий (пустой каталог/реальный fetch), патчат сами или
+    помечаются @pytest.mark.real_openrouter_catalog."""
+    if request.node.get_closest_marker("real_openrouter_catalog"):
+        return
+    monkeypatch.setattr(
+        "app.services.glafira.models.fetch_openrouter_models",
+        AsyncMock(return_value=dict(_FAKE_OPENROUTER_CATALOG)),
+        raising=True,
     )
 
 

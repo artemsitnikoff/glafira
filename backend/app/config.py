@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     LOGIN_LOCKOUT_MINUTES: int = 15  # длительность блокировки в минутах
 
     ANTHROPIC_API_KEY: str = ""
-    GLAFIRA_MODEL: str = "anthropic/claude-sonnet-4-6"
+    GLAFIRA_MODEL: str = "anthropic/claude-sonnet-5.5"
     GLAFIRA_VERIFY_MODE: str = "mock"
     GLAFIRA_VERIFY_MODEL: str = ""  # пустая строка → используется GLAFIRA_MODEL
 

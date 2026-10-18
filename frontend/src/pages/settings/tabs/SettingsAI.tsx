@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useSmartBaseIndexStatus, useReindexBase } from '@/api/hooks/useSmartSearch';
-import { useAiModel, useUpdateAiModel } from '@/api/hooks/useAiModel';
+import { useAiModel, useAiModelSearch, useUpdateAiModel } from '@/api/hooks/useAiModel';
+import type { AiModelOption, UpdateAiModelRequest } from '@/api/hooks/useAiModel';
+import { useDebounce } from '@/hooks/useDebounce';
 import { Icon } from '@/components/ui/Icon';
-import { PageHead, Card, FormRow, Select } from '../components/FormComponents';
+import { PageHead, Card, FormRow } from '../components/FormComponents';
 import type { ApiError } from '@/api/aliases';
 import './SettingsAI.css';
 
@@ -10,9 +12,75 @@ interface SettingsAIProps {
   readOnly?: boolean;
 }
 
+/** Рубли: мелкие суммы — с большей точностью, чтобы не схлопнуть в «0». */
+function formatRub(v: number): string {
+  const digits = v < 1 ? 3 : 2;
+  return v.toLocaleString('ru-RU', { maximumFractionDigits: digits });
+}
+
+/** Человеческая подпись размера контекстного окна. */
+function ctxLabel(n: number): string {
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    const s = Number.isInteger(m) ? String(m) : m.toFixed(1).replace(/\.0$/, '');
+    return `${s}M контекст`;
+  }
+  return `${Math.round(n / 1000)}k контекст`;
+}
+
+/** Строка одной модели: радио-метка + цена-за-резюме + контекст. */
+function ModelOption({
+  opt,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  opt: AiModelOption;
+  selected: boolean;
+  onSelect: () => void;
+  disabled?: boolean;
+}) {
+  const hasPrice = opt.cost_rub != null;
+  const showId = opt.value !== opt.label;
+  const showCtx = opt.context_length != null;
+
+  return (
+    <label
+      className={`ai-mo ${selected ? 'on' : ''} ${disabled ? 'disabled' : ''}`}
+      onClick={() => !disabled && onSelect()}
+    >
+      <span className={`rd ${selected ? 'on' : ''}`}>
+        <span />
+      </span>
+      <div className="ai-mo-main">
+        <div className="ai-mo-label">{opt.label}</div>
+        {(showId || showCtx) && (
+          <div className="ai-mo-sub">
+            {showId && <span className="ai-mo-id t-mono">{opt.value}</span>}
+            {showCtx && <span className="ai-mo-ctx">{ctxLabel(opt.context_length as number)}</span>}
+          </div>
+        )}
+      </div>
+      <div className="ai-mo-price">
+        {hasPrice ? (
+          <>
+            <span className="ai-mo-price-val">≈ {formatRub(opt.cost_rub as number)} ₽</span>
+            <span className="ai-mo-price-cap">за резюме</span>
+          </>
+        ) : (
+          <span className="ai-mo-price-na">цена недоступна</span>
+        )}
+      </div>
+    </label>
+  );
+}
+
 export function SettingsAI({ readOnly = false }: SettingsAIProps) {
-  const [dirty, setDirty] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>('');
+  // Метаданные модели, выбранной ВНЕ рекомендованного шорт-листа (из поиска).
+  const [selectedExtra, setSelectedExtra] = useState<AiModelOption | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [search, setSearch] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Хуки для индексации
@@ -23,37 +91,52 @@ export function SettingsAI({ readOnly = false }: SettingsAIProps) {
   const { data: aiModelData, isLoading: isModelLoading } = useAiModel();
   const updateModelMutation = useUpdateAiModel();
 
-  // Инициализация выбранной модели
+  // Поиск по всем моделям OpenRouter (debounce 300мс)
+  const debouncedSearch = useDebounce(search, 300);
+  const searchQuery = useAiModelSearch(debouncedSearch);
+
+  // Инициализация выбранной модели из текущей
   if (!selectedModel && aiModelData?.current) {
     setSelectedModel(aiModelData.current);
   }
 
+  const options = aiModelData?.options ?? [];
+  const current = aiModelData?.current ?? '';
+  const inShortlist = options.some((o) => o.value === selectedModel);
+
+  const modelChanged = !!selectedModel && selectedModel !== current;
+  const keyChanged = apiKey.trim().length > 0;
+  const dirty = modelChanged || keyChanged;
+
   const handleReindex = async () => {
     if (readOnly || isIndexing || reindexMutation.isPending) return;
-
     try {
       await reindexMutation.mutateAsync();
-    } catch (error) {
+    } catch {
       // Ошибка отображается через reindexMutation.error в UI
     }
   };
 
-  const handleModelChange = (value: string) => {
-    setSelectedModel(value);
-    setDirty(value !== aiModelData?.current);
+  const selectModel = (opt: AiModelOption) => {
+    if (readOnly) return;
+    setSelectedModel(opt.value);
     setSaveSuccess(false);
+    // Если модели нет в шорт-листе — запоминаем её метаданные для отдельной строки.
+    setSelectedExtra(options.some((o) => o.value === opt.value) ? null : opt);
   };
 
   const handleSave = async () => {
     if (!dirty || !selectedModel || updateModelMutation.isPending) return;
 
+    const body: UpdateAiModelRequest = { model: selectedModel };
+    if (apiKey.trim()) body.openrouter_api_key = apiKey.trim();
+
     try {
-      await updateModelMutation.mutateAsync({ model: selectedModel });
-      setDirty(false);
+      await updateModelMutation.mutateAsync(body);
+      setApiKey('');
       setSaveSuccess(true);
-      // Убираем сообщение об успехе через 3 секунды
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (error) {
+    } catch {
       // Ошибка отображается через updateModelMutation.error
     }
   };
@@ -71,6 +154,17 @@ export function SettingsAI({ readOnly = false }: SettingsAIProps) {
   const indexedCandidates = indexStatus?.indexed_candidates || 0;
   const pct = totalCandidates > 0 ? Math.round((indexedCandidates / totalCandidates) * 100) : 0;
   const pending = totalCandidates - indexedCandidates;
+
+  // Строка «выбрана другая модель» — для выбора вне шорт-листа.
+  const customOption: AiModelOption | null =
+    !inShortlist && selectedModel
+      ? selectedExtra && selectedExtra.value === selectedModel
+        ? selectedExtra
+        : { value: selectedModel, label: selectedModel }
+      : null;
+
+  const searchReady = debouncedSearch.trim().length >= 2;
+  const searchResults = searchQuery.data?.options ?? [];
 
   return (
     <div className="set-content-inner">
@@ -174,30 +268,125 @@ export function SettingsAI({ readOnly = false }: SettingsAIProps) {
         title="Модель LLM"
         desc="Настройка модели искусственного интеллекта для анализа резюме: квалификация откликов, оценка соответствия вакансии и саммари кандидата."
       >
-        <div className="form-grid">
-          <FormRow
-            label="Основная модель"
-            hint="Модель, которая оценивает резюме и квалифицирует отклики. Смена влияет на все новые анализы."
-          >
-            <div className="ai-model-select">
-              <span className="ai-prov-ic" style={{ background: '#F3EEE7', color: '#B8551F' }}>
-                <Icon name="cpu" size={16} />
-              </span>
-              <Select
-                value={selectedModel}
-                onChange={handleModelChange}
-                options={aiModelData?.options || []}
+        <FormRow
+          label="Основная модель"
+          hint="Модель, которая оценивает резюме и квалифицирует отклики. Смена влияет на все новые анализы."
+        >
+          {options.length > 0 ? (
+            <div className="ai-model-list">
+              {options.map((o) => (
+                <ModelOption
+                  key={o.value}
+                  opt={o}
+                  selected={selectedModel === o.value}
+                  onSelect={() => selectModel(o)}
+                  disabled={readOnly}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="t-caption">Рекомендованные модели недоступны. Задайте ключ OpenRouter или найдите модель поиском ниже.</div>
+          )}
+        </FormRow>
+
+        {customOption && (
+          <div className="ai-custom-pick">
+            <div className="ai-custom-pick-cap">Выбрана другая модель</div>
+            <div className="ai-model-list">
+              <ModelOption opt={customOption} selected onSelect={() => {}} />
+            </div>
+          </div>
+        )}
+
+        {/* Честная оговорка по оценке стоимости (§0) */}
+        <div className="ai-cost-note">
+          <Icon name="info" size={13} />
+          <span>
+            ≈ оценка при ~4500 входных и ~900 выходных токенах и курсе ~100 ₽/$. Это ориентир, а не точный
+            биллинг: фактическая стоимость зависит от длины резюме и тарифов OpenRouter.
+          </span>
+        </div>
+
+        {/* Поиск по всем моделям OpenRouter */}
+        <div className="ai-other">
+          <div className="ai-other-head">Другая модель</div>
+          <div className="ai-other-sub">Найдите любую модель OpenRouter по названию и выберите её.</div>
+
+          <div className="txt ai-search">
+            <Icon name="search" size={14} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Например: gpt-4o, gemini, llama, deepseek…"
+              disabled={readOnly}
+            />
+            {searchQuery.isFetching && <Icon name="loader" size={14} className="ai-search-spin" />}
+          </div>
+
+          {searchReady && (
+            <div className="ai-search-results">
+              {searchQuery.isLoading ? (
+                <div className="ai-search-note">Поиск…</div>
+              ) : searchQuery.error ? (
+                <div className="error-banner" role="alert">
+                  {((searchQuery.error as unknown as ApiError)?.error?.message) || 'Ошибка поиска моделей'}
+                </div>
+              ) : searchResults.length === 0 ? (
+                <div className="ai-search-note">Ничего не найдено</div>
+              ) : (
+                <div className="ai-model-list">
+                  {searchResults.map((o) => (
+                    <ModelOption
+                      key={o.value}
+                      opt={o}
+                      selected={selectedModel === o.value}
+                      onSelect={() => selectModel(o)}
+                      disabled={readOnly}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="ai-divider" />
+
+        {/* Ключ OpenRouter */}
+        <FormRow
+          label="Ключ OpenRouter API"
+          hint="Нужен для live-цен и работы моделей. Оставьте поле пустым — текущий ключ не изменится."
+        >
+          <div className="ai-key-row">
+            <div className="txt ai-key-input">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setSaveSuccess(false);
+                }}
+                placeholder={aiModelData?.has_openrouter_key ? '•••••••• (ключ задан)' : 'sk-or-…'}
                 disabled={readOnly}
-                placeholder="Загрузка..."
+                autoComplete="off"
               />
             </div>
-          </FormRow>
-        </div>
+            {aiModelData?.has_openrouter_key ? (
+              <span className="conn-pill ok">
+                <Icon name="check" size={12} />
+                Ключ задан
+              </span>
+            ) : (
+              <span className="conn-pill bad">Ключ не задан</span>
+            )}
+          </div>
+        </FormRow>
 
         {/* Статус сохранения */}
         {saveSuccess && (
-          <div style={{ marginTop: '16px', padding: '8px 12px', background: 'var(--success-bg)', border: '1px solid var(--success-border)', borderRadius: 'var(--radius-md)', color: 'var(--success-fg)', fontSize: '13px' }}>
-            <Icon name="check" size={14} style={{ marginRight: '6px' }} />
+          <div className="ai-save-ok">
+            <Icon name="check" size={14} />
             Модель сохранена
           </div>
         )}

@@ -6,7 +6,7 @@ from ...models import GlafiraSettings
 from ...core.errors import ValidationError, OpenRouterNotConfiguredError
 from ...services.audit import audit
 from ...config import settings
-from ..glafira.models import ALLOWED_MODEL_VALUES, DEFAULT_MODEL
+from ..glafira.models import DEFAULT_MODEL
 from .crypto import decrypt_text
 
 
@@ -30,23 +30,24 @@ async def get_company_llm_model(session: AsyncSession, company_id: UUID) -> str:
     """
     Получить LLM-модель для оценки резюме конкретной компании.
 
-    Логика fallback:
-    1. Если у компании настроена llm_model И она в белом списке → её
-    2. Иначе → env GLAFIRA_MODEL
-    3. Если и env пуст → дефолт 'anthropic/claude-sonnet-4.6'
+    Логика fallback (без статического whitelist — модель валидируется против
+    live-каталога OpenRouter в момент СОХРАНЕНИЯ, здесь ей доверяем):
+    1. Если у компании настроена непустая llm_model → её;
+    2. Иначе → env GLAFIRA_MODEL, если непустой;
+    3. Иначе → DEFAULT_MODEL.
 
-    Company-scoped, всегда возвращает валидную модель.
+    Company-scoped, всегда возвращает непустую строку. Это горячий путь скоринга —
+    сетевых вызовов тут НЕТ (только чтение настройки компании).
     """
     glafira_settings = await get_glafira_settings(session, company_id)
 
-    # Проверяем company-настройку
-    if (glafira_settings.llm_model and
-        glafira_settings.llm_model in ALLOWED_MODEL_VALUES):
+    # Company-настройка (провалидирована при сохранении через is_valid_model)
+    if glafira_settings.llm_model:
         return glafira_settings.llm_model
 
     # Fallback на env
     env_model = settings.GLAFIRA_MODEL
-    if env_model and env_model in ALLOWED_MODEL_VALUES:
+    if env_model:
         return env_model
 
     # Финальный fallback

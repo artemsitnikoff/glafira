@@ -35,6 +35,7 @@ from ...schemas.settings import (
     FunnelTemplateCreate,
     FunnelTemplateUpdate,
     AiModelSettingsOut,
+    AiModelSearchOut,
     AiModelUpdate,
     AiModelOption,
 )
@@ -50,7 +51,7 @@ from ...services.settings import (
     funnel_templates as funnel_templates_svc,
     tags as tags_svc,
 )
-from ...services.glafira.models import ALLOWED_LLM_MODELS, ALLOWED_MODEL_VALUES
+from ...services.glafira.models import get_model_options, search_models, is_valid_model
 from ...core.errors import ValidationError, ForbiddenError
 from ...services.audit import audit
 from ...models import GlafiraSettings
@@ -677,11 +678,31 @@ async def get_ai_model_settings(
     gs = await glafira.get_glafira_settings(session, company_id)
     has_openrouter_key = bool(gs.openrouter_api_key)
 
+    # Рекомендованные модели с оценкой стоимости (live из OpenRouter, graceful)
+    options = await get_model_options()
+
     return AiModelSettingsOut(
         current=current_model,
-        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS],
+        options=[AiModelOption(**m) for m in options],
         has_openrouter_key=has_openrouter_key
     )
+
+
+@router.get("/ai-model/search", response_model=AiModelSearchOut)
+async def search_ai_models(
+    q: str = Query("", description="Подстрока для поиска модели по slug OpenRouter"),
+    current_user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+):
+    """Поиск моделей в live-каталоге OpenRouter (с оценкой стоимости).
+
+    RBAC: как у GET /ai-model — менеджеру запрещено.
+    """
+    if current_user.role == "manager":
+        raise ForbiddenError("Доступ к настройкам AI-модели запрещён")
+
+    options = await search_models(q)
+    return AiModelSearchOut(options=[AiModelOption(**m) for m in options])
 
 
 @router.patch("/ai-model", response_model=AiModelSettingsOut)
@@ -699,9 +720,10 @@ async def update_ai_model_settings(
     if current_user.role != "admin":
         raise ForbiddenError("Только администратор может изменять AI-модель")
 
-    # Валидация: model должна быть в белом списке
-    if data.model not in ALLOWED_MODEL_VALUES:
-        raise ValidationError("Недопустимая модель. Разрешённые: " + ", ".join(ALLOWED_MODEL_VALUES))
+    # Валидация: модель должна присутствовать в live-каталоге OpenRouter
+    # (fallback на recommended, если каталог недоступен — см. is_valid_model)
+    if not await is_valid_model(data.model):
+        raise ValidationError(f"Недопустимая модель: {data.model}. Выберите модель из каталога OpenRouter.")
 
     # Получаем текущую настройку для audit
     settings_obj = await glafira.get_glafira_settings(session, company_id)
@@ -744,8 +766,10 @@ async def update_ai_model_settings(
     updated_gs = await glafira.get_glafira_settings(session, company_id)
     has_openrouter_key = bool(updated_gs.openrouter_api_key)
 
+    options = await get_model_options()
+
     return AiModelSettingsOut(
         current=current_model,
-        options=[AiModelOption(**model) for model in ALLOWED_LLM_MODELS],
+        options=[AiModelOption(**m) for m in options],
         has_openrouter_key=has_openrouter_key
     )

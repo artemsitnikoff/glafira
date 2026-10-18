@@ -263,14 +263,23 @@ class FunnelTemplateUpdate(BaseModel):
 class AiModelOption(BaseModel):
     value: str  # slug модели
     label: str  # человекочитаемое название
+    # ⚠️ ОЦЕНКА стоимости одной оценки резюме (не точный биллинг), None если
+    # live-каталог OpenRouter недоступен
+    cost_usd: float | None = None
+    cost_rub: float | None = None
+    context_length: int | None = None  # размер контекстного окна модели
 
 
 class AiModelSettingsOut(BaseModel):
     current: str  # текущая выбранная модель
-    options: list[AiModelOption]  # белый список доступных моделей
+    options: list[AiModelOption]  # рекомендованные модели (live из OpenRouter)
     has_openrouter_key: bool  # есть ли API-ключ OpenRouter у компании
 
 
+class AiModelSearchOut(BaseModel):
+    options: list[AiModelOption]  # найденные в live-каталоге OpenRouter модели
+
+
 class AiModelUpdate(BaseModel):
-    model: str  # новая модель из белого списка
+    model: str  # новая модель (валидируется против live-каталога OpenRouter)
     openrouter_api_key: str | None = None  # API-ключ OpenRouter (write-only)
