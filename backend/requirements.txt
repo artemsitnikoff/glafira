@@ -1,6 +1,10 @@
 fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
-sqlalchemy>=2.0.23
+sqlalchemy[asyncio]>=2.0.23
+# greenlet — ОБЯЗАТЕЛЕН для SQLAlchemy async. Свежий резолв pip его НЕ тянет без
+# [asyncio]-экстры → ImportError на старте uvicorn/alembic (прод падал на v1.12.0).
+# Пинуем явно (урок CLAUDE.md §6). Тот же фикс, что в glafira-nso.
+greenlet>=3.0.0
 asyncpg>=0.29.0
 alembic>=1.12.1
 pydantic>=2.5.0
