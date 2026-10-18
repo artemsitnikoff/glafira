@@ -457,6 +457,9 @@ async def send_message(
     )
 
     session.add(message)
+    # Материализуем message.id ДО audit: id — server_default gen_random_uuid(), у
+    # pending-объекта он None → без flush audit записал бы entity_id=NULL.
+    await session.flush()
 
     # Audit
     await audit(

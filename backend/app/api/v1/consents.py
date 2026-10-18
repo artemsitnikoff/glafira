@@ -11,7 +11,8 @@ from ...services.consent import (
     get_candidate_consent,
     request_consent,
     sign_consent_by_candidate,
-    confirm_consent_signed_by_recruiter
+    confirm_consent_signed_by_recruiter,
+    revoke_consent,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,5 +87,28 @@ async def confirm_consent_signed_route(
         raise ForbiddenError("Менеджеры не могут подтверждать подписанные согласия")
 
     result = await confirm_consent_signed_by_recruiter(session, candidate_id, company_id, user.id)
+    await session.commit()
+    return result
+
+
+@router.post("/candidates/{candidate_id}/consent/revoke", response_model=ConsentOut)
+async def revoke_consent_route(
+    candidate_id: UUID,
+    user: User = Depends(get_current_user),
+    company_id: UUID = Depends(get_current_company_id),
+    session: AsyncSession = Depends(get_db),
+):
+    """Отзыв согласия на обработку персональных данных (152-ФЗ).
+
+    После отзыва доступ к верификации кандидата снова закрыт (403 CONSENT_REQUIRED),
+    пока согласие не будет получено заново. Ответственность — на рекрутёре/админе.
+    """
+    # RBAC: отзыв согласия — действие рекрутёра/админа. Менеджер и нанимающий менеджер
+    # запрещены (как в verify/consent-ручках; hiring_manager дополнительно отбит гардом
+    # роутера, здесь — явная defense-in-depth).
+    if user.role not in ("admin", "recruiter"):
+        raise ForbiddenError("Недостаточно прав для отзыва согласия")
+
+    result = await revoke_consent(session, candidate_id, company_id, user.id)
     await session.commit()
     return result

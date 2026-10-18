@@ -1024,17 +1024,21 @@ async def update_candidate(
         candidate.last_name = candidate_data.last_name
     if candidate_data.first_name is not None:
         candidate.first_name = candidate_data.first_name
-    if candidate_data.middle_name is not None:
+    # Эти поля (nullable-колонки) — через model_fields_set: присланный явный null
+    # ОЧИЩАЕТ поле. С прежним `is not None` очистка молча терялась (паттерн §0 «поле
+    # принимается схемой, но молча теряется»). normalize_phone(None/'') сам вернёт None.
+    _fs = candidate_data.model_fields_set
+    if 'middle_name' in _fs:
         candidate.middle_name = candidate_data.middle_name
-    if candidate_data.phone is not None:
+    if 'phone' in _fs:
         candidate.phone = normalize_phone(candidate_data.phone)
-    if candidate_data.email is not None:
+    if 'email' in _fs:
         candidate.email = candidate_data.email
     if candidate_data.gender is not None:
         candidate.gender = candidate_data.gender
-    if candidate_data.birth_date is not None:
+    if 'birth_date' in _fs:
         candidate.birth_date = candidate_data.birth_date
-    if candidate_data.city is not None:
+    if 'city' in _fs:
         candidate.city = candidate_data.city
     if candidate_data.region is not None:
         candidate.region = candidate_data.region
@@ -1066,9 +1070,9 @@ async def update_candidate(
         candidate.currency = candidate_data.currency
     if candidate_data.source is not None:
         candidate.source = candidate_data.source
-    if candidate_data.source_url is not None:
-        # Пустая строка → очистка (NULL), иначе сохраняем ссылку
-        candidate.source_url = candidate_data.source_url.strip() or None
+    if 'source_url' in _fs:
+        # Явный null ИЛИ пустая строка → очистка (NULL), иначе сохраняем ссылку.
+        candidate.source_url = (candidate_data.source_url or "").strip() or None
     if candidate_data.messengers is not None:
         # None — не трогаем (сохраняем существующие); [] — очистить; список — заменить.
         # Формат как в create_candidate: [{type, url}].

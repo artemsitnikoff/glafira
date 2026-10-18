@@ -100,6 +100,28 @@ export function useConfirmConsentSigned(candidateId: string) {
   });
 }
 
+/**
+ * Отзыв активного подписанного согласия на обработку ПдН (152-ФЗ). После отзыва
+ * верификация снова требует согласия. Доступ admin/recruiter (гейт на бэкенде).
+ * Инвалидируем те же ключи, что и confirm-signed, плюс снимок согласия.
+ */
+export function useRevokeConsent(candidateId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      return (await api.post(`/candidates/${candidateId}/consent/revoke`)).data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'verification'] });
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId, 'consent'] });
+      queryClient.invalidateQueries({ queryKey: ['candidates', candidateId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['home', 'events'] });
+    },
+  });
+}
+
 export function useRunVerification(candidateId: string) {
   const queryClient = useQueryClient();
 

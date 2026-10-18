@@ -18,7 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from ..config import settings
-from ..models import Application, Vacancy
+from ..deps import company_subscription_active
+from ..models import Application, Vacancy, Company
 from ..services.glafira.scoring import score_pending_applications, MAX_SCORE_ATTEMPTS
 from ..services.glafira.auto_qa import ask_auto_qa_questions
 from ..services.glafira.interview_schedule import send_interview_links
@@ -45,6 +46,24 @@ async def main():
         # вернуть («non-checked-in connection» → greenlet-варнинг на выходе процесса,
         # на КАЖДОМ прогоне, даже когда оценивать нечего). Держим сессию открытой до конца.
         async with async_session() as session:
+            # Биллинг-гейт §2.9 в ФОНОВЫХ AI-путях: HTTP-гейт (deps.get_current_user)
+            # сюда не доходит — крон ходит без токена. Компанию с неактивной подпиской
+            # (paid_until в прошлом ИЛИ NULL) пропускаем во ВСЕХ проходах ниже, чтобы
+            # не тратить на неё LLM/квоты. Кэш — чтобы не грузить Company повторно
+            # (компания может попасть в несколько проходов).
+            billing_cache: dict = {}
+
+            async def _company_active(cid) -> bool:
+                if cid not in billing_cache:
+                    company = await session.get(Company, cid)
+                    active = company_subscription_active(company)
+                    billing_cache[cid] = active
+                    if not active:
+                        logger.info(
+                            "Компания %s — подписка неактивна, пропуск фоновой обработки", cid
+                        )
+                return billing_cache[cid]
+
             # Только компании, где реально есть что оценивать (есть заявка без
             # оценки и не в терминальном этапе) — чтобы вхолостую не дёргать остальных.
             result = await session.execute(
@@ -60,6 +79,8 @@ async def main():
             logger.info(f"Компаний с неоценёнными заявками: {len(company_ids)}")
 
             for company_id in company_ids:
+                if not await _company_active(company_id):
+                    continue
                 try:
                     stats = await score_pending_applications(session, company_id)
                     total["scored"] += stats.get("scored", 0)
@@ -96,6 +117,8 @@ async def main():
             )).scalars().all()
             qa_total = {"asked": 0}
             for company_id in qa_company_ids:
+                if not await _company_active(company_id):
+                    continue
                 try:
                     qa_stats = await ask_auto_qa_questions(session, company_id)
                     qa_total["asked"] += qa_stats.get("asked", 0)
@@ -119,6 +142,8 @@ async def main():
             )).scalars().all()
             interview_total = {"sent": 0}
             for company_id in interview_company_ids:
+                if not await _company_active(company_id):
+                    continue
                 try:
                     iv_stats = await send_interview_links(session, company_id)
                     interview_total["sent"] += iv_stats.get("sent", 0)
@@ -143,6 +168,8 @@ async def main():
             )).scalars().all()
             test_total = {"sent": 0}
             for company_id in test_company_ids:
+                if not await _company_active(company_id):
+                    continue
                 try:
                     t_stats = await send_test_links(session, company_id)
                     test_total["sent"] += t_stats.get("sent", 0)

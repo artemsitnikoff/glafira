@@ -533,3 +533,65 @@ async def sign_consent_by_candidate(
 
     await session.flush()
     return ConsentOut.model_validate(consent)
+
+
+async def revoke_consent(
+    session: AsyncSession,
+    candidate_id: UUID,
+    company_id: UUID,
+    actor_user_id: UUID
+) -> ConsentOut:
+    """Отзыв согласия на обработку ПдН (152-ФЗ).
+
+    Переводит АКТИВНОЕ подписанное согласие кандидата (company-scoped) в status='revoked'
+    + revoked_at. После этого гейт верификации (verify_candidate ищет status=='signed')
+    автоматически отобьёт проверку как ConsentRequiredError (403 CONSENT_REQUIRED), пока
+    согласие не будет получено заново.
+
+    Нет подписанного согласия → NotFoundError (бизнес-ошибка: отзывать нечего).
+    Flush, НЕ commit — коммитит роут (как у соседних consent-сервисов).
+    """
+    # Кандидат существует и принадлежит компании (company-scoped — инв. §2.3)
+    candidate_result = await session.execute(
+        select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == company_id,
+            Candidate.deleted_at.is_(None)
+        )
+    )
+    candidate = candidate_result.scalar_one_or_none()
+    if not candidate:
+        raise NotFoundError("Кандидат")
+
+    # Последнее ПОДПИСАННОЕ согласие (ровно тот статус, на который смотрит гейт верификации).
+    result = await session.execute(
+        select(Consent)
+        .where(
+            Consent.candidate_id == candidate_id,
+            Consent.company_id == company_id,
+            Consent.status == 'signed',
+        )
+        .order_by(Consent.created_at.desc())
+        .limit(1)
+    )
+    consent = result.scalar_one_or_none()
+    if not consent:
+        raise NotFoundError("Нет подписанного согласия для отзыва")
+
+    now = datetime.now(timezone.utc)
+    consent.status = "revoked"
+    consent.revoked_at = now
+
+    await audit(
+        session,
+        action="revoke_consent",
+        entity_type="consent",
+        entity_id=consent.id,
+        before={"status": "signed"},
+        after={"status": "revoked", "revoked_at": now.isoformat()},
+        actor_user_id=actor_user_id,
+        company_id=company_id,
+    )
+
+    await session.flush()
+    return ConsentOut.model_validate(consent)

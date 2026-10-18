@@ -657,7 +657,10 @@ async def update_vacancy(
         vacancy.auto_reject = vacancy_data.auto_reject
     if vacancy_data.auto_reject_message is not None:
         vacancy.auto_reject_message = vacancy_data.auto_reject_message
-    if vacancy_data.rejection_text is not None:
+    # rejection_text — через model_fields_set (как client_id ниже): присланный явный null
+    # ОЧИЩАЕТ текст (возврат к встроенному дефолту отказа). С прежним `is not None` очистка
+    # молча терялась (§0 «поле принимается схемой, но молча теряется»).
+    if 'rejection_text' in vacancy_data.model_fields_set:
         vacancy.rejection_text = vacancy_data.rejection_text
 
     # client_id: обновляем явно, если поле РЕАЛЬНО прислано (model_fields_set) —

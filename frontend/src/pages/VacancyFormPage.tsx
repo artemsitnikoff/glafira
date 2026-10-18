@@ -2040,7 +2040,7 @@ function AutomationStep({
                 ))
               )}
             </select>
-            <span>при скоринге AI &gt;</span>
+            <span>при скоринге AI ≥</span>
             <input
               className="nv-num-input"
               type="number"

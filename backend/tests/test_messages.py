@@ -121,3 +121,41 @@ async def test_message_vacancy_id_from_application(
     assert test_message["vacancy_id"] == str(vacancy.id)
     assert test_message["application_context"] is not None
     assert "Test Vacancy for Messages" in test_message["application_context"]
+
+async def test_send_message_audit_entity_id_is_message_id(
+    db_session: AsyncSession,
+    admin_user: User,
+    test_candidate: Candidate,
+):
+    """send_message пишет audit с entity_id = message.id (НЕ NULL).
+
+    id — server_default gen_random_uuid(); у pending-объекта он None → без flush
+    перед audit() запись ушла бы с entity_id=NULL. Канал sms — без реальной отправки.
+    """
+    from sqlalchemy import select
+    from app.services.message import send_message
+    from app.schemas.message import MessageCreate
+    from app.models import AuditLog, Message
+
+    result = await send_message(
+        db_session,
+        test_candidate.id,
+        MessageCreate(channel="sms", body="Привет"),
+        admin_user.company_id,
+        admin_user.id,
+    )
+    await db_session.flush()
+
+    msg = (await db_session.execute(
+        select(Message).where(Message.id == result.id)
+    )).scalar_one()
+
+    audit_row = (await db_session.execute(
+        select(AuditLog)
+        .where(AuditLog.entity_type == "message", AuditLog.action == "send_message")
+        .order_by(AuditLog.created_at.desc())
+        .limit(1)
+    )).scalar_one()
+
+    assert audit_row.entity_id is not None
+    assert audit_row.entity_id == msg.id

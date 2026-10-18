@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { useVerification } from '@/api/hooks/useVerification';
 import { useConsentStatus } from '@/api/hooks/useConsent';
-import { useRequestConsent, useRunVerification, useConfirmConsentSigned } from '@/api/mutations/candidateDetail';
+import { useRequestConsent, useRunVerification, useConfirmConsentSigned, useRevokeConsent } from '@/api/mutations/candidateDetail';
+import { useAuthStore } from '@/store/authStore';
 import type { ApiError } from '@/api/aliases';
 
 // Человекочитаемая подпись канала доставки ссылки согласия.
@@ -179,6 +180,14 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
   const consentMutation = useRequestConsent(actualCandidateId);
   const verifyMutation = useRunVerification(actualCandidateId);
   const confirmMutation = useConfirmConsentSigned(actualCandidateId);
+  const revokeMutation = useRevokeConsent(actualCandidateId);
+
+  // Отзыв согласия доступен только персоналу (не нанимающему менеджеру) — как и прочие
+  // изменяющие действия карточки. Зеркалит серверный гейт (admin/recruiter).
+  const role = useAuthStore((s) => s.user?.role);
+  const canEdit = role !== 'manager' && role !== 'hiring_manager';
+  // Inline-подтверждение отзыва (НЕ window.confirm): две кнопки «Отозвать»/«Отмена».
+  const [revokeConfirm, setRevokeConfirm] = useState(false);
 
   // Подписанное согласие: проп из application/candidate (has_pdn = exists Consent signed),
   // либо рекрутёр только что подтвердил вручную (confirmMutation).
@@ -204,6 +213,61 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
   function handleConfirmSigned() {
     // Рекрутёр под свою ответственность отмечает согласие подписанным → сразу верификация.
     confirmMutation.mutate();
+  }
+
+  function handleRevoke() {
+    revokeMutation.mutate(undefined, {
+      onSuccess: () => {
+        setRevokeConfirm(false);
+        // Сбросить локальный success «ПдН подписан» — иначе consentSigned остаётся true
+        // в этой сессии (из-за `|| confirmMutation.isSuccess`) и гейт не закроется до рефетча.
+        confirmMutation.reset();
+      },
+    });
+  }
+
+  // Ненавязчивый контрол «Отозвать согласие» + inline-подтверждение.
+  // Виден только персоналу (canEdit) — у нанимающего менеджера изменяющих действий нет.
+  function renderRevokeControl() {
+    if (!canEdit) return null;
+    return (
+      <div className="vf-revoke">
+        {revokeConfirm ? (
+          <>
+            <span className="vf-revoke-q">
+              Отозвать согласие на обработку ПдН? Верификация снова станет недоступна.
+            </span>
+            <div className="vf-revoke-actions">
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={handleRevoke}
+                disabled={revokeMutation.isPending}
+              >
+                <Icon name={revokeMutation.isPending ? 'loader' : 'check'} size={13} />
+                {revokeMutation.isPending ? 'Отзываем…' : 'Отозвать'}
+              </button>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setRevokeConfirm(false)}
+                disabled={revokeMutation.isPending}
+              >
+                Отмена
+              </button>
+            </div>
+          </>
+        ) : (
+          <button type="button" className="vf-revoke-trigger" onClick={() => setRevokeConfirm(true)}>
+            <Icon name="lock" size={13} />
+            Отозвать согласие
+          </button>
+        )}
+        {revokeMutation.isError && (
+          <p className="vf-revoke-err" role="alert">
+            {(revokeMutation.error as unknown as ApiError)?.error?.message || 'Не удалось отозвать согласие'}
+          </p>
+        )}
+      </div>
+    );
   }
 
   function handleRunVerification(force = false) {
@@ -428,6 +492,7 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
               {(verifyMutation.error as unknown as ApiError)?.error?.message || 'Не удалось запустить верификацию'}
             </p>
           )}
+          {renderRevokeControl()}
         </div>
       </div>
     );
@@ -474,6 +539,8 @@ export function VerificationTab({ candidateId, candidate, hasPdn }: Props) {
           Перепроверить
         </button>
       </div>
+
+      {renderRevokeControl()}
 
       {verification.blocks && verification.blocks.length > 0 ? (
         <div>

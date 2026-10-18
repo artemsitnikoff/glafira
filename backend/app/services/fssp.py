@@ -80,8 +80,17 @@ async def _parser_get(endpoint: str, params: dict) -> dict | None:
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError) as e:
-        body = (getattr(getattr(e, "response", None), "text", "") or "")[:500]
-        logger.warning("[fssp] %s failed: %s: %s | %s", endpoint, type(e).__name__, e, body)
+        resp = getattr(e, "response", None)
+        status_code = getattr(resp, "status_code", None)
+        body = (getattr(resp, "text", "") or "")[:500]
+        # ⚠️ НЕ логируем str(e)/URL: при HTTPStatusError str(e) разворачивает ПОЛНЫЙ URL
+        # с query-string — а в нём lastName/firstName/patronymic/dob кандидата (ПдН) И
+        # key=FSSP_API_KEY. Безопасно: тип исключения + HTTP-статус + тело ответа
+        # (body — это response text, ключа/URL он не содержит).
+        logger.warning(
+            "[fssp] %s failed: %s status=%s | %s",
+            endpoint, type(e).__name__, status_code, body,
+        )
         return None
     if not isinstance(data, dict) or not (data.get("done") == 1 or data.get("success") == 1):
         logger.warning("[fssp] %s not ok: %s", endpoint, str(data)[:300])

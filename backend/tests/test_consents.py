@@ -2,6 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -350,3 +351,121 @@ class TestConsentRBAC:
         error = response.json()
         assert "FORBIDDEN" in error["error"]["code"]
         assert "Менеджеры не могут подтверждать" in error["error"]["message"]
+
+
+class TestConsentRevoke:
+    """Отзыв согласия (152-ФЗ): перевод signed→revoked закрывает гейт верификации."""
+
+    async def test_revoke_closes_verification_gate(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_candidate: Candidate,
+        signed_consent: Consent,
+        db_session: AsyncSession,
+    ):
+        """После отзыва подписанного согласия verify_candidate снова бьёт ConsentRequiredError."""
+        from app.services.glafira.verify import verify_candidate
+        from app.core.errors import ConsentRequiredError
+
+        assert signed_consent.status == "signed"
+
+        r = await async_client.post(
+            f"/api/v1/candidates/{test_candidate.id}/consent/revoke",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "revoked"
+
+        await db_session.refresh(signed_consent)
+        assert signed_consent.status == "revoked"
+        assert signed_consent.revoked_at is not None
+
+        # Гейт закрыт: нет подписанного согласия → verify бьёт ConsentRequiredError немедленно
+        with pytest.raises(ConsentRequiredError):
+            await verify_candidate(
+                db_session,
+                candidate_id=test_candidate.id,
+                company_id=test_candidate.company_id,
+                actor_user_id=None,
+            )
+
+    async def test_revoke_without_signed_consent_404(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_candidate: Candidate,
+    ):
+        """Нет подписанного согласия → 404 (отзывать нечего), а не молчаливый 200."""
+        r = await async_client.post(
+            f"/api/v1/candidates/{test_candidate.id}/consent/revoke",
+            headers=auth_headers,
+        )
+        assert r.status_code == 404, r.text
+
+    async def test_revoke_only_signed_not_pending(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict[str, str],
+        test_candidate: Candidate,
+        db_session: AsyncSession,
+    ):
+        """pending-согласие не считается подписанным → отзывать нечего (404)."""
+        await _make_consent(db_session, test_candidate, status="pending")
+        r = await async_client.post(
+            f"/api/v1/candidates/{test_candidate.id}/consent/revoke",
+            headers=auth_headers,
+        )
+        assert r.status_code == 404, r.text
+
+    async def test_manager_cannot_revoke(
+        self,
+        async_client: AsyncClient,
+        manager_user: User,
+        test_candidate: Candidate,
+        signed_consent: Consent,
+    ):
+        login = await async_client.post(
+            "/api/v1/auth/login",
+            json={"email": manager_user.email, "password": "Glafira2026!"},
+        )
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        r = await async_client.post(
+            f"/api/v1/candidates/{test_candidate.id}/consent/revoke",
+            headers=headers,
+        )
+        assert r.status_code == 403, r.text
+
+    async def test_hiring_manager_cannot_revoke(
+        self,
+        async_client: AsyncClient,
+        admin_user: User,
+        test_candidate: Candidate,
+        signed_consent: Consent,
+        db_session: AsyncSession,
+    ):
+        from app.core.security import get_password_hash
+
+        hm = User(
+            company_id=admin_user.company_id,
+            email="hm.revoke@example.com",
+            password_hash=get_password_hash("Glafira2026!"),
+            full_name="Нанимающий Менеджер",
+            role="hiring_manager",
+            is_active=True,
+        )
+        db_session.add(hm)
+        await db_session.commit()
+
+        login = await async_client.post(
+            "/api/v1/auth/login",
+            json={"email": hm.email, "password": "Glafira2026!"},
+        )
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        r = await async_client.post(
+            f"/api/v1/candidates/{test_candidate.id}/consent/revoke",
+            headers=headers,
+        )
+        assert r.status_code == 403, r.text

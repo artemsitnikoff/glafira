@@ -420,3 +420,70 @@ def test_work_format_line_helper_covers_all_values():
     # Пустая строка/мусор трактуются как «не указан» (нейтрально)
     empty = _work_format_line(SimpleNamespace(work_format="  ", city="Сочи"))
     assert "не указан" in empty.lower()
+
+
+async def test_update_vacancy_rejection_text_null_clears(
+    async_client: AsyncClient,
+    auth_headers: dict,
+    default_client: str,
+):
+    """PATCH rejection_text=null ОЧИЩАЕТ поле (возврат к встроенному дефолту отказа).
+
+    Охранник §0: до перехода на model_fields_set `if X is not None` пропускал явный
+    null → очистка rejection_text молча терялась.
+    """
+    # Создаём вакансию с заданным rejection_text
+    payload = {
+        "name": "QA Engineer",
+        "city": "Москва",
+        "funnel_template": "default",
+        "positions_count": 1,
+        "client_id": default_client,
+        "rejection_text": "Спасибо за отклик, но мы выбрали другого кандидата.",
+    }
+    created = await async_client.post("/api/v1/vacancies", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    vacancy_id = created.json()["id"]
+    assert created.json()["rejection_text"] == payload["rejection_text"]
+
+    # PATCH с явным null → очистка
+    r = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"rejection_text": None},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rejection_text"] is None
+
+    # GET подтверждает очистку
+    got = await async_client.get(f"/api/v1/vacancies/{vacancy_id}", headers=auth_headers)
+    assert got.status_code == 200
+    assert got.json()["rejection_text"] is None
+
+
+async def test_update_vacancy_rejection_text_absent_preserves(
+    async_client: AsyncClient,
+    auth_headers: dict,
+    default_client: str,
+):
+    """rejection_text НЕ прислан → не затирается (null != absent)."""
+    payload = {
+        "name": "QA Engineer 2",
+        "city": "Москва",
+        "funnel_template": "default",
+        "positions_count": 1,
+        "client_id": default_client,
+        "rejection_text": "Текст отказа.",
+    }
+    created = await async_client.post("/api/v1/vacancies", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    vacancy_id = created.json()["id"]
+
+    # PATCH другого поля — rejection_text не прислан
+    r = await async_client.patch(
+        f"/api/v1/vacancies/{vacancy_id}",
+        headers=auth_headers,
+        json={"city": "Казань"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rejection_text"] == "Текст отказа."

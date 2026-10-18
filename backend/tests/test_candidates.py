@@ -807,3 +807,49 @@ async def test_get_candidate_detail_returns_salary_from_to(
     assert candidate["salary_from"] == 110000
     assert candidate["salary_to"] == 140000
     assert candidate["salary_expectation"] == 110000
+
+
+async def test_update_candidate_explicit_null_clears_fields(
+    async_client: AsyncClient, auth_headers: dict, test_candidate
+):
+    """PATCH с явным null ОЧИЩАЕТ nullable-поля (phone/email/city/source_url).
+
+    Охранник §0 «поле принимается схемой, но молча теряется»: до перехода на
+    model_fields_set `if X is not None` пропускал явный null → очистка не работала.
+    """
+    cid = str(test_candidate.id)
+
+    # Исходно (из фикстуры) есть phone и email
+    before = await async_client.get(f"/api/v1/candidates/{cid}", headers=auth_headers)
+    assert before.status_code == 200
+    assert before.json()["phone"]
+    assert before.json()["email"]
+
+    r = await async_client.patch(
+        f"/api/v1/candidates/{cid}",
+        headers=auth_headers,
+        json={"phone": None, "email": None, "city": None, "source_url": None},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["phone"] is None
+    assert data["email"] is None
+    assert data["city"] is None
+    assert data["source_url"] is None
+
+
+async def test_update_candidate_absent_field_preserves_value(
+    async_client: AsyncClient, auth_headers: dict, test_candidate
+):
+    """Поле НЕ прислано (нет в model_fields_set) → значение сохраняется (null != absent)."""
+    cid = str(test_candidate.id)
+    r = await async_client.patch(
+        f"/api/v1/candidates/{cid}",
+        headers=auth_headers,
+        json={"city": "Казань"},  # phone/email НЕ присланы
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["city"] == "Казань"
+    assert data["phone"]   # не затёрт
+    assert data["email"]   # не затёрт

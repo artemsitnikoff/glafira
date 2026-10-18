@@ -22,9 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..core.errors import NotFoundError, ValidationError, ConflictError, GlafiraParseError
 from ..database import AsyncSessionLocal
+from ..deps import company_subscription_active
 from ..models.auto_search import AutoSearch, AutoSearchRun
 from ..models.candidate import Candidate
-from ..models import Vacancy, Application
+from ..models import Vacancy, Application, Company
 from .audit import audit
 from .candidate import format_duration
 from .integrations.hh import client as hh_client
@@ -1503,6 +1504,18 @@ async def self_heal_interrupted_evals() -> None:
             for run in latest:
                 company_id = run.company_id
                 auto_search_id = run.auto_search_id
+
+                # Биллинг-гейт §2.9 в фоновом AI-пути: компания с неактивной подпиской
+                # (paid_until в прошлом ИЛИ NULL) — не продолжаем оценку (она тратит
+                # AI-токены). interrupted НЕ снимаем → когда подписку продлят, self-heal
+                # продолжит сам на следующем тике.
+                company = await session.get(Company, company_id)
+                if not company_subscription_active(company):
+                    logger.info(
+                        "[self-heal] компания %s — подписка неактивна, пропуск автопоиска %s",
+                        company_id, auto_search_id,
+                    )
+                    continue
 
                 # Уже идёт ЖИВОЙ прогон по автопоиску? — не вмешиваемся, снимаем флаг.
                 active = (await session.execute(
